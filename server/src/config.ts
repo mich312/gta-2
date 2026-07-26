@@ -11,7 +11,7 @@ export interface ServerConfig {
   weaponsLostOnDeath: boolean;
   /** null disables replay recording. */
   replayDir: string | null;
-  /** JSON persistence file (FileStore). MySQL replaces this via the same interface. */
+  /** Persistence path: *.db => SQLite (node:sqlite, default), *.json => FileStore. */
   persistPath: string;
   pedCount: number;
   /** Interest-management radius (px): entities beyond it aren't sent. */
@@ -32,7 +32,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     seed: envInt(env['SEED'], Date.now() >>> 0),
     weaponsLostOnDeath: env['WEAPONS_LOST_ON_DEATH'] !== 'false',
     replayDir: env['REPLAY'] === '0' ? null : (env['REPLAY_DIR'] ?? 'replays'),
-    persistPath: env['PERSIST_PATH'] ?? 'data/persist.json',
+    persistPath: env['PERSIST_PATH'] ?? 'data/persist.db',
     pedCount: envInt(env['PED_COUNT'], 200),
     interestRadius: envInt(env['INTEREST_RADIUS'], 600),
   };

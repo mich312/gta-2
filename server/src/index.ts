@@ -2,7 +2,7 @@ import { TICK_RATE, getTuning } from 'shared';
 import { loadConfig } from './config.js';
 import { loadCatalog, loadEconomyParams, loadSharedTuning, loadWorldgenParams } from './tuning.js';
 import { Economy } from './economy/economy.js';
-import { FileStore } from './economy/store.js';
+import { createStore } from './economy/createStore.js';
 import { Session } from './session.js';
 import { GameServer } from './net/wsServer.js';
 import { TickLoop } from './loop.js';
@@ -26,7 +26,7 @@ async function main(): Promise<void> {
     weaponsLostOnDeath: config.weaponsLostOnDeath,
     pedCount: config.pedCount,
   });
-  const economy = new Economy(new FileStore(config.persistPath), loadCatalog(), loadEconomyParams());
+  const economy = new Economy(createStore(config.persistPath), loadCatalog(), loadEconomyParams());
   const server = new GameServer(config, session, economy);
   await server.listen();
 

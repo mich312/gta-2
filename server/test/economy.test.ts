@@ -17,7 +17,8 @@ import {
   parseWorldgenParams,
   step,
 } from 'shared';
-import { FileStore, MemoryStore } from '../src/economy/store.js';
+import { FileStore, MemoryStore, type PersistenceStore } from '../src/economy/store.js';
+import { SqliteStore } from '../src/economy/sqliteStore.js';
 import { Ledger } from '../src/economy/ledger.js';
 import { Accounts } from '../src/economy/accounts.js';
 import { AwardTracker, parseEconomyParams } from '../src/economy/awards.js';
@@ -128,29 +129,45 @@ describe('purchases', () => {
 });
 
 describe('persistence (the phase gate: a purchase survives a server restart)', () => {
-  it('cash, transactions, and cosmetics reload from disk', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'persist-'));
-    const path = join(dir, 'persist.json');
+  // Same scenario against both implementations: SQLite (node:sqlite, the
+  // default) and the JSON FileStore. The economy cannot tell them apart.
+  const backends: Array<[string, (dir: string) => PersistenceStore]> = [
+    ['sqlite', (dir) => new SqliteStore(join(dir, 'persist.db'))],
+    ['file', (dir) => new FileStore(join(dir, 'persist.json'))],
+  ];
 
-    {
-      const store = new FileStore(path);
-      const accounts = new Accounts(store);
-      const ledger = new Ledger(store);
-      accounts.register('carol', 'secret-pw');
-      ledger.append('acct:carol', 400, 'starting-cash', 'start:acct:carol');
-      ledger.append('acct:carol', -300, 'buy:jacket_red', 'buy:tx-1');
-      accounts.addCosmetic('carol', 1);
-      // process "dies" here — no explicit close; every write already flushed
-    }
+  for (const [name, open] of backends) {
+    it(`${name}: cash, transactions, and cosmetics reload from disk`, () => {
+      const dir = mkdtempSync(join(tmpdir(), `persist-${name}-`));
 
-    const store2 = new FileStore(path);
-    const accounts2 = new Accounts(store2);
-    const ledger2 = new Ledger(store2);
-    expect(ledger2.balance('acct:carol')).toBe(100);
-    expect(accounts2.verify('carol', 'secret-pw')?.cosmeticsOwned).toEqual([1]);
-    expect(accounts2.get('carol')?.equippedCosmetic).toBe(1);
-    // Idempotency survives restart too: replaying the old tx does nothing.
-    expect(ledger2.append('acct:carol', -300, 'buy:jacket_red', 'buy:tx-1')).toBe(false);
-    expect(ledger2.balance('acct:carol')).toBe(100);
+      {
+        const store = open(dir);
+        const accounts = new Accounts(store);
+        const ledger = new Ledger(store);
+        accounts.register('carol', 'secret-pw');
+        ledger.append('acct:carol', 400, 'starting-cash', 'start:acct:carol');
+        ledger.append('acct:carol', -300, 'buy:jacket_red', 'buy:tx-1');
+        accounts.addCosmetic('carol', 1);
+        // process "dies" here — every write is already durable
+      }
+
+      const store2 = open(dir);
+      const accounts2 = new Accounts(store2);
+      const ledger2 = new Ledger(store2);
+      expect(ledger2.balance('acct:carol')).toBe(100);
+      expect(accounts2.verify('carol', 'secret-pw')?.cosmeticsOwned).toEqual([1]);
+      expect(accounts2.get('carol')?.equippedCosmetic).toBe(1);
+      // Idempotency survives restart too: replaying the old tx does nothing.
+      expect(ledger2.append('acct:carol', -300, 'buy:jacket_red', 'buy:tx-1')).toBe(false);
+      expect(ledger2.balance('acct:carol')).toBe(100);
+    });
+  }
+
+  it('sqlite: a raw duplicate ref throws at the store (backstop under the ledger)', () => {
+    const store = new SqliteStore(':memory:');
+    const tx = { ref: 'r1', accountKey: 'a', delta: 5, reason: 'x', at: 'now' };
+    store.appendTransaction(tx);
+    expect(() => store.appendTransaction(tx)).toThrow();
+    expect(store.hasRef('r1')).toBe(true);
   });
 });

@@ -69,7 +69,7 @@ function connect(port: number): Promise<Client> {
 }
 
 async function main(): Promise<void> {
-  const persistPath = join(mkdtempSync(join(tmpdir(), 'persist-e2e-')), 'persist.json');
+  const persistPath = join(mkdtempSync(join(tmpdir(), 'persist-e2e-')), 'persist.db'); // sqlite path
   const port = 9500 + Math.floor(Math.random() * 400);
 
   // ---- life 1: register

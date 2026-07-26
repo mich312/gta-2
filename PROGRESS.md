@@ -155,9 +155,14 @@ Full-stack `persistCheck` over the real wire: register → kill server →
 fresh process on the same store → login → wallet identical and starting
 cash seeded exactly once. Kill awards ran live during the brawl runs.
 
-**Deliberately deferred.** MySQL driver integration (no MySQL server in
-this environment + driver is a new dependency needing approval — the store
-interface and schema are ready; see end-of-run questions). Weapon unlocks
+**Update (post-review):** persistence target changed from MySQL to SQLite
+per review. `SqliteStore` over Node's built-in `node:sqlite` (zero new
+dependencies) is now the default backend (`data/persist.db`); same
+append-only discipline (INSERT-only transactions, UNIQUE ref as idempotency
+key, balance = SUM(delta)). The JSON FileStore remains available via a
+`.json` path and both backends run the same restart-survival test suite.
+
+**Deliberately deferred.** Weapon unlocks
 as account inventory — per the death-costs-guns design, weapons are
 repurchased, only cosmetics + cash persist. A real login UI (window.prompt
 is a placeholder). Shop stock limits.
