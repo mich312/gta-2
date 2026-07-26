@@ -11,6 +11,17 @@ export interface WeaponSlot {
   ammo: number;
 }
 
+export interface CopState {
+  id: number;
+  pos: Vec2;
+  vel: Vec2;
+  targetId: number | null;
+  health: number;
+  fireCooldown: number;
+  /** Ticks spent with no wanted target; despawns past the tuned limit. */
+  idleTicks: number;
+}
+
 export interface VehicleState {
   id: number;
   kind: string;
@@ -44,6 +55,8 @@ export interface PlayerState {
   fireCooldown: number;
   /** Ticks of run-over immunity so a car doesn't grind 30 hits/s. */
   carHitCooldown: number;
+  /** Police heat; wantedLevel = floor(heat/100) clamped to 5. */
+  heat: number;
 }
 
 /**
@@ -60,6 +73,7 @@ export interface GameState {
   nextEntityId: number;
   players: EntityTable<PlayerState>;
   vehicles: EntityTable<VehicleState>;
+  cops: EntityTable<CopState>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -70,7 +84,24 @@ export function createGameState(seed: number): GameState {
     nextEntityId: 1,
     players: createTable(),
     vehicles: createTable(),
+    cops: createTable(),
   };
+}
+
+export function createCop(id: number, pos: Vec2, health: number): CopState {
+  return {
+    id,
+    pos: cloneVec(pos),
+    vel: vec(),
+    targetId: null,
+    health,
+    fireCooldown: 0,
+    idleTicks: 0,
+  };
+}
+
+export function cloneCop(c: CopState): CopState {
+  return { ...c, pos: cloneVec(c.pos), vel: cloneVec(c.vel) };
 }
 
 export function createVehicle(
@@ -105,6 +136,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     actionHeld: false,
     fireCooldown: 0,
     carHitCooldown: 0,
+    heat: 0,
   };
 }
 
@@ -117,10 +149,19 @@ export function clonePlayer(p: PlayerState): PlayerState {
   };
 }
 
+export function wantedLevelOf(p: PlayerState): number {
+  return Math.min(5, Math.floor(p.heat / 100));
+}
+
+export function addHeat(p: PlayerState, amount: number): void {
+  p.heat = Math.min(599, p.heat + amount);
+}
+
 export function cloneState(s: GameState): GameState {
   return {
     ...s,
     players: cloneTable(s.players, clonePlayer),
     vehicles: cloneTable(s.vehicles, cloneVehicle),
+    cops: cloneTable(s.cops, cloneCop),
   };
 }

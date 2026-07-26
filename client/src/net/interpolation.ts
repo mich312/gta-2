@@ -1,4 +1,4 @@
-import type { FullSnapshot, PlayerState, VehicleState } from 'shared';
+import type { CopState, FullSnapshot, PlayerState, VehicleState } from 'shared';
 import { TICK_MS, TICK_RATE } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
@@ -19,9 +19,16 @@ export interface RenderVehicle {
   heading: number;
 }
 
+export interface RenderCop {
+  cop: CopState;
+  x: number;
+  y: number;
+}
+
 export interface RenderWorld {
   players: RenderPlayer[];
   vehicles: RenderVehicle[];
+  cops: RenderCop[];
 }
 
 /**
@@ -63,7 +70,7 @@ export class Interpolator {
 
   /** Interpolated remote entities; the local player + their car are excluded. */
   sample(excludePlayerId: number, excludeVehicleId: number | null): RenderWorld {
-    const empty: RenderWorld = { players: [], vehicles: [] };
+    const empty: RenderWorld = { players: [], vehicles: [], cops: [] };
     if (this.snapshots.length === 0) return empty;
     let a = this.snapshots[0] as FullSnapshot;
     let b = a;
@@ -103,7 +110,17 @@ export class Interpolator {
         heading: va ? lerpAngle(va.heading, vb.heading, t) : vb.heading,
       });
     }
-    return { players, vehicles };
+    const cops: RenderCop[] = [];
+    const cById = new Map(a.cops.map((c) => [c.id, c]));
+    for (const cb of b.cops) {
+      const ca = cById.get(cb.id);
+      cops.push({
+        cop: cb,
+        x: ca ? ca.pos.x + (cb.pos.x - ca.pos.x) * t : cb.pos.x,
+        y: ca ? ca.pos.y + (cb.pos.y - ca.pos.y) * t : cb.pos.y,
+      });
+    }
+    return { players, vehicles, cops };
   }
 }
 

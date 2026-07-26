@@ -11,6 +11,7 @@ export * from './sim/events.js';
 export * from './sim/player.js';
 export * from './sim/vehicle.js';
 export * from './sim/weapons.js';
+export * from './sim/police.js';
 export * from './sim/step.js';
 export * from './net/snapshot.js';
 export * from './net/hash.js';

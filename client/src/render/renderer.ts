@@ -71,6 +71,14 @@ export function render(
       cam,
     );
   }
+  for (const c of scene.remotes.cops) {
+    const sx = Math.floor(c.x - cam.x);
+    const sy = Math.floor(c.y - cam.y);
+    if (!sprites.draw(ctx, 'cop', sx, sy, Math.atan2(c.cop.vel.y, c.cop.vel.x))) {
+      ctx.fillStyle = '#3a5fb0';
+      ctx.fillRect(sx - PLAYER_RADIUS, sy - PLAYER_RADIUS, PLAYER_RADIUS * 2, PLAYER_RADIUS * 2);
+    }
+  }
   for (const r of scene.remotes.players) {
     drawPlayer(ctx, sprites, r.player, r.x, r.y, r.aimAngle, cam, false);
   }

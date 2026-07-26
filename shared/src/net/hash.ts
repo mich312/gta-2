@@ -65,6 +65,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashBool(h, p.actionHeld);
     h = hashNumber(h, p.fireCooldown);
     h = hashNumber(h, p.carHitCooldown);
+    h = hashNumber(h, p.heat);
   }
   for (const v of snap.vehicles) {
     h = hashNumber(h, v.id);
@@ -74,6 +75,17 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.heading);
     h = hashNumber(h, v.speed);
     h = hashNumber(h, v.driverId ?? -1);
+  }
+  for (const c of snap.cops) {
+    h = hashNumber(h, c.id);
+    h = hashNumber(h, c.pos.x);
+    h = hashNumber(h, c.pos.y);
+    h = hashNumber(h, c.vel.x);
+    h = hashNumber(h, c.vel.y);
+    h = hashNumber(h, c.targetId ?? -1);
+    h = hashNumber(h, c.health);
+    h = hashNumber(h, c.fireCooldown);
+    h = hashNumber(h, c.idleTicks);
   }
   return h >>> 0;
 }

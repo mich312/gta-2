@@ -1,8 +1,9 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { approach } from '../math/vec.js';
-import { getVehicleTuning } from '../tuning.js';
+import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, PlayerState, VehicleState } from './state.js';
+import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
@@ -114,6 +115,7 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
     }
   }
   if (!best) return false;
+  addHeat(p, getTuning().police.heatPerTheft); // grand theft auto, witnessed or not
   best.driverId = p.id;
   p.mode = 'driving';
   p.vehicleId = best.id;

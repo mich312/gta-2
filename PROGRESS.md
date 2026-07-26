@@ -1,5 +1,44 @@
 # PROGRESS
 
+## Phase 6 — police and wanted levels
+
+**What changed.** Heat-based wanted system, entirely in the sim: violence
+against players adds heat proportional to damage plus a kill bonus, car
+theft adds a little, killing a cop adds a lot; `wantedLevel` = heat/100
+clamped to 1–5. Heat decays only while NO cop has line of sight — hide to
+cool off; heat survives death by design (dying is not a laundering
+mechanic). Cops are sim entities that spawn deterministically from the
+kerbside spawn list in a ring around the fugitive (one per tick, ramping to
+2 per star, capped per player and globally), pursue with greedy steering —
+axis-separated wall-slide plus an rng sidestep when wedged, which the road
+grid makes look smarter than it is — and fire only with LOS inside range.
+Players can shoot back: cops have health and drop, at a price. All numbers
+in `police.json`. Cop shots/`copDown` are events; clients render cops
+(sprite, interpolated), tracers, and wanted stars.
+
+**Verification.** 56 tests green: crimes raise heat (violence, theft),
+decay-while-hidden to zero, level-3 chase (posse spawns within 10 s,
+converges inside firing range, draws blood — the "tense at level 3" gate as
+a machine-checkable proxy: pressure arrives fast, from multiple directions,
+and standing still is lethal), cop-killing raises heat, and the entire
+chase hashing identically across runs. 8-bot brawl with live police: PASS,
+lockstep, 0 desyncs; kill counts now include deaths-by-cop. Replay with the
+full police sim re-simulates hash-identical.
+
+**Deliberately deferred.** Cop cars and roadblocks (on-foot posse only —
+level 4/5 currently just means *more* cops; vehicle police would be the
+next escalation). Pathfinding beyond greedy wall-slide (cops can be juked
+around building corners — arguably a feature; BFS on road tiles is the
+planned upgrade if chases feel dumb). Wanted-level UI beyond stars.
+
+**Least confident about.** "Genuinely tense" is a human judgment — the
+machine proxy (fast convergence + real damage) is necessary but not
+sufficient; tune copsPerStar/moveSpeed/copPistol damage after a real chase.
+Greedy pursuit can wedge cops on concave building clusters (the sidestep
+frees most cases; some pace circles remain). Cop entity + shot-event
+bandwidth tripled brawl traffic — phase 7's interest management is now
+load-bearing for two reasons.
+
 ## Phase 5 — economy, shops, accounts, persistence
 
 **What changed.** The economy lives entirely server-side behind one seam:

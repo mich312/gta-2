@@ -35,10 +35,31 @@ export interface WeaponTuning {
   pellets: number;
 }
 
+export interface PoliceTuning {
+  copsPerStar: number;
+  maxCopsPerPlayer: number;
+  maxCopsTotal: number;
+  spawnCooldownTicks: number;
+  copHealth: number;
+  moveSpeed: number;
+  sightRange: number;
+  fireRange: number;
+  weapon: string;
+  spawnMinDist: number;
+  spawnMaxDist: number;
+  heatPerDamage: number;
+  heatPerKill: number;
+  heatPerTheft: number;
+  heatPerCopKill: number;
+  heatDecayPerSec: number;
+  despawnTicks: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
   weapons: Record<string, WeaponTuning>;
+  police: PoliceTuning;
 }
 
 let current: Tuning | null = null;
@@ -88,7 +109,58 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
   };
 }
 
-export function initTuning(raw: { player: unknown; vehicles?: unknown; weapons?: unknown }): void {
+function parsePoliceTuning(raw: unknown): PoliceTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `police.${k}`);
+  const weapon = r['weapon'];
+  if (typeof weapon !== 'string') throw new Error('police.weapon must be a string');
+  return {
+    copsPerStar: n('copsPerStar'),
+    maxCopsPerPlayer: n('maxCopsPerPlayer'),
+    maxCopsTotal: n('maxCopsTotal'),
+    spawnCooldownTicks: n('spawnCooldownTicks'),
+    copHealth: n('copHealth'),
+    moveSpeed: n('moveSpeed'),
+    sightRange: n('sightRange'),
+    fireRange: n('fireRange'),
+    weapon,
+    spawnMinDist: n('spawnMinDist'),
+    spawnMaxDist: n('spawnMaxDist'),
+    heatPerDamage: n('heatPerDamage'),
+    heatPerKill: n('heatPerKill'),
+    heatPerTheft: n('heatPerTheft'),
+    heatPerCopKill: n('heatPerCopKill'),
+    heatDecayPerSec: n('heatDecayPerSec'),
+    despawnTicks: n('despawnTicks'),
+  };
+}
+
+const DEFAULT_POLICE: PoliceTuning = {
+  copsPerStar: 2,
+  maxCopsPerPlayer: 8,
+  maxCopsTotal: 24,
+  spawnCooldownTicks: 18,
+  copHealth: 50,
+  moveSpeed: 122,
+  sightRange: 260,
+  fireRange: 190,
+  weapon: 'copPistol',
+  spawnMinDist: 260,
+  spawnMaxDist: 640,
+  heatPerDamage: 0.8,
+  heatPerKill: 60,
+  heatPerTheft: 15,
+  heatPerCopKill: 120,
+  heatDecayPerSec: 5,
+  despawnTicks: 150,
+};
+
+export function initTuning(raw: {
+  player: unknown;
+  vehicles?: unknown;
+  weapons?: unknown;
+  police?: unknown;
+}): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
   for (const [kind, v] of Object.entries(vehiclesRaw)) {
@@ -99,7 +171,12 @@ export function initTuning(raw: { player: unknown; vehicles?: unknown; weapons?:
   for (const [id, w] of Object.entries(weaponsRaw)) {
     weapons[id] = parseWeaponTuning(id, w);
   }
-  current = { player: parsePlayerTuning(raw.player), vehicles, weapons };
+  current = {
+    player: parsePlayerTuning(raw.player),
+    vehicles,
+    weapons,
+    police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
+  };
 }
 
 export function getTuning(): Tuning {

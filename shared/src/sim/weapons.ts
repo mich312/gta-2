@@ -1,8 +1,10 @@
 import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { dCos, dSin } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
-import { getVehicleTuning, getWeaponTuning } from '../tuning.js';
-import type { GameState, PlayerState } from './state.js';
+import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
+import type { CopState, GameState, PlayerState } from './state.js';
+import { addHeat } from './state.js';
+import { removeEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -86,6 +88,7 @@ function fireOnce(
   const wallDist = rayWallDistance(map, shooter.pos.x, shooter.pos.y, dirX, dirY, range);
 
   let hitPlayer: PlayerState | null = null;
+  let hitCop: CopState | null = null;
   let hitDist = wallDist;
   for (const id of state.players.ids) {
     if (id === shooter.id) continue;
@@ -105,6 +108,24 @@ function fireOnce(
       hitPlayer = target;
     }
   }
+  for (const id of state.cops.ids) {
+    const cop = state.cops.byId[id];
+    if (!cop) continue;
+    const d = rayCircleDistance(
+      shooter.pos.x,
+      shooter.pos.y,
+      dirX,
+      dirY,
+      cop.pos.x,
+      cop.pos.y,
+      PLAYER_RADIUS,
+    );
+    if (d < hitDist) {
+      hitDist = d;
+      hitCop = cop;
+      hitPlayer = null;
+    }
+  }
 
   events.push({
     type: 'shot',
@@ -118,7 +139,26 @@ function fireOnce(
 
   if (hitPlayer) {
     applyDamage(state, hitPlayer, damage, shooter.id, weaponId, events);
+  } else if (hitCop) {
+    damageCop(state, hitCop, damage, shooter.id, events);
   }
+}
+
+/** Player shots may hit cops. Killing one is a serious crime. */
+export function damageCop(
+  state: GameState,
+  cop: CopState,
+  damage: number,
+  attackerId: number,
+  events: SimEvent[],
+): void {
+  cop.health -= damage;
+  const attacker = state.players.byId[attackerId];
+  if (attacker) addHeat(attacker, damage * getTuning().police.heatPerDamage);
+  if (cop.health > 0) return;
+  removeEntity(state.cops, cop.id);
+  if (attacker) addHeat(attacker, getTuning().police.heatPerCopKill);
+  events.push({ type: 'copDown', tick: state.tick, killerId: attackerId });
 }
 
 export function applyDamage(
@@ -131,6 +171,13 @@ export function applyDamage(
 ): void {
   if (victim.mode === 'dead') return;
   victim.health -= damage;
+  // Violence against players is a crime (cop shooters pass attackerId -1).
+  const attacker = attackerId !== victim.id ? state.players.byId[attackerId] : undefined;
+  if (attacker) {
+    const police = getTuning().police;
+    addHeat(attacker, damage * police.heatPerDamage);
+    if (victim.health <= 0) addHeat(attacker, police.heatPerKill);
+  }
   if (victim.health > 0) return;
   victim.health = 0;
   // Death: drop out of any car, freeze, schedule-visible respawn tick.

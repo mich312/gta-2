@@ -118,6 +118,14 @@ export class Hud {
     ctx.font = '8px monospace';
     ctx.fillText(slot ? `${slot.weaponId} ${slot.ammo}` : 'unarmed', 6, INTERNAL_HEIGHT - 7);
 
+    // Wanted stars.
+    if (me.wantedLevel > 0) {
+      ctx.fillStyle = '#f0c040';
+      ctx.textAlign = 'center';
+      ctx.fillText('★'.repeat(me.wantedLevel), INTERNAL_WIDTH / 2, 10);
+      ctx.textAlign = 'left';
+    }
+
     // Wallet + account (top left, under the overlay's zone).
     ctx.fillStyle = '#bde8bd';
     ctx.fillText(`$${this.cash}`, 6, 10);

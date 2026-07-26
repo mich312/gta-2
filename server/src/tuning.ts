@@ -14,6 +14,7 @@ export function loadSharedTuning(): void {
     player: read('player.json'),
     vehicles: read('vehicles.json'),
     weapons: read('weapons.json'),
+    police: read('police.json'),
   });
 }
 

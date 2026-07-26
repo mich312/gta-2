@@ -1,11 +1,12 @@
-import type { GameState, PlayerState, VehicleState } from '../sim/state.js';
-import { clonePlayer, cloneVehicle } from '../sim/state.js';
+import type { CopState, GameState, PlayerState, VehicleState } from '../sim/state.js';
+import { cloneCop, clonePlayer, cloneVehicle } from '../sim/state.js';
 
 export interface FullSnapshot {
   tick: number;
   /** Sorted by id ascending, always. */
   players: PlayerState[];
   vehicles: VehicleState[];
+  cops: CopState[];
 }
 
 export type Patch<T> = { id: number } & Partial<Omit<T, 'id'>>;
@@ -19,6 +20,7 @@ export interface TableDelta<T> {
 export interface SnapshotDelta {
   players: TableDelta<PlayerState>;
   vehicles: TableDelta<VehicleState>;
+  cops: TableDelta<CopState>;
 }
 
 /** Explicit field lists so diffing stays deterministic and reviewable. */
@@ -39,9 +41,11 @@ const PLAYER_FIELDS = [
   'actionHeld',
   'fireCooldown',
   'carHitCooldown',
+  'heat',
 ] as const;
 
 const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
+const COP_FIELDS = ['pos', 'vel', 'targetId', 'health', 'fireCooldown', 'idleTicks'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {
@@ -50,6 +54,7 @@ export function takeSnapshot(state: GameState): FullSnapshot {
     vehicles: state.vehicles.ids.map((id) =>
       cloneVehicle(state.vehicles.byId[id] as VehicleState),
     ),
+    cops: state.cops.ids.map((id) => cloneCop(state.cops.byId[id] as CopState)),
   };
 }
 
@@ -148,6 +153,7 @@ export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDe
   return {
     players: diffTable(base.players, cur.players, PLAYER_FIELDS, clonePlayer),
     vehicles: diffTable(base.vehicles, cur.vehicles, VEHICLE_FIELDS, cloneVehicle),
+    cops: diffTable(base.cops, cur.cops, COP_FIELDS, cloneCop),
   };
 }
 
@@ -161,5 +167,6 @@ export function applyDelta(
     tick,
     players: applyTable(base.players, delta.players, clonePlayer),
     vehicles: applyTable(base.vehicles, delta.vehicles, cloneVehicle),
+    cops: applyTable(base.cops, delta.cops, cloneCop),
   };
 }

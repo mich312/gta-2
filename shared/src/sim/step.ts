@@ -7,6 +7,7 @@ import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
 import { stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { stepPolice } from './police.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid } from '../world/collide.js';
@@ -79,6 +80,7 @@ export function step(
 
   stepWeapons(next, inputs, map, events);
   stepVehicleImpacts(next, events);
+  stepPolice(next, map, events);
 
   return next;
 }
