@@ -10,8 +10,8 @@ import {
   initTuning,
 } from 'shared';
 import { setupCanvas } from './render/canvas.js';
-import { computeCamera, render, type Scene } from './render/renderer.js';
-import { SpriteSheet } from './render/sprites.js';
+import { RenderPipeline, type Scene } from './render/renderer.js';
+import { SmoothCamera } from './render/camera.js';
 import { Connection } from './net/connection.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
@@ -41,8 +41,8 @@ const stats = new NetStats();
 const sync = new SnapshotSync();
 const predictor = new Predictor();
 const interp = new Interpolator();
-const sprites = new SpriteSheet();
-void sprites.load();
+const pipeline = new RenderPipeline();
+const camera = new SmoothCamera();
 const hud = new Hud();
 
 function nameOf(id: number): string {
@@ -55,6 +55,9 @@ let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
 let catalog: Catalog | null = null;
+/** Health/mode from the previous frame, for hit + respawn feedback. */
+let feltHealth: number | null = null;
+let lastMode: string | null = null;
 
 /** Shop whose doorway the (predicted) local player is standing in. */
 function currentShopKind(): ShopKind | null {
@@ -83,6 +86,15 @@ function onStateUpdated(ackSeq: number | null): void {
   }
 }
 
+/** Distance-scaled camera kick from a world-space event. */
+function traumaFrom(x: number, y: number, base: number): void {
+  const me = predictor.predicted;
+  if (!me) return;
+  const d = Math.hypot(x - me.pos.x, y - me.pos.y);
+  if (d > 260) return;
+  camera.addTrauma(base * (1 - d / 260));
+}
+
 const conn = new Connection({
   url: serverUrl(),
   name: playerName(),
@@ -98,6 +110,7 @@ const conn = new Connection({
         // the whole city regenerates locally from the seed.
         initTuning(msg.tuning);
         map = generateCity(msg.seed, msg.worldgen);
+        pipeline.bindMap(map);
         catalog = msg.catalog;
         sync.applyServerMessage(msg);
         stats.onSnapshot();
@@ -116,10 +129,26 @@ const conn = new Connection({
       case 'pong':
         stats.onPong(msg.t);
         break;
-      case 'event':
-        if (msg.event.type === 'notice') hud.notice(msg.event.text);
-        else hud.onEvent(msg.event, nameOf);
+      case 'event': {
+        const ev = msg.event;
+        if (ev.type === 'notice') {
+          hud.notice(ev.text);
+          break;
+        }
+        hud.onEvent(ev, nameOf);
+        pipeline.onGameEvent(ev, performance.now());
+        if (ev.type === 'shot') traumaFrom(ev.x0, ev.y0, ev.playerId === playerId ? 0.14 : 0.05);
+        if (ev.type === 'propDown') traumaFrom(ev.x, ev.y, 0.2);
+        if (ev.type === 'kill' || ev.type === 'death') {
+          const victimId = ev.type === 'kill' ? ev.victimId : ev.playerId;
+          const victim = sync.latest?.players.find((p) => p.id === victimId);
+          if (victim) {
+            pipeline.onKillAt(victim.pos.x, victim.pos.y, performance.now());
+            traumaFrom(victim.pos.x, victim.pos.y, victimId === playerId ? 0.45 : 0.1);
+          }
+        }
         break;
+      }
       case 'wallet':
         hud.cash = msg.cash;
         break;
@@ -141,12 +170,21 @@ let last = performance.now();
 let acc = 0;
 
 function frame(now: number): void {
-  const frameMs = now - last;
-  acc += frameMs;
+  const frameMs = Math.min(100, now - last);
+  acc += now - last;
   last = now;
 
   const local = predictor.predicted;
-  const cam = computeCamera(map, local);
+
+  // Hit + respawn camera feedback from the predicted local player.
+  if (local) {
+    if (feltHealth !== null && local.health < feltHealth - 0.01) camera.addTrauma(0.3);
+    feltHealth = local.health;
+    if (lastMode === 'dead' && local.mode !== 'dead') camera.snapTo(local.pos.x, local.pos.y);
+    lastMode = local.mode;
+  }
+  camera.update(map, local, frameMs);
+  const cam = camera.pos;
 
   // Sample + send + locally predict inputs on the fixed tick grid.
   while (acc >= TICK_MS) {
@@ -183,13 +221,15 @@ function frame(now: number): void {
         local: predictor.predicted,
         localVehicle: driving ? predictor.predictedVehicle : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
+        tick: sync.latest.tick,
       }
     : null;
-  render(screen, map, scene, cam, sprites);
+  pipeline.render(screen, map, scene, camera, now, frameMs);
   if (shopKind && catalog) {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
-  hud.draw(screen.ctx, predictor.predicted ?? null, sync.latest, cam);
+  hud.draw(screen.ctx, predictor.predicted ?? null, sync.latest, frameMs);
+  pipeline.boundMinimap?.draw(screen.ctx, predictor.predicted ?? null, sync.latest, cam);
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {
@@ -209,6 +249,10 @@ function frame(now: number): void {
     me: predictor.predicted,
     tick: sync.latest?.tick ?? -1,
     cops: sync.latest?.cops.length ?? 0,
+    props: sync.latest?.props.length ?? 0,
+    lights: pipeline.lighting.points.length,
+    daylight: pipeline.daylight,
+    vehicles: sync.latest?.vehicles.map((v) => ({ x: v.pos.x, y: v.pos.y, d: v.driverId })) ?? [],
   };
 
   requestAnimationFrame(frame);

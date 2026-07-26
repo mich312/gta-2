@@ -1,0 +1,10 @@
+{
+  "walkSpeed": 48,
+  "fleeSpeed": 116,
+  "health": 30,
+  "turnMinTicks": 40,
+  "turnMaxTicks": 140,
+  "fleeRadius": 170,
+  "fleeTicks": 105,
+  "heatPerPedKill": 80
+}
