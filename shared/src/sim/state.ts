@@ -11,6 +11,16 @@ export interface WeaponSlot {
   ammo: number;
 }
 
+export interface VehicleState {
+  id: number;
+  kind: string;
+  pos: Vec2;
+  heading: number;
+  /** Signed forward speed (px/s); negative while reversing. */
+  speed: number;
+  driverId: number | null;
+}
+
 export interface PlayerState {
   id: number;
   name: string;
@@ -28,6 +38,8 @@ export interface PlayerState {
   respawnAtTick: number | null;
   /** Last input seq folded into this player; echoed as ackSeq in snapshots. */
   lastInputSeq: number;
+  /** Edge detection for the action button (enter/exit/buy). */
+  actionHeld: boolean;
 }
 
 /**
@@ -43,6 +55,7 @@ export interface GameState {
   rng: number;
   nextEntityId: number;
   players: EntityTable<PlayerState>;
+  vehicles: EntityTable<VehicleState>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -52,7 +65,21 @@ export function createGameState(seed: number): GameState {
     rng: seedRng(seed),
     nextEntityId: 1,
     players: createTable(),
+    vehicles: createTable(),
   };
+}
+
+export function createVehicle(
+  id: number,
+  kind: string,
+  pos: Vec2,
+  heading: number,
+): VehicleState {
+  return { id, kind, pos: cloneVec(pos), heading, speed: 0, driverId: null };
+}
+
+export function cloneVehicle(v: VehicleState): VehicleState {
+  return { ...v, pos: cloneVec(v.pos) };
 }
 
 export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
@@ -71,6 +98,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     wantedLevel: 0,
     respawnAtTick: null,
     lastInputSeq: 0,
+    actionHeld: false,
   };
 }
 
@@ -84,5 +112,9 @@ export function clonePlayer(p: PlayerState): PlayerState {
 }
 
 export function cloneState(s: GameState): GameState {
-  return { ...s, players: cloneTable(s.players, clonePlayer) };
+  return {
+    ...s,
+    players: cloneTable(s.players, clonePlayer),
+    vehicles: cloneTable(s.vehicles, cloneVehicle),
+  };
 }

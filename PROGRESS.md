@@ -1,5 +1,44 @@
 # PROGRESS
 
+## Phase 3 — vehicles
+
+**What changed.** Vehicles are sim entities: signed forward speed along a
+heading, steering authority that grows with speed (reversing inverts it),
+hard friction when coasting, wall crashes damp and slightly rebound speed —
+arcade, not rigid-body, all tunables in `vehicles.json`. 48 parked cars
+spawn per session from the map's kerbside spawn list (as recorded commands,
+so replays reproduce them). Enter/exit is an edge-triggered `action` intent
+resolved in the sim: nearest free near-stationary car within radius; a
+contested door on the same tick resolves by player id; exit tries left/right/
+rear spots and refuses if boxed in. Car-vs-car contact is a simple stop-on-
+overlap (server-side only). Snapshots/deltas/hashes generalized over both
+entity tables. The predictor now predicts the driven car (same shared
+physics), while enter/exit and car-vs-car remain deliberately unpredicted —
+server-granted, corrections smoothed. Client interpolates and renders
+vehicles; joyride bots seek, steal, and drive cars.
+
+**Verification.** 39 tests green: enter/drive/exit lifecycle, edge-trigger
+(holding action doesn't re-trigger), contested same-tick entry with range
+gating, wall crash on a synthetic arena (speed >200 px/s, damped on impact,
+never penetrates, never passes the wall), and bit-exact driving prediction
+(zero correction over 150 ticks of throttle+steering). 8-bot joyride 60 s:
+lockstep 1809..1809, 0 desyncs, 4 bots stole and drove cars, corrections
+18–22 px only from deliberately-unpredicted transitions (limit 96). Replay
+still hash-identical twice.
+
+**Deliberately deferred.** Run-over damage and drive-by fire (phase 4).
+Vehicle health/destruction (phase 8 decides if cars burn). Car-vs-car
+momentum transfer — stop-on-overlap is deliberately crude; revisit only if
+play feels bad. Bots don't pathfind around buildings to reach cars (half of
+them nose into walls; harmless for verification purposes).
+
+**Least confident about.** Whether driving "feels weighty" — the numbers
+(330 px/s top speed ≈ 20 tiles/s, speed-scaled steering) are reasoned, not
+felt; they're one JSON edit away from retuning once a human drives.
+Correction magnitude during contested entries under real latency (60 ms
+round trip) — bots on localhost show ~20 px; worth watching the ghost when
+first played over a real link.
+
 ## Phase 2 — procedural city, collision, camera, pixel-art pipeline
 
 **What changed.** `shared/src/world/` generates the whole city as a pure

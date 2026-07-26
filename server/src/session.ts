@@ -14,6 +14,8 @@ import {
 } from 'shared';
 
 const INPUT_QUEUE_MAX = 60;
+/** How many parked cars a session starts with. */
+const MAX_VEHICLES = 48;
 /** Max consecutive ticks a missing client keeps "holding" their last keys. */
 const MAX_HELD_TICKS = 6;
 /** Max backlog of unapplied intents before we fast-forward through them. */
@@ -57,7 +59,8 @@ export class Session {
 
   private readonly snapshotRing = new Map<number, FullSnapshot>();
   private pendingCommands: SimCommand[] = [];
-  private nextPlayerId = 1;
+  /** One counter for every command-spawned entity (players, vehicles). */
+  private nextId = 1;
 
   constructor(
     seed: number,
@@ -70,10 +73,24 @@ export class Session {
     this.state = createGameState(seed);
     this.latestSnapshot = takeSnapshot(this.state);
     this.snapshotRing.set(this.latestSnapshot.tick, this.latestSnapshot);
+
+    // Populate the streets: parked cars from the map's spawn list. Commands,
+    // so they land in the replay and reproduce exactly.
+    const spawns = this.map.vehicleSpawns.filter((_, i) => i % 3 === 0).slice(0, MAX_VEHICLES);
+    for (const s of spawns) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+      });
+    }
   }
 
   addPlayer(name: string, resumeToken: string): PlayerSlot {
-    const playerId = this.nextPlayerId++;
+    const playerId = this.nextId++;
     const slot: PlayerSlot = {
       playerId,
       name,

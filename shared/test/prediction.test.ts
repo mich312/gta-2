@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../data/player.json';
+import vehiclesJson from '../data/vehicles.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -12,7 +13,7 @@ import { Predictor } from '../src/net/prediction.js';
 const map = generateCity(910, parseWorldgenParams(worldgenJson));
 
 beforeAll(() => {
-  initTuning({ player: playerTuning });
+  initTuning({ player: playerTuning, vehicles: vehiclesJson });
 });
 
 function intentAt(seq: number): InputIntent {
@@ -36,7 +37,7 @@ describe('prediction + reconciliation', () => {
     server = step(server, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'p' }], map);
 
     const predictor = new Predictor();
-    predictor.reconcile(server.players.byId[1]!, 0, map);
+    predictor.reconcile(server.players.byId[1]!, null, 0, map);
 
     const LATENCY = 3; // ticks of delay before the client "sees" a snapshot
     const history: Array<{ state: typeof server; ackSeq: number }> = [];
@@ -50,7 +51,7 @@ describe('prediction + reconciliation', () => {
       // Delayed snapshot arrives: reconcile against 3-tick-old authority.
       const delayed = history[history.length - 1 - LATENCY];
       if (delayed) {
-        predictor.reconcile(delayed.state.players.byId[1]!, delayed.ackSeq, map);
+        predictor.reconcile(delayed.state.players.byId[1]!, null, delayed.ackSeq, map);
         expect(predictor.lastCorrection).toBe(0);
       }
     }
@@ -63,7 +64,7 @@ describe('prediction + reconciliation', () => {
     let server = createGameState(202);
     server = step(server, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'p' }], map);
     const predictor = new Predictor();
-    predictor.reconcile(server.players.byId[1]!, 0, map);
+    predictor.reconcile(server.players.byId[1]!, null, 0, map);
 
     for (let seq = 1; seq <= 60; seq++) {
       const intent = intentAt(seq);
@@ -71,7 +72,7 @@ describe('prediction + reconciliation', () => {
       // Server "loses" input 30 and holds the previous one instead.
       const applied = seq === 30 ? intentAt(29) : intent;
       server = step(server, { 1: applied }, [], map);
-      predictor.reconcile(server.players.byId[1]!, applied.seq, map);
+      predictor.reconcile(server.players.byId[1]!, null, applied.seq, map);
     }
     // After the burst of corrections the predictor must agree with authority
     // for all acked input — i.e. corrections return to zero.
@@ -80,7 +81,7 @@ describe('prediction + reconciliation', () => {
       const intent = intentAt(seq);
       predictor.applyLocalInput(intent, map);
       server = step(server, { 1: intent }, [], map);
-      predictor.reconcile(server.players.byId[1]!, seq, map);
+      predictor.reconcile(server.players.byId[1]!, null, seq, map);
       if (seq > 65) expect(predictor.lastCorrection).toBe(0);
     }
     expect(predictor.maxCorrection).toBe(before); // no new drift accumulated

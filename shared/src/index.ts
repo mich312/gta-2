@@ -8,6 +8,7 @@ export * from './sim/state.js';
 export * from './sim/input.js';
 export * from './sim/commands.js';
 export * from './sim/player.js';
+export * from './sim/vehicle.js';
 export * from './sim/step.js';
 export * from './net/snapshot.js';
 export * from './net/hash.js';

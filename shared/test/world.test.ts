@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../data/player.json';
+import vehiclesJson from '../data/vehicles.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -14,7 +15,7 @@ import { PLAYER_RADIUS } from '../src/constants.js';
 const params = parseWorldgenParams(worldgenJson);
 
 beforeAll(() => {
-  initTuning({ player: playerTuning });
+  initTuning({ player: playerTuning, vehicles: vehiclesJson });
 });
 
 function tileCounts(map: CityMap): Map<number, number> {

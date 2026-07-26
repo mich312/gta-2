@@ -7,4 +7,5 @@
  */
 export type SimCommand =
   | { type: 'spawnPlayer'; playerId: number; name: string }
-  | { type: 'despawnPlayer'; playerId: number };
+  | { type: 'despawnPlayer'; playerId: number }
+  | { type: 'spawnVehicle'; vehicleId: number; kind: string; x: number; y: number; heading: number };

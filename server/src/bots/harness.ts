@@ -6,8 +6,10 @@ import { getScript } from './scripts.js';
 import { loadSharedTuning } from '../tuning.js';
 
 /** Bots predict locally; a hold/fast-forward on the server shows up as a
- * correction. Anything beyond ~a few held ticks of movement is a real bug. */
-const MAX_ALLOWED_CORRECTION_PX = 32;
+ * correction. Anything beyond ~a few held ticks of movement is a real bug.
+ * Driving scripts get more slack: enter/exit transitions and car-vs-car
+ * contact are deliberately unpredicted (server-granted). */
+const CORRECTION_LIMIT_PX: Record<string, number> = { default: 32, joyride: 96, brawl: 96 };
 
 interface Args {
   count: number;
@@ -108,7 +110,8 @@ async function main(): Promise<void> {
       failures.push(`${r.name}: sees ${r.entityCount} entities, expected ${args.count}`);
     }
     if (r.desyncs > 0) failures.push(`${r.name}: ${r.desyncs} hash desyncs`);
-    if (r.maxCorrection > MAX_ALLOWED_CORRECTION_PX) {
+    const corrLimit = CORRECTION_LIMIT_PX[args.script] ?? CORRECTION_LIMIT_PX['default'] ?? 32;
+    if (r.maxCorrection > corrLimit) {
       failures.push(`${r.name}: prediction correction ${r.maxCorrection.toFixed(1)}px`);
     }
     for (const e of r.errors) failures.push(`${r.name}: ${e}`);
@@ -122,7 +125,7 @@ async function main(): Promise<void> {
     console.log(
       `${r.name} pid=${r.playerId} tick=${r.lastServerTick} entities=${r.entityCount} ` +
         `desyncs=${r.desyncs} stale=${r.staleDeltas} fulls=${r.fullResyncs} ` +
-        `corr=${r.maxCorrection.toFixed(2)}px ` +
+        `corr=${r.maxCorrection.toFixed(2)}px${r.everDrove ? ' drove' : ''} ` +
         `in=${(r.bytesIn / 1024).toFixed(1)}KB out=${(r.bytesOut / 1024).toFixed(1)}KB`,
     );
   }

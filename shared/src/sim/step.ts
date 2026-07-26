@@ -1,10 +1,11 @@
 import { nextIntRange } from '../rng/prng.js';
 import type { GameState } from './state.js';
-import { cloneState, createPlayer } from './state.js';
+import { cloneState, createPlayer, createVehicle } from './state.js';
 import { insertEntity, removeEntity, getEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
-import { stepPlayers } from './player.js';
+import { stepPlayerMovement } from './player.js';
+import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
 import type { CityMap } from '../world/types.js';
 
 /**
@@ -12,7 +13,10 @@ import type { CityMap } from '../world/types.js';
  * Pure with respect to its arguments: the input state is never mutated.
  * Same state + same inputs + same commands + same map => bit-identical
  * result, on any engine. This is the whole contract of the netcode.
- * (map is derived from the seed, so it is the same on both sides.)
+ *
+ * Fixed sub-order (all iteration in sorted-id order):
+ *   commands → action edges (enter/exit) → player/vehicle movement →
+ *   driverless vehicles coast.
  */
 export function step(
   state: GameState,
@@ -25,7 +29,48 @@ export function step(
   for (const cmd of commands) {
     applyCommand(next, cmd, map);
   }
-  stepPlayers(next, inputs, map);
+
+  // Action edges. Contested car entry resolves by player id — deterministic.
+  for (const id of next.players.ids) {
+    const p = next.players.byId[id];
+    if (!p) continue;
+    const input = inputs[id];
+    if (!input) continue;
+    const pressed = input.action && !p.actionHeld;
+    p.actionHeld = input.action;
+    if (!pressed || p.mode === 'dead') continue;
+    if (p.mode === 'foot') tryEnterVehicle(next, p, map);
+    else if (p.mode === 'driving') tryExitVehicle(next, p, map);
+  }
+
+  // Movement.
+  for (const id of next.players.ids) {
+    const p = next.players.byId[id];
+    if (!p) continue;
+    const input = inputs[id];
+    if (p.mode === 'driving' && p.vehicleId !== null) {
+      const v = next.vehicles.byId[p.vehicleId];
+      if (v) {
+        stepVehicleDriving(v, input, map, next);
+        p.pos.x = v.pos.x;
+        p.pos.y = v.pos.y;
+        if (input) {
+          p.lastInputSeq = input.seq;
+          p.aimAngle = input.aimAngle;
+        }
+      }
+    } else {
+      stepPlayerMovement(p, input, map);
+    }
+  }
+
+  // Driverless vehicles coast to rest.
+  for (const id of next.vehicles.ids) {
+    const v = next.vehicles.byId[id];
+    if (!v || v.driverId !== null) continue;
+    stepVehicleCoasting(v, map, next);
+  }
+
   return next;
 }
 
@@ -45,7 +90,23 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       break;
     }
     case 'despawnPlayer': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (p && p.vehicleId !== null) {
+        const v = state.vehicles.byId[p.vehicleId];
+        if (v && v.driverId === cmd.playerId) v.driverId = null;
+      }
       removeEntity(state.players, cmd.playerId);
+      break;
+    }
+    case 'spawnVehicle': {
+      if (getEntity(state.vehicles, cmd.vehicleId)) return;
+      insertEntity(
+        state.vehicles,
+        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading),
+      );
+      if (cmd.vehicleId >= state.nextEntityId) {
+        state.nextEntityId = cmd.vehicleId + 1;
+      }
       break;
     }
   }

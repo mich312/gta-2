@@ -8,7 +8,7 @@ import {
   clamp,
 } from 'shared';
 import type { Screen } from './canvas.js';
-import type { RenderEntity } from '../net/interpolation.js';
+import type { RenderWorld } from '../net/interpolation.js';
 import type { SpriteSheet } from './sprites.js';
 import { drawWorld } from './world.js';
 
@@ -18,8 +18,10 @@ const LOCAL_COLOR = '#f2f2f2';
 export interface Scene {
   /** Predicted local player (zero input lag). */
   local: PlayerState | null;
+  /** Predicted vehicle when the local player is driving. */
+  localVehicle: { pos: { x: number; y: number }; heading: number } | null;
   /** Remote entities on the interpolated timeline. */
-  remotes: RenderEntity[];
+  remotes: RenderWorld;
 }
 
 /** Camera top-left in world coords, snapped to whole pixels. */
@@ -56,10 +58,23 @@ export function render(
 
   drawWorld(ctx, map, cam);
 
-  for (const r of scene.remotes) {
+  for (const rv of scene.remotes.vehicles) {
+    drawVehicle(ctx, sprites, rv.x, rv.y, rv.heading, cam);
+  }
+  if (scene.localVehicle) {
+    drawVehicle(
+      ctx,
+      sprites,
+      scene.localVehicle.pos.x,
+      scene.localVehicle.pos.y,
+      scene.localVehicle.heading,
+      cam,
+    );
+  }
+  for (const r of scene.remotes.players) {
     drawPlayer(ctx, sprites, r.player, r.x, r.y, r.aimAngle, cam, false);
   }
-  if (scene.local) {
+  if (scene.local && scene.local.mode !== 'driving') {
     drawPlayer(
       ctx,
       sprites,
@@ -70,6 +85,26 @@ export function render(
       cam,
       true,
     );
+  }
+}
+
+function drawVehicle(
+  ctx: CanvasRenderingContext2D,
+  sprites: SpriteSheet,
+  wx: number,
+  wy: number,
+  heading: number,
+  cam: Vec2,
+): void {
+  const sx = Math.floor(wx - cam.x);
+  const sy = Math.floor(wy - cam.y);
+  if (!sprites.draw(ctx, 'car', sx, sy, heading)) {
+    ctx.save();
+    ctx.translate(sx, sy);
+    ctx.rotate(heading);
+    ctx.fillStyle = '#b03a3a';
+    ctx.fillRect(-12, -6, 24, 12);
+    ctx.restore();
   }
 }
 

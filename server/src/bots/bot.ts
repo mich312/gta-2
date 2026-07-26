@@ -24,6 +24,7 @@ export interface BotReport {
   fullResyncs: number;
   /** Worst reconciliation correction seen, px. ~0 means prediction is sound. */
   maxCorrection: number;
+  everDrove: boolean;
   bytesIn: number;
   bytesOut: number;
   errors: string[];
@@ -39,6 +40,7 @@ export class Bot {
   readonly errors: string[] = [];
   playerId = -1;
   welcomed = false;
+  everDrove = false;
 
   private readonly sync = new SnapshotSync();
   private readonly predictor = new Predictor();
@@ -115,9 +117,14 @@ export class Bot {
       // Bots run real client-side prediction: reconcile against the
       // authoritative snapshot exactly like the browser client does.
       const me = this.sync.latest?.players.find((p) => p.id === this.playerId);
+      if (me?.mode === 'driving') this.everDrove = true;
       if (me && this.map) {
         const ackSeq = msg.type === 'snapshot' ? msg.ackSeq : me.lastInputSeq;
-        this.predictor.reconcile(me, ackSeq, this.map);
+        const myVehicle =
+          me.vehicleId !== null
+            ? (this.sync.latest?.vehicles.find((v) => v.id === me.vehicleId) ?? null)
+            : null;
+        this.predictor.reconcile(me, myVehicle, ackSeq, this.map);
       }
     }
   }
@@ -126,7 +133,10 @@ export class Bot {
     if (this.timer) return;
     this.timer = setInterval(() => {
       this.localTick++;
-      const keys = this.script(this.localTick, this.index);
+      const keys = this.script(this.localTick, this.index, {
+        me: this.predictor.predicted,
+        snapshot: this.sync.latest,
+      });
       const intent = { seq: this.seq++, tick: this.localTick, ...keys };
       this.send({ type: 'input', ackTick: this.sync.ackTick, intents: [intent] });
       if (this.map) this.predictor.applyLocalInput(intent, this.map);
@@ -152,6 +162,7 @@ export class Bot {
       staleDeltas: this.sync.staleDeltas,
       fullResyncs: this.sync.fullResyncs,
       maxCorrection: this.predictor.maxCorrection,
+      everDrove: this.everDrove,
       bytesIn: this.bytesIn,
       bytesOut: this.bytesOut,
       errors: this.errors.slice(),

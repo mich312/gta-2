@@ -25,13 +25,16 @@ describe('jsonCodec round-trip', () => {
     const msgs: ServerMessage[] = [
       { type: 'pong', t: 1, serverTick: 99 },
       { type: 'error', code: 'nope', message: 'bad' },
-      { type: 'full', tick: 10, snapshot: { tick: 10, players: [] } },
+      { type: 'full', tick: 10, snapshot: { tick: 10, players: [], vehicles: [] } },
       {
         type: 'snapshot',
         tick: 11,
         baseTick: 10,
         ackSeq: 5,
-        delta: { added: [], updated: [{ id: 1, health: 90 }], removed: [2] },
+        delta: {
+          players: { added: [], updated: [{ id: 1, health: 90 }], removed: [2] },
+          vehicles: { added: [], updated: [{ id: 9, speed: 120 }], removed: [] },
+        },
         hash: 12345,
       },
     ];

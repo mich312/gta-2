@@ -7,8 +7,9 @@ import { initTuning, parseWorldgenParams, type WorldgenParams } from 'shared';
  * The parsed values are also shipped to clients in the welcome message.
  */
 export function loadSharedTuning(): void {
-  const url = new URL(import.meta.resolve('shared/data/player.json'));
-  initTuning({ player: JSON.parse(readFileSync(url, 'utf8')) });
+  const read = (name: string): unknown =>
+    JSON.parse(readFileSync(new URL(import.meta.resolve(`shared/data/${name}`)), 'utf8'));
+  initTuning({ player: read('player.json'), vehicles: read('vehicles.json') });
 }
 
 export function loadWorldgenParams(): WorldgenParams {

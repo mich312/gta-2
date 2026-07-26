@@ -1,0 +1,15 @@
+{
+  "car": {
+    "accel": 260,
+    "brake": 520,
+    "reverseAccel": 140,
+    "maxSpeed": 330,
+    "maxReverseSpeed": 90,
+    "friction": 180,
+    "turnRate": 2.8,
+    "minSteerSpeedFrac": 0.25,
+    "crashDamp": 0.25,
+    "enterRadius": 26,
+    "halfExtent": 9
+  }
+}

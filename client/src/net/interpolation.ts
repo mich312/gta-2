@@ -1,15 +1,27 @@
-import type { FullSnapshot, PlayerState } from 'shared';
+import type { FullSnapshot, PlayerState, VehicleState } from 'shared';
 import { TICK_MS, TICK_RATE } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
 export const INTERP_DELAY_TICKS = 3;
 const BUFFER_TICKS = TICK_RATE * 2;
 
-export interface RenderEntity {
+export interface RenderPlayer {
   player: PlayerState;
   x: number;
   y: number;
   aimAngle: number;
+}
+
+export interface RenderVehicle {
+  vehicle: VehicleState;
+  x: number;
+  y: number;
+  heading: number;
+}
+
+export interface RenderWorld {
+  players: RenderPlayer[];
+  vehicles: RenderVehicle[];
 }
 
 /**
@@ -44,15 +56,15 @@ export class Interpolator {
     this.renderTick += frameMs / TICK_MS;
     const latest = this.snapshots[this.snapshots.length - 1];
     if (latest) {
-      // Never render ahead of what we actually have.
       this.renderTick = Math.min(this.renderTick, latest.tick);
       this.renderTick = Math.max(this.renderTick, latest.tick - BUFFER_TICKS);
     }
   }
 
-  /** Interpolated remote entities at the current render time. */
-  sample(excludePlayerId: number): RenderEntity[] {
-    if (this.snapshots.length === 0) return [];
+  /** Interpolated remote entities; the local player + their car are excluded. */
+  sample(excludePlayerId: number, excludeVehicleId: number | null): RenderWorld {
+    const empty: RenderWorld = { players: [], vehicles: [] };
+    if (this.snapshots.length === 0) return empty;
     let a = this.snapshots[0] as FullSnapshot;
     let b = a;
     for (const s of this.snapshots) {
@@ -66,23 +78,32 @@ export class Interpolator {
     const span = b.tick - a.tick;
     const t = span > 0 ? Math.min(1, Math.max(0, (this.renderTick - a.tick) / span)) : 1;
 
-    const out: RenderEntity[] = [];
-    const aById = new Map(a.players.map((p) => [p.id, p]));
+    const players: RenderPlayer[] = [];
+    const pById = new Map(a.players.map((p) => [p.id, p]));
     for (const pb of b.players) {
-      if (pb.id === excludePlayerId) continue;
-      const pa = aById.get(pb.id);
-      if (!pa) {
-        out.push({ player: pb, x: pb.pos.x, y: pb.pos.y, aimAngle: pb.aimAngle });
-        continue;
-      }
-      out.push({
+      if (pb.id === excludePlayerId || pb.mode === 'driving') continue;
+      const pa = pById.get(pb.id);
+      players.push({
         player: pb,
-        x: pa.pos.x + (pb.pos.x - pa.pos.x) * t,
-        y: pa.pos.y + (pb.pos.y - pa.pos.y) * t,
-        aimAngle: lerpAngle(pa.aimAngle, pb.aimAngle, t),
+        x: pa ? pa.pos.x + (pb.pos.x - pa.pos.x) * t : pb.pos.x,
+        y: pa ? pa.pos.y + (pb.pos.y - pa.pos.y) * t : pb.pos.y,
+        aimAngle: pa ? lerpAngle(pa.aimAngle, pb.aimAngle, t) : pb.aimAngle,
       });
     }
-    return out;
+
+    const vehicles: RenderVehicle[] = [];
+    const vById = new Map(a.vehicles.map((v) => [v.id, v]));
+    for (const vb of b.vehicles) {
+      if (vb.id === excludeVehicleId) continue;
+      const va = vById.get(vb.id);
+      vehicles.push({
+        vehicle: vb,
+        x: va ? va.pos.x + (vb.pos.x - va.pos.x) * t : vb.pos.x,
+        y: va ? va.pos.y + (vb.pos.y - va.pos.y) * t : vb.pos.y,
+        heading: va ? lerpAngle(va.heading, vb.heading, t) : vb.heading,
+      });
+    }
+    return { players, vehicles };
   }
 }
 

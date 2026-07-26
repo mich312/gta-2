@@ -1,27 +1,26 @@
-import type { PlayerState } from '../sim/state.js';
-import { clonePlayer } from '../sim/state.js';
+import type { PlayerState, VehicleState } from '../sim/state.js';
+import { clonePlayer, cloneVehicle } from '../sim/state.js';
 import type { InputIntent } from '../sim/input.js';
 import { stepPlayerMovement } from '../sim/player.js';
+import { stepVehicleDriving } from '../sim/vehicle.js';
 import type { CityMap } from '../world/types.js';
 
 const MAX_PENDING = 120;
 
 /**
- * Client-side prediction for the local player, with reconciliation.
+ * Client-side prediction for the local player (on foot or driving), with
+ * reconciliation. Inputs apply to the predicted state immediately (zero
+ * input lag) and are kept pending; on each snapshot we rewind to the
+ * authoritative player/vehicle and replay everything newer than ackSeq.
  *
- * Every sampled input is applied to the predicted state immediately (zero
- * input lag) and kept in a pending buffer. When a snapshot arrives carrying
- * ackSeq, we rewind to the authoritative player state and replay every
- * pending input newer than ackSeq. Because stepPlayerMovement is the same
- * code the server ran (including tile collision), the replayed result
- * matches what the server WILL compute for those inputs — any persistent
- * correction is a real bug.
- *
- * Predicts against the static world only; dynamic entities never block the
- * prediction (the server resolves those, corrections get smoothed).
+ * Deliberately NOT predicted (server-granted, per plan): entering/exiting
+ * vehicles, and collision against other dynamic entities. Those resolve on
+ * the server and arrive as corrections, which stay small because everything
+ * else is bit-exact shared code.
  */
 export class Predictor {
   predicted: PlayerState | null = null;
+  predictedVehicle: VehicleState | null = null;
   /** Magnitude of the last reconciliation correction, px. ~0 when healthy. */
   lastCorrection = 0;
   maxCorrection = 0;
@@ -33,30 +32,56 @@ export class Predictor {
     this.pending.push(intent);
     if (this.pending.length > MAX_PENDING) this.pending.shift();
     if (this.predicted) {
-      stepPlayerMovement(this.predicted, intent, map);
+      this.advance(this.predicted, this.predictedVehicle, intent, map);
     }
   }
 
   /**
    * Rewind to the authoritative state and replay unacked inputs.
-   * ackSeq = last input seq the server has folded into this snapshot.
+   * authoritativeVehicle: the vehicle the player is driving per the same
+   * snapshot (null when on foot).
    */
-  reconcile(authoritative: PlayerState, ackSeq: number, map: CityMap): void {
+  reconcile(
+    authoritative: PlayerState,
+    authoritativeVehicle: VehicleState | null,
+    ackSeq: number,
+    map: CityMap,
+  ): void {
     this.pending = this.pending.filter((i) => i.seq > ackSeq);
     const before = this.predicted;
-    const next = clonePlayer(authoritative);
+    const nextPlayer = clonePlayer(authoritative);
+    const nextVehicle = authoritativeVehicle ? cloneVehicle(authoritativeVehicle) : null;
     for (const intent of this.pending) {
-      stepPlayerMovement(next, intent, map);
+      this.advance(nextPlayer, nextVehicle, intent, map);
     }
     if (before) {
-      const dx = next.pos.x - before.pos.x;
-      const dy = next.pos.y - before.pos.y;
+      const dx = nextPlayer.pos.x - before.pos.x;
+      const dy = nextPlayer.pos.y - before.pos.y;
       this.lastCorrection = Math.sqrt(dx * dx + dy * dy);
       if (this.lastCorrection > this.maxCorrection) {
         this.maxCorrection = this.lastCorrection;
       }
     }
-    this.predicted = next;
+    this.predicted = nextPlayer;
+    this.predictedVehicle = nextVehicle;
+  }
+
+  private advance(
+    p: PlayerState,
+    v: VehicleState | null,
+    intent: InputIntent,
+    map: CityMap,
+  ): void {
+    if (p.mode === 'driving' && v) {
+      // Prediction ignores other dynamic entities: state=null.
+      stepVehicleDriving(v, intent, map, null);
+      p.pos.x = v.pos.x;
+      p.pos.y = v.pos.y;
+      p.lastInputSeq = intent.seq;
+      p.aimAngle = intent.aimAngle;
+    } else {
+      stepPlayerMovement(p, intent, map);
+    }
   }
 
   get pendingCount(): number {

@@ -1,21 +1,27 @@
-import type { GameState, PlayerState } from '../sim/state.js';
-import { clonePlayer } from '../sim/state.js';
+import type { GameState, PlayerState, VehicleState } from '../sim/state.js';
+import { clonePlayer, cloneVehicle } from '../sim/state.js';
 
 export interface FullSnapshot {
   tick: number;
   /** Sorted by id ascending, always. */
   players: PlayerState[];
+  vehicles: VehicleState[];
 }
 
-export type PlayerPatch = { id: number } & Partial<Omit<PlayerState, 'id'>>;
+export type Patch<T> = { id: number } & Partial<Omit<T, 'id'>>;
 
-export interface SnapshotDelta {
-  added: PlayerState[];
-  updated: PlayerPatch[];
+export interface TableDelta<T> {
+  added: T[];
+  updated: Array<Patch<T>>;
   removed: number[];
 }
 
-/** Explicit field list so diffing stays deterministic and reviewable. */
+export interface SnapshotDelta {
+  players: TableDelta<PlayerState>;
+  vehicles: TableDelta<VehicleState>;
+}
+
+/** Explicit field lists so diffing stays deterministic and reviewable. */
 const PLAYER_FIELDS = [
   'name',
   'pos',
@@ -30,12 +36,18 @@ const PLAYER_FIELDS = [
   'wantedLevel',
   'respawnAtTick',
   'lastInputSeq',
+  'actionHeld',
 ] as const;
+
+const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {
     tick: state.tick,
     players: state.players.ids.map((id) => clonePlayer(state.players.byId[id] as PlayerState)),
+    vehicles: state.vehicles.ids.map((id) =>
+      cloneVehicle(state.vehicles.byId[id] as VehicleState),
+    ),
   };
 }
 
@@ -72,37 +84,69 @@ function cloneVal<T>(v: T): T {
   return out as T;
 }
 
-/** Delta between two snapshots. Both inputs must be id-sorted (they always are). */
-export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDelta {
-  const added: PlayerState[] = [];
-  const updated: PlayerPatch[] = [];
+function diffTable<T extends { id: number }>(
+  base: T[],
+  cur: T[],
+  fields: readonly (keyof T & string)[],
+  cloneOne: (t: T) => T,
+): TableDelta<T> {
+  const added: T[] = [];
+  const updated: Array<Patch<T>> = [];
   const removed: number[] = [];
   let i = 0;
   let j = 0;
-  while (i < base.players.length || j < cur.players.length) {
-    const b = base.players[i];
-    const c = cur.players[j];
+  while (i < base.length || j < cur.length) {
+    const b = base[i];
+    const c = cur[j];
     if (b && (!c || b.id < c.id)) {
       removed.push(b.id);
       i++;
     } else if (c && (!b || c.id < b.id)) {
-      added.push(clonePlayer(c));
+      added.push(cloneOne(c));
       j++;
     } else if (b && c) {
       const patch: Record<string, unknown> = { id: c.id };
       let changed = false;
-      for (const f of PLAYER_FIELDS) {
+      for (const f of fields) {
         if (!valueEq(b[f], c[f])) {
           patch[f] = cloneVal(c[f]);
           changed = true;
         }
       }
-      if (changed) updated.push(patch as PlayerPatch);
+      if (changed) updated.push(patch as Patch<T>);
       i++;
       j++;
     }
   }
   return { added, updated, removed };
+}
+
+function applyTable<T extends { id: number }>(
+  base: T[],
+  delta: TableDelta<T>,
+  cloneOne: (t: T) => T,
+): T[] {
+  const byId = new Map<number, T>();
+  for (const e of base) byId.set(e.id, cloneOne(e));
+  for (const id of delta.removed) byId.delete(id);
+  for (const patch of delta.updated) {
+    const e = byId.get(patch.id);
+    if (!e) continue;
+    for (const [k, v] of Object.entries(patch)) {
+      if (k === 'id') continue;
+      (e as unknown as Record<string, unknown>)[k] = cloneVal(v);
+    }
+  }
+  for (const e of delta.added) byId.set(e.id, cloneOne(e));
+  return [...byId.values()].sort((a, b) => a.id - b.id);
+}
+
+/** Delta between two snapshots. Both inputs must be id-sorted (they always are). */
+export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDelta {
+  return {
+    players: diffTable(base.players, cur.players, PLAYER_FIELDS, clonePlayer),
+    vehicles: diffTable(base.vehicles, cur.vehicles, VEHICLE_FIELDS, cloneVehicle),
+  };
 }
 
 /** Apply a delta to the snapshot it was computed against. */
@@ -111,18 +155,9 @@ export function applyDelta(
   delta: SnapshotDelta,
   tick: number,
 ): FullSnapshot {
-  const byId = new Map<number, PlayerState>();
-  for (const p of base.players) byId.set(p.id, clonePlayer(p));
-  for (const id of delta.removed) byId.delete(id);
-  for (const patch of delta.updated) {
-    const p = byId.get(patch.id);
-    if (!p) continue;
-    for (const [k, v] of Object.entries(patch)) {
-      if (k === 'id') continue;
-      (p as unknown as Record<string, unknown>)[k] = cloneVal(v);
-    }
-  }
-  for (const p of delta.added) byId.set(p.id, clonePlayer(p));
-  const players = [...byId.values()].sort((a, b) => a.id - b.id);
-  return { tick, players };
+  return {
+    tick,
+    players: applyTable(base.players, delta.players, clonePlayer),
+    vehicles: applyTable(base.vehicles, delta.vehicles, cloneVehicle),
+  };
 }

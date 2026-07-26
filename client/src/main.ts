@@ -50,7 +50,11 @@ function onStateUpdated(ackSeq: number | null): void {
   interp.push(sync.latest);
   const me = sync.latest.players.find((p) => p.id === playerId);
   if (me) {
-    predictor.reconcile(me, ackSeq ?? me.lastInputSeq, map);
+    const myVehicle =
+      me.vehicleId !== null
+        ? (sync.latest.vehicles.find((v) => v.id === me.vehicleId) ?? null)
+        : null;
+    predictor.reconcile(me, myVehicle, ackSeq ?? me.lastInputSeq, map);
   }
 }
 
@@ -123,8 +127,13 @@ function frame(now: number): void {
   interp.advance(frameMs);
   stats.update();
 
+  const driving = predictor.predicted?.mode === 'driving';
   const scene: Scene | null = sync.latest
-    ? { local: predictor.predicted, remotes: interp.sample(playerId) }
+    ? {
+        local: predictor.predicted,
+        localVehicle: driving ? predictor.predictedVehicle : null,
+        remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
+      }
     : null;
   render(screen, map, scene, cam, sprites);
 

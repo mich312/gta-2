@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../../shared/data/player.json';
+import vehiclesJson from '../../shared/data/vehicles.json';
 import worldgenJson from '../../shared/data/worldgen.json';
 import {
   type InputIntent,
@@ -19,7 +20,7 @@ import { buildStateMessage } from '../src/net/broadcast.js';
 const worldgen = parseWorldgenParams(worldgenJson);
 
 beforeAll(() => {
-  initTuning({ player: playerTuning });
+  initTuning({ player: playerTuning, vehicles: vehiclesJson });
 });
 
 function intent(seq: number, tick: number, pid: number): InputIntent {

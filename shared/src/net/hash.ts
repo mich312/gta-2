@@ -24,6 +24,10 @@ export function hashNumber(h: number, v: number): number {
   return h;
 }
 
+export function hashBool(h: number, b: boolean): number {
+  return fnv(h, b ? 1 : 0);
+}
+
 export function hashString(h: number, s: string): number {
   h = fnv(h, s.length & 0xff);
   for (let i = 0; i < s.length; i++) {
@@ -58,6 +62,16 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.wantedLevel);
     h = hashNumber(h, p.respawnAtTick ?? -1);
     h = hashNumber(h, p.lastInputSeq);
+    h = hashBool(h, p.actionHeld);
+  }
+  for (const v of snap.vehicles) {
+    h = hashNumber(h, v.id);
+    h = hashString(h, v.kind);
+    h = hashNumber(h, v.pos.x);
+    h = hashNumber(h, v.pos.y);
+    h = hashNumber(h, v.heading);
+    h = hashNumber(h, v.speed);
+    h = hashNumber(h, v.driverId ?? -1);
   }
   return h >>> 0;
 }

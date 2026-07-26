@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../data/player.json';
+import vehiclesJson from '../data/vehicles.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -13,7 +14,7 @@ import { hashSnapshot } from '../src/net/hash.js';
 const map = generateCity(910, parseWorldgenParams(worldgenJson));
 
 beforeAll(() => {
-  initTuning({ player: playerTuning });
+  initTuning({ player: playerTuning, vehicles: vehiclesJson });
 });
 
 describe('snapshot delta', () => {
@@ -39,8 +40,8 @@ describe('snapshot delta', () => {
     const snapB = takeSnapshot(state);
 
     const delta = diffSnapshots(snapA, snapB);
-    expect(delta.removed).toContain(2);
-    expect(delta.added.map((p) => p.id)).toContain(3);
+    expect(delta.players.removed).toContain(2);
+    expect(delta.players.added.map((p) => p.id)).toContain(3);
 
     const rebuilt = applyDelta(snapA, delta, snapB.tick);
     expect(rebuilt).toEqual(snapB);
@@ -55,9 +56,11 @@ describe('snapshot delta', () => {
     state = step(state, {}, [], map);
     const b = takeSnapshot(state);
     const delta = diffSnapshots(a, b);
-    expect(delta.added).toEqual([]);
-    expect(delta.removed).toEqual([]);
-    expect(delta.updated).toEqual([]);
+    expect(delta.players.added).toEqual([]);
+    expect(delta.players.removed).toEqual([]);
+    expect(delta.players.updated).toEqual([]);
+    expect(delta.vehicles.added).toEqual([]);
+    expect(delta.vehicles.updated).toEqual([]);
   });
 
   it('delta application is not a reference share (mutating rebuilt leaves base intact)', () => {
