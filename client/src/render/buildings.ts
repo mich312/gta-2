@@ -201,7 +201,13 @@ function makeStructure(map: CityMap, b: Building): Structure {
   const s = new VisualStream(map.seed ^ 0xb1d, b.x, b.y);
   const range = STOREYS[b.district] ?? [1, 2];
   const storeys = range[0] + s.int(range[1] - range[0] + 1);
-  const base = (palette.building as Record<string, string>)[b.district] ?? palette.building.downtown;
+  // Each district owns a small family of façade hues; every building picks
+  // one, so blocks read as a neighbourhood instead of a single flat colour.
+  const variants = (palette.buildingVariants as Record<string, string[]>)[b.district];
+  const base =
+    (variants && variants.length > 0 ? variants[s.int(variants.length)] : undefined) ??
+    (palette.building as Record<string, string>)[b.district] ??
+    palette.building.downtown;
   const tint = s.range(-0.06, 0.06);
   // Walls sit in shade and keep the district hue; roofs read as weathered
   // concrete — district colour pulled well toward grey, lighter when taller.

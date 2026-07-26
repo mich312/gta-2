@@ -56,7 +56,10 @@ const PLAYER_FIELDS = [
   'heat',
 ] as const;
 
-const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
+// aiWait is deliberately NOT diffed: it ticks up/down every tick a traffic
+// car is blocked, remote clients never read it, and (like lastInputSeq) it is
+// excluded from the snapshot hash so the wire copy can lag the sim's.
+const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId', 'ai', 'aiDir'] as const;
 const COP_FIELDS = ['pos', 'vel', 'targetId', 'health', 'fireCooldown', 'idleTicks'] as const;
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp'] as const;

@@ -1,5 +1,12 @@
 import type { PlayerState } from 'shared';
-import { ATLAS_ROTATION_STEPS, CAR_COLORS, COSMETIC_OUTFITS, PED_OUTFITS, REMOTE_SHIRTS } from './style.js';
+import {
+  ATLAS_ROTATION_STEPS,
+  CAR_COLORS,
+  COSMETIC_OUTFITS,
+  PED_HATS,
+  PED_OUTFITS,
+  REMOTE_SHIRTS,
+} from './style.js';
 import { hashPick, shade } from './visualRng.js';
 
 /**
@@ -224,7 +231,7 @@ function paintHumanoid(ctx: CanvasRenderingContext2D, look: HumanoidLook, frame:
   px(ctx, 11, 7, 1, 2, look.skin);
   if (cap) {
     px(ctx, 12, 7, 1, 2, shade(look.hat, 0.3)); // brim
-    px(ctx, 8, 7, 1, 1, '#d8b64a'); // badge glint
+    if (look.hat === '#233d73') px(ctx, 8, 7, 1, 1, '#d8b64a'); // cop badge glint
   } else {
     px(ctx, 8, 7, 2, 1, shade(look.hair, 0.28)); // sheen
   }
@@ -249,7 +256,9 @@ export function pedSpriteKey(id: number): string {
   const outfit = PED_OUTFITS[hashPick(17, id, 2, PED_OUTFITS.length)] as (typeof PED_OUTFITS)[number];
   const skin = SKIN_TONES[hashPick(11, id, 3, SKIN_TONES.length)] as string;
   const hair = HAIR[hashPick(13, id, 4, HAIR.length)] as string;
-  return `hum:${outfit.shirt},${outfit.pants},${skin},${hair},,0`;
+  // Roughly one in five wears a hat — crowds read as individuals, not clones.
+  const hat = hashPick(19, id, 6, 5) === 0 ? (PED_HATS[hashPick(29, id, 7, PED_HATS.length)] as string) : '';
+  return `hum:${outfit.shirt},${outfit.pants},${skin},${hair},${hat},0`;
 }
 
 function remoteShirt(id: number): string {

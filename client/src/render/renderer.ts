@@ -435,7 +435,7 @@ export class RenderPipeline {
       L.points.push({ x, y, radius: 34, intensity: 0.8, glow: s.kind === 'gun' ? '#e8a075' : '#75c8e8', glowAlpha: 0.10 });
     }
 
-    // Headlights + taillight glow for driven cars.
+    // Headlights + taillight glow for driven cars and moving traffic.
     const cone = (x: number, y: number, heading: number): void => {
       const fx = x + Math.cos(heading) * 13;
       const fy = y + Math.sin(heading) * 13;
@@ -443,7 +443,8 @@ export class RenderPipeline {
       L.points.push({ x: fx, y: fy, radius: 18, intensity: 0.7 });
     };
     for (const rv of scene.remotes.vehicles) {
-      if (rv.vehicle.driverId !== null) cone(rv.x, rv.y, rv.heading);
+      const trafficMoving = rv.vehicle.ai === 1 && Math.abs(rv.vehicle.speed) > 4;
+      if (rv.vehicle.driverId !== null || trafficMoving) cone(rv.x, rv.y, rv.heading);
     }
     if (scene.localVehicle) cone(scene.localVehicle.pos.x, scene.localVehicle.pos.y, scene.localVehicle.heading);
 

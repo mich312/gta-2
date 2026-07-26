@@ -76,6 +76,9 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.heading);
     h = hashNumber(h, v.speed);
     h = hashNumber(h, v.driverId ?? -1);
+    h = hashNumber(h, v.ai);
+    h = hashNumber(h, v.aiDir);
+    // aiWait is not hashed: it is not diffed over the wire (see snapshot.ts).
   }
   for (const c of snap.cops) {
     h = hashNumber(h, c.id);

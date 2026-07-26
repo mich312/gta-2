@@ -1,5 +1,56 @@
 # PROGRESS
 
+## Phase 9 — city liveliness + map visual variety
+
+**What changed.** Two answers to "the city feels lifeless and the map
+monotone." (1) **Ambient traffic**: ~30 driverless cars cruise the arterial
+roads as sim entities (`shared/src/sim/traffic.ts`). Worldgen now emits
+`trafficSpawns` — lane-centred points on arterials (crossing width ≥ 3
+tiles), right-hand lanes at 1/3 and 2/3 of the road width — and kerb
+parking was removed from arterials (checked after the rng draws, so the
+worldgen stream and every other spawn list are byte-identical to phase 8).
+Traffic cars carry three new VehicleState fields (`ai`, `aiDir`, `aiWait`)
+and drive on the established staggered 3-tick NPC cadence: cardinal route
+intents, lane-keeping steer, braking for players/peds/cops/cars ahead, rng
+turns at intersections, and a stuck-timeout that pivots them away from
+blockages (they steer even at rest — braking must not deadlock the escape
+turn). Cruise speed (104) sits below the prop-break (110), run-over (130),
+and ped-scare (140) thresholds, so traffic is calm until a player isn't.
+A stopped traffic car can be carjacked — `ai` clears and it's an ordinary
+car (and a theft) forever after. Spawns are recorded commands; old replays
+(no `ai` flag) replay unchanged. `aiWait` is deliberately excluded from
+deltas and the snapshot hash, like `lastInputSeq`: it churns every blocked
+tick and remote clients never read it. PROTOCOL_VERSION bumped to 2.
+(2) **Map variety, all client-side**: per-district façade palettes (each
+building hash-picks one of 4–6 hues), district-tinted sidewalks, zebra
+crossings where corridors meet intersections, 14 ped outfits (up from 6)
+plus occasional hats, 14 car colours (up from 8), and moving traffic gets
+headlight cones at night.
+
+**Verification.** 75 tests green (69 + 6 new): traffic spawn invariants,
+lane-holding cruise on a synthetic arterial, braking for a player with
+zero contact/damage then timeout-and-leave, carjack conversion, opposing
+cars sorting into lanes and passing untouched, and a 900-tick roam over
+the real city (12 cars: never in a building, ≥ 90 % on-road, every car
+> 400 px travelled, two runs bit-identical). 8-bot brawl with traffic +
+200 peds + police: PASS, lockstep 1810..1810, 0 desyncs, 41–49 KB/s
+(under the 50 KB/s gate). Joyride PASS. Replay of the brawl session
+re-simulates hash-identical twice. Client `vite build` clean; eyeballed
+live in headless Chromium — day (crosswalks, façade variety, tints) and
+night (traffic driving with headlights, lit windows).
+
+**Deliberately deferred.** Traffic on secondary streets (two cars can't
+pass in 2 tiles; arterials only keeps it deadlock-free). Traffic lights /
+stop lines as behavior. Vehicle-vs-vehicle damage. Per-district ped
+density and ped road-crossing discipline.
+
+**Least confident about.** Traffic *feel* at the margins — cars pivot in
+place when escaping a blockage (arcade, reads fine at 16 px but is not
+car-like), and a player who parks across an arterial lane will collect a
+queue until each car's timeout disperses it. Bandwidth headroom is now
+~2–9 KB/s under the gate in brawls; the binary codec seam is the next
+lever if anything else wants to move.
+
 ## Phase 8 — destructible props
 
 **What changed.** Lamp posts, bins, and fences as sim entities with exactly

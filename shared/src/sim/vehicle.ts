@@ -34,14 +34,23 @@ function overlapsOtherVehicle(
   return false;
 }
 
-/** Move a vehicle by its speed/heading, colliding with tiles and (server-side) other cars. */
-function integrateVehicle(v: VehicleState, map: CityMap, state: GameState | null): void {
+/**
+ * Move a vehicle by its speed/heading, colliding with tiles and (server-side)
+ * other cars. `dtMul` lets NPC traffic integrate on the staggered 3-tick
+ * cadence (10 Hz, 3× step) like peds and cops; player cars always pass 1.
+ */
+export function integrateVehicle(
+  v: VehicleState,
+  map: CityMap,
+  state: GameState | null,
+  dtMul = 1,
+): void {
   const t = getVehicleTuning(v.kind);
   if (v.speed === 0) return;
   const beforeX = v.pos.x;
   const beforeY = v.pos.y;
-  const dx = dCos(v.heading) * v.speed * DT;
-  const dy = dSin(v.heading) * v.speed * DT;
+  const dx = dCos(v.heading) * v.speed * DT * dtMul;
+  const dy = dSin(v.heading) * v.speed * DT * dtMul;
   const tmpVel = { x: dx, y: dy };
   moveWithCollision(map, v.pos, tmpVel, t.halfExtent, dx, dy);
   const hitWall = (dx !== 0 && tmpVel.x === 0) || (dy !== 0 && tmpVel.y === 0);
@@ -119,6 +128,8 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   }
   if (!best) return false;
   addHeat(p, getTuning().police.heatPerTheft); // grand theft auto, witnessed or not
+  best.ai = 0; // a jacked traffic car is a normal car forever after
+  best.aiWait = 0;
   best.driverId = p.id;
   p.mode = 'driving';
   p.vehicleId = best.id;

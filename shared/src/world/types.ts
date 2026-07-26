@@ -73,6 +73,8 @@ export interface CityMap {
   buildings: Building[];
   shops: Shop[];
   vehicleSpawns: VehicleSpawn[];
+  /** Lane-centred spawn points on arterial roads for ambient traffic. */
+  trafficSpawns: VehicleSpawn[];
   playerSpawns: Vec2[];
   /** Dense sidewalk points for pedestrian spawning (phase 7). */
   pedSpawns: Vec2[];

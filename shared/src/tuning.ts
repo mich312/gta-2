@@ -66,6 +66,33 @@ export interface PedTuning {
   heatPerPedKill: number;
 }
 
+export interface TrafficTuning {
+  /** Ambient traffic cars a session spawns (capped by available lane spots). */
+  count: number;
+  /** Cruise speed, px/s. Kept below prop-break / run-over / ped-scare thresholds. */
+  cruiseSpeed: number;
+  /** Speed while turning toward a new cardinal direction, px/s. */
+  turnSpeed: number;
+  /** Probe distance for "does my road continue", px. */
+  lookAhead: number;
+  /** Longer probe used to validate a turn onto a crossing road, px. */
+  turnProbe: number;
+  /** Base braking distance for obstacles ahead, px. */
+  brakeDistance: number;
+  /** Extra braking distance per px/s of speed. */
+  brakeDistancePerSpeed: number;
+  /** Half-width of the "obstacle ahead" corridor, px. */
+  laneHalfWidth: number;
+  /** Steering gain pulling a car onto its lane centre (rad per px offset). */
+  laneKeepGain: number;
+  /** Ticks stuck behind an obstacle before turning away. */
+  blockedTimeoutTicks: number;
+  /** Ticks between optional turn decisions per car. */
+  decisionCadenceTicks: number;
+  /** Chance to turn at an intersection per decision opportunity. */
+  turnChance: number;
+}
+
 export interface PropKindTuning {
   hp: number;
   radius: number;
@@ -86,6 +113,7 @@ export interface Tuning {
   police: PoliceTuning;
   peds: PedTuning;
   props: PropsTuning;
+  traffic: TrafficTuning;
 }
 
 let current: Tuning | null = null;
@@ -197,6 +225,40 @@ function parsePropsTuning(raw: unknown): PropsTuning {
   };
 }
 
+function parseTrafficTuning(raw: unknown): TrafficTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `traffic.${k}`);
+  return {
+    count: n('count'),
+    cruiseSpeed: n('cruiseSpeed'),
+    turnSpeed: n('turnSpeed'),
+    lookAhead: n('lookAhead'),
+    turnProbe: n('turnProbe'),
+    brakeDistance: n('brakeDistance'),
+    brakeDistancePerSpeed: n('brakeDistancePerSpeed'),
+    laneHalfWidth: n('laneHalfWidth'),
+    laneKeepGain: n('laneKeepGain'),
+    blockedTimeoutTicks: n('blockedTimeoutTicks'),
+    decisionCadenceTicks: n('decisionCadenceTicks'),
+    turnChance: n('turnChance'),
+  };
+}
+
+const DEFAULT_TRAFFIC: TrafficTuning = {
+  count: 30,
+  cruiseSpeed: 104,
+  turnSpeed: 56,
+  lookAhead: 44,
+  turnProbe: 80,
+  brakeDistance: 30,
+  brakeDistancePerSpeed: 0.35,
+  laneHalfWidth: 14,
+  laneKeepGain: 0.03,
+  blockedTimeoutTicks: 75,
+  decisionCadenceTicks: 21,
+  turnChance: 0.25,
+};
+
 const DEFAULT_PROPS: PropsTuning = {
   kinds: {
     lamp: { hp: 15, radius: 4 },
@@ -245,6 +307,7 @@ export function initTuning(raw: {
   police?: unknown;
   peds?: unknown;
   props?: unknown;
+  traffic?: unknown;
 }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
@@ -263,6 +326,7 @@ export function initTuning(raw: {
     police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
     peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
     props: raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS,
+    traffic: raw.traffic !== undefined ? parseTrafficTuning(raw.traffic) : DEFAULT_TRAFFIC,
   };
 }
 

@@ -1,6 +1,53 @@
 import { nextIntRange, nextRange } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
-import { DISTRICT_TYPES, T_ROAD, type BlockRect, type DistrictType } from './types.js';
+import {
+  DISTRICT_TYPES,
+  T_ROAD,
+  tileAt,
+  type BlockRect,
+  type CityMap,
+  type DistrictType,
+} from './types.js';
+
+export interface RoadSpan {
+  /** Contiguous road tiles before (tx,ty) along the axis. */
+  before: number;
+  /** Total contiguous road width through (tx,ty) along the axis. */
+  width: number;
+}
+
+/**
+ * Width of the contiguous road span through (tx,ty) along one axis, capped at
+ * `cap` tiles per side. On a corridor the crossing axis reads the road's true
+ * width; along the corridor it reads long. Both long ⇒ an intersection box.
+ * Used by traffic AI, worldgen amenities, and (duplicated for chunk baking)
+ * the client ground renderer.
+ */
+export function roadSpanAt(
+  map: CityMap,
+  tx: number,
+  ty: number,
+  axisX: boolean,
+  cap = 8,
+): RoadSpan {
+  const sx = axisX ? 1 : 0;
+  const sy = axisX ? 0 : 1;
+  let before = 0;
+  while (before < cap && tileAt(map, tx - sx * (before + 1), ty - sy * (before + 1)) === T_ROAD) {
+    before++;
+  }
+  let after = 0;
+  while (after < cap && tileAt(map, tx + sx * (after + 1), ty + sy * (after + 1)) === T_ROAD) {
+    after++;
+  }
+  return { before, width: before + after + 1 };
+}
+
+/** True when (tx,ty) sits inside an intersection box (long spans both ways). */
+export function isIntersectionTile(map: CityMap, tx: number, ty: number): boolean {
+  if (tileAt(map, tx, ty) !== T_ROAD) return false;
+  return roadSpanAt(map, tx, ty, true).width > 6 && roadSpanAt(map, tx, ty, false).width > 6;
+}
 
 export interface RoadsResult {
   blocks: BlockRect[];

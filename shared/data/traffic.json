@@ -1,0 +1,14 @@
+{
+  "count": 30,
+  "cruiseSpeed": 104,
+  "turnSpeed": 56,
+  "lookAhead": 44,
+  "turnProbe": 80,
+  "brakeDistance": 30,
+  "brakeDistancePerSpeed": 0.35,
+  "laneHalfWidth": 14,
+  "laneKeepGain": 0.03,
+  "blockedTimeoutTicks": 75,
+  "decisionCadenceTicks": 21,
+  "turnChance": 0.25
+}

@@ -8,6 +8,7 @@ import {
   placePlayerSpawns,
   placeProps,
   placeShops,
+  placeTrafficSpawns,
   placeVehicleSpawns,
 } from './amenities.js';
 import { TILE_SIZE, type CityMap } from './types.js';
@@ -40,6 +41,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     buildings: [],
     shops: [],
     vehicleSpawns: [],
+    trafficSpawns: [],
     playerSpawns: [],
     pedSpawns: [],
     propSpawns: [],
@@ -65,6 +67,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   rng = placeShops(map, params, rng);
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);
+  placeTrafficSpawns(map);
   placePedSpawns(map);
   placeProps(map);
 

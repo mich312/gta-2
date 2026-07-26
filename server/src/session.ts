@@ -12,6 +12,7 @@ import {
   SNAPSHOT_RING_TICKS,
   createGameState,
   generateCity,
+  getTuning,
   step,
   takeSnapshot,
 } from 'shared';
@@ -108,6 +109,26 @@ export class Session {
         x: s.x,
         y: s.y,
         heading: s.heading,
+      });
+    }
+
+    // Ambient traffic: cars cruising the arterial lanes. Same command path,
+    // so replays reproduce them; the traffic AI itself lives in the sim.
+    const trafficSpawns = this.map.trafficSpawns;
+    const trafficCount = Math.min(getTuning().traffic.count, trafficSpawns.length);
+    const trafficStride =
+      trafficCount > 0 ? Math.max(1, Math.floor(trafficSpawns.length / trafficCount)) : 1;
+    for (let i = 0; i < trafficCount; i++) {
+      const s = trafficSpawns[(i * trafficStride) % trafficSpawns.length];
+      if (!s) continue;
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+        ai: true,
       });
     }
 

@@ -11,11 +11,12 @@ import {
   T_ROAD,
   T_SIDEWALK,
   TILE_SIZE,
+  districtAt,
   tileAt,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { CHUNK_CACHE_MAX, CHUNK_TILES } from './style.js';
-import { VisualStream, hash01, hashPick, shade } from './visualRng.js';
+import { VisualStream, hash01, hashPick, mix, shade } from './visualRng.js';
 
 /**
  * Chunked ground renderer. The tile layer is baked into offscreen canvases
@@ -167,6 +168,12 @@ function roadSpan(
   return { before, width: before + after + 1 };
 }
 
+/** True when (tx,ty) sits inside an intersection box (long spans both ways). */
+function isIntersectionAt(map: CityMap, tx: number, ty: number): boolean {
+  if (tileAt(map, tx, ty) !== T_ROAD) return false;
+  return roadSpan(map, tx, ty, 1, 0).width > 6 && roadSpan(map, tx, ty, 0, 1).width > 6;
+}
+
 function paintRoad(
   ctx: CanvasRenderingContext2D,
   map: CityMap,
@@ -227,6 +234,26 @@ function paintRoad(
     }
   }
 
+  // Zebra crossings where a corridor meets an intersection box.
+  if (!isIntersection) {
+    ctx.fillStyle = 'rgba(222, 226, 230, 0.38)';
+    if (h.width >= v.width && v.width >= 2 && v.width <= 6) {
+      if (isIntersectionAt(map, tx + 1, ty)) {
+        for (let yy = 1; yy < TILE_SIZE - 1; yy += 4) ctx.fillRect(sx + TILE_SIZE - 7, sy + yy, 5, 2);
+      }
+      if (isIntersectionAt(map, tx - 1, ty)) {
+        for (let yy = 1; yy < TILE_SIZE - 1; yy += 4) ctx.fillRect(sx + 2, sy + yy, 5, 2);
+      }
+    } else if (v.width > h.width && h.width >= 2 && h.width <= 6) {
+      if (isIntersectionAt(map, tx, ty + 1)) {
+        for (let xx = 1; xx < TILE_SIZE - 1; xx += 4) ctx.fillRect(sx + xx, sy + TILE_SIZE - 7, 2, 5);
+      }
+      if (isIntersectionAt(map, tx, ty - 1)) {
+        for (let xx = 1; xx < TILE_SIZE - 1; xx += 4) ctx.fillRect(sx + xx, sy + 2, 2, 5);
+      }
+    }
+  }
+
   // Occasional manhole cover.
   if (hash01(seed ^ 0x33c, tx, ty) < 0.02) {
     const mx = sx + 8;
@@ -253,8 +280,12 @@ function paintSidewalk(
   sy: number,
 ): void {
   const seed = map.seed;
+  // Pavement leans toward its district's hue — downtown cool, industrial
+  // grimy, residential warm — so crossing a district line is felt underfoot.
+  const tint = (palette.sidewalkTint as Record<string, string>)[districtAt(map, tx, ty)];
+  const base = tint ? mix(palette.sidewalk, tint, 0.35) : palette.sidewalk;
   const drift = (hash01(seed ^ 0x51d, tx, ty) - 0.5) * 0.09;
-  ctx.fillStyle = shade(palette.sidewalk, drift);
+  ctx.fillStyle = shade(base, drift);
   ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
 
   // Slab seams on the tile grid.
