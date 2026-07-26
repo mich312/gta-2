@@ -44,6 +44,8 @@ export interface PoliceTuning {
   spawnCooldownTicks: number;
   copHealth: number;
   moveSpeed: number;
+  /** Harbor-patrol pursuit speed on water, px/s (boats are fast). */
+  marineSpeed: number;
   sightRange: number;
   fireRange: number;
   weapon: string;
@@ -184,6 +186,7 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     spawnCooldownTicks: n('spawnCooldownTicks'),
     copHealth: n('copHealth'),
     moveSpeed: n('moveSpeed'),
+    marineSpeed: r['marineSpeed'] === undefined ? DEFAULT_POLICE.marineSpeed : n('marineSpeed'),
     sightRange: n('sightRange'),
     fireRange: n('fireRange'),
     weapon,
@@ -304,6 +307,7 @@ const DEFAULT_POLICE: PoliceTuning = {
   spawnCooldownTicks: 18,
   copHealth: 50,
   moveSpeed: 122,
+  marineSpeed: 205,
   sightRange: 260,
   fireRange: 190,
   weapon: 'copPistol',

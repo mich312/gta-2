@@ -2,6 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../data/player.json';
 import vehiclesJson from '../data/vehicles.json';
 import trafficJson from '../data/traffic.json';
+import weaponsJson from '../data/weapons.json';
+import policeJson from '../data/police.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -37,6 +39,22 @@ function bayMap(): CityMap {
     tiles[ty * W + 12] = T_SAND;
     tiles[ty * W + 13] = T_SAND;
   }
+  // Moorings along the shore: harbor patrol launches from these.
+  const boatSpawns: CityMap['boatSpawns'] = [];
+  for (let ty = 2; ty < H - 2; ty += 4) {
+    boatSpawns.push({
+      x: 4.5 * TILE_SIZE,
+      y: (ty + 0.5) * TILE_SIZE,
+      heading: Math.PI / 2,
+      kind: 'boat',
+      moored: ty % 8 === 2,
+    });
+  }
+  // Kerbside-style land points so street cops can muster on the field.
+  const vehicleSpawns: CityMap['vehicleSpawns'] = [];
+  for (let ty = 2; ty < H - 2; ty += 4) {
+    vehicleSpawns.push({ x: 30.5 * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE, heading: 0, kind: 'car' });
+  }
   return {
     seed: 0,
     widthTiles: W,
@@ -48,9 +66,9 @@ function bayMap(): CityMap {
     blocks: [],
     buildings: [],
     shops: [],
-    vehicleSpawns: [],
+    vehicleSpawns,
     trafficSpawns: [],
-    boatSpawns: [],
+    boatSpawns,
     playerSpawns: [{ x: 12.5 * TILE_SIZE, y: 20 * TILE_SIZE }],
     pedSpawns: [],
     propSpawns: [],
@@ -58,7 +76,13 @@ function bayMap(): CityMap {
 }
 
 beforeAll(() => {
-  initTuning({ player: playerTuning, vehicles: vehiclesJson, traffic: trafficJson });
+  initTuning({
+    player: playerTuning,
+    vehicles: vehiclesJson,
+    traffic: trafficJson,
+    weapons: weaponsJson,
+    police: policeJson,
+  });
 });
 
 function key(seq: number, keys: Partial<InputIntent>): InputIntent {
@@ -194,6 +218,88 @@ describe('water and boats in the sim', () => {
     expect(a.dist).toBeGreaterThan(600); // it genuinely sails
     const b = run();
     expect(hashState(b.state)).toBe(hashState(a.state));
+  });
+
+  it('harbor patrol: marine cops launch, stay afloat, close in, and draw blood', () => {
+    const run = (): GameState => {
+      const m = bayMap();
+      let state = createGameState(21);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'pirate' }], m);
+      const cmds: SimCommand[] = [
+        {
+          type: 'spawnVehicle',
+          vehicleId: 70,
+          kind: 'boat',
+          x: 11 * TILE_SIZE,
+          y: 20 * TILE_SIZE,
+          heading: Math.PI, // bow out to sea
+        },
+      ];
+      state = step(state, {}, cmds, m);
+      state = step(state, { 1: key(1, { action: true }) }, [], m);
+      expect(state.players.byId[1]!.mode).toBe('driving');
+      let seq = 2;
+      // Sail offshore, then become very wanted.
+      for (let i = 0; i < 40; i++) state = step(state, { 1: key(seq++, { up: true }) }, [], m);
+      state.players.byId[1]!.heat = 300; // three stars, earned somehow
+      let sawMarine = false;
+      let closed = false;
+      for (let i = 0; i < 400; i++) {
+        state = step(state, { 1: key(seq++, {}) }, [], m);
+        const p = state.players.byId[1]!;
+        for (const cid of state.cops.ids) {
+          const cop = state.cops.byId[cid]!;
+          expect(cop.marine).toBe(true); // the fugitive is afloat: launches only
+          const tx = Math.floor(cop.pos.x / TILE_SIZE);
+          const ty = Math.floor(cop.pos.y / TILE_SIZE);
+          expect(tileAt(m, tx, ty)).toBe(T_WATER); // patrol never climbs ashore
+          sawMarine = true;
+          if (Math.hypot(cop.pos.x - p.pos.x, cop.pos.y - p.pos.y) < 190) closed = true;
+        }
+      }
+      expect(sawMarine).toBe(true); // the water is pressure, not a pardon
+      expect(closed).toBe(true); // they get inside firing range
+      expect(state.players.byId[1]!.health).toBeLessThan(100); // and they shoot
+      return state;
+    };
+    const a = run();
+    const b = run();
+    expect(hashState(b)).toBe(hashState(a)); // the whole chase is deterministic
+  });
+
+  it('street cops on the shore do not block the harbor patrol from launching', () => {
+    const m = bayMap();
+    let state = createGameState(23);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'fugitive' }], m);
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 80, kind: 'boat', x: 11 * TILE_SIZE, y: 20 * TILE_SIZE, heading: Math.PI }],
+      m,
+    );
+    // Hot while still on the beach: the street unit musters first. Board as
+    // soon as they arrive — loitering under fire is (correctly) lethal.
+    state.players.byId[1]!.heat = 300;
+    let seq = 1;
+    let landCops = 0;
+    for (let i = 0; i < 90 && landCops < 2; i++) {
+      state = step(state, { 1: key(seq++, {}) }, [], m);
+      landCops = state.cops.ids.filter((id) => !state.cops.byId[id]!.marine).length;
+    }
+    expect(landCops).toBeGreaterThanOrEqual(2);
+    expect(state.cops.ids.some((id) => state.cops.byId[id]!.marine)).toBe(false);
+
+    // Take to the water — the medium-scoped cap must let launches spawn
+    // even though the street cops still exist and still watch.
+    state = step(state, { 1: key(seq++, { action: true }) }, [], m);
+    expect(state.players.byId[1]!.mode).toBe('driving');
+    for (let i = 0; i < 60; i++) state = step(state, { 1: key(seq++, { up: true }) }, [], m);
+    let marine = 0;
+    for (let i = 0; i < 240 && marine < 2; i++) {
+      state = step(state, { 1: key(seq++, {}) }, [], m);
+      marine = state.cops.ids.filter((id) => state.cops.byId[id]!.marine).length;
+    }
+    expect(marine).toBeGreaterThanOrEqual(2);
   });
 
   it('a moored boat can be boarded from the beach, driven, and only exited ashore', () => {

@@ -364,13 +364,21 @@ function paintCar(ctx: CanvasRenderingContext2D, style: CarStyle, body: string):
 // -------------------------------------------------------------------- boats
 
 function boatSpec(arg: string): SpriteSpec {
-  const hull = arg || '#d8d4c8';
+  const police = arg === 'police';
+  const hull = police ? '#2b4a8a' : arg || '#d8d4c8';
   return {
     w: 32,
     h: 14,
     frames: 1,
     steps: ATLAS_ROTATION_STEPS,
-    paint: (ctx) => paintBoat(ctx, hull),
+    paint: (ctx) => {
+      paintBoat(ctx, hull);
+      if (police) {
+        px(ctx, 4, 6, 18, 1, '#e8ecf2'); // hull stripe
+        px(ctx, 13, 5, 2, 1, '#e05555'); // light bar on the cabin roof
+        px(ctx, 13, 8, 2, 1, '#5a8ae8');
+      }
+    },
   };
 }
 

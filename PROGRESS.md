@@ -61,6 +61,29 @@ warps play. The promenade/beach reduce land area ~7 %; block/shop/spawn
 densities still pass their invariants but downtown can sit closer to the
 shore on some seeds than others (aesthetic variance, not correctness).
 
+**Update (post-review): harbor patrol.** The water-as-escape hole is
+closed. Cops gained a `marine` flag: when a wanted player is afloat
+(tile under them is water), new pursuers spawn from the boat moorings as
+police launches instead of from the kerb — same greedy chase, but moving
+on the water medium (`isSolidForBoat`) at a boat-speed `marineSpeed`
+(police.json, 205 px/s — faster than a fleeing boat's cruise, slower than
+its flat-out top speed, so running is tense but possible). Firing needed
+no changes: cop shots already trace with the buildings-only ray, so
+launches shoot you at the helm. Two cap rules make the force feel right:
+the per-fugitive spawn cap counts only cops in the *right medium* for
+where the target currently is (street cops pacing the promenade can't
+block the launch from launching — found by playtest scripting, not by the
+first test), and a cop stranded in the wrong medium out of firing range
+accrues idle ticks and stands down instead of pinning a pursuit slot
+forever. Client renders marine cops as a blue-striped police launch with
+a red/blue strobing glow at night. Protocol bumped to 3 (new cop field).
+Verified: 83 tests green — a pure-water chase (launches spawn, stay on
+water, close inside firing range, draw blood, bit-identical twice) and
+the mixed-force scenario (street unit musters on the beach first, player
+sails, launches still spawn); brawl lockstep 0 desyncs; replay
+hash-identical. The `__debug` E2E affordance gained nearestPed/vehicle
+kind/marine counts for automated staging.
+
 ## Phase 9 — city liveliness + map visual variety
 
 **What changed.** Two answers to "the city feels lifeless and the map

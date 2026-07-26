@@ -259,8 +259,14 @@ export class RenderPipeline {
       const sx = c.x - cam.x;
       const sy = c.y - cam.y;
       const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
-      this.atlas.draw(ctx, 'blob:10x7', sx + shDx, sy + shDy, 0);
-      this.atlas.draw(ctx, copSpriteKey(), sx, sy, angle, this.walkFrame(`c${c.cop.id}`));
+      if (c.cop.marine) {
+        // Harbor patrol rides a police launch, not a pair of shoes.
+        this.atlas.draw(ctx, 'blob:28x12', sx + shDx, sy + shDy, angle);
+        this.atlas.draw(ctx, 'boat:police', sx, sy, angle);
+      } else {
+        this.atlas.draw(ctx, 'blob:10x7', sx + shDx, sy + shDy, 0);
+        this.atlas.draw(ctx, copSpriteKey(), sx, sy, angle, this.walkFrame(`c${c.cop.id}`));
+      }
     }
 
     for (const r of scene.remotes.players) {
@@ -486,6 +492,20 @@ export class RenderPipeline {
     if (scene.localVehicle) {
       if (scene.localVehicle.kind === 'boat') navLight(scene.localVehicle.pos.x, scene.localVehicle.pos.y);
       else cone(scene.localVehicle.pos.x, scene.localVehicle.pos.y, scene.localVehicle.heading);
+    }
+
+    // Harbor patrol strobes red/blue across the water.
+    const strobeBlue = Math.floor(now / 260) % 2 === 0;
+    for (const c of scene.remotes.cops) {
+      if (!c.cop.marine) continue;
+      L.points.push({
+        x: c.x,
+        y: c.y,
+        radius: 46,
+        intensity: 0.8,
+        glow: strobeBlue ? '#5a8ae8' : '#e05555',
+        glowAlpha: 0.16,
+      });
     }
 
     // Fresh muzzle flashes light the street for a beat.

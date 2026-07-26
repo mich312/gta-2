@@ -20,6 +20,8 @@ export interface CopState {
   fireCooldown: number;
   /** Ticks spent with no wanted target; despawns past the tuned limit. */
   idleTicks: number;
+  /** Harbor patrol: moves on water (boat), spawned when the fugitive sails. */
+  marine: boolean;
 }
 
 export interface PropState {
@@ -144,7 +146,7 @@ export function clonePed(p: PedState): PedState {
   return { ...p, pos: cloneVec(p.pos) };
 }
 
-export function createCop(id: number, pos: Vec2, health: number): CopState {
+export function createCop(id: number, pos: Vec2, health: number, marine = false): CopState {
   return {
     id,
     pos: cloneVec(pos),
@@ -153,6 +155,7 @@ export function createCop(id: number, pos: Vec2, health: number): CopState {
     health,
     fireCooldown: 0,
     idleTicks: 0,
+    marine,
   };
 }
 
