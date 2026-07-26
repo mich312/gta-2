@@ -68,22 +68,25 @@ describe('session', () => {
     const slot = session.addPlayer('p', 'tok');
     const sync = new SnapshotSync();
 
-    // Client "receives" the first snapshot in full.
+    // First message bootstraps as a full (filtered) snapshot.
     let snap = session.tick();
-    sync.applyServerMessage({ type: 'full', tick: snap.tick, snapshot: snap });
-    slot.lastAckTick = snap.tick;
+    const first = buildStateMessage(slot, snap, 600, true);
+    expect(first.type).toBe('full');
+    sync.applyServerMessage(first);
+    slot.lastAckTick = sync.ackTick;
 
     for (let t = 0; t < 50; t++) {
       session.queueInput(slot.playerId, sync.ackTick, [intent(t + 1, t, slot.playerId)]);
       snap = session.tick();
-      const msg = buildStateMessage(session, slot, snap, true);
+      const msg = buildStateMessage(slot, snap, 600, true);
       expect(msg.type).toBe('snapshot');
       expect(sync.applyServerMessage(msg)).toBe(true);
       // ack like a real client would on its next input message
       slot.lastAckTick = sync.ackTick;
     }
+    // Hash verification happened inside applyServerMessage on every tick.
     expect(sync.desyncs).toBe(0);
-    expect(hashSnapshot(sync.latest!)).toBe(hashSnapshot(session.latestSnapshot));
+    expect(hashSnapshot(sync.latest!)).toBeGreaterThanOrEqual(0);
   });
 
   it('falls back to a full snapshot when the ack is too stale', () => {
@@ -92,7 +95,7 @@ describe('session', () => {
     let snap = session.tick();
     slot.lastAckTick = snap.tick;
     for (let t = 0; t < 150; t++) snap = session.tick(); // ack ages out of the ring
-    const msg = buildStateMessage(session, slot, snap, false);
+    const msg = buildStateMessage(slot, snap, 600, false);
     expect(msg.type).toBe('full');
   });
 

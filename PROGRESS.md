@@ -1,5 +1,49 @@
 # PROGRESS
 
+## Phase 7 — pedestrian crowds + interest management
+
+**What changed.** 200 pedestrians per session: sim entities that wander
+sidewalks (weighted direction picks that prefer staying on pavement), flee
+gunfire, deaths, and speeding cars, and die to bullets and bumpers — killing
+one is a crime. NPCs (peds AND cops) move on a staggered 3-tick cadence
+(10 Hz with 3× steps — interpolation renders it smooth, sim cost and delta
+traffic drop to a third). Interest management: per-client filtered
+snapshots — players always included, driven cars ride along, parked cars/
+cops/peds only within a 600 px radius — with the delta base being the
+filtered snapshot that client acked (per-slot ring), so AOI enter/leave
+falls out as ordinary add/remove rows and the client needed zero changes.
+Positional events (shots) are radius-filtered too; kill-feed events stay
+global. Getting under budget took real bandwidth work: quantizing sim
+floats to exact-binary grids (pos/vel 1/8 px, angles 1/256 — 17-digit JSON
+floats were the single biggest cost), integer tracer endpoints, dropping
+`lastInputSeq` from diffs (remote clients never read it; own reconciliation
+rides the message ackSeq), and an exact-binary heat-decay rate.
+
+**Verification.** 63 tests green: ped wander determinism with zero
+building-clips over 200 peds × 300 ticks, gunfire scatter, ped-kill heat,
+AOI filter correctness (everything excluded is provably far), a moving
+client staying hash-consistent through 600 ticks of AOI churn (500+ hashed
+deltas, 0 desyncs), and stale-ack full-snapshot fallback. THE GATE: 8-bot
+brawl with 200 peds + police swarm — 40-44 KB/s per client, under the
+50 KB/s budget, 0 desyncs, lockstep (harness now fails any run over
+50 KB/s, permanently). Quantization surfaced a genuine -0 bug (JSON writes
+-0 as "0", hashes disagreed by a sign bit) — fixed at quantizer and hash.
+
+**Deliberately deferred.** The binary codec — JSON now fits the budget with
+headroom, so per the plan ("switch when profiling proves it") it stays JSON;
+the Codec seam is ready when richer traffic (phase 8 props, more players)
+needs it. Ped variety (one sprite), sidewalk crossing behavior at lights,
+per-district ped density.
+
+**Least confident about.** The 10 Hz NPC cadence under packet loss —
+interpolation smooths steady streams; a hiccup drops NPC keyframes harder
+than player ones. Brawl clusters bots (worst case for AOI); a pathological
+all-eight-players-in-one-plaza scenario still fits budget by measurement,
+but barely half of it is headroom. -0 taught me JSON round-tripping has
+sharp edges; if another eigenvalue like NaN ever enters the sim it will
+desync — sanitizeIntent guards the only external float inputs, but a sim
+bug producing NaN would poison hashes silently.
+
 ## Phase 6 — police and wanted levels
 
 **What changed.** Heat-based wanted system, entirely in the sim: violence

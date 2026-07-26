@@ -1,5 +1,5 @@
-import type { CopState, GameState, PlayerState, VehicleState } from '../sim/state.js';
-import { cloneCop, clonePlayer, cloneVehicle } from '../sim/state.js';
+import type { CopState, GameState, PedState, PlayerState, VehicleState } from '../sim/state.js';
+import { cloneCop, clonePed, clonePlayer, cloneVehicle } from '../sim/state.js';
 
 export interface FullSnapshot {
   tick: number;
@@ -7,6 +7,7 @@ export interface FullSnapshot {
   players: PlayerState[];
   vehicles: VehicleState[];
   cops: CopState[];
+  peds: PedState[];
 }
 
 export type Patch<T> = { id: number } & Partial<Omit<T, 'id'>>;
@@ -21,6 +22,7 @@ export interface SnapshotDelta {
   players: TableDelta<PlayerState>;
   vehicles: TableDelta<VehicleState>;
   cops: TableDelta<CopState>;
+  peds: TableDelta<PedState>;
 }
 
 /** Explicit field lists so diffing stays deterministic and reviewable. */
@@ -37,7 +39,8 @@ const PLAYER_FIELDS = [
   'cosmeticId',
   'wantedLevel',
   'respawnAtTick',
-  'lastInputSeq',
+  // lastInputSeq is deliberately NOT diffed: remote clients never use it and
+  // it changes every tick; own reconciliation rides on the message's ackSeq.
   'actionHeld',
   'fireCooldown',
   'carHitCooldown',
@@ -46,6 +49,7 @@ const PLAYER_FIELDS = [
 
 const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
 const COP_FIELDS = ['pos', 'vel', 'targetId', 'health', 'fireCooldown', 'idleTicks'] as const;
+const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {
@@ -55,6 +59,7 @@ export function takeSnapshot(state: GameState): FullSnapshot {
       cloneVehicle(state.vehicles.byId[id] as VehicleState),
     ),
     cops: state.cops.ids.map((id) => cloneCop(state.cops.byId[id] as CopState)),
+    peds: state.peds.ids.map((id) => clonePed(state.peds.byId[id] as PedState)),
   };
 }
 
@@ -154,6 +159,7 @@ export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDe
     players: diffTable(base.players, cur.players, PLAYER_FIELDS, clonePlayer),
     vehicles: diffTable(base.vehicles, cur.vehicles, VEHICLE_FIELDS, cloneVehicle),
     cops: diffTable(base.cops, cur.cops, COP_FIELDS, cloneCop),
+    peds: diffTable(base.peds, cur.peds, PED_FIELDS, clonePed),
   };
 }
 
@@ -168,5 +174,6 @@ export function applyDelta(
     players: applyTable(base.players, delta.players, clonePlayer),
     vehicles: applyTable(base.vehicles, delta.vehicles, cloneVehicle),
     cops: applyTable(base.cops, delta.cops, cloneCop),
+    peds: applyTable(base.peds, delta.peds, clonePed),
   };
 }

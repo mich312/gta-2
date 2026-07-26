@@ -1,4 +1,5 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
+import { q8 } from '../math/vec.js';
 import { dAtan2, dCos, dSin } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
@@ -110,10 +111,10 @@ function copFire(
     type: 'shot',
     tick: state.tick,
     playerId: -cop.id,
-    x0: cop.pos.x,
-    y0: cop.pos.y,
-    x1: cop.pos.x + dirX * hitDist,
-    y1: cop.pos.y + dirY * hitDist,
+    x0: Math.round(cop.pos.x),
+    y0: Math.round(cop.pos.y),
+    x1: Math.round(cop.pos.x + dirX * hitDist),
+    y1: Math.round(cop.pos.y + dirY * hitDist),
   });
   if (hit) applyDamage(state, hit, weapon.damage, -1, 'police', events);
 }
@@ -168,12 +169,14 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     cop.targetId = target.id;
 
     // Chase: greedy steering; axis-separated collision gives wall-slide.
-    if (bestD > 24) {
+    // Staggered 3-tick cadence like peds: NPC motion at 10 Hz, 3x step —
+    // interpolation smooths it and delta traffic drops to a third.
+    if (bestD > 24 && (state.tick + cid) % 3 === 0) {
       const dirX = (target.pos.x - cop.pos.x) / bestD;
       const dirY = (target.pos.y - cop.pos.y) / bestD;
       cop.vel.x = dirX * t.moveSpeed;
       cop.vel.y = dirY * t.moveSpeed;
-      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT, cop.vel.y * DT);
+      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT * 3, cop.vel.y * DT * 3);
       if (cop.vel.x === 0 && cop.vel.y === 0) {
         // Fully wedged in a corner: deterministic sidestep along a wall.
         let flip: number;
@@ -183,9 +186,13 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
         const sy = dirX * side * t.moveSpeed;
         cop.vel.x = sx;
         cop.vel.y = sy;
-        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT, sy * DT);
+        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT * 3, sy * DT * 3);
       }
-    } else {
+      cop.pos.x = q8(cop.pos.x);
+      cop.pos.y = q8(cop.pos.y);
+      cop.vel.x = q8(cop.vel.x);
+      cop.vel.y = q8(cop.vel.y);
+    } else if (bestD <= 24) {
       cop.vel.x = 0;
       cop.vel.y = 0;
     }

@@ -10,6 +10,8 @@ import { loadSharedTuning } from '../tuning.js';
  * Driving scripts get more slack: enter/exit transitions and car-vs-car
  * contact are deliberately unpredicted (server-granted). */
 const CORRECTION_LIMIT_PX: Record<string, number> = { default: 32, joyride: 96, brawl: 96 };
+/** Phase-7 gate: with 200 peds, each client must stay under 50 KB/s down. */
+const MAX_KBPS_IN = 50;
 
 interface Args {
   count: number;
@@ -113,6 +115,10 @@ async function main(): Promise<void> {
     const corrLimit = CORRECTION_LIMIT_PX[args.script] ?? CORRECTION_LIMIT_PX['default'] ?? 32;
     if (r.maxCorrection > corrLimit) {
       failures.push(`${r.name}: prediction correction ${r.maxCorrection.toFixed(1)}px`);
+    }
+    const kbps = r.bytesIn / 1024 / args.duration;
+    if (kbps > MAX_KBPS_IN) {
+      failures.push(`${r.name}: ${kbps.toFixed(1)} KB/s down exceeds ${MAX_KBPS_IN}`);
     }
     for (const e of r.errors) failures.push(`${r.name}: ${e}`);
   }

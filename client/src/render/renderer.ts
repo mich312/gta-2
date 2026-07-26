@@ -71,6 +71,14 @@ export function render(
       cam,
     );
   }
+  for (const pd of scene.remotes.peds) {
+    const sx = Math.floor(pd.x - cam.x);
+    const sy = Math.floor(pd.y - cam.y);
+    if (!sprites.draw(ctx, 'ped', sx, sy, Math.atan2(pd.ped.dirY, pd.ped.dirX))) {
+      ctx.fillStyle = '#7a7f6d';
+      ctx.fillRect(sx - 5, sy - 5, 10, 10);
+    }
+  }
   for (const c of scene.remotes.cops) {
     const sx = Math.floor(c.x - cam.x);
     const sy = Math.floor(c.y - cam.y);

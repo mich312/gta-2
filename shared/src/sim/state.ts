@@ -22,6 +22,20 @@ export interface CopState {
   idleTicks: number;
 }
 
+export type PedMode = 'walk' | 'flee';
+
+export interface PedState {
+  id: number;
+  pos: Vec2;
+  /** Unit heading the ped walks along. */
+  dirX: number;
+  dirY: number;
+  mode: PedMode;
+  health: number;
+  /** Ticks until the next wander turn (walk) or until calming down (flee). */
+  timer: number;
+}
+
 export interface VehicleState {
   id: number;
   kind: string;
@@ -74,6 +88,7 @@ export interface GameState {
   players: EntityTable<PlayerState>;
   vehicles: EntityTable<VehicleState>;
   cops: EntityTable<CopState>;
+  peds: EntityTable<PedState>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -85,7 +100,16 @@ export function createGameState(seed: number): GameState {
     players: createTable(),
     vehicles: createTable(),
     cops: createTable(),
+    peds: createTable(),
   };
+}
+
+export function createPed(id: number, pos: Vec2, health: number): PedState {
+  return { id, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
+}
+
+export function clonePed(p: PedState): PedState {
+  return { ...p, pos: cloneVec(p.pos) };
 }
 
 export function createCop(id: number, pos: Vec2, health: number): CopState {
@@ -163,5 +187,6 @@ export function cloneState(s: GameState): GameState {
     players: cloneTable(s.players, clonePlayer),
     vehicles: cloneTable(s.vehicles, cloneVehicle),
     cops: cloneTable(s.cops, cloneCop),
+    peds: cloneTable(s.peds, clonePed),
   };
 }

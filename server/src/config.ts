@@ -13,6 +13,9 @@ export interface ServerConfig {
   replayDir: string | null;
   /** JSON persistence file (FileStore). MySQL replaces this via the same interface. */
   persistPath: string;
+  pedCount: number;
+  /** Interest-management radius (px): entities beyond it aren't sent. */
+  interestRadius: number;
 }
 
 function envInt(v: string | undefined, fallback: number): number {
@@ -30,5 +33,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     weaponsLostOnDeath: env['WEAPONS_LOST_ON_DEATH'] !== 'false',
     replayDir: env['REPLAY'] === '0' ? null : (env['REPLAY_DIR'] ?? 'replays'),
     persistPath: env['PERSIST_PATH'] ?? 'data/persist.json',
+    pedCount: envInt(env['PED_COUNT'], 200),
+    interestRadius: envInt(env['INTEREST_RADIUS'], 600),
   };
 }

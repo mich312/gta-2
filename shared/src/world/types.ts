@@ -74,6 +74,8 @@ export interface CityMap {
   shops: Shop[];
   vehicleSpawns: VehicleSpawn[];
   playerSpawns: Vec2[];
+  /** Dense sidewalk points for pedestrian spawning (phase 7). */
+  pedSpawns: Vec2[];
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

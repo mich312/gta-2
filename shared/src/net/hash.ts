@@ -19,7 +19,9 @@ function fnv(h: number, byte: number): number {
 }
 
 export function hashNumber(h: number, v: number): number {
-  view.setFloat64(0, v);
+  // -0 and +0 must hash equal: JSON writes both as "0", so a client
+  // reconstructing from the wire can never see the sign bit.
+  view.setFloat64(0, v === 0 ? 0 : v);
   for (let i = 0; i < 8; i++) h = fnv(h, view.getUint8(i));
   return h;
 }
@@ -61,7 +63,6 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.cosmeticId);
     h = hashNumber(h, p.wantedLevel);
     h = hashNumber(h, p.respawnAtTick ?? -1);
-    h = hashNumber(h, p.lastInputSeq);
     h = hashBool(h, p.actionHeld);
     h = hashNumber(h, p.fireCooldown);
     h = hashNumber(h, p.carHitCooldown);
@@ -86,6 +87,16 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, c.health);
     h = hashNumber(h, c.fireCooldown);
     h = hashNumber(h, c.idleTicks);
+  }
+  for (const ped of snap.peds) {
+    h = hashNumber(h, ped.id);
+    h = hashNumber(h, ped.pos.x);
+    h = hashNumber(h, ped.pos.y);
+    h = hashNumber(h, ped.dirX);
+    h = hashNumber(h, ped.dirY);
+    h = hashString(h, ped.mode);
+    h = hashNumber(h, ped.health);
+    h = hashNumber(h, ped.timer);
   }
   return h >>> 0;
 }

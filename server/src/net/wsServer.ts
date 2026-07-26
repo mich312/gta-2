@@ -11,7 +11,7 @@ import {
 import type { ServerConfig } from '../config.js';
 import type { Session } from '../session.js';
 import type { Economy } from '../economy/economy.js';
-import { buildStateMessage } from './broadcast.js';
+import { buildStateMessage, filterSnapshot } from './broadcast.js';
 import { ClientConn } from './client.js';
 
 export class GameServer {
@@ -43,8 +43,17 @@ export class GameServer {
     for (const [playerId, conn] of this.byPlayer) {
       const slot = this.session.slots.get(playerId);
       if (!slot || !slot.connected) continue;
-      conn.send(buildStateMessage(this.session, slot, snap, withHash));
+      conn.send(buildStateMessage(slot, snap, this.config.interestRadius, withHash));
+      const me = snap.players.find((p) => p.id === playerId);
       for (const ev of this.session.lastEvents) {
+        // Interest management applies to events too: positional events
+        // (shots) outside the radius are noise; kill-feed events are global.
+        if (ev.type === 'shot' && me) {
+          const dx = ev.x0 - me.pos.x;
+          const dy = ev.y0 - me.pos.y;
+          const r = this.config.interestRadius;
+          if (dx * dx + dy * dy > r * r) continue;
+        }
         conn.send({ type: 'event', tick: snap.tick, event: ev });
       }
     }
@@ -145,6 +154,11 @@ export class GameServer {
     this.byPlayer.set(slot.playerId, conn);
 
     const snap = this.session.latestSnapshot;
+    // Welcome is filtered too (a fresh join must not receive 200 peds);
+    // the player entity doesn't exist yet, so only players + driven cars.
+    const me = snap.players.find((p) => p.id === slot.playerId);
+    const filtered = filterSnapshot(snap, me ? me.pos : null, this.config.interestRadius);
+    slot.sentRing.set(filtered.tick, filtered);
     slot.lastAckTick = snap.tick;
     conn.send({
       type: 'welcome',
@@ -153,7 +167,7 @@ export class GameServer {
       tick: snap.tick,
       tickRate: TICK_RATE,
       resumeToken: slot.resumeToken,
-      snapshot: snap,
+      snapshot: filtered,
       tuning: getTuning(),
       worldgen: this.session.worldgen,
       catalog: this.economy.catalog,

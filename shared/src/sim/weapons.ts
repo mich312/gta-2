@@ -2,9 +2,10 @@ import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { dCos, dSin } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
-import type { CopState, GameState, PlayerState } from './state.js';
+import type { CopState, GameState, PedState, PlayerState } from './state.js';
 import { addHeat } from './state.js';
 import { removeEntity } from './entities.js';
+import { damagePed } from './peds.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -89,6 +90,7 @@ function fireOnce(
 
   let hitPlayer: PlayerState | null = null;
   let hitCop: CopState | null = null;
+  let hitPed: PedState | null = null;
   let hitDist = wallDist;
   for (const id of state.players.ids) {
     if (id === shooter.id) continue;
@@ -126,21 +128,43 @@ function fireOnce(
       hitPlayer = null;
     }
   }
+  for (const id of state.peds.ids) {
+    const ped = state.peds.byId[id];
+    if (!ped) continue;
+    const d = rayCircleDistance(
+      shooter.pos.x,
+      shooter.pos.y,
+      dirX,
+      dirY,
+      ped.pos.x,
+      ped.pos.y,
+      PLAYER_RADIUS,
+    );
+    if (d < hitDist) {
+      hitDist = d;
+      hitPed = ped;
+      hitCop = null;
+      hitPlayer = null;
+    }
+  }
 
   events.push({
     type: 'shot',
     tick: state.tick,
     playerId: shooter.id,
-    x0: shooter.pos.x,
-    y0: shooter.pos.y,
-    x1: shooter.pos.x + dirX * hitDist,
-    y1: shooter.pos.y + dirY * hitDist,
+    // Rounded: tracer endpoints are display-only, ints keep events small.
+    x0: Math.round(shooter.pos.x),
+    y0: Math.round(shooter.pos.y),
+    x1: Math.round(shooter.pos.x + dirX * hitDist),
+    y1: Math.round(shooter.pos.y + dirY * hitDist),
   });
 
   if (hitPlayer) {
     applyDamage(state, hitPlayer, damage, shooter.id, weaponId, events);
   } else if (hitCop) {
     damageCop(state, hitCop, damage, shooter.id, events);
+  } else if (hitPed) {
+    damagePed(state, hitPed, damage, shooter.id, events);
   }
 }
 
@@ -239,7 +263,7 @@ export function stepWeapons(
   }
 }
 
-/** Run-over damage: fast cars hurt pedestrians-on-foot they overlap. */
+/** Run-over damage: fast cars hurt anyone on foot they overlap. */
 export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
   for (const vid of state.vehicles.ids) {
     const v = state.vehicles.byId[vid];
@@ -252,6 +276,13 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         p.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         const damage = Math.abs(v.speed) * 0.12;
         applyDamage(state, p, damage, v.driverId ?? -1, 'vehicle', events);
+      }
+    }
+    for (const pedId of [...state.peds.ids]) {
+      const ped = state.peds.byId[pedId];
+      if (!ped) continue;
+      if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
+        damagePed(state, ped, Math.abs(v.speed) * 0.2, v.driverId ?? -1, events);
       }
     }
   }

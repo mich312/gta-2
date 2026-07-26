@@ -122,6 +122,20 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
   return rng;
 }
 
+/** Every 5th sidewalk tile, row-major: plenty of deterministic ped spots. */
+export function placePedSpawns(map: CityMap): void {
+  const spawns: Vec2[] = [];
+  let n = 0;
+  for (let ty = 0; ty < map.heightTiles; ty++) {
+    for (let tx = 0; tx < map.widthTiles; tx++) {
+      if (t(map, tx, ty) !== T_SIDEWALK) continue;
+      n++;
+      if (n % 5 === 0) spawns.push({ x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE });
+    }
+  }
+  map.pedSpawns = spawns;
+}
+
 export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: number): number {
   // Deterministic candidate list: every 3rd sidewalk tile, row-major.
   const candidates: Vec2[] = [];

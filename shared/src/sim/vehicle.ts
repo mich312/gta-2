@@ -1,6 +1,6 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
-import { approach } from '../math/vec.js';
+import { approach, q8, q256 } from '../math/vec.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat } from './state.js';
@@ -54,6 +54,9 @@ function integrateVehicle(v: VehicleState, map: CityMap, state: GameState | null
     v.pos.y = beforeY;
     v.speed = 0;
   }
+  v.pos.x = q8(v.pos.x);
+  v.pos.y = q8(v.pos.y);
+  v.speed = q8(v.speed);
 }
 
 /** One tick of driver-controlled vehicle. */
@@ -81,7 +84,7 @@ export function stepVehicleDriving(
   if (steer !== 0 && v.speed !== 0) {
     const authority = Math.min(1, Math.abs(v.speed) / (t.maxSpeed * t.minSteerSpeedFrac));
     const dir = v.speed >= 0 ? 1 : -1; // reversing inverts steering, like a car
-    v.heading = wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT);
+    v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
   integrateVehicle(v, map, state);

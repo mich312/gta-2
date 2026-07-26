@@ -8,6 +8,9 @@ import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
 import { stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepPolice } from './police.js';
+import { stepPeds } from './peds.js';
+import { createPed } from './state.js';
+import { getTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid } from '../world/collide.js';
@@ -81,6 +84,7 @@ export function step(
   stepWeapons(next, inputs, map, events);
   stepVehicleImpacts(next, events);
   stepPolice(next, map, events);
+  stepPeds(next, map, events);
 
   return next;
 }
@@ -140,6 +144,12 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
         if (v && v.driverId === cmd.playerId) v.driverId = null;
       }
       removeEntity(state.players, cmd.playerId);
+      break;
+    }
+    case 'spawnPed': {
+      if (getEntity(state.peds, cmd.pedId)) return;
+      insertEntity(state.peds, createPed(cmd.pedId, { x: cmd.x, y: cmd.y }, getTuning().peds.health));
+      if (cmd.pedId >= state.nextEntityId) state.nextEntityId = cmd.pedId + 1;
       break;
     }
     case 'spawnVehicle': {

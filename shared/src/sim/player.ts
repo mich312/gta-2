@@ -1,5 +1,5 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
-import { approach } from '../math/vec.js';
+import { approach, q8 } from '../math/vec.js';
 import { getTuning } from '../tuning.js';
 import type { GameState, PlayerState } from './state.js';
 import type { InputIntent } from './input.js';
@@ -42,6 +42,10 @@ export function stepPlayerMovement(
   p.vel.y = approach(p.vel.y, dy * walkSpeed, maxDelta);
 
   moveWithCollision(map, p.pos, p.vel, PLAYER_RADIUS, p.vel.x * DT, p.vel.y * DT);
+  p.pos.x = q8(p.pos.x);
+  p.pos.y = q8(p.pos.y);
+  p.vel.x = q8(p.vel.x);
+  p.vel.y = q8(p.vel.y);
 }
 
 /** All players, in sorted-id order. */

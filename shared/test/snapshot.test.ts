@@ -44,6 +44,12 @@ describe('snapshot delta', () => {
     expect(delta.players.added.map((p) => p.id)).toContain(3);
 
     const rebuilt = applyDelta(snapA, delta, snapB.tick);
+    // lastInputSeq is deliberately excluded from diffing (bandwidth): patch
+    // it over before comparing; everything else must reproduce exactly.
+    for (const p of rebuilt.players) {
+      const server = snapB.players.find((sp) => sp.id === p.id)!;
+      p.lastInputSeq = server.lastInputSeq;
+    }
     expect(rebuilt).toEqual(snapB);
     expect(hashSnapshot(rebuilt)).toBe(hashSnapshot(snapB));
   });

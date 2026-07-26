@@ -1,4 +1,4 @@
-import type { CopState, FullSnapshot, PlayerState, VehicleState } from 'shared';
+import type { CopState, FullSnapshot, PedState, PlayerState, VehicleState } from 'shared';
 import { TICK_MS, TICK_RATE } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
@@ -25,10 +25,17 @@ export interface RenderCop {
   y: number;
 }
 
+export interface RenderPed {
+  ped: PedState;
+  x: number;
+  y: number;
+}
+
 export interface RenderWorld {
   players: RenderPlayer[];
   vehicles: RenderVehicle[];
   cops: RenderCop[];
+  peds: RenderPed[];
 }
 
 /**
@@ -70,7 +77,7 @@ export class Interpolator {
 
   /** Interpolated remote entities; the local player + their car are excluded. */
   sample(excludePlayerId: number, excludeVehicleId: number | null): RenderWorld {
-    const empty: RenderWorld = { players: [], vehicles: [], cops: [] };
+    const empty: RenderWorld = { players: [], vehicles: [], cops: [], peds: [] };
     if (this.snapshots.length === 0) return empty;
     let a = this.snapshots[0] as FullSnapshot;
     let b = a;
@@ -120,7 +127,17 @@ export class Interpolator {
         y: ca ? ca.pos.y + (cb.pos.y - ca.pos.y) * t : cb.pos.y,
       });
     }
-    return { players, vehicles, cops };
+    const peds: RenderPed[] = [];
+    const pedById = new Map(a.peds.map((p) => [p.id, p]));
+    for (const pb of b.peds) {
+      const pa = pedById.get(pb.id);
+      peds.push({
+        ped: pb,
+        x: pa ? pa.pos.x + (pb.pos.x - pa.pos.x) * t : pb.pos.x,
+        y: pa ? pa.pos.y + (pb.pos.y - pa.pos.y) * t : pb.pos.y,
+      });
+    }
+    return { players, vehicles, cops, peds };
   }
 }
 

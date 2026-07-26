@@ -1,4 +1,5 @@
 import { wrapAngle } from '../math/trig.js';
+import { q256 } from '../math/vec.js';
 
 /**
  * The only thing a client may tell the server about gameplay.
@@ -46,7 +47,7 @@ export function sanitizeIntent(raw: unknown): InputIntent | null {
   if (typeof tick !== 'number' || !Number.isFinite(tick) || tick < 0) return null;
   const rawAim = r['aimAngle'];
   const aimAngle =
-    typeof rawAim === 'number' && Number.isFinite(rawAim) ? wrapAngle(rawAim) : 0;
+    typeof rawAim === 'number' && Number.isFinite(rawAim) ? q256(wrapAngle(rawAim)) : 0;
   return {
     seq: Math.floor(seq),
     tick: Math.floor(tick),

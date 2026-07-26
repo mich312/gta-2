@@ -25,6 +25,7 @@ export const DEFAULT_LOADOUT: WeaponSlot[] = [{ weaponId: 'pistol', ammo: 90 }];
 
 export interface SessionOptions {
   weaponsLostOnDeath: boolean;
+  pedCount: number;
 }
 /** Max consecutive ticks a missing client keeps "holding" their last keys. */
 const MAX_HELD_TICKS = 6;
@@ -48,6 +49,8 @@ export interface PlayerSlot {
   lastInputSeq: number;
   /** Last snapshot tick the client acked; deltas are computed against it. */
   lastAckTick: number;
+  /** Ring of FILTERED snapshots actually sent to this client (interest mgmt). */
+  sentRing: Map<number, FullSnapshot>;
 }
 
 export interface ReplayWriter {
@@ -83,7 +86,10 @@ export class Session {
     private readonly recorder: ReplayWriter | null = null,
     options: Partial<SessionOptions> = {},
   ) {
-    this.options = { weaponsLostOnDeath: options.weaponsLostOnDeath ?? true };
+    this.options = {
+      weaponsLostOnDeath: options.weaponsLostOnDeath ?? true,
+      pedCount: options.pedCount ?? 200,
+    };
     this.seed = seed;
     this.worldgen = worldgen;
     this.map = generateCity(seed, worldgen);
@@ -104,6 +110,16 @@ export class Session {
         heading: s.heading,
       });
     }
+
+    // The crowds. Evenly sampled from the dense sidewalk spawn list.
+    const pedSpawns = this.map.pedSpawns;
+    const count = Math.min(this.options.pedCount, pedSpawns.length);
+    const stride = count > 0 ? Math.max(1, Math.floor(pedSpawns.length / count)) : 1;
+    for (let i = 0; i < count; i++) {
+      const spot = pedSpawns[(i * stride) % pedSpawns.length];
+      if (!spot) continue;
+      this.pendingCommands.push({ type: 'spawnPed', pedId: this.nextId++, x: spot.x, y: spot.y });
+    }
   }
 
   addPlayer(name: string, resumeToken: string): PlayerSlot {
@@ -120,6 +136,7 @@ export class Session {
       lastQueuedSeq: 0,
       lastInputSeq: 0,
       lastAckTick: -1,
+      sentRing: new Map(),
     };
     this.slots.set(playerId, slot);
     this.pendingCommands.push({

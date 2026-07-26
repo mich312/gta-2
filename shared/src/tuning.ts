@@ -55,11 +55,23 @@ export interface PoliceTuning {
   despawnTicks: number;
 }
 
+export interface PedTuning {
+  walkSpeed: number;
+  fleeSpeed: number;
+  health: number;
+  turnMinTicks: number;
+  turnMaxTicks: number;
+  fleeRadius: number;
+  fleeTicks: number;
+  heatPerPedKill: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
   weapons: Record<string, WeaponTuning>;
   police: PoliceTuning;
+  peds: PedTuning;
 }
 
 let current: Tuning | null = null;
@@ -135,6 +147,32 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
   };
 }
 
+function parsePedTuning(raw: unknown): PedTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `peds.${k}`);
+  return {
+    walkSpeed: n('walkSpeed'),
+    fleeSpeed: n('fleeSpeed'),
+    health: n('health'),
+    turnMinTicks: n('turnMinTicks'),
+    turnMaxTicks: n('turnMaxTicks'),
+    fleeRadius: n('fleeRadius'),
+    fleeTicks: n('fleeTicks'),
+    heatPerPedKill: n('heatPerPedKill'),
+  };
+}
+
+const DEFAULT_PEDS: PedTuning = {
+  walkSpeed: 48,
+  fleeSpeed: 116,
+  health: 30,
+  turnMinTicks: 40,
+  turnMaxTicks: 140,
+  fleeRadius: 170,
+  fleeTicks: 105,
+  heatPerPedKill: 80,
+};
+
 const DEFAULT_POLICE: PoliceTuning = {
   copsPerStar: 2,
   maxCopsPerPlayer: 8,
@@ -160,6 +198,7 @@ export function initTuning(raw: {
   vehicles?: unknown;
   weapons?: unknown;
   police?: unknown;
+  peds?: unknown;
 }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
@@ -176,6 +215,7 @@ export function initTuning(raw: {
     vehicles,
     weapons,
     police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
+    peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
   };
 }
 
