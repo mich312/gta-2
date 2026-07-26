@@ -5,47 +5,58 @@ built until this document is approved.
 
 ---
 
-## 1. Open architecture questions
+## 1. Architecture decisions (questions resolved in review)
 
-Per the brief I'm surfacing every question whose answer changes the
-architecture. Each has the default I will assume if you approve the plan
-without comment — flag any you want changed.
+**Q1 — Session topology: RESOLVED — one process = one 4–8 player session.**
+Simpler tick loop, simpler bot harness, no room id in the wire protocol. A
+room manager can wrap the session object later; the cost of deferring is one
+refactor of `server/src/index.ts`, not the protocol.
 
-**Q1 — Session topology.** Is one server process one 4–8 player world, or
-does one process host multiple sessions (room manager)?
-*Default: one process = one session.* Simpler tick loop, simpler bot harness,
-no room id in the wire protocol. A room manager can wrap it later because the
-session object owns all its state; the cost of deferring is one refactor of
-`server/src/index.ts`, not the protocol.
+**Q2 — Reconnect policy: RESOLVED — resume enabled.** The `welcome` message
+includes a `resumeToken` (random server-generated secret, valid for this
+session only); presenting it within a 120 s grace window re-binds the
+connection to the existing player entity.
 
-**Q2 — Reconnect policy.** If a player's tab refreshes or their connection
-drops, do they resume their avatar (position, health, in-session cash) or
-rejoin as a fresh spawn?
-*Default: resume.* The `welcome` message includes a `resumeToken`; presenting
-it within a grace window (120 s) re-binds the connection to the existing
-player entity. This costs one field in two messages now and is very painful to
-retrofit later, which is why I'm deciding it in phase 0 even though it only
-matters from phase 1.
+*Identity model (clarified in review):* joining is guest-first — the join
+message carries only a display name, no login of any kind. The `resumeToken`
+is not an account credential; it's a per-session secret that dies with the
+session. Accounts arrive in phase 5 and a bare username field is **not**
+enough there — anyone could type someone else's name and claim their cash and
+cosmetics. Plan of record for phase 5: username + password, hashed with
+`scrypt` from `node:crypto` (built in, no new dependency), still strictly
+optional per the brief — guests always play. If you'd prefer a different
+scheme (e.g. generated secret key instead of passwords), flag it before
+phase 5; nothing before then depends on it.
 
-**Q3 — Do mid-session purchases take effect immediately?** The brief says a
-player's loadout is "read once at spawn and injected into the sim". Strictly
-read, buying a gun mid-life would only arrive on your *next* spawn, which
-makes shops feel broken. 
-*Default: purchases apply immediately* via a server-side **sim command
-queue**: the economy layer (non-deterministic, server-only) emits
+**Q3 — Mid-session purchases: RESOLVED — apply immediately** via the
+server-side **sim command queue**: the economy layer emits
 `{tick, playerId, grantWeapon}` commands that the sim consumes at a tick
-boundary, exactly like player inputs. This keeps currency/inventory outside
-the deterministic sim — commands are inputs to it, not state in it — while
-shops still work the way a player expects. If you want strict
-read-once-at-spawn instead, say so; it deletes the command queue but changes
-the shop design.
+boundary, exactly like player inputs.
 
-**Decision you asked me to make — weapons on death:** weapons and ammo are
-**lost on death**; cosmetics and account cash persist. Rationale: money is the
-spine of the loop and gun shops need repeat customers. Death becoming a cash
-sink is what makes surviving a level-3 chase worth something in phase 6. No
-weapon drops on the ground initially (loot piles are a griefing/duping surface
-we don't need yet).
+*What "currency stays outside the sim" means, concretely:* `GameState` — the
+object that ticks at 30 Hz, gets predicted on the client, and must be
+bit-identical everywhere — contains **no cash field anywhere**. Money exists
+only in the server's ledger. When you buy a gun, the economy code (plain
+non-deterministic server code) checks the ledger, appends a debit
+transaction, and then drops a `grantWeapon` command into the next tick's
+command queue. The sim sees a weapon appear; it never sees, reads, or
+computes money. The two systems touch at exactly one seam — the command
+queue — and because commands are tick-stamped and recorded in replay files,
+replays reproduce perfectly even though the economy that emitted them is not
+deterministic. This is what keeps a phase-6 desync hunt from ever having to
+look at purchase code, and vice versa.
+
+**Weapons on death: lost by default, switchable via env flag.**
+`WEAPONS_LOST_ON_DEATH` (default `true`) in `server/src/config.ts`. Rationale
+for the default: money is the spine of the loop, gun shops need repeat
+customers, and death-as-cash-sink is what makes surviving a level-3 chase
+worth something. Cosmetics and cash always persist regardless of the flag.
+Implementation note: the flag never touches sim code — death clears the
+entity, and it's the server's respawn `SimCommand` that either re-grants the
+previous loadout (flag off) or grants the bare default (flag on). Since spawn
+commands are recorded in replays, both settings stay fully deterministic to
+replay. No weapon drops on the ground initially (loot piles are a
+griefing/duping surface we don't need yet).
 
 ---
 
@@ -95,7 +106,7 @@ Node imports — enforced by its tsconfig having no `dom`/`node` lib/types).
 │   ├── tsconfig.json
 │   ├── src/
 │   │   ├── index.ts           # entry: config -> session -> wsServer -> loop
-│   │   ├── config.ts          # port, seed override, tick rate (from env/args)
+│   │   ├── config.ts          # port, seed override, WEAPONS_LOST_ON_DEATH, from env/args
 │   │   ├── loop.ts            # drift-corrected 30 Hz driver (accumulator, not naive setInterval)
 │   │   ├── session.ts         # owns GameState; per tick: drain inputs -> step -> snapshot
 │   │   ├── net/wsServer.ts    # ws lifecycle, join/handshake, resumeToken table
