@@ -1,0 +1,106 @@
+export interface EconomyParams {
+  startingCash: number;
+  killAward: number;
+  killRepeatDecay: number;
+  killRepeatWindowSec: number;
+  drivingCellAward: number;
+  drivingCellSizePx: number;
+  drivingMinSpeed: number;
+  perMinuteCaps: { kill: number; driving: number };
+}
+
+export function parseEconomyParams(raw: unknown): EconomyParams {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => {
+    const v = r[k];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+      throw new Error(`economy: ${k} must be a non-negative number`);
+    }
+    return v;
+  };
+  const caps = (r['perMinuteCaps'] ?? {}) as Record<string, unknown>;
+  const cap = (k: string): number => {
+    const v = caps[k];
+    if (typeof v !== 'number' || v <= 0) throw new Error(`economy: perMinuteCaps.${k}`);
+    return v;
+  };
+  return {
+    startingCash: n('startingCash'),
+    killAward: n('killAward'),
+    killRepeatDecay: n('killRepeatDecay'),
+    killRepeatWindowSec: n('killRepeatWindowSec'),
+    drivingCellAward: n('drivingCellAward'),
+    drivingCellSizePx: n('drivingCellSizePx'),
+    drivingMinSpeed: n('drivingMinSpeed'),
+    perMinuteCaps: { kill: cap('kill'), driving: cap('driving') },
+  };
+}
+
+interface RateWindow {
+  windowStartMs: number;
+  earned: number;
+}
+
+/**
+ * Award anti-farming state, per player. The realistic exploit here is not a
+ * hacked client but degenerate play: kill-trading with a friend, driving in
+ * circles. Diminishing returns per victim, novelty requirement for driving
+ * pay, and per-category rate caps — all numbers from economy.json.
+ */
+export class AwardTracker {
+  /** killer -> victim -> [timestamps of recent kills] */
+  private killHistory = new Map<number, Map<number, number[]>>();
+  /** playerId -> set of visited driving cells (novel coverage only pays once) */
+  private drivingCells = new Map<number, Set<number>>();
+  private rate = new Map<string, RateWindow>();
+
+  constructor(private readonly params: EconomyParams) {}
+
+  /** Cash for this kill, after decay and caps. 0 if farmed dry. */
+  killAward(killerId: number, victimId: number, nowMs: number): number {
+    let perVictim = this.killHistory.get(killerId);
+    if (!perVictim) {
+      perVictim = new Map();
+      this.killHistory.set(killerId, perVictim);
+    }
+    const windowMs = this.params.killRepeatWindowSec * 1000;
+    const recent = (perVictim.get(victimId) ?? []).filter((t) => nowMs - t < windowMs);
+    const amount = Math.floor(
+      this.params.killAward * Math.pow(this.params.killRepeatDecay, recent.length),
+    );
+    recent.push(nowMs);
+    perVictim.set(victimId, recent);
+    return this.capped(`kill:${killerId}`, this.params.perMinuteCaps.kill, amount, nowMs);
+  }
+
+  /** Cash for driving through a world position at speed; pays novel cells only. */
+  drivingAward(playerId: number, x: number, y: number, speed: number, nowMs: number): number {
+    if (Math.abs(speed) < this.params.drivingMinSpeed) return 0;
+    const size = this.params.drivingCellSizePx;
+    const cell = Math.floor(x / size) * 100_000 + Math.floor(y / size);
+    let cells = this.drivingCells.get(playerId);
+    if (!cells) {
+      cells = new Set();
+      this.drivingCells.set(playerId, cells);
+    }
+    if (cells.has(cell)) return 0;
+    cells.add(cell);
+    return this.capped(
+      `driving:${playerId}`,
+      this.params.perMinuteCaps.driving,
+      this.params.drivingCellAward,
+      nowMs,
+    );
+  }
+
+  private capped(key: string, capPerMin: number, amount: number, nowMs: number): number {
+    let w = this.rate.get(key);
+    if (!w || nowMs - w.windowStartMs >= 60_000) {
+      w = { windowStartMs: nowMs, earned: 0 };
+      this.rate.set(key, w);
+    }
+    const granted = Math.max(0, Math.min(amount, capPerMin - w.earned));
+    w.earned += granted;
+    return granted;
+  }
+}

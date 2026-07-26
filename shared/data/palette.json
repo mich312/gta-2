@@ -1,0 +1,31 @@
+{
+  "field": "#2b3630",
+  "road": "#33383f",
+  "roadMark": "#4c525a",
+  "sidewalk": "#5f646c",
+  "park": "#2f4c33",
+  "lot": "#45463f",
+  "water": "#22384a",
+  "building": {
+    "downtown": "#5a6a86",
+    "residential": "#7a5f4e",
+    "industrial": "#6d6a58",
+    "commercial": "#835f74",
+    "park": "#456045"
+  },
+  "buildingEdge": {
+    "downtown": "#465372",
+    "residential": "#62493c",
+    "industrial": "#585544",
+    "commercial": "#6c4a5e",
+    "park": "#374d37"
+  },
+  "shopGun": "#c8583c",
+  "shopClothing": "#3ca0c8",
+  "playerSkin": "#d8a577",
+  "playerShirt": "#c23b3b",
+  "playerPants": "#31465f",
+  "carBody": "#b03a3a",
+  "carGlass": "#9fd0e8",
+  "ui": "#c8f5c8"
+}

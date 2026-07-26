@@ -1,0 +1,19 @@
+{
+  "name": "topdown-city",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b server",
+    "dev": "pnpm build && pnpm -r --parallel dev",
+    "server": "pnpm build && node server/dist/index.js",
+    "bots": "pnpm build && node server/dist/bots/harness.js",
+    "replay": "pnpm build && node server/dist/replay/run.js",
+    "mapgen": "pnpm build && node server/dist/tools/mapgen.js",
+    "sprites": "pnpm build && node server/dist/tools/sprites.js",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}
