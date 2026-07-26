@@ -16,3 +16,7 @@ export * from './net/codec.js';
 export * from './net/sync.js';
 export * from './net/prediction.js';
 export * from './replay/format.js';
+export * from './world/types.js';
+export * from './world/params.js';
+export * from './world/generate.js';
+export * from './world/collide.js';

@@ -1,6 +1,8 @@
 import type { InputIntent } from '../sim/input.js';
 import { sanitizeIntent } from '../sim/input.js';
 import type { FullSnapshot, SnapshotDelta } from './snapshot.js';
+import type { Tuning } from '../tuning.js';
+import type { WorldgenParams } from '../world/params.js';
 
 const MAX_NAME_LEN = 24;
 const MAX_INTENTS_PER_MSG = 10;
@@ -22,6 +24,10 @@ export type ServerMessage =
       tickRate: number;
       resumeToken: string;
       snapshot: FullSnapshot;
+      /** Server-authoritative tunables: clients must init from these, not
+       * their bundled JSON, so a server-side tune can't desync generation. */
+      tuning: Tuning;
+      worldgen: WorldgenParams;
     }
   | {
       type: 'snapshot';

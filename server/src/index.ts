@@ -1,5 +1,6 @@
+import { TICK_RATE, getTuning } from 'shared';
 import { loadConfig } from './config.js';
-import { loadSharedTuning } from './tuning.js';
+import { loadSharedTuning, loadWorldgenParams } from './tuning.js';
 import { Session } from './session.js';
 import { GameServer } from './net/wsServer.js';
 import { TickLoop } from './loop.js';
@@ -8,9 +9,18 @@ import { createFileRecorder } from './replay/record.js';
 async function main(): Promise<void> {
   const config = loadConfig();
   loadSharedTuning();
+  const worldgen = loadWorldgenParams();
 
-  const recorder = config.replayDir ? createFileRecorder(config.replayDir, config.seed) : null;
-  const session = new Session(config.seed, recorder);
+  const recorder = config.replayDir
+    ? createFileRecorder(config.replayDir, {
+        seed: config.seed,
+        tickRate: TICK_RATE,
+        startedAt: new Date().toISOString(),
+        tuning: getTuning(),
+        worldgen,
+      })
+    : null;
+  const session = new Session(config.seed, worldgen, recorder);
   const server = new GameServer(config, session);
   await server.listen();
 

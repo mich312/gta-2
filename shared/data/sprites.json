@@ -1,0 +1,28 @@
+{
+  "sprites": {
+    "player": {
+      "w": 12,
+      "h": 12,
+      "shapes": [
+        { "rect": [1, 2, 8, 8], "color": "playerShirt" },
+        { "rect": [1, 3, 2, 6], "color": "playerPants" },
+        { "disc": [8, 6, 3], "color": "playerSkin" },
+        { "rect": [4, 1, 3, 2], "color": "playerSkin" },
+        { "rect": [4, 9, 3, 2], "color": "playerSkin" }
+      ]
+    },
+    "car": {
+      "w": 24,
+      "h": 12,
+      "shapes": [
+        { "rect": [1, 1, 22, 10], "color": "carBody" },
+        { "rect": [3, 0, 4, 2], "color": "#222222" },
+        { "rect": [3, 10, 4, 2], "color": "#222222" },
+        { "rect": [17, 0, 4, 2], "color": "#222222" },
+        { "rect": [17, 10, 4, 2], "color": "#222222" },
+        { "rect": [12, 2, 6, 8], "color": "carGlass" },
+        { "rect": [22, 2, 2, 8], "color": "#e8d44d" }
+      ]
+    }
+  }
+}

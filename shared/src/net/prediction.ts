@@ -2,6 +2,7 @@ import type { PlayerState } from '../sim/state.js';
 import { clonePlayer } from '../sim/state.js';
 import type { InputIntent } from '../sim/input.js';
 import { stepPlayerMovement } from '../sim/player.js';
+import type { CityMap } from '../world/types.js';
 
 const MAX_PENDING = 120;
 
@@ -12,11 +13,12 @@ const MAX_PENDING = 120;
  * input lag) and kept in a pending buffer. When a snapshot arrives carrying
  * ackSeq, we rewind to the authoritative player state and replay every
  * pending input newer than ackSeq. Because stepPlayerMovement is the same
- * code the server ran, the replayed result matches what the server WILL
- * compute for those inputs — any persistent correction is a real bug.
+ * code the server ran (including tile collision), the replayed result
+ * matches what the server WILL compute for those inputs — any persistent
+ * correction is a real bug.
  *
- * Used by the browser client and by bots (which is how phase-1 correctness
- * is verified without two browser windows).
+ * Predicts against the static world only; dynamic entities never block the
+ * prediction (the server resolves those, corrections get smoothed).
  */
 export class Predictor {
   predicted: PlayerState | null = null;
@@ -27,11 +29,11 @@ export class Predictor {
   private pending: InputIntent[] = [];
 
   /** Call once per local tick with the input just sent to the server. */
-  applyLocalInput(intent: InputIntent): void {
+  applyLocalInput(intent: InputIntent, map: CityMap): void {
     this.pending.push(intent);
     if (this.pending.length > MAX_PENDING) this.pending.shift();
     if (this.predicted) {
-      stepPlayerMovement(this.predicted, intent);
+      stepPlayerMovement(this.predicted, intent, map);
     }
   }
 
@@ -39,12 +41,12 @@ export class Predictor {
    * Rewind to the authoritative state and replay unacked inputs.
    * ackSeq = last input seq the server has folded into this snapshot.
    */
-  reconcile(authoritative: PlayerState, ackSeq: number): void {
+  reconcile(authoritative: PlayerState, ackSeq: number, map: CityMap): void {
     this.pending = this.pending.filter((i) => i.seq > ackSeq);
     const before = this.predicted;
     const next = clonePlayer(authoritative);
     for (const intent of this.pending) {
-      stepPlayerMovement(next, intent);
+      stepPlayerMovement(next, intent, map);
     }
     if (before) {
       const dx = next.pos.x - before.pos.x;

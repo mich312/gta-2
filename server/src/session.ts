@@ -1,11 +1,14 @@
 import {
+  type CityMap,
   type FullSnapshot,
   type GameState,
   type InputIntent,
   type ReplayTickRecord,
   type SimCommand,
+  type WorldgenParams,
   SNAPSHOT_RING_TICKS,
   createGameState,
+  generateCity,
   step,
   takeSnapshot,
 } from 'shared';
@@ -48,6 +51,8 @@ export class Session {
   state: GameState;
   latestSnapshot: FullSnapshot;
   readonly seed: number;
+  readonly map: CityMap;
+  readonly worldgen: WorldgenParams;
   readonly slots = new Map<number, PlayerSlot>();
 
   private readonly snapshotRing = new Map<number, FullSnapshot>();
@@ -56,9 +61,12 @@ export class Session {
 
   constructor(
     seed: number,
+    worldgen: WorldgenParams,
     private readonly recorder: ReplayWriter | null = null,
   ) {
     this.seed = seed;
+    this.worldgen = worldgen;
+    this.map = generateCity(seed, worldgen);
     this.state = createGameState(seed);
     this.latestSnapshot = takeSnapshot(this.state);
     this.snapshotRing.set(this.latestSnapshot.tick, this.latestSnapshot);
@@ -164,7 +172,7 @@ export class Session {
       commands,
     });
 
-    this.state = step(this.state, inputs, commands);
+    this.state = step(this.state, inputs, commands, this.map);
     const snap = takeSnapshot(this.state);
     this.latestSnapshot = snap;
     this.snapshotRing.set(snap.tick, snap);

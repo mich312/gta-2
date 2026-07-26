@@ -1,17 +1,23 @@
-import { DT, PLAYER_RADIUS, WORLD_WIDTH, WORLD_HEIGHT } from '../constants.js';
-import { approach, clamp } from '../math/vec.js';
+import { DT, PLAYER_RADIUS } from '../constants.js';
+import { approach } from '../math/vec.js';
 import { getTuning } from '../tuning.js';
 import type { GameState, PlayerState } from './state.js';
 import type { InputIntent } from './input.js';
+import type { CityMap } from '../world/types.js';
+import { moveWithCollision } from '../world/collide.js';
 
 const INV_SQRT2 = 1 / Math.sqrt(2);
 
 /**
  * Advance ONE player by one fixed tick. This exact function runs on the
  * server inside step() and on the client inside the predictor — sharing it
- * is what makes prediction bit-exact.
+ * is what makes prediction bit-exact. Collides against static tiles only.
  */
-export function stepPlayerMovement(p: PlayerState, input: InputIntent | undefined): void {
+export function stepPlayerMovement(
+  p: PlayerState,
+  input: InputIntent | undefined,
+  map: CityMap,
+): void {
   if (input) {
     p.lastInputSeq = input.seq;
     p.aimAngle = input.aimAngle;
@@ -35,31 +41,18 @@ export function stepPlayerMovement(p: PlayerState, input: InputIntent | undefine
   p.vel.x = approach(p.vel.x, dx * walkSpeed, maxDelta);
   p.vel.y = approach(p.vel.y, dy * walkSpeed, maxDelta);
 
-  p.pos.x = p.pos.x + p.vel.x * DT;
-  p.pos.y = p.pos.y + p.vel.y * DT;
-
-  const minX = PLAYER_RADIUS;
-  const maxX = WORLD_WIDTH - PLAYER_RADIUS;
-  const minY = PLAYER_RADIUS;
-  const maxY = WORLD_HEIGHT - PLAYER_RADIUS;
-  if (p.pos.x <= minX || p.pos.x >= maxX) {
-    p.pos.x = clamp(p.pos.x, minX, maxX);
-    p.vel.x = 0;
-  }
-  if (p.pos.y <= minY || p.pos.y >= maxY) {
-    p.pos.y = clamp(p.pos.y, minY, maxY);
-    p.vel.y = 0;
-  }
+  moveWithCollision(map, p.pos, p.vel, PLAYER_RADIUS, p.vel.x * DT, p.vel.y * DT);
 }
 
 /** All players, in sorted-id order. */
 export function stepPlayers(
   state: GameState,
   inputs: Record<number, InputIntent | undefined>,
+  map: CityMap,
 ): void {
   for (const id of state.players.ids) {
     const p = state.players.byId[id];
     if (!p) continue;
-    stepPlayerMovement(p, inputs[id]);
+    stepPlayerMovement(p, inputs[id], map);
   }
 }

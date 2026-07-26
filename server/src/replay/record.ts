@@ -46,16 +46,11 @@ export class ReplayRecorder {
   }
 }
 
-export function createFileRecorder(dir: string, seed: number): ReplayRecorder {
+export function createFileRecorder(dir: string, header: Omit<ReplayHeader, 'version'>): ReplayRecorder {
   mkdirSync(dir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const path = join(dir, `session-${stamp}-seed${seed}.jsonl`);
-  const recorder = new ReplayRecorder(new FileSink(path), {
-    version: 1,
-    seed,
-    tickRate: 30,
-    startedAt: new Date().toISOString(),
-  });
+  const path = join(dir, `session-${stamp}-seed${header.seed}.jsonl`);
+  const recorder = new ReplayRecorder(new FileSink(path), { version: 1, ...header });
   console.log(`recording replay to ${path}`);
   return recorder;
 }

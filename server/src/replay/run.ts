@@ -4,12 +4,13 @@ import {
   type GameState,
   type InputIntent,
   createGameState,
+  generateCity,
   hashState,
+  initTuning,
   isReplayHeader,
   isReplayTickRecord,
   step,
 } from 'shared';
-import { loadSharedTuning } from '../tuning.js';
 
 export interface ReplayResult {
   finalTick: number;
@@ -27,6 +28,11 @@ export function runReplay(lines: string[], hashEvery = 30): ReplayResult {
   const header: unknown = JSON.parse(headerLine);
   if (!isReplayHeader(header)) throw new Error('bad replay header');
 
+  // Replays are self-contained: they carry the tunables that were in force,
+  // so re-tuning the JSON files never breaks an old recording.
+  initTuning(header.tuning);
+  const map = generateCity(header.seed, header.worldgen);
+
   let state: GameState = createGameState(header.seed);
   const hashes: ReplayResult['hashes'] = [];
 
@@ -37,10 +43,10 @@ export function runReplay(lines: string[], hashEvery = 30): ReplayResult {
     if (!isReplayTickRecord(rec)) throw new Error(`bad replay record at line ${i + 1}`);
     // Tolerate gaps (idle ticks a future recorder might skip).
     while (state.tick < rec.t - 1) {
-      state = step(state, {}, []);
+      state = step(state, {}, [], map);
       maybeHash(state, hashes, hashEvery);
     }
-    state = step(state, rec.inputs as unknown as Record<number, InputIntent>, rec.commands);
+    state = step(state, rec.inputs as unknown as Record<number, InputIntent>, rec.commands, map);
     maybeHash(state, hashes, hashEvery);
   }
   return { finalTick: state.tick, finalHash: hashState(state), hashes };
@@ -62,7 +68,6 @@ function main(): void {
     console.error('usage: node replay/run.js <replay.jsonl>');
     process.exit(2);
   }
-  loadSharedTuning();
   const lines = readFileSync(file, 'utf8').split('\n');
   const a = runReplay(lines);
   const b = runReplay(lines);

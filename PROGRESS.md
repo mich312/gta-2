@@ -1,5 +1,48 @@
 # PROGRESS
 
+## Phase 2 — procedural city, collision, camera, pixel-art pipeline
+
+**What changed.** `shared/src/world/` generates the whole city as a pure
+function of (seed, params): district Voronoi seeds → jittered arterial grid →
+recursive block subdivision with district-sized targets → per-district block
+fill (downtown packs solid, residential rows with yards, industrial slabs on
+open lots, parks stay green) → shops with sidewalk doorway zones (quota'd:
+gun shops prefer industrial/commercial, clothing prefers commercial/downtown)
+→ parked-car spawn points → spread-apart player spawns. 240×240 tiles at
+16 px (3840² px world), generated in ~30 ms. Movement now collides with
+building tiles via axis-separated AABB sweeps, sub-stepped ≤ half a tile so
+fast movers can't tunnel (a real bug the test caught before vehicles made it
+matter). The map threads through `step()` and the predictor; the server ships
+its parsed tuning + worldgen params in the welcome message so a server-side
+JSON tune can never desync client generation, and replay headers embed both,
+making replays self-contained. `pnpm mapgen --seed=N` renders a city PNG
+(hand-rolled encoder over node:zlib); `pnpm sprites` emits the placeholder
+sprite sheet from palette + shape descriptors; the client draws the tile
+world, sprites rotated at draw time, integer-scaled camera clamped to the
+city.
+
+**Verification.** 35 tests green: worldgen purity (bit-identical tiles for
+same seed), density/district/quota/spawn invariants across seeds, doorways
+walkable, collision escape-proofing (600 ticks of input mashing never ends
+inside a wall), flush clamping. Rendered seeds 7/8/9 to PNG and eyeballed:
+three clearly different cities (different downtown placement, park spread,
+block texture). 8-bot 60 s run over the real city: lockstep 1810..1810,
+0 desyncs, corrections still exactly one held tick (4.33 px) — collision is
+bit-exact in prediction. Fresh replay re-simulates to identical hashes.
+
+**Deliberately deferred.** Explicit road graph (nodes/edges) — police/ped AI
+will pathfind on the road tile grid directly (BFS), which is the boring
+version; a graph can be derived later if profiling demands it. Crosswalks,
+lane markings beyond a sparse dot texture, building interiors (per brief:
+none, shops are doorway zones). District-specific palettes beyond building
+colors.
+
+**Least confident about.** District *feel* at street level — the aerial PNGs
+read distinct, but on-foot distinctiveness (building height cues, prop
+density) is thin until props (phase 8) and peds (phase 7) arrive. Residential
+blocks lean sparse; worldgen.json numbers are all tunable without a rebuild
+if the density feels wrong in play.
+
 ## Phase 1 — prediction, reconciliation, interpolation
 
 **What changed.** The server now consumes exactly one input intent per tick,

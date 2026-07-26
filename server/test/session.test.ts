@@ -1,17 +1,22 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../../shared/data/player.json';
+import worldgenJson from '../../shared/data/worldgen.json';
 import {
   type InputIntent,
   NULL_INPUT,
   SnapshotSync,
+  getTuning,
   hashSnapshot,
   hashState,
   initTuning,
+  parseWorldgenParams,
 } from 'shared';
 import { Session } from '../src/session.js';
 import { MemorySink, ReplayRecorder } from '../src/replay/record.js';
 import { runReplay } from '../src/replay/run.js';
 import { buildStateMessage } from '../src/net/broadcast.js';
+
+const worldgen = parseWorldgenParams(worldgenJson);
 
 beforeAll(() => {
   initTuning({ player: playerTuning });
@@ -38,8 +43,10 @@ describe('session', () => {
       seed: 1234,
       tickRate: 30,
       startedAt: 'test',
+      tuning: getTuning(),
+      worldgen,
     });
-    const session = new Session(1234, recorder);
+    const session = new Session(1234, worldgen, recorder);
     const a = session.addPlayer('a', 'tok-a');
     const b = session.addPlayer('b', 'tok-b');
     for (let t = 1; t <= 200; t++) {
@@ -56,7 +63,7 @@ describe('session', () => {
   });
 
   it('delta snapshots against the acked tick rebuild the server state', () => {
-    const session = new Session(55);
+    const session = new Session(55, worldgen);
     const slot = session.addPlayer('p', 'tok');
     const sync = new SnapshotSync();
 
@@ -79,7 +86,7 @@ describe('session', () => {
   });
 
   it('falls back to a full snapshot when the ack is too stale', () => {
-    const session = new Session(66);
+    const session = new Session(66, worldgen);
     const slot = session.addPlayer('p', 'tok');
     let snap = session.tick();
     slot.lastAckTick = snap.tick;
@@ -89,7 +96,7 @@ describe('session', () => {
   });
 
   it('resume rebinds by token; expiry despawns', () => {
-    const session = new Session(77);
+    const session = new Session(77, worldgen);
     const slot = session.addPlayer('p', 'tok-resume');
     session.tick();
     expect(session.state.players.ids).toEqual([slot.playerId]);
@@ -106,7 +113,7 @@ describe('session', () => {
   });
 
   it('drops duplicate and replayed input seqs', () => {
-    const session = new Session(88);
+    const session = new Session(88, worldgen);
     const slot = session.addPlayer('p', 'tok');
     const i1 = intent(5, 1, slot.playerId);
     session.queueInput(slot.playerId, 0, [i1]);

@@ -4,6 +4,7 @@ import {
   RESUME_GRACE_MS,
   SNAPSHOT_HASH_INTERVAL,
   TICK_RATE,
+  getTuning,
   jsonCodec,
   parseClientMessage,
 } from 'shared';
@@ -107,6 +108,8 @@ export class GameServer {
       tickRate: TICK_RATE,
       resumeToken: slot.resumeToken,
       snapshot: snap,
+      tuning: getTuning(),
+      worldgen: this.session.worldgen,
     });
   }
 

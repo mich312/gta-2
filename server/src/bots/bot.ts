@@ -1,9 +1,12 @@
 import WebSocket from 'ws';
 import {
+  type CityMap,
   PROTOCOL_VERSION,
   Predictor,
   SnapshotSync,
   TICK_MS,
+  generateCity,
+  initTuning,
   jsonCodec,
   parseServerMessage,
 } from 'shared';
@@ -39,6 +42,7 @@ export class Bot {
 
   private readonly sync = new SnapshotSync();
   private readonly predictor = new Predictor();
+  private map: CityMap | null = null;
   private ws: WebSocket | null = null;
   private timer: NodeJS.Timeout | null = null;
   private seq = 1;
@@ -97,6 +101,10 @@ export class Bot {
     if (msg.type === 'welcome') {
       this.playerId = msg.playerId;
       this.welcomed = true;
+      // Bots behave exactly like the browser client: tunables and worldgen
+      // params come from the server, and the city regenerates from the seed.
+      initTuning(msg.tuning);
+      this.map = generateCity(msg.seed, msg.worldgen);
       this.sync.applyServerMessage(msg);
       this.startInputStream();
       onWelcome();
@@ -107,9 +115,9 @@ export class Bot {
       // Bots run real client-side prediction: reconcile against the
       // authoritative snapshot exactly like the browser client does.
       const me = this.sync.latest?.players.find((p) => p.id === this.playerId);
-      if (me) {
+      if (me && this.map) {
         const ackSeq = msg.type === 'snapshot' ? msg.ackSeq : me.lastInputSeq;
-        this.predictor.reconcile(me, ackSeq);
+        this.predictor.reconcile(me, ackSeq, this.map);
       }
     }
   }
@@ -121,7 +129,7 @@ export class Bot {
       const keys = this.script(this.localTick, this.index);
       const intent = { seq: this.seq++, tick: this.localTick, ...keys };
       this.send({ type: 'input', ackTick: this.sync.ackTick, intents: [intent] });
-      this.predictor.applyLocalInput(intent);
+      if (this.map) this.predictor.applyLocalInput(intent, this.map);
     }, TICK_MS);
   }
 

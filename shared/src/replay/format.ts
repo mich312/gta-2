@@ -1,5 +1,7 @@
 import type { InputIntent } from '../sim/input.js';
 import type { SimCommand } from '../sim/commands.js';
+import type { Tuning } from '../tuning.js';
+import type { WorldgenParams } from '../world/params.js';
 
 /**
  * Replay file format: JSON-lines. First line is the header, then one record
@@ -13,6 +15,9 @@ export interface ReplayHeader {
   seed: number;
   tickRate: number;
   startedAt: string;
+  /** Snapshot of the tunables in force, so replays survive JSON re-tuning. */
+  tuning: Tuning;
+  worldgen: WorldgenParams;
 }
 
 export interface ReplayTickRecord {

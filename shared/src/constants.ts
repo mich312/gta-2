@@ -6,10 +6,6 @@ export const TICK_MS = 1000 / TICK_RATE;
 /** Fixed timestep in seconds. The only "dt" that ever touches physics. */
 export const DT = 1 / TICK_RATE;
 
-/** Phase-0 arena, in world units (pixels). Replaced by the generated city in phase 2. */
-export const WORLD_WIDTH = 960;
-export const WORLD_HEIGHT = 540;
-
 /** Fixed internal render resolution; integer-scaled to the window. */
 export const INTERNAL_WIDTH = 480;
 export const INTERNAL_HEIGHT = 270;

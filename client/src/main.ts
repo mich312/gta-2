@@ -1,14 +1,19 @@
-import playerTuning from 'shared/data/player.json';
-import { Predictor, SnapshotSync, TICK_MS, initTuning } from 'shared';
+import {
+  type CityMap,
+  Predictor,
+  SnapshotSync,
+  TICK_MS,
+  generateCity,
+  initTuning,
+} from 'shared';
 import { setupCanvas } from './render/canvas.js';
 import { computeCamera, render, type Scene } from './render/renderer.js';
+import { SpriteSheet } from './render/sprites.js';
 import { Connection } from './net/connection.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
 import { NetStats } from './debug/stats.js';
 import { DebugOverlay } from './debug/overlay.js';
-
-initTuning({ player: playerTuning });
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -32,17 +37,20 @@ const stats = new NetStats();
 const sync = new SnapshotSync();
 const predictor = new Predictor();
 const interp = new Interpolator();
+const sprites = new SpriteSheet();
+void sprites.load();
 
 let playerId = -1;
 let seq = 1;
 let localTick = 0;
+let map: CityMap | null = null;
 
 function onStateUpdated(ackSeq: number | null): void {
-  if (!sync.latest) return;
+  if (!sync.latest || !map) return;
   interp.push(sync.latest);
   const me = sync.latest.players.find((p) => p.id === playerId);
   if (me) {
-    predictor.reconcile(me, ackSeq ?? me.lastInputSeq);
+    predictor.reconcile(me, ackSeq ?? me.lastInputSeq, map);
   }
 }
 
@@ -57,6 +65,10 @@ const conn = new Connection({
         playerId = msg.playerId;
         localTick = msg.tick;
         sessionStorage.setItem('resumeToken', msg.resumeToken);
+        // Tunables + worldgen come from the server (single source of truth);
+        // the whole city regenerates locally from the seed.
+        initTuning(msg.tuning);
+        map = generateCity(msg.seed, msg.worldgen);
         sync.applyServerMessage(msg);
         stats.onSnapshot();
         onStateUpdated(null);
@@ -94,16 +106,18 @@ function frame(now: number): void {
   last = now;
 
   const local = predictor.predicted;
-  const cam = computeCamera(local);
+  const cam = computeCamera(map, local);
 
   // Sample + send + locally predict inputs on the fixed tick grid.
   while (acc >= TICK_MS) {
     acc -= TICK_MS;
     localTick++;
-    const playerScreen = local ? { x: local.pos.x - cam.x, y: local.pos.y - cam.y } : null;
-    const intent = input.sample(seq++, localTick, playerScreen);
-    conn.sendInput(sync.ackTick, [intent]);
-    predictor.applyLocalInput(intent);
+    if (map) {
+      const playerScreen = local ? { x: local.pos.x - cam.x, y: local.pos.y - cam.y } : null;
+      const intent = input.sample(seq++, localTick, playerScreen);
+      conn.sendInput(sync.ackTick, [intent]);
+      predictor.applyLocalInput(intent, map);
+    }
   }
 
   interp.advance(frameMs);
@@ -112,7 +126,7 @@ function frame(now: number): void {
   const scene: Scene | null = sync.latest
     ? { local: predictor.predicted, remotes: interp.sample(playerId) }
     : null;
-  render(screen, scene, cam);
+  render(screen, map, scene, cam, sprites);
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {
