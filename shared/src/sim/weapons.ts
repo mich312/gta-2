@@ -10,7 +10,7 @@ import { damagePed } from './peds.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
-import { isSolidTile } from '../world/collide.js';
+import { isShotBlockingTile } from '../world/collide.js';
 
 export const RESPAWN_DELAY_TICKS = TICK_RATE * 3;
 const RUNOVER_MIN_SPEED = 130;
@@ -39,17 +39,17 @@ export function rayWallDistance(
     dirY !== 0
       ? Math.abs(((dirY > 0 ? (ty + 1) * TILE_SIZE : ty * TILE_SIZE) - y) / dirY)
       : Infinity;
-  if (isSolidTile(map, tx, ty)) return 0;
+  if (isShotBlockingTile(map, tx, ty)) return 0;
   for (;;) {
     if (tMaxX < tMaxY) {
       if (tMaxX > maxDist) return maxDist;
       tx += stepX;
-      if (isSolidTile(map, tx, ty)) return tMaxX;
+      if (isShotBlockingTile(map, tx, ty)) return tMaxX;
       tMaxX += tDeltaX;
     } else {
       if (tMaxY > maxDist) return maxDist;
       ty += stepY;
-      if (isSolidTile(map, tx, ty)) return tMaxY;
+      if (isShotBlockingTile(map, tx, ty)) return tMaxY;
       tMaxY += tDeltaY;
     }
   }

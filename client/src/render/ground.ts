@@ -9,13 +9,16 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_SAND,
   T_SIDEWALK,
+  T_WATER,
   TILE_SIZE,
+  districtAt,
   tileAt,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { CHUNK_CACHE_MAX, CHUNK_TILES } from './style.js';
-import { VisualStream, hash01, hashPick, shade } from './visualRng.js';
+import { VisualStream, hash01, hashPick, mix, shade } from './visualRng.js';
 
 /**
  * Chunked ground renderer. The tile layer is baked into offscreen canvases
@@ -59,6 +62,30 @@ export class GroundRenderer {
       }
     }
     this.evict();
+  }
+
+  /**
+   * Animated glints over visible water, drawn per frame above the baked
+   * chunks. Cheap: a hash decides which tiles glint; time drives the alpha.
+   */
+  drawShimmer(ctx: CanvasRenderingContext2D, cam: Vec2, nowMs: number): void {
+    const t0x = Math.max(0, Math.floor(cam.x / TILE_SIZE));
+    const t0y = Math.max(0, Math.floor(cam.y / TILE_SIZE));
+    const t1x = Math.min(this.map.widthTiles - 1, Math.floor((cam.x + INTERNAL_WIDTH) / TILE_SIZE));
+    const t1y = Math.min(this.map.heightTiles - 1, Math.floor((cam.y + INTERNAL_HEIGHT) / TILE_SIZE));
+    for (let ty = t0y; ty <= t1y; ty++) {
+      for (let tx = t0x; tx <= t1x; tx++) {
+        if (tileAt(this.map, tx, ty) !== T_WATER) continue;
+        const h = hash01(this.map.seed ^ 0x91b, tx, ty);
+        if (h > 0.10) continue;
+        const phase = h * 62.8;
+        const a = 0.05 + 0.09 * (0.5 + 0.5 * Math.sin(nowMs / 640 + phase));
+        ctx.fillStyle = `rgba(200, 226, 232, ${a.toFixed(3)})`;
+        const ox = Math.floor(h * 1290) % (TILE_SIZE - 4);
+        const oy = Math.floor(h * 7130) % (TILE_SIZE - 1);
+        ctx.fillRect(tx * TILE_SIZE - cam.x + ox, ty * TILE_SIZE - cam.y + oy, 4, 1);
+      }
+    }
   }
 
   private chunk(cx: number, cy: number): Chunk {
@@ -124,13 +151,19 @@ function paintTile(
       paintSidewalk(ctx, map, tx, ty, sx, sy);
       break;
     case T_PARK:
-      paintGrass(ctx, map, tx, ty, sx, sy, palette.park, 0.10);
+      paintGrass(ctx, map, tx, ty, sx, sy, palette.park, 0.22);
       break;
     case T_FIELD:
       paintGrass(ctx, map, tx, ty, sx, sy, palette.field, 0.05);
       break;
     case T_LOT:
       paintLot(ctx, map, tx, ty, sx, sy);
+      break;
+    case T_WATER:
+      paintWater(ctx, map, tx, ty, sx, sy);
+      break;
+    case T_SAND:
+      paintSand(ctx, map, tx, ty, sx, sy);
       break;
     case T_BUILDING: {
       // Foundation floor; the extrusion pass draws the visible structure.
@@ -165,6 +198,12 @@ function roadSpan(
     after++;
   }
   return { before, width: before + after + 1 };
+}
+
+/** True when (tx,ty) sits inside an intersection box (long spans both ways). */
+function isIntersectionAt(map: CityMap, tx: number, ty: number): boolean {
+  if (tileAt(map, tx, ty) !== T_ROAD) return false;
+  return roadSpan(map, tx, ty, 1, 0).width > 6 && roadSpan(map, tx, ty, 0, 1).width > 6;
 }
 
 function paintRoad(
@@ -227,6 +266,26 @@ function paintRoad(
     }
   }
 
+  // Zebra crossings where a corridor meets an intersection box.
+  if (!isIntersection) {
+    ctx.fillStyle = 'rgba(222, 226, 230, 0.38)';
+    if (h.width >= v.width && v.width >= 2 && v.width <= 6) {
+      if (isIntersectionAt(map, tx + 1, ty)) {
+        for (let yy = 1; yy < TILE_SIZE - 1; yy += 4) ctx.fillRect(sx + TILE_SIZE - 7, sy + yy, 5, 2);
+      }
+      if (isIntersectionAt(map, tx - 1, ty)) {
+        for (let yy = 1; yy < TILE_SIZE - 1; yy += 4) ctx.fillRect(sx + 2, sy + yy, 5, 2);
+      }
+    } else if (v.width > h.width && h.width >= 2 && h.width <= 6) {
+      if (isIntersectionAt(map, tx, ty + 1)) {
+        for (let xx = 1; xx < TILE_SIZE - 1; xx += 4) ctx.fillRect(sx + xx, sy + TILE_SIZE - 7, 2, 5);
+      }
+      if (isIntersectionAt(map, tx, ty - 1)) {
+        for (let xx = 1; xx < TILE_SIZE - 1; xx += 4) ctx.fillRect(sx + xx, sy + 2, 2, 5);
+      }
+    }
+  }
+
   // Occasional manhole cover.
   if (hash01(seed ^ 0x33c, tx, ty) < 0.02) {
     const mx = sx + 8;
@@ -253,8 +312,12 @@ function paintSidewalk(
   sy: number,
 ): void {
   const seed = map.seed;
+  // Pavement leans toward its district's hue — downtown cool, industrial
+  // grimy, residential warm — so crossing a district line is felt underfoot.
+  const tint = (palette.sidewalkTint as Record<string, string>)[districtAt(map, tx, ty)];
+  const base = tint ? mix(palette.sidewalk, tint, 0.35) : palette.sidewalk;
   const drift = (hash01(seed ^ 0x51d, tx, ty) - 0.5) * 0.09;
-  ctx.fillStyle = shade(palette.sidewalk, drift);
+  ctx.fillStyle = shade(base, drift);
   ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
 
   // Slab seams on the tile grid.
@@ -342,10 +405,21 @@ function paintGrass(
       ctx.fillRect(sx + s.int(TILE_SIZE - 1), sy + s.int(TILE_SIZE - 1), 1, 2);
     }
   }
-  // Flowers in parks, stones in fields.
+  // Flowers in parks (small clusters), stones in fields.
   if (s.chance(flourish)) {
-    ctx.fillStyle = flourish > 0.06 ? (s.chance(0.5) ? '#d8c25a' : '#c86a8a') : '#6e7276';
-    ctx.fillRect(sx + s.int(TILE_SIZE - 2), sy + s.int(TILE_SIZE - 2), 2, 1);
+    if (flourish > 0.06) {
+      const FLOWERS = ['#d8c25a', '#c86a8a', '#d8d8e0', '#c07a4a'] as const;
+      const color = FLOWERS[s.int(FLOWERS.length)] as string;
+      const fx = sx + 1 + s.int(TILE_SIZE - 5);
+      const fy = sy + 1 + s.int(TILE_SIZE - 4);
+      ctx.fillStyle = color;
+      ctx.fillRect(fx, fy, 2, 1);
+      if (s.chance(0.6)) ctx.fillRect(fx + 2 + s.int(2), fy + 1 + s.int(2), 2, 1);
+      if (s.chance(0.4)) ctx.fillRect(fx + s.int(3), fy - 1 - s.int(2), 1, 1);
+    } else {
+      ctx.fillStyle = '#6e7276';
+      ctx.fillRect(sx + s.int(TILE_SIZE - 2), sy + s.int(TILE_SIZE - 2), 2, 1);
+    }
   }
 }
 
@@ -386,6 +460,97 @@ function paintLot(
   }
 }
 
+// ------------------------------------------------------------- water + sand
+
+/** Manhattan distance (≤ max) to the nearest non-water tile, for depth tone. */
+function shoreDistance(map: CityMap, tx: number, ty: number, max: number): number {
+  for (let d = 1; d <= max; d++) {
+    for (let i = -d; i <= d; i++) {
+      if (
+        tileAt(map, tx + i, ty - (d - Math.abs(i))) !== T_WATER ||
+        tileAt(map, tx + i, ty + (d - Math.abs(i))) !== T_WATER
+      ) {
+        return d;
+      }
+    }
+  }
+  return max + 1;
+}
+
+function paintWater(
+  ctx: CanvasRenderingContext2D,
+  map: CityMap,
+  tx: number,
+  ty: number,
+  sx: number,
+  sy: number,
+): void {
+  const seed = map.seed;
+  // Deeper water reads darker; the shallows keep a green cast.
+  const depth = shoreDistance(map, tx, ty, 4);
+  const drift = (hash01(seed ^ 0x0cea, tx, ty) - 0.5) * 0.06;
+  const base = depth <= 1 ? mix(palette.water, '#3d6b5a', 0.25) : shade(palette.water, -0.05 * (depth - 1));
+  ctx.fillStyle = shade(base, drift);
+  ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+
+  // Wave flecks: short horizontal light strokes, denser in the shallows.
+  const s = new VisualStream(seed ^ 0x5ee, tx, ty);
+  const flecks = depth <= 1 ? 3 : 2;
+  for (let i = 0; i < flecks; i++) {
+    if (s.chance(0.55)) {
+      ctx.fillStyle = `rgba(180, 210, 220, ${depth <= 1 ? 0.12 : 0.07})`;
+      ctx.fillRect(sx + s.int(TILE_SIZE - 4), sy + s.int(TILE_SIZE - 1), 3 + s.int(3), 1);
+    }
+  }
+
+  // Foam line where water meets the beach.
+  ctx.fillStyle = 'rgba(214, 228, 226, 0.30)';
+  if (tileAt(map, tx + 1, ty) === T_SAND) ctx.fillRect(sx + TILE_SIZE - 2, sy, 2, TILE_SIZE);
+  if (tileAt(map, tx - 1, ty) === T_SAND) ctx.fillRect(sx, sy, 2, TILE_SIZE);
+  if (tileAt(map, tx, ty + 1) === T_SAND) ctx.fillRect(sx, sy + TILE_SIZE - 2, TILE_SIZE, 2);
+  if (tileAt(map, tx, ty - 1) === T_SAND) ctx.fillRect(sx, sy, TILE_SIZE, 2);
+}
+
+function paintSand(
+  ctx: CanvasRenderingContext2D,
+  map: CityMap,
+  tx: number,
+  ty: number,
+  sx: number,
+  sy: number,
+): void {
+  const seed = map.seed;
+  const drift = (hash01(seed ^ 0x5a4d, tx, ty) - 0.5) * 0.10;
+  const nearWater =
+    tileAt(map, tx + 1, ty) === T_WATER ||
+    tileAt(map, tx - 1, ty) === T_WATER ||
+    tileAt(map, tx, ty + 1) === T_WATER ||
+    tileAt(map, tx, ty - 1) === T_WATER;
+  // The strip by the water is wet and darker.
+  const base = nearWater ? shade(palette.sand, -0.16) : palette.sand;
+  ctx.fillStyle = shade(base, drift);
+  ctx.fillRect(sx, sy, TILE_SIZE, TILE_SIZE);
+
+  const s = new VisualStream(seed ^ 0x5a4e, tx, ty);
+  // Grain speckle.
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = s.chance(0.5) ? 'rgba(255,255,255,0.06)' : 'rgba(70,58,38,0.10)';
+    ctx.fillRect(sx + s.int(TILE_SIZE), sy + s.int(TILE_SIZE), 1, 1);
+  }
+  // The odd shell or pebble.
+  if (s.chance(0.06)) {
+    ctx.fillStyle = s.chance(0.5) ? '#d8cfc0' : '#8a8378';
+    ctx.fillRect(sx + s.int(TILE_SIZE - 2), sy + s.int(TILE_SIZE - 2), 2, 1);
+  }
+  // Reeds sprout on the waterline.
+  if (nearWater && s.chance(0.3)) {
+    for (let i = 0; i < 2 + s.int(2); i++) {
+      ctx.fillStyle = s.chance(0.5) ? '#3d5a3a' : '#4c6a44';
+      ctx.fillRect(sx + s.int(TILE_SIZE - 1), sy + s.int(TILE_SIZE - 3), 1, 3);
+    }
+  }
+}
+
 // -------------------------------------------------------------------- trees
 
 export interface TreeInstance {
@@ -394,12 +559,15 @@ export interface TreeInstance {
   y: number;
   /** Canopy radius, px. */
   r: number;
+  /** Bushes are squat (less parallax lean, no highlight crown). */
+  kind: 'tree' | 'bush';
 }
 
 /** Deterministic park/field trees; anchored to even tile pairs for spacing. */
 export function treeAt(map: CityMap, tx: number, ty: number): TreeInstance | null {
-  if (tx % 2 !== 0 || ty % 2 !== 0) return null;
+  if (tx % 2 !== 0 || ty % 2 !== 0) return bushAt(map, tx, ty);
   const tile = tileAt(map, tx, ty);
+  if (tile === T_SIDEWALK) return streetTreeAt(map, tx, ty);
   const p = tile === T_PARK ? 0.16 : tile === T_FIELD ? 0.03 : 0;
   if (p === 0) return null;
   if (hash01(map.seed ^ 0x7ee, tx, ty) >= p) return null;
@@ -408,6 +576,43 @@ export function treeAt(map: CityMap, tx: number, ty: number): TreeInstance | nul
     x: (tx + 0.5) * TILE_SIZE + s.range(-3, 3),
     y: (ty + 0.5) * TILE_SIZE + s.range(-3, 3),
     r: s.range(5.5, 9),
+    kind: 'tree',
+  };
+}
+
+/** Low bushes fill the gaps between park trees (odd tile pairs). */
+function bushAt(map: CityMap, tx: number, ty: number): TreeInstance | null {
+  if (tx % 2 !== 1 || ty % 2 !== 1) return null;
+  if (tileAt(map, tx, ty) !== T_PARK) return null;
+  if (hash01(map.seed ^ 0xb05, tx, ty) >= 0.14) return null;
+  const s = new VisualStream(map.seed ^ 0xb06, tx, ty);
+  return {
+    x: (tx + 0.5) * TILE_SIZE + s.range(-4, 4),
+    y: (ty + 0.5) * TILE_SIZE + s.range(-4, 4),
+    r: s.range(3, 4.5),
+    kind: 'bush',
+  };
+}
+
+/** Street trees against building walls in the leafier districts. */
+function streetTreeAt(map: CityMap, tx: number, ty: number): TreeInstance | null {
+  if (tx % 4 !== 0 || ty % 4 !== 0) return null;
+  const d = districtAt(map, tx, ty);
+  if (d !== 'residential' && d !== 'commercial' && d !== 'downtown') return null;
+  const byWall =
+    tileAt(map, tx - 1, ty) === T_BUILDING ||
+    tileAt(map, tx + 1, ty) === T_BUILDING ||
+    tileAt(map, tx, ty - 1) === T_BUILDING ||
+    tileAt(map, tx, ty + 1) === T_BUILDING;
+  if (!byWall) return null;
+  const p = d === 'residential' ? 0.34 : 0.18;
+  if (hash01(map.seed ^ 0x57e, tx, ty) >= p) return null;
+  const s = new VisualStream(map.seed ^ 0x57f, tx, ty);
+  return {
+    x: (tx + 0.5) * TILE_SIZE + s.range(-2, 2),
+    y: (ty + 0.5) * TILE_SIZE + s.range(-2, 2),
+    r: s.range(4.5, 6.5),
+    kind: 'tree',
   };
 }
 
@@ -429,5 +634,5 @@ export function treesInView(map: CityMap, cam: Vec2, margin = 24): TreeInstance[
 
 /** Tree colour variation, stable per instance. */
 export function treeTone(map: CityMap, tree: TreeInstance): number {
-  return hashPick(map.seed ^ 0x7f0, Math.round(tree.x), Math.round(tree.y), 3);
+  return hashPick(map.seed ^ 0x7f0, Math.round(tree.x), Math.round(tree.y), 4);
 }

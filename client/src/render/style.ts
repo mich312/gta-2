@@ -53,6 +53,12 @@ export const CAR_COLORS = [
   '#4d8a56',
   '#7a4a8a',
   '#996a4a',
+  '#d6ad25',
+  '#2e6e6e',
+  '#8a8f99',
+  '#5b3a2e',
+  '#a0455f',
+  '#39495f',
 ] as const;
 
 /** Remote player shirt colours (stable by player id). */
@@ -82,7 +88,18 @@ export const PED_OUTFITS = [
   { shirt: '#7d5a71', pants: '#3a3340' },
   { shirt: '#647d5e', pants: '#41463b' },
   { shirt: '#9c9788', pants: '#54514a' },
+  { shirt: '#a3574a', pants: '#3c3a42' },
+  { shirt: '#4f7d78', pants: '#2f3a3d' },
+  { shirt: '#b09a4e', pants: '#4a4438' },
+  { shirt: '#7a8aa6', pants: '#3e4450' },
+  { shirt: '#8f7f96', pants: '#443c4b' },
+  { shirt: '#5d6d46', pants: '#3b4032' },
+  { shirt: '#a88a72', pants: '#4d4237' },
+  { shirt: '#607086', pants: '#2e3542' },
 ] as const;
+
+/** Occasional pedestrian headwear (stable by ped id; '' = bare head). */
+export const PED_HATS = ['#7a3f3f', '#3f5a7a', '#5c584a', '#2e2e34', '#8a7c52'] as const;
 
 export type GfxQuality = 'high' | 'low';
 

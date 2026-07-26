@@ -8,8 +8,8 @@ import { addHeat, createCop, wantedLevelOf } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import { applyDamage, rayWallDistance } from './weapons.js';
-import type { CityMap } from '../world/types.js';
-import { moveWithCollision } from '../world/collide.js';
+import { T_WATER, TILE_SIZE, tileAt, type CityMap } from '../world/types.js';
+import { isSolidForBoat, isSolidTile, moveWithCollision } from '../world/collide.js';
 
 /**
  * Wanted levels + deterministic pursuit AI. All in the sim: same seed, same
@@ -33,6 +33,11 @@ function hasLineOfSight(map: CityMap, from: CopState, to: PlayerState, range: nu
   return rayWallDistance(map, from.pos.x, from.pos.y, dirX, dirY, d) >= d;
 }
 
+/** Afloat = over open water (a driven boat carries the player's position). */
+function afloat(map: CityMap, x: number, y: number): boolean {
+  return tileAt(map, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)) === T_WATER;
+}
+
 function maybeSpawnCop(state: GameState, map: CityMap): void {
   const t = getTuning().police;
   if (state.cops.ids.length >= t.maxCopsTotal) return;
@@ -42,16 +47,23 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
     if (!p || p.mode === 'dead') continue;
     const wanted = wantedLevelOf(p);
     if (wanted === 0) continue;
-    const assigned = state.cops.ids.filter(
-      (cid) => state.cops.byId[cid]?.targetId === pid,
-    ).length;
+    // Only cops in the right medium count toward the cap: street cops
+    // pacing the promenade must not block the harbor patrol from launching
+    // when the fugitive sails (and vice versa when they come ashore).
+    const marine = afloat(map, p.pos.x, p.pos.y);
+    const assigned = state.cops.ids.filter((cid) => {
+      const c = state.cops.byId[cid];
+      return c !== undefined && c.targetId === pid && c.marine === marine;
+    }).length;
     const desired = Math.min(t.copsPerStar * wanted, t.maxCopsPerPlayer);
     if (assigned >= desired) continue;
 
-    // Deterministic spawn spot: walk the kerbside spawn list (dense, on
-    // roads — cops arrive from the street) from an rng offset and take the
-    // first point inside the ring around the fugitive.
-    const spawns = map.vehicleSpawns;
+    // Deterministic spawn spot: walk a spawn list from an rng offset and
+    // take the first point inside the ring around the fugitive. Cops arrive
+    // from the street (kerbside list) — unless the fugitive is afloat, in
+    // which case harbor patrol launches from the boat moorings instead.
+    // The water is pressure, not a pardon.
+    const spawns = marine ? map.boatSpawns : map.vehicleSpawns;
     if (spawns.length === 0) return;
     let offset: number;
     [offset, state.rng] = nextIntRange(state.rng, 0, spawns.length);
@@ -60,7 +72,7 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
       if (!candidate) continue;
       const d = dist(candidate.x, candidate.y, p.pos.x, p.pos.y);
       if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
-      const cop = createCop(state.nextEntityId++, candidate, t.copHealth);
+      const cop = createCop(state.nextEntityId++, candidate, t.copHealth, marine);
       cop.targetId = pid;
       insertEntity(state.cops, cop);
       return; // at most one spawn per tick: a ramp, not a wall
@@ -165,28 +177,44 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
       if (cop.idleTicks >= t.despawnTicks) toRemove.push(cid);
       continue;
     }
+    // Wrong medium and out of range — a street cop watching a boat, or a
+    // launch watching an inland fugitive — is effectively idle: it holds
+    // position (shooting if the target strays back into range) and stands
+    // down on the same idle clock instead of pinning a pursuit slot forever.
+    if (cop.marine !== afloat(map, target.pos.x, target.pos.y) && bestD > t.fireRange) {
+      cop.targetId = target.id;
+      cop.vel.x = 0;
+      cop.vel.y = 0;
+      cop.idleTicks++;
+      if (cop.idleTicks >= t.despawnTicks) toRemove.push(cid);
+      continue;
+    }
     cop.idleTicks = 0;
     cop.targetId = target.id;
 
     // Chase: greedy steering; axis-separated collision gives wall-slide.
     // Staggered 3-tick cadence like peds: NPC motion at 10 Hz, 3x step —
     // interpolation smooths it and delta traffic drops to a third.
+    // Harbor patrol moves on water (its "walls" are the shoreline) at boat
+    // speed; foot cops keep the kerb. Neither crosses the other's medium.
     if (bestD > 24 && (state.tick + cid) % 3 === 0) {
+      const speed = cop.marine ? t.marineSpeed : t.moveSpeed;
+      const solid = cop.marine ? isSolidForBoat : isSolidTile;
       const dirX = (target.pos.x - cop.pos.x) / bestD;
       const dirY = (target.pos.y - cop.pos.y) / bestD;
-      cop.vel.x = dirX * t.moveSpeed;
-      cop.vel.y = dirY * t.moveSpeed;
-      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT * 3, cop.vel.y * DT * 3);
+      cop.vel.x = dirX * speed;
+      cop.vel.y = dirY * speed;
+      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT * 3, cop.vel.y * DT * 3, solid);
       if (cop.vel.x === 0 && cop.vel.y === 0) {
         // Fully wedged in a corner: deterministic sidestep along a wall.
         let flip: number;
         [flip, state.rng] = nextFloat01(state.rng);
         const side = flip < 0.5 ? 1 : -1;
-        const sx = -dirY * side * t.moveSpeed;
-        const sy = dirX * side * t.moveSpeed;
+        const sx = -dirY * side * speed;
+        const sy = dirX * side * speed;
         cop.vel.x = sx;
         cop.vel.y = sy;
-        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT * 3, sy * DT * 3);
+        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT * 3, sy * DT * 3, solid);
       }
       cop.pos.x = q8(cop.pos.x);
       cop.pos.y = q8(cop.pos.y);

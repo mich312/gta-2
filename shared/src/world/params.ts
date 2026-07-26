@@ -22,6 +22,12 @@ export interface WorldgenParams {
   shopQuota: { gun: number; clothing: number };
   playerSpawnCount: number;
   playerSpawnMinDist: number;
+  /**
+   * Base width of the waterfront band on one map edge, in tiles.
+   * 0 disables water entirely — the parser default, so pre-waterfront
+   * replay headers regenerate their cities byte-identically.
+   */
+  waterWidth: number;
 }
 
 function num(v: unknown, name: string): number {
@@ -66,5 +72,6 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     },
     playerSpawnCount: num(r['playerSpawnCount'], 'playerSpawnCount'),
     playerSpawnMinDist: num(r['playerSpawnMinDist'], 'playerSpawnMinDist'),
+    waterWidth: r['waterWidth'] === undefined ? 0 : num(r['waterWidth'], 'waterWidth'),
   };
 }

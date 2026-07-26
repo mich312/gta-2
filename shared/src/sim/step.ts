@@ -6,6 +6,8 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
+import { stepBoatVehicle, stepTrafficVehicle } from './traffic.js';
+import { getVehicleTuning } from '../tuning.js';
 import { stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
@@ -74,11 +76,19 @@ export function step(
     }
   }
 
-  // Driverless vehicles coast to rest.
+  // Driverless vehicles: ambient traffic drives itself (staggered 3-tick
+  // NPC cadence, like peds and cops), the rest coast.
   for (const id of next.vehicles.ids) {
     const v = next.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
-    stepVehicleCoasting(v, map, next);
+    if (v.ai === 1) {
+      if ((next.tick + id) % 3 === 0) {
+        if (getVehicleTuning(v.kind).medium === 'water') stepBoatVehicle(next, v, map);
+        else stepTrafficVehicle(next, v, map);
+      }
+    } else {
+      stepVehicleCoasting(v, map, next);
+    }
   }
 
   stepWeapons(next, inputs, map, events);
@@ -166,7 +176,7 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (getEntity(state.vehicles, cmd.vehicleId)) return;
       insertEntity(
         state.vehicles,
-        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading),
+        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading, cmd.ai ? 1 : 0),
       );
       if (cmd.vehicleId >= state.nextEntityId) {
         state.nextEntityId = cmd.vehicleId + 1;

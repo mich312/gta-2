@@ -89,21 +89,34 @@ describe('destructible props', () => {
   });
 
   it('a speeding car smashes a lamp post and sheds a little momentum', () => {
+    // Synthetic open field: the run-up must not depend on city-spawn luck.
+    const W = 60;
+    const H = 20;
+    const arena: typeof map = {
+      ...map,
+      widthTiles: W,
+      heightTiles: H,
+      widthPx: W * 16,
+      heightPx: H * 16,
+      tiles: new Uint8Array(W * H), // all T_FIELD
+      district: new Uint8Array(W * H),
+      playerSpawns: [{ x: 700, y: 160 }],
+    };
     let state = createGameState(2);
-    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], arena);
     const p1 = state.players.byId[1]!;
     const cmds: SimCommand[] = [
       { type: 'spawnVehicle', vehicleId: 5, kind: 'car', x: p1.pos.x - 200, y: p1.pos.y, heading: 0 },
       { type: 'spawnProp', propId: 88, kind: 'lamp', x: p1.pos.x - 60, y: p1.pos.y, orient: 0 },
     ];
-    state = step(state, {}, cmds, map);
+    state = step(state, {}, cmds, arena);
     state.vehicles.byId[5]!.speed = 300;
     const events: SimEvent[] = [];
     let broke = false;
     let speedAtBreak = 0;
     for (let i = 0; i < 40 && !broke; i++) {
       const preSpeed = state.vehicles.byId[5]!.speed;
-      state = step(state, {}, [], map, events);
+      state = step(state, {}, [], arena, events);
       if (!state.props.byId[88]!.intact) {
         broke = true;
         speedAtBreak = state.vehicles.byId[5]!.speed;

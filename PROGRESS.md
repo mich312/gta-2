@@ -1,5 +1,140 @@
 # PROGRESS
 
+## Phase 10 — waterfront, boats, and nature
+
+**What changed.** The city gets an ecosystem. (1) **Waterfront**: one map
+edge (hash of the seed) becomes open water with a wavy shoreline, a sand
+beach, and a two-tile sidewalk promenade — which pedestrians stroll
+automatically, since they already prefer pavement. The road grid and all
+blocks are confined to the land rect, so nothing builds in the sea. All of
+it is a pure hash of the seed consuming zero rng, and `waterWidth` parses
+to 0 when absent — pre-waterfront replay headers regenerate their
+land-locked cities byte-identically (test-pinned). (2) **Collision media**:
+`isSolidTile` (ground movement) now includes water; boats use an inverted
+predicate (everything but water is solid) threaded through
+`moveWithCollision` as an optional parameter; bullets and police LOS use a
+new buildings-only predicate, so firefights carry across the bay.
+(3) **Boats**: a `boat` vehicle kind (`medium: "water"` in vehicles.json) —
+moored rows near the beach are stealable and drivable (the same shared
+physics predicts them client-side bit-exactly), ambient cruisers wander the
+bay on the 3-tick NPC cadence, braking for other vessels. Exiting mid-water
+is refused by the existing boxed-in rule; a new bow exit candidate lets you
+beach a boat nose-first and step ashore. (4) **Nature & variety (client)**:
+water rendering with depth tones, foam lines and an animated glint pass;
+wet-sand strips, shells, reeds; park bushes, street trees against
+residential/commercial walls, denser flower clusters; car *bodies* now vary
+(sedan / wagon / van / taxi with roof sign) plus a boat sprite; pedestrians
+carry umbrellas in the rain; boats show soft nav lights at night.
+
+**Bandwidth work forced by the denser city.** The joyride gate initially
+FAILED at 55.8 KB/s (the sea squeezes 200 peds + 400 props onto ~93 % of
+the land, and driving clients sweep AOI churn faster). Two interest-
+management changes fixed it properly: props are static, so they are no
+longer radius-filtered at all (one burst in the first full snapshot, then
+only break patches — the AOI add/remove churn was the dearer cost), and
+pedestrians use a 0.75× radius (450 px — they are invisible past ~300 px).
+Brawl is now 34–40 KB/s and joyride 36–45 KB/s, both better than the
+pre-traffic phase-8 baseline.
+
+**Verification.** 81 tests green (6 new): waterfront invariants (water on
+one edge only, promenade present, nothing built in the sea, boat spawns on
+water), the waterWidth-0 back-compat pin, players-can't-swim +
+bullets-fly-over-water, ambient boat cruising 600 ticks without running
+aground (bit-identical twice), and a full steal-sail-refused-exit-beach-
+disembark lifecycle. Interest tests updated for the new prop/ped filter
+rules. Brawl: lockstep 1811..1811, 0 desyncs, under budget; replay
+re-simulates hash-identical; joyride PASS; client build clean. Eyeballed
+live: beach with moored + moving boats and umbrella-carrying peds, city
+streets with a van and a taxi in traffic, night waterfront with headlights
+and lit windows.
+
+**Deliberately deferred.** Rivers/bridges (coastal water only keeps roads
+and water disjoint). Boat traffic interacting with heat/police (no police
+boats — the water is a genuine escape valve, which may be a balance issue
+worth watching). Swimming. Wakes as real decals (exhaust puffs stand in).
+Seagulls.
+
+**Least confident about.** Water-as-escape: cops can shoot across water
+but not pursue onto it, so a boat at range trivially outlasts a wanted
+level — acceptable flavour now, needs police boats or heat rules if it
+warps play. The promenade/beach reduce land area ~7 %; block/shop/spawn
+densities still pass their invariants but downtown can sit closer to the
+shore on some seeds than others (aesthetic variance, not correctness).
+
+**Update (post-review): harbor patrol.** The water-as-escape hole is
+closed. Cops gained a `marine` flag: when a wanted player is afloat
+(tile under them is water), new pursuers spawn from the boat moorings as
+police launches instead of from the kerb — same greedy chase, but moving
+on the water medium (`isSolidForBoat`) at a boat-speed `marineSpeed`
+(police.json, 205 px/s — faster than a fleeing boat's cruise, slower than
+its flat-out top speed, so running is tense but possible). Firing needed
+no changes: cop shots already trace with the buildings-only ray, so
+launches shoot you at the helm. Two cap rules make the force feel right:
+the per-fugitive spawn cap counts only cops in the *right medium* for
+where the target currently is (street cops pacing the promenade can't
+block the launch from launching — found by playtest scripting, not by the
+first test), and a cop stranded in the wrong medium out of firing range
+accrues idle ticks and stands down instead of pinning a pursuit slot
+forever. Client renders marine cops as a blue-striped police launch with
+a red/blue strobing glow at night. Protocol bumped to 3 (new cop field).
+Verified: 83 tests green — a pure-water chase (launches spawn, stay on
+water, close inside firing range, draw blood, bit-identical twice) and
+the mixed-force scenario (street unit musters on the beach first, player
+sails, launches still spawn); brawl lockstep 0 desyncs; replay
+hash-identical. The `__debug` E2E affordance gained nearestPed/vehicle
+kind/marine counts for automated staging.
+
+## Phase 9 — city liveliness + map visual variety
+
+**What changed.** Two answers to "the city feels lifeless and the map
+monotone." (1) **Ambient traffic**: ~30 driverless cars cruise the arterial
+roads as sim entities (`shared/src/sim/traffic.ts`). Worldgen now emits
+`trafficSpawns` — lane-centred points on arterials (crossing width ≥ 3
+tiles), right-hand lanes at 1/3 and 2/3 of the road width — and kerb
+parking was removed from arterials (checked after the rng draws, so the
+worldgen stream and every other spawn list are byte-identical to phase 8).
+Traffic cars carry three new VehicleState fields (`ai`, `aiDir`, `aiWait`)
+and drive on the established staggered 3-tick NPC cadence: cardinal route
+intents, lane-keeping steer, braking for players/peds/cops/cars ahead, rng
+turns at intersections, and a stuck-timeout that pivots them away from
+blockages (they steer even at rest — braking must not deadlock the escape
+turn). Cruise speed (104) sits below the prop-break (110), run-over (130),
+and ped-scare (140) thresholds, so traffic is calm until a player isn't.
+A stopped traffic car can be carjacked — `ai` clears and it's an ordinary
+car (and a theft) forever after. Spawns are recorded commands; old replays
+(no `ai` flag) replay unchanged. `aiWait` is deliberately excluded from
+deltas and the snapshot hash, like `lastInputSeq`: it churns every blocked
+tick and remote clients never read it. PROTOCOL_VERSION bumped to 2.
+(2) **Map variety, all client-side**: per-district façade palettes (each
+building hash-picks one of 4–6 hues), district-tinted sidewalks, zebra
+crossings where corridors meet intersections, 14 ped outfits (up from 6)
+plus occasional hats, 14 car colours (up from 8), and moving traffic gets
+headlight cones at night.
+
+**Verification.** 75 tests green (69 + 6 new): traffic spawn invariants,
+lane-holding cruise on a synthetic arterial, braking for a player with
+zero contact/damage then timeout-and-leave, carjack conversion, opposing
+cars sorting into lanes and passing untouched, and a 900-tick roam over
+the real city (12 cars: never in a building, ≥ 90 % on-road, every car
+> 400 px travelled, two runs bit-identical). 8-bot brawl with traffic +
+200 peds + police: PASS, lockstep 1810..1810, 0 desyncs, 41–49 KB/s
+(under the 50 KB/s gate). Joyride PASS. Replay of the brawl session
+re-simulates hash-identical twice. Client `vite build` clean; eyeballed
+live in headless Chromium — day (crosswalks, façade variety, tints) and
+night (traffic driving with headlights, lit windows).
+
+**Deliberately deferred.** Traffic on secondary streets (two cars can't
+pass in 2 tiles; arterials only keeps it deadlock-free). Traffic lights /
+stop lines as behavior. Vehicle-vs-vehicle damage. Per-district ped
+density and ped road-crossing discipline.
+
+**Least confident about.** Traffic *feel* at the margins — cars pivot in
+place when escaping a blockage (arcade, reads fine at 16 px but is not
+car-like), and a player who parks across an arterial lane will collect a
+queue until each car's timeout disperses it. Bandwidth headroom is now
+~2–9 KB/s under the gate in brawls; the binary codec seam is the next
+lever if anything else wants to move.
+
 ## Phase 8 — destructible props
 
 **What changed.** Lamp posts, bins, and fences as sim entities with exactly

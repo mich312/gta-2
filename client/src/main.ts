@@ -244,15 +244,29 @@ function frame(now: number): void {
   });
 
   // E2E/debug affordance: lets automated tests read the local player's
-  // state without scraping pixels. Not used by the game itself.
+  // state (and aim/board without scraping pixels). Not used by the game.
+  const mePos = predictor.predicted?.pos ?? null;
+  let nearestPed: { sx: number; sy: number; dist: number } | null = null;
+  if (mePos && sync.latest) {
+    for (const ped of sync.latest.peds) {
+      const d = Math.hypot(ped.pos.x - mePos.x, ped.pos.y - mePos.y);
+      if (!nearestPed || d < nearestPed.dist) {
+        nearestPed = { sx: ped.pos.x - cam.x, sy: ped.pos.y - cam.y, dist: d };
+      }
+    }
+  }
   (window as unknown as Record<string, unknown>)['__debug'] = {
     me: predictor.predicted,
     tick: sync.latest?.tick ?? -1,
     cops: sync.latest?.cops.length ?? 0,
+    marineCops: sync.latest?.cops.filter((c) => c.marine).length ?? 0,
     props: sync.latest?.props.length ?? 0,
     lights: pipeline.lighting.points.length,
     daylight: pipeline.daylight,
-    vehicles: sync.latest?.vehicles.map((v) => ({ x: v.pos.x, y: v.pos.y, d: v.driverId })) ?? [],
+    nearestPed,
+    vehicles:
+      sync.latest?.vehicles.map((v) => ({ x: v.pos.x, y: v.pos.y, d: v.driverId, k: v.kind })) ??
+      [],
   };
 
   requestAnimationFrame(frame);

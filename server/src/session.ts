@@ -12,6 +12,7 @@ import {
   SNAPSHOT_RING_TICKS,
   createGameState,
   generateCity,
+  getTuning,
   step,
   takeSnapshot,
 } from 'shared';
@@ -108,6 +109,63 @@ export class Session {
         x: s.x,
         y: s.y,
         heading: s.heading,
+      });
+    }
+
+    // Ambient traffic: cars cruising the arterial lanes. Same command path,
+    // so replays reproduce them; the traffic AI itself lives in the sim.
+    const trafficSpawns = this.map.trafficSpawns;
+    const trafficCount = Math.min(getTuning().traffic.count, trafficSpawns.length);
+    const trafficStride =
+      trafficCount > 0 ? Math.max(1, Math.floor(trafficSpawns.length / trafficCount)) : 1;
+    for (let i = 0; i < trafficCount; i++) {
+      const s = trafficSpawns[(i * trafficStride) % trafficSpawns.length];
+      if (!s) continue;
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+        ai: true,
+      });
+    }
+
+    // The waterfront: moored boats you can steal, plus ambient cruisers.
+    const moored = this.map.boatSpawns.filter((b) => b.moored);
+    const cruising = this.map.boatSpawns.filter((b) => !b.moored);
+    const mooredCount = Math.min(getTuning().traffic.mooredBoatCount, moored.length);
+    const cruisingCount = Math.min(getTuning().traffic.boatCount, cruising.length);
+    const pickSpread = <T>(list: T[], count: number): T[] => {
+      if (count <= 0) return [];
+      const stride = Math.max(1, Math.floor(list.length / count));
+      const out: T[] = [];
+      for (let i = 0; i < count; i++) {
+        const s = list[(i * stride) % list.length];
+        if (s) out.push(s);
+      }
+      return out;
+    };
+    for (const s of pickSpread(moored, mooredCount)) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+      });
+    }
+    for (const s of pickSpread(cruising, cruisingCount)) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+        ai: true,
       });
     }
 

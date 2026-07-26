@@ -201,7 +201,13 @@ function makeStructure(map: CityMap, b: Building): Structure {
   const s = new VisualStream(map.seed ^ 0xb1d, b.x, b.y);
   const range = STOREYS[b.district] ?? [1, 2];
   const storeys = range[0] + s.int(range[1] - range[0] + 1);
-  const base = (palette.building as Record<string, string>)[b.district] ?? palette.building.downtown;
+  // Each district owns a small family of façade hues; every building picks
+  // one, so blocks read as a neighbourhood instead of a single flat colour.
+  const variants = (palette.buildingVariants as Record<string, string[]>)[b.district];
+  const base =
+    (variants && variants.length > 0 ? variants[s.int(variants.length)] : undefined) ??
+    (palette.building as Record<string, string>)[b.district] ??
+    palette.building.downtown;
   const tint = s.range(-0.06, 0.06);
   // Walls sit in shade and keep the district hue; roofs read as weathered
   // concrete — district colour pulled well toward grey, lighter when taller.
@@ -378,7 +384,7 @@ function drawStructure(
   ctx.restore();
 }
 
-const TREE_TONES = ['#2f5a33', '#39653a', '#2a4f36'] as const;
+const TREE_TONES = ['#2f5a33', '#39653a', '#2a4f36', '#4a6136'] as const;
 
 function drawTree(
   ctx: CanvasRenderingContext2D,
@@ -388,7 +394,8 @@ function drawTree(
   cx: number,
   cy: number,
 ): void {
-  const [lx, ly] = lean(tree.x, tree.y, cx, cy, 1.6);
+  const squat = tree.kind === 'bush';
+  const [lx, ly] = lean(tree.x, tree.y, cx, cy, squat ? 0.5 : 1.6);
   const x = tree.x - cam.x + lx;
   const y = tree.y - cam.y + ly;
   const tone = TREE_TONES[treeTone(map, tree)] as string;
@@ -400,6 +407,7 @@ function drawTree(
   ctx.beginPath();
   ctx.arc(x - tree.r * 0.15, y - tree.r * 0.15, tree.r * 0.8, 0, Math.PI * 2);
   ctx.fill();
+  if (squat) return; // bushes keep a flat matte top
   ctx.fillStyle = shade(tone, 0.18);
   ctx.beginPath();
   ctx.arc(x - tree.r * 0.3, y - tree.r * 0.3, tree.r * 0.4, 0, Math.PI * 2);

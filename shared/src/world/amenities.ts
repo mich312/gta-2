@@ -1,6 +1,7 @@
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { HALF_PI, PI } from '../math/trig.js';
 import type { Vec2 } from '../math/vec.js';
+import { isIntersectionTile, roadSpanAt } from './roads.js';
 import type { WorldgenParams } from './params.js';
 import {
   T_BUILDING,
@@ -112,6 +113,9 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
         : flip < 0.5
           ? 0
           : PI;
+      // No kerb parking on arterials — those lanes belong to ambient traffic.
+      // (Checked after the rng draws so the worldgen stream is unchanged.)
+      if (roadSpanAt(map, tx, ty, sidewalkLeft).width >= 3) continue;
       spawns.push({
         x: (tx + 0.5) * TILE_SIZE,
         y: (ty + 0.5) * TILE_SIZE,
@@ -122,6 +126,58 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
   }
   map.vehicleSpawns = spawns;
   return rng;
+}
+
+/** Tiles between traffic spawn points along an arterial corridor. */
+const TRAFFIC_SPAWN_SPACING = 11;
+
+/**
+ * Ambient-traffic spawn points: lane-centred positions on arterial roads
+ * (crossing width ≥ 3 tiles), right-hand lanes at 1/3 and 2/3 of the road
+ * width, alternating direction so both lanes get used. Deterministic scan,
+ * no rng — the list must be identical on every host.
+ */
+export function placeTrafficSpawns(map: CityMap): void {
+  const spawns: VehicleSpawn[] = [];
+  let alongH = 0;
+  let alongV = 0;
+  for (let ty = 0; ty < map.heightTiles; ty++) {
+    for (let tx = 0; tx < map.widthTiles; tx++) {
+      if (t(map, tx, ty) !== T_ROAD) continue;
+      if (isIntersectionTile(map, tx, ty)) continue;
+      const h = roadSpanAt(map, tx, ty, true);
+      const v = roadSpanAt(map, tx, ty, false);
+      // Horizontal arterial corridor: long along x, true width 3..6 across y.
+      if (h.width > 6 && v.width >= 3 && v.width <= 6 && v.before === 0) {
+        alongH++;
+        if (alongH % TRAFFIC_SPAWN_SPACING !== 0) continue;
+        const y0 = (ty - v.before) * TILE_SIZE;
+        const w = v.width * TILE_SIZE;
+        const east = (alongH / TRAFFIC_SPAWN_SPACING) % 2 === 0;
+        // Right-hand traffic: eastbound rides the south lane.
+        spawns.push({
+          x: (tx + 0.5) * TILE_SIZE,
+          y: y0 + (east ? (w * 2) / 3 : w / 3),
+          heading: east ? 0 : PI,
+          kind: 'car',
+        });
+      } else if (v.width > 6 && h.width >= 3 && h.width <= 6 && h.before === 0) {
+        alongV++;
+        if (alongV % TRAFFIC_SPAWN_SPACING !== 0) continue;
+        const x0 = (tx - h.before) * TILE_SIZE;
+        const w = h.width * TILE_SIZE;
+        const south = (alongV / TRAFFIC_SPAWN_SPACING) % 2 === 0;
+        // Southbound rides the west lane.
+        spawns.push({
+          x: x0 + (south ? w / 3 : (w * 2) / 3),
+          y: (ty + 0.5) * TILE_SIZE,
+          heading: south ? HALF_PI : -HALF_PI,
+          kind: 'car',
+        });
+      }
+    }
+  }
+  map.trafficSpawns = spawns;
 }
 
 /** Every 5th sidewalk tile, row-major: plenty of deterministic ped spots. */

@@ -11,5 +11,19 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 9
+  },
+  "boat": {
+    "accel": 120,
+    "brake": 200,
+    "reverseAccel": 60,
+    "maxSpeed": 215,
+    "maxReverseSpeed": 60,
+    "friction": 55,
+    "turnRate": 1.7,
+    "minSteerSpeedFrac": 0.3,
+    "crashDamp": 0.35,
+    "enterRadius": 34,
+    "halfExtent": 11,
+    "medium": "water"
   }
 }

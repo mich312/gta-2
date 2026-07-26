@@ -20,6 +20,8 @@ export interface CopState {
   fireCooldown: number;
   /** Ticks spent with no wanted target; despawns past the tuned limit. */
   idleTicks: number;
+  /** Harbor patrol: moves on water (boat), spawned when the fugitive sails. */
+  marine: boolean;
 }
 
 export interface PropState {
@@ -54,6 +56,12 @@ export interface VehicleState {
   /** Signed forward speed (px/s); negative while reversing. */
   speed: number;
   driverId: number | null;
+  /** 1 = ambient traffic driver; cleared forever when a player takes the car. */
+  ai: number;
+  /** Traffic route intent: cardinal 0 +x, 1 +y, 2 -x, 3 -y. */
+  aiDir: number;
+  /** Ticks spent stuck behind an obstacle; triggers a turn-away past the limit. */
+  aiWait: number;
 }
 
 export interface PlayerState {
@@ -138,7 +146,7 @@ export function clonePed(p: PedState): PedState {
   return { ...p, pos: cloneVec(p.pos) };
 }
 
-export function createCop(id: number, pos: Vec2, health: number): CopState {
+export function createCop(id: number, pos: Vec2, health: number, marine = false): CopState {
   return {
     id,
     pos: cloneVec(pos),
@@ -147,6 +155,7 @@ export function createCop(id: number, pos: Vec2, health: number): CopState {
     health,
     fireCooldown: 0,
     idleTicks: 0,
+    marine,
   };
 }
 
@@ -159,8 +168,12 @@ export function createVehicle(
   kind: string,
   pos: Vec2,
   heading: number,
+  ai = 0,
 ): VehicleState {
-  return { id, kind, pos: cloneVec(pos), heading, speed: 0, driverId: null };
+  // Nearest cardinal to the spawn heading seeds the traffic route intent.
+  const quarter = Math.round(heading / (Math.PI / 2));
+  const aiDir = ((quarter % 4) + 4) % 4;
+  return { id, kind, pos: cloneVec(pos), heading, speed: 0, driverId: null, ai, aiDir, aiWait: 0 };
 }
 
 export function cloneVehicle(v: VehicleState): VehicleState {

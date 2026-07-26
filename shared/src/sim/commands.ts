@@ -13,6 +13,15 @@ export type SimCommand =
   | { type: 'despawnPlayer'; playerId: number }
   | { type: 'grantWeapon'; playerId: number; weaponId: string; ammo: number }
   | { type: 'setCosmetic'; playerId: number; cosmeticId: number }
-  | { type: 'spawnVehicle'; vehicleId: number; kind: string; x: number; y: number; heading: number }
+  | {
+      type: 'spawnVehicle';
+      vehicleId: number;
+      kind: string;
+      x: number;
+      y: number;
+      heading: number;
+      /** Ambient traffic driver (absent/false in pre-traffic replays). */
+      ai?: boolean;
+    }
   | { type: 'spawnPed'; pedId: number; x: number; y: number }
   | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number };

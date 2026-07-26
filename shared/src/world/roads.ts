@@ -1,6 +1,53 @@
 import { nextIntRange, nextRange } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
-import { DISTRICT_TYPES, T_ROAD, type BlockRect, type DistrictType } from './types.js';
+import {
+  DISTRICT_TYPES,
+  T_ROAD,
+  tileAt,
+  type BlockRect,
+  type CityMap,
+  type DistrictType,
+} from './types.js';
+
+export interface RoadSpan {
+  /** Contiguous road tiles before (tx,ty) along the axis. */
+  before: number;
+  /** Total contiguous road width through (tx,ty) along the axis. */
+  width: number;
+}
+
+/**
+ * Width of the contiguous road span through (tx,ty) along one axis, capped at
+ * `cap` tiles per side. On a corridor the crossing axis reads the road's true
+ * width; along the corridor it reads long. Both long ⇒ an intersection box.
+ * Used by traffic AI, worldgen amenities, and (duplicated for chunk baking)
+ * the client ground renderer.
+ */
+export function roadSpanAt(
+  map: CityMap,
+  tx: number,
+  ty: number,
+  axisX: boolean,
+  cap = 8,
+): RoadSpan {
+  const sx = axisX ? 1 : 0;
+  const sy = axisX ? 0 : 1;
+  let before = 0;
+  while (before < cap && tileAt(map, tx - sx * (before + 1), ty - sy * (before + 1)) === T_ROAD) {
+    before++;
+  }
+  let after = 0;
+  while (after < cap && tileAt(map, tx + sx * (after + 1), ty + sy * (after + 1)) === T_ROAD) {
+    after++;
+  }
+  return { before, width: before + after + 1 };
+}
+
+/** True when (tx,ty) sits inside an intersection box (long spans both ways). */
+export function isIntersectionTile(map: CityMap, tx: number, ty: number): boolean {
+  if (tileAt(map, tx, ty) !== T_ROAD) return false;
+  return roadSpanAt(map, tx, ty, true).width > 6 && roadSpanAt(map, tx, ty, false).width > 6;
+}
 
 export interface RoadsResult {
   blocks: BlockRect[];
@@ -44,38 +91,44 @@ export function generateRoads(
   params: WorldgenParams,
   districtIdxAt: (tx: number, ty: number) => number,
   rng: number,
+  land?: { x0: number; y0: number; x1: number; y1: number },
 ): RoadsResult {
   const W = params.widthTiles;
   const H = params.heightTiles;
   const aw = params.arterialWidth;
   const sw = params.secondaryWidth;
+  // The waterfront (if any) reserves one edge; roads stay on the land rect.
+  const lx0 = land?.x0 ?? 0;
+  const ly0 = land?.y0 ?? 0;
+  const lx1 = land?.x1 ?? W;
+  const ly1 = land?.y1 ?? H;
 
   // Arterial centre positions, jittered inside their band.
   const xs: number[] = [];
   const ys: number[] = [];
   for (let i = 1; i <= params.arterialsX; i++) {
-    const band = W / (params.arterialsX + 1);
+    const band = (lx1 - lx0) / (params.arterialsX + 1);
     let jitter: number;
     [jitter, rng] = nextRange(rng, -band * 0.25, band * 0.25);
-    xs.push(Math.round(band * i + jitter));
+    xs.push(lx0 + Math.round(band * i + jitter));
   }
   for (let i = 1; i <= params.arterialsY; i++) {
-    const band = H / (params.arterialsY + 1);
+    const band = (ly1 - ly0) / (params.arterialsY + 1);
     let jitter: number;
     [jitter, rng] = nextRange(rng, -band * 0.25, band * 0.25);
-    ys.push(Math.round(band * i + jitter));
+    ys.push(ly0 + Math.round(band * i + jitter));
   }
-  for (const x of xs) carveRect(tiles, W, H, x - Math.floor(aw / 2), 0, aw, H);
-  for (const y of ys) carveRect(tiles, W, H, 0, y - Math.floor(aw / 2), W, aw);
+  for (const x of xs) carveRect(tiles, W, H, x - Math.floor(aw / 2), ly0, aw, ly1 - ly0);
+  for (const y of ys) carveRect(tiles, W, H, lx0, y - Math.floor(aw / 2), lx1 - lx0, aw);
 
-  // Initial regions between arterials (and the map edge).
-  const xCuts = [0, ...xs.map((x) => x - Math.floor(aw / 2)), W];
-  const yCuts = [0, ...ys.map((y) => y - Math.floor(aw / 2)), H];
+  // Initial regions between arterials (and the land edge).
+  const xCuts = [lx0, ...xs.map((x) => x - Math.floor(aw / 2)), lx1];
+  const yCuts = [ly0, ...ys.map((y) => y - Math.floor(aw / 2)), ly1];
   const queue: Region[] = [];
   for (let yi = 0; yi + 1 < yCuts.length; yi++) {
     for (let xi = 0; xi + 1 < xCuts.length; xi++) {
-      const x = xi === 0 ? 0 : (xCuts[xi] as number) + aw;
-      const y = yi === 0 ? 0 : (yCuts[yi] as number) + aw;
+      const x = xi === 0 ? lx0 : (xCuts[xi] as number) + aw;
+      const y = yi === 0 ? ly0 : (yCuts[yi] as number) + aw;
       const x2 = xCuts[xi + 1] as number;
       const y2 = yCuts[yi + 1] as number;
       if (x2 - x >= 3 && y2 - y >= 3) queue.push({ x, y, w: x2 - x, h: y2 - y });

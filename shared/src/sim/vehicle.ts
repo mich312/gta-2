@@ -6,7 +6,7 @@ import type { GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import type { CityMap } from '../world/types.js';
-import { boxInSolid, moveWithCollision } from '../world/collide.js';
+import { boxInSolid, isSolidForBoat, isSolidTile, moveWithCollision } from '../world/collide.js';
 
 /**
  * Arcade vehicle physics: signed forward speed along a heading, steering
@@ -34,16 +34,26 @@ function overlapsOtherVehicle(
   return false;
 }
 
-/** Move a vehicle by its speed/heading, colliding with tiles and (server-side) other cars. */
-function integrateVehicle(v: VehicleState, map: CityMap, state: GameState | null): void {
+/**
+ * Move a vehicle by its speed/heading, colliding with tiles and (server-side)
+ * other cars. `dtMul` lets NPC traffic integrate on the staggered 3-tick
+ * cadence (10 Hz, 3× step) like peds and cops; player cars always pass 1.
+ */
+export function integrateVehicle(
+  v: VehicleState,
+  map: CityMap,
+  state: GameState | null,
+  dtMul = 1,
+): void {
   const t = getVehicleTuning(v.kind);
   if (v.speed === 0) return;
   const beforeX = v.pos.x;
   const beforeY = v.pos.y;
-  const dx = dCos(v.heading) * v.speed * DT;
-  const dy = dSin(v.heading) * v.speed * DT;
+  const dx = dCos(v.heading) * v.speed * DT * dtMul;
+  const dy = dSin(v.heading) * v.speed * DT * dtMul;
   const tmpVel = { x: dx, y: dy };
-  moveWithCollision(map, v.pos, tmpVel, t.halfExtent, dx, dy);
+  const solid = t.medium === 'water' ? isSolidForBoat : isSolidTile;
+  moveWithCollision(map, v.pos, tmpVel, t.halfExtent, dx, dy, solid);
   const hitWall = (dx !== 0 && tmpVel.x === 0) || (dy !== 0 && tmpVel.y === 0);
   if (hitWall) {
     v.speed = -v.speed * t.crashDamp; // crunch + slight rebound
@@ -119,6 +129,8 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   }
   if (!best) return false;
   addHeat(p, getTuning().police.heatPerTheft); // grand theft auto, witnessed or not
+  best.ai = 0; // a jacked traffic car is a normal car forever after
+  best.aiWait = 0;
   best.driverId = p.id;
   p.mode = 'driving';
   p.vehicleId = best.id;
@@ -129,7 +141,11 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   return true;
 }
 
-/** Try to exit: first free spot beside (then behind) the car wins. */
+/**
+ * Try to exit: first free spot beside (then behind, then over the bow) wins.
+ * The bow spot exists for boats nosed onto a beach — sides and stern are
+ * water there, and water is solid ground-movement terrain.
+ */
 export function tryExitVehicle(state: GameState, p: PlayerState, map: CityMap): boolean {
   if (p.vehicleId === null) return false;
   const v = state.vehicles.byId[p.vehicleId];
@@ -140,6 +156,7 @@ export function tryExitVehicle(state: GameState, p: PlayerState, map: CityMap): 
     [dCos(v.heading + HALF_PI) * side, dSin(v.heading + HALF_PI) * side],
     [dCos(v.heading - HALF_PI) * side, dSin(v.heading - HALF_PI) * side],
     [dCos(v.heading + PI) * (side + 8), dSin(v.heading + PI) * (side + 8)],
+    [dCos(v.heading) * (side + 8), dSin(v.heading) * (side + 8)],
   ];
   for (const [ox, oy] of candidates) {
     const spot = { x: v.pos.x + ox, y: v.pos.y + oy };

@@ -9,7 +9,9 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_SAND,
   T_SIDEWALK,
+  T_WATER,
   TILE_SIZE,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -48,6 +50,8 @@ export class Minimap {
       [T_BUILDING]: 4,
       [T_PARK]: 2,
       [T_LOT]: 1,
+      [T_WATER]: 2,
+      [T_SAND]: 1,
     };
     const COLOR: Record<number, string> = {
       [T_ROAD]: '#585f6a',
@@ -55,6 +59,8 @@ export class Minimap {
       [T_BUILDING]: '#2c3644',
       [T_PARK]: '#2c452f',
       [T_LOT]: '#3c3d36',
+      [T_WATER]: '#1e364a',
+      [T_SAND]: '#6b6049',
     };
     const winner = new Int8Array(MINIMAP_SIZE * MINIMAP_SIZE).fill(-1);
     const priAt = new Int8Array(MINIMAP_SIZE * MINIMAP_SIZE);

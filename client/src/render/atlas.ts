@@ -1,5 +1,12 @@
 import type { PlayerState } from 'shared';
-import { ATLAS_ROTATION_STEPS, CAR_COLORS, COSMETIC_OUTFITS, PED_OUTFITS, REMOTE_SHIRTS } from './style.js';
+import {
+  ATLAS_ROTATION_STEPS,
+  CAR_COLORS,
+  COSMETIC_OUTFITS,
+  PED_HATS,
+  PED_OUTFITS,
+  REMOTE_SHIRTS,
+} from './style.js';
 import { hashPick, shade } from './visualRng.js';
 
 /**
@@ -12,9 +19,10 @@ import { hashPick, shade } from './visualRng.js';
  * for every entity at the same angle.
  *
  * Variants are lazy: sprites are keyed by a tiny grammar that encodes their
- * palette (`hum:<shirt>,<pants>,<skin>,<hair>,<hat>,<armed>`; `car:<hex>`;
- * `prop:<kind>`; `blob:<w>x<h>`), and a painter is invoked on first use.
- * A new outfit or car colour is a new key, not new code.
+ * palette (`hum:<shirt>,<pants>,<skin>,<hair>,<hat>,<armed>`;
+ * `car:<style>,<hex>`; `boat:<hex>`; `prop:<kind>`; `blob:<w>x<h>`), and a
+ * painter is invoked on first use. A new outfit or car colour is a new key,
+ * not new code.
  */
 
 interface Baked {
@@ -127,6 +135,8 @@ function resolveSpec(key: string): SpriteSpec {
       return humanoidSpec(arg);
     case 'car':
       return carSpec(arg);
+    case 'boat':
+      return boatSpec(arg);
     case 'prop':
       return propSpec(arg);
     case 'blob':
@@ -224,7 +234,7 @@ function paintHumanoid(ctx: CanvasRenderingContext2D, look: HumanoidLook, frame:
   px(ctx, 11, 7, 1, 2, look.skin);
   if (cap) {
     px(ctx, 12, 7, 1, 2, shade(look.hat, 0.3)); // brim
-    px(ctx, 8, 7, 1, 1, '#d8b64a'); // badge glint
+    if (look.hat === '#233d73') px(ctx, 8, 7, 1, 1, '#d8b64a'); // cop badge glint
   } else {
     px(ctx, 8, 7, 2, 1, shade(look.hair, 0.28)); // sheen
   }
@@ -249,7 +259,9 @@ export function pedSpriteKey(id: number): string {
   const outfit = PED_OUTFITS[hashPick(17, id, 2, PED_OUTFITS.length)] as (typeof PED_OUTFITS)[number];
   const skin = SKIN_TONES[hashPick(11, id, 3, SKIN_TONES.length)] as string;
   const hair = HAIR[hashPick(13, id, 4, HAIR.length)] as string;
-  return `hum:${outfit.shirt},${outfit.pants},${skin},${hair},,0`;
+  // Roughly one in five wears a hat — crowds read as individuals, not clones.
+  const hat = hashPick(19, id, 6, 5) === 0 ? (PED_HATS[hashPick(29, id, 7, PED_HATS.length)] as string) : '';
+  return `hum:${outfit.shirt},${outfit.pants},${skin},${hair},${hat},0`;
 }
 
 function remoteShirt(id: number): string {
@@ -258,23 +270,37 @@ function remoteShirt(id: number): string {
 
 // --------------------------------------------------------------------- cars
 
-export function carSpriteKey(vehicleId: number): string {
-  return `car:${CAR_COLORS[hashPick(23, vehicleId, 5, CAR_COLORS.length)] as string}`;
+export type CarStyle = 'sedan' | 'wagon' | 'van' | 'taxi';
+
+/** Sprite key for any vehicle entity: boats by kind, cars by hashed style. */
+export function vehicleSpriteKey(v: { id: number; kind: string }): string {
+  if (v.kind === 'boat') {
+    return `boat:${BOAT_COLORS[hashPick(41, v.id, 10, BOAT_COLORS.length)] as string}`;
+  }
+  // Body style per id: mostly sedans, a few wagons and vans, the odd taxi.
+  const roll = hashPick(31, v.id, 8, 10);
+  const style: CarStyle = roll < 5 ? 'sedan' : roll < 7 ? 'wagon' : roll < 9 ? 'van' : 'taxi';
+  const body =
+    style === 'taxi' ? '#e0b91f' : (CAR_COLORS[hashPick(23, v.id, 5, CAR_COLORS.length)] as string);
+  return `car:${style},${body}`;
 }
 
+const BOAT_COLORS = ['#d8d4c8', '#7a3434', '#33586e', '#3d6b4f', '#c2ab66'] as const;
+
 function carSpec(arg: string): SpriteSpec {
-  const body = arg || '#b03a3a';
+  const [styleRaw = 'sedan', color = '#b03a3a'] = arg.split(',');
+  const style = styleRaw as CarStyle;
   return {
     w: 28,
     h: 16,
     frames: 1,
     steps: ATLAS_ROTATION_STEPS,
-    paint: (ctx) => paintCar(ctx, body),
+    paint: (ctx) => paintCar(ctx, style, color),
   };
 }
 
-/** Sedan facing +x, 28×16 canvas, body 24×12 centred. */
-function paintCar(ctx: CanvasRenderingContext2D, body: string): void {
+/** Car facing +x, 28×16 canvas, body 24×12 centred; style varies the shell. */
+function paintCar(ctx: CanvasRenderingContext2D, style: CarStyle, body: string): void {
   const dark = shade(body, -0.28);
   const lite = shade(body, 0.16);
 
@@ -296,23 +322,93 @@ function paintCar(ctx: CanvasRenderingContext2D, body: string): void {
   px(ctx, 4, 3, 20, 1, lite);
   px(ctx, 4, 12, 20, 1, dark);
 
-  // Bonnet/boot seams.
-  px(ctx, 21, 4, 1, 8, dark);
-  px(ctx, 8, 4, 1, 8, dark);
+  if (style === 'van') {
+    // One long box: tall cargo body, cab window right up front.
+    px(ctx, 5, 4, 15, 8, OUTLINE);
+    px(ctx, 6, 5, 13, 6, shade(body, -0.10));
+    px(ctx, 6, 5, 13, 1, shade(body, 0.08)); // roof ridge
+    px(ctx, 20, 4, 1, 8, dark); // cab bulkhead seam
+    px(ctx, 21, 5, 2, 6, '#a7d4e8'); // windshield
+    px(ctx, 5, 5, 1, 6, dark); // rear doors seam
+  } else {
+    // Bonnet/boot seams.
+    px(ctx, 21, 4, 1, 8, dark);
+    px(ctx, 8, 4, 1, 8, dark);
 
-  // Cabin: roof slab + glass. Windshield faces +x.
-  px(ctx, 10, 4, 9, 8, OUTLINE);
-  px(ctx, 11, 5, 7, 6, shade(body, -0.12));
-  px(ctx, 17, 5, 2, 6, '#a7d4e8'); // windshield
-  px(ctx, 11, 5, 1, 6, '#7fa8bf'); // rear glass
-  px(ctx, 12, 5, 5, 1, '#8fb8cd'); // side glass
-  px(ctx, 12, 10, 5, 1, '#6f96ab');
+    // Cabin: roof slab + glass. Wagons stretch the roof to the tail.
+    const cabX = style === 'wagon' ? 6 : 10;
+    const cabW = style === 'wagon' ? 13 : 9;
+    px(ctx, cabX, 4, cabW, 8, OUTLINE);
+    px(ctx, cabX + 1, 5, cabW - 2, 6, shade(body, -0.12));
+    px(ctx, cabX + cabW - 2, 5, 2, 6, '#a7d4e8'); // windshield
+    px(ctx, cabX + 1, 5, 1, 6, '#7fa8bf'); // rear glass
+    px(ctx, cabX + 2, 5, cabW - 4, 1, '#8fb8cd'); // side glass
+    px(ctx, cabX + 2, 10, cabW - 4, 1, '#6f96ab');
+    if (style === 'taxi') {
+      px(ctx, 13, 6, 3, 4, '#1a1a20'); // roof sign
+      px(ctx, 14, 7, 1, 2, '#f2e3a0');
+      px(ctx, 4, 3, 2, 1, '#17181c'); // checker hints along the sill
+      px(ctx, 7, 3, 2, 1, '#17181c');
+      px(ctx, 4, 12, 2, 1, '#17181c');
+      px(ctx, 7, 12, 2, 1, '#17181c');
+    }
+  }
 
   // Lights: headlights forward, taillights rear.
   px(ctx, 25, 4, 1, 2, '#f2e3a0');
   px(ctx, 25, 10, 1, 2, '#f2e3a0');
   px(ctx, 2, 4, 1, 2, '#c23434');
   px(ctx, 2, 10, 1, 2, '#c23434');
+}
+
+// -------------------------------------------------------------------- boats
+
+function boatSpec(arg: string): SpriteSpec {
+  const police = arg === 'police';
+  const hull = police ? '#2b4a8a' : arg || '#d8d4c8';
+  return {
+    w: 32,
+    h: 14,
+    frames: 1,
+    steps: ATLAS_ROTATION_STEPS,
+    paint: (ctx) => {
+      paintBoat(ctx, hull);
+      if (police) {
+        px(ctx, 4, 6, 18, 1, '#e8ecf2'); // hull stripe
+        px(ctx, 13, 5, 2, 1, '#e05555'); // light bar on the cabin roof
+        px(ctx, 13, 8, 2, 1, '#5a8ae8');
+      }
+    },
+  };
+}
+
+/** Small motor launch facing +x: pointed bow, open stern, little cabin. */
+function paintBoat(ctx: CanvasRenderingContext2D, hull: string): void {
+  const dark = shade(hull, -0.3);
+  const deck = shade(hull, 0.12);
+
+  // Hull: outline tapering to the bow at +x.
+  px(ctx, 2, 3, 22, 8, OUTLINE);
+  px(ctx, 24, 4, 3, 6, OUTLINE);
+  px(ctx, 27, 5, 2, 4, OUTLINE);
+  px(ctx, 29, 6, 1, 2, OUTLINE);
+  px(ctx, 3, 4, 21, 6, hull);
+  px(ctx, 24, 5, 3, 4, hull);
+  px(ctx, 27, 6, 2, 2, hull);
+
+  // Deck planking + gunwale shading.
+  px(ctx, 4, 4, 19, 1, deck);
+  px(ctx, 4, 9, 19, 1, dark);
+  px(ctx, 22, 5, 4, 4, deck); // foredeck
+
+  // Cabin amidships with a windscreen facing the bow.
+  px(ctx, 10, 4, 8, 6, OUTLINE);
+  px(ctx, 11, 5, 6, 4, shade(hull, -0.16));
+  px(ctx, 16, 5, 1, 4, '#a7d4e8');
+
+  // Stern details: outboard block + wake notch.
+  px(ctx, 2, 6, 1, 2, '#2a2d33');
+  px(ctx, 3, 5, 2, 4, dark);
 }
 
 // -------------------------------------------------------------------- props

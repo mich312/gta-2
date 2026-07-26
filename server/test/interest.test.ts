@@ -14,7 +14,7 @@ import {
   NULL_INPUT,
 } from 'shared';
 import { Session } from '../src/session.js';
-import { buildStateMessage, filterSnapshot } from '../src/net/broadcast.js';
+import { PED_RADIUS_FRAC, buildStateMessage, filterSnapshot } from '../src/net/broadcast.js';
 
 const worldgen = parseWorldgenParams(worldgenJson);
 const RADIUS = 600;
@@ -42,18 +42,21 @@ describe('interest management', () => {
 
     const me = snap.players[0]!;
     const filtered = filterSnapshot(snap, me.pos, RADIUS);
+    const pedRadius = RADIUS * PED_RADIUS_FRAC;
     expect(filtered.players.length).toBe(snap.players.length);
     expect(filtered.peds.length).toBeLessThan(snap.peds.length);
     for (const ped of filtered.peds) {
-      expect(Math.hypot(ped.pos.x - me.pos.x, ped.pos.y - me.pos.y)).toBeLessThanOrEqual(RADIUS);
+      expect(Math.hypot(ped.pos.x - me.pos.x, ped.pos.y - me.pos.y)).toBeLessThanOrEqual(pedRadius);
     }
     // Everything excluded really is far away.
     const includedIds = new Set(filtered.peds.map((p) => p.id));
     for (const ped of snap.peds) {
       if (!includedIds.has(ped.id)) {
-        expect(Math.hypot(ped.pos.x - me.pos.x, ped.pos.y - me.pos.y)).toBeGreaterThan(RADIUS);
+        expect(Math.hypot(ped.pos.x - me.pos.x, ped.pos.y - me.pos.y)).toBeGreaterThan(pedRadius);
       }
     }
+    // Props are static: never filtered, never churned by AOI sweeps.
+    expect(filtered.props.length).toBe(snap.props.length);
   });
 
   it('a moving client stays hash-consistent across AOI enter/leave churn', () => {

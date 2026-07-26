@@ -5,6 +5,7 @@
   "spawnCooldownTicks": 18,
   "copHealth": 50,
   "moveSpeed": 122,
+  "marineSpeed": 205,
   "sightRange": 260,
   "fireRange": 190,
   "weapon": "copPistol",
