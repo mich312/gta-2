@@ -203,6 +203,14 @@ function frame(now: number): void {
     fullResyncs: sync.fullResyncs,
   });
 
+  // E2E/debug affordance: lets automated tests read the local player's
+  // state without scraping pixels. Not used by the game itself.
+  (window as unknown as Record<string, unknown>)['__debug'] = {
+    me: predictor.predicted,
+    tick: sync.latest?.tick ?? -1,
+    cops: sync.latest?.cops.length ?? 0,
+  };
+
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
