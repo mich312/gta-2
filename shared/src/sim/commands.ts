@@ -14,4 +14,5 @@ export type SimCommand =
   | { type: 'grantWeapon'; playerId: number; weaponId: string; ammo: number }
   | { type: 'setCosmetic'; playerId: number; cosmeticId: number }
   | { type: 'spawnVehicle'; vehicleId: number; kind: string; x: number; y: number; heading: number }
-  | { type: 'spawnPed'; pedId: number; x: number; y: number };
+  | { type: 'spawnPed'; pedId: number; x: number; y: number }
+  | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number };

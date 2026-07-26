@@ -31,6 +31,7 @@ export function filterSnapshot(
       vehicles: snap.vehicles.filter((v) => v.driverId !== null),
       cops: [],
       peds: [],
+      props: [],
     };
   }
   const r2 = radius * radius;
@@ -45,6 +46,7 @@ export function filterSnapshot(
     vehicles: snap.vehicles.filter((v) => v.driverId !== null || near(v.pos.x, v.pos.y)),
     cops: snap.cops.filter((c) => near(c.pos.x, c.pos.y)),
     peds: snap.peds.filter((p) => near(p.pos.x, p.pos.y)),
+    props: snap.props.filter((p) => near(p.pos.x, p.pos.y)),
   };
 }
 

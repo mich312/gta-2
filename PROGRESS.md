@@ -1,5 +1,44 @@
 # PROGRESS
 
+## Phase 8 — destructible props
+
+**What changed.** Lamp posts, bins, and fences as sim entities with exactly
+one transition: intact → broken. No rigid bodies, no debris simulation —
+per the brief, networked rigid-body destruction is a trap and we did not
+walk into it. Worldgen places ~400 pieces of street furniture
+deterministically (lamps on kerbs, bins against walls, fences along park
+edges, orientation-aware); the session spawns them as recorded commands.
+Bullets hit props (nearest-hit alongside walls/players/cops/peds; a lamp
+post will eat your shot) and chip hp; cars at speed smash them outright and
+shed a sliver of momentum per prop (a discrete nudge, not a collision
+response). Broken props are inert: no ray hits, no re-break, swapped
+sprite. Props never block movement — street furniture is small, and keeping
+it out of the collision world means prediction, cop pursuit, and ped wander
+all stay untouched. `propDown` events flow for future audio/particles.
+Because props are static-until-broken, their delta cost is near zero: one
+patch row when broken, plus AOI enter/leave rows.
+
+**Verification.** 67 tests green: all three kinds placed, shotgun-vs-bin
+transition (breaks, emits propDown, stays broken, never re-hit), speeding
+car smashing a lamp with measurable momentum loss, and mass-destruction
+determinism (10 props, 120 ticks of spray, identical hashes). Full-sandbox
+8-bot brawl — players + 200 peds + ~400 props + police swarm — lockstep,
+0 desyncs, ~42 KB/s per client (still under the phase-7 gate). Joyride and
+replay checks clean. A tuning round-trip asymmetry (props.json flat shape
+vs parsed {kinds} shape in welcome/replay headers) was caught by the replay
+test and fixed with a dual-shape parser.
+
+**Deliberately deferred (post-phase-8 backlog per brief).** Missions,
+races, leaderboards, audio, mobile controls. Also: prop respawning (broken
+stays broken for the session), vehicle destructibility, debris particles.
+
+**Least confident about.** Prop density/placement aesthetics — numbers
+chosen by eye on mapgen output, not by walking the streets. Fences not
+blocking movement is the most gameplay-visible consequence of the
+no-collision choice (you can stroll through a park fence; you just can't
+pretend it survived a car). If props must block later, they'll need to
+join the prediction context — a deliberate seam, not an accident.
+
 ## Phase 7 — pedestrian crowds + interest management
 
 **What changed.** 200 pedestrians per session: sim entities that wander

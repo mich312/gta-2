@@ -3,6 +3,8 @@ import { HALF_PI, PI } from '../math/trig.js';
 import type { Vec2 } from '../math/vec.js';
 import type { WorldgenParams } from './params.js';
 import {
+  T_BUILDING,
+  T_PARK,
   T_ROAD,
   T_SIDEWALK,
   TILE_SIZE,
@@ -134,6 +136,54 @@ export function placePedSpawns(map: CityMap): void {
     }
   }
   map.pedSpawns = spawns;
+}
+
+/**
+ * Street furniture (phase 8): lamps on kerbside sidewalk tiles, bins against
+ * building walls, fences along park edges. Deterministic row-major sampling.
+ */
+export function placeProps(map: CityMap): void {
+  const props: CityMap['propSpawns'] = [];
+  let lampN = 0;
+  let binN = 0;
+  let fenceN = 0;
+  for (let ty = 0; ty < map.heightTiles; ty++) {
+    for (let tx = 0; tx < map.widthTiles; tx++) {
+      if (t(map, tx, ty) !== T_SIDEWALK) continue;
+      const roadRight = t(map, tx + 1, ty) === T_ROAD;
+      const roadDown = t(map, tx, ty + 1) === T_ROAD;
+      const bldLeft = t(map, tx - 1, ty) === T_BUILDING;
+      const bldUp = t(map, tx, ty - 1) === T_BUILDING;
+      const parkLeft = t(map, tx - 1, ty) === T_PARK;
+      const parkUp = t(map, tx, ty - 1) === T_PARK;
+      if (roadRight || roadDown) {
+        lampN++;
+        if (lampN % 9 === 0) {
+          props.push({ kind: 'lamp', x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE, orient: 0 });
+          continue;
+        }
+      }
+      if (bldLeft || bldUp) {
+        binN++;
+        if (binN % 13 === 0) {
+          props.push({ kind: 'bin', x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE, orient: 0 });
+          continue;
+        }
+      }
+      if (parkLeft || parkUp) {
+        fenceN++;
+        if (fenceN % 2 === 0) {
+          props.push({
+            kind: 'fence',
+            x: (tx + 0.5) * TILE_SIZE,
+            y: (ty + 0.5) * TILE_SIZE,
+            orient: parkLeft ? 1 : 0,
+          });
+        }
+      }
+    }
+  }
+  map.propSpawns = props.slice(0, 400);
 }
 
 export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: number): number {

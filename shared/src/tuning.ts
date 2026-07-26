@@ -66,12 +66,26 @@ export interface PedTuning {
   heatPerPedKill: number;
 }
 
+export interface PropKindTuning {
+  hp: number;
+  radius: number;
+}
+
+export interface PropsTuning {
+  kinds: Record<string, PropKindTuning>;
+  /** Vehicles at or above this speed smash props they touch. */
+  breakSpeed: number;
+  /** Speed multiplier applied to the car per prop smashed. */
+  crashSpeedLoss: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
   weapons: Record<string, WeaponTuning>;
   police: PoliceTuning;
   peds: PedTuning;
+  props: PropsTuning;
 }
 
 let current: Tuning | null = null;
@@ -162,6 +176,37 @@ function parsePedTuning(raw: unknown): PedTuning {
   };
 }
 
+function parsePropsTuning(raw: unknown): PropsTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  // Accept both the flat props.json file shape and the already-parsed
+  // {kinds: {...}} shape (welcome messages and replay headers re-parse).
+  const kindsSrc =
+    typeof r['kinds'] === 'object' && r['kinds'] !== null
+      ? (r['kinds'] as Record<string, unknown>)
+      : r;
+  const kinds: Record<string, PropKindTuning> = {};
+  for (const [k, v] of Object.entries(kindsSrc)) {
+    if (k === 'breakSpeed' || k === 'crashSpeedLoss') continue;
+    const kv = (v ?? {}) as Record<string, unknown>;
+    kinds[k] = { hp: num(kv['hp'], `props.${k}.hp`), radius: num(kv['radius'], `props.${k}.radius`) };
+  }
+  return {
+    kinds,
+    breakSpeed: num(r['breakSpeed'], 'props.breakSpeed'),
+    crashSpeedLoss: num(r['crashSpeedLoss'], 'props.crashSpeedLoss'),
+  };
+}
+
+const DEFAULT_PROPS: PropsTuning = {
+  kinds: {
+    lamp: { hp: 15, radius: 4 },
+    bin: { hp: 10, radius: 5 },
+    fence: { hp: 25, radius: 8 },
+  },
+  breakSpeed: 110,
+  crashSpeedLoss: 0.92,
+};
+
 const DEFAULT_PEDS: PedTuning = {
   walkSpeed: 48,
   fleeSpeed: 116,
@@ -199,6 +244,7 @@ export function initTuning(raw: {
   weapons?: unknown;
   police?: unknown;
   peds?: unknown;
+  props?: unknown;
 }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
@@ -216,6 +262,7 @@ export function initTuning(raw: {
     weapons,
     police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
     peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
+    props: raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS,
   };
 }
 

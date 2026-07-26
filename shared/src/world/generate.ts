@@ -3,7 +3,13 @@ import type { WorldgenParams } from './params.js';
 import { placeDistrictSeeds, districtLookup } from './districts.js';
 import { generateRoads } from './roads.js';
 import { fillBlock } from './buildings.js';
-import { placePedSpawns, placePlayerSpawns, placeShops, placeVehicleSpawns } from './amenities.js';
+import {
+  placePedSpawns,
+  placePlayerSpawns,
+  placeProps,
+  placeShops,
+  placeVehicleSpawns,
+} from './amenities.js';
 import { TILE_SIZE, type CityMap } from './types.js';
 
 /**
@@ -36,6 +42,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     vehicleSpawns: [],
     playerSpawns: [],
     pedSpawns: [],
+    propSpawns: [],
   };
 
   let seeds;
@@ -59,6 +66,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);
   placePedSpawns(map);
+  placeProps(map);
 
   return map;
 }

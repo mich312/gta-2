@@ -111,6 +111,18 @@ export class Session {
       });
     }
 
+    // Street furniture.
+    for (const spot of this.map.propSpawns) {
+      this.pendingCommands.push({
+        type: 'spawnProp',
+        propId: this.nextId++,
+        kind: spot.kind,
+        x: spot.x,
+        y: spot.y,
+        orient: spot.orient,
+      });
+    }
+
     // The crowds. Evenly sampled from the dense sidewalk spawn list.
     const pedSpawns = this.map.pedSpawns;
     const count = Math.min(this.options.pedCount, pedSpawns.length);

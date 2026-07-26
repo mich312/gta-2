@@ -71,6 +71,16 @@ export function render(
       cam,
     );
   }
+  for (const prop of scene.remotes.props) {
+    const sx = Math.floor(prop.pos.x - cam.x);
+    const sy = Math.floor(prop.pos.y - cam.y);
+    const name = prop.intact ? prop.kind : `${prop.kind}_broken`;
+    const rot = prop.orient === 1 ? Math.PI / 2 : 0;
+    if (!sprites.draw(ctx, name, sx, sy, rot)) {
+      ctx.fillStyle = prop.intact ? '#8a8f96' : '#4a4e53';
+      ctx.fillRect(sx - 3, sy - 3, 6, 6);
+    }
+  }
   for (const pd of scene.remotes.peds) {
     const sx = Math.floor(pd.x - cam.x);
     const sy = Math.floor(pd.y - cam.y);

@@ -1,5 +1,12 @@
-import type { CopState, GameState, PedState, PlayerState, VehicleState } from '../sim/state.js';
-import { cloneCop, clonePed, clonePlayer, cloneVehicle } from '../sim/state.js';
+import type {
+  CopState,
+  GameState,
+  PedState,
+  PlayerState,
+  PropState,
+  VehicleState,
+} from '../sim/state.js';
+import { cloneCop, clonePed, clonePlayer, cloneProp, cloneVehicle } from '../sim/state.js';
 
 export interface FullSnapshot {
   tick: number;
@@ -8,6 +15,7 @@ export interface FullSnapshot {
   vehicles: VehicleState[];
   cops: CopState[];
   peds: PedState[];
+  props: PropState[];
 }
 
 export type Patch<T> = { id: number } & Partial<Omit<T, 'id'>>;
@@ -23,6 +31,7 @@ export interface SnapshotDelta {
   vehicles: TableDelta<VehicleState>;
   cops: TableDelta<CopState>;
   peds: TableDelta<PedState>;
+  props: TableDelta<PropState>;
 }
 
 /** Explicit field lists so diffing stays deterministic and reviewable. */
@@ -50,6 +59,7 @@ const PLAYER_FIELDS = [
 const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
 const COP_FIELDS = ['pos', 'vel', 'targetId', 'health', 'fireCooldown', 'idleTicks'] as const;
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
+const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {
@@ -60,6 +70,7 @@ export function takeSnapshot(state: GameState): FullSnapshot {
     ),
     cops: state.cops.ids.map((id) => cloneCop(state.cops.byId[id] as CopState)),
     peds: state.peds.ids.map((id) => clonePed(state.peds.byId[id] as PedState)),
+    props: state.props.ids.map((id) => cloneProp(state.props.byId[id] as PropState)),
   };
 }
 
@@ -160,6 +171,7 @@ export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDe
     vehicles: diffTable(base.vehicles, cur.vehicles, VEHICLE_FIELDS, cloneVehicle),
     cops: diffTable(base.cops, cur.cops, COP_FIELDS, cloneCop),
     peds: diffTable(base.peds, cur.peds, PED_FIELDS, clonePed),
+    props: diffTable(base.props, cur.props, PROP_FIELDS, cloneProp),
   };
 }
 
@@ -175,5 +187,6 @@ export function applyDelta(
     vehicles: applyTable(base.vehicles, delta.vehicles, cloneVehicle),
     cops: applyTable(base.cops, delta.cops, cloneCop),
     peds: applyTable(base.peds, delta.peds, clonePed),
+    props: applyTable(base.props, delta.props, cloneProp),
   };
 }

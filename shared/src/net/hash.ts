@@ -98,6 +98,15 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, ped.health);
     h = hashNumber(h, ped.timer);
   }
+  for (const prop of snap.props) {
+    h = hashNumber(h, prop.id);
+    h = hashString(h, prop.kind);
+    h = hashNumber(h, prop.pos.x);
+    h = hashNumber(h, prop.pos.y);
+    h = hashNumber(h, prop.orient);
+    h = hashBool(h, prop.intact);
+    h = hashNumber(h, prop.hp);
+  }
   return h >>> 0;
 }
 

@@ -9,4 +9,5 @@ export type SimEvent =
   | { type: 'kill'; tick: number; killerId: number; victimId: number; weaponId: string }
   | { type: 'death'; tick: number; playerId: number }
   | { type: 'copDown'; tick: number; killerId: number }
-  | { type: 'pedDown'; tick: number; killerId: number };
+  | { type: 'pedDown'; tick: number; killerId: number }
+  | { type: 'propDown'; tick: number; kind: string; x: number; y: number };

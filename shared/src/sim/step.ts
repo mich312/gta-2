@@ -1,6 +1,6 @@
 import { nextIntRange } from '../rng/prng.js';
 import type { GameState } from './state.js';
-import { cloneState, createPlayer, createVehicle } from './state.js';
+import { cloneState, createPlayer, createProp, createVehicle } from './state.js';
 import { insertEntity, removeEntity, getEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
@@ -150,6 +150,16 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (getEntity(state.peds, cmd.pedId)) return;
       insertEntity(state.peds, createPed(cmd.pedId, { x: cmd.x, y: cmd.y }, getTuning().peds.health));
       if (cmd.pedId >= state.nextEntityId) state.nextEntityId = cmd.pedId + 1;
+      break;
+    }
+    case 'spawnProp': {
+      if (getEntity(state.props, cmd.propId)) return;
+      const hp = getTuning().props.kinds[cmd.kind]?.hp ?? 10;
+      insertEntity(
+        state.props,
+        createProp(cmd.propId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.orient, hp),
+      );
+      if (cmd.propId >= state.nextEntityId) state.nextEntityId = cmd.propId + 1;
       break;
     }
     case 'spawnVehicle': {

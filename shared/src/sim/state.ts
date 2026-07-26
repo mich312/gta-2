@@ -22,6 +22,16 @@ export interface CopState {
   idleTicks: number;
 }
 
+export interface PropState {
+  id: number;
+  kind: string;
+  pos: Vec2;
+  /** 0 horizontal, 1 vertical (fences). */
+  orient: number;
+  intact: boolean;
+  hp: number;
+}
+
 export type PedMode = 'walk' | 'flee';
 
 export interface PedState {
@@ -89,6 +99,7 @@ export interface GameState {
   vehicles: EntityTable<VehicleState>;
   cops: EntityTable<CopState>;
   peds: EntityTable<PedState>;
+  props: EntityTable<PropState>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -101,7 +112,22 @@ export function createGameState(seed: number): GameState {
     vehicles: createTable(),
     cops: createTable(),
     peds: createTable(),
+    props: createTable(),
   };
+}
+
+export function createProp(
+  id: number,
+  kind: string,
+  pos: Vec2,
+  orient: number,
+  hp: number,
+): PropState {
+  return { id, kind, pos: cloneVec(pos), orient, intact: true, hp };
+}
+
+export function cloneProp(p: PropState): PropState {
+  return { ...p, pos: cloneVec(p.pos) };
 }
 
 export function createPed(id: number, pos: Vec2, health: number): PedState {
@@ -188,5 +214,6 @@ export function cloneState(s: GameState): GameState {
     vehicles: cloneTable(s.vehicles, cloneVehicle),
     cops: cloneTable(s.cops, cloneCop),
     peds: cloneTable(s.peds, clonePed),
+    props: cloneTable(s.props, cloneProp),
   };
 }

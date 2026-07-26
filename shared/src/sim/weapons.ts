@@ -1,8 +1,9 @@
 import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
+import { q8 } from '../math/vec.js';
 import { dCos, dSin } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
-import type { CopState, GameState, PedState, PlayerState } from './state.js';
+import type { CopState, GameState, PedState, PlayerState, PropState } from './state.js';
 import { addHeat } from './state.js';
 import { removeEntity } from './entities.js';
 import { damagePed } from './peds.js';
@@ -91,6 +92,7 @@ function fireOnce(
   let hitPlayer: PlayerState | null = null;
   let hitCop: CopState | null = null;
   let hitPed: PedState | null = null;
+  let hitProp: PropState | null = null;
   let hitDist = wallDist;
   for (const id of state.players.ids) {
     if (id === shooter.id) continue;
@@ -147,6 +149,28 @@ function fireOnce(
       hitPlayer = null;
     }
   }
+  const propKinds = getTuning().props.kinds;
+  for (const id of state.props.ids) {
+    const prop = state.props.byId[id];
+    if (!prop || !prop.intact) continue;
+    const radius = propKinds[prop.kind]?.radius ?? 4;
+    const d = rayCircleDistance(
+      shooter.pos.x,
+      shooter.pos.y,
+      dirX,
+      dirY,
+      prop.pos.x,
+      prop.pos.y,
+      radius,
+    );
+    if (d < hitDist) {
+      hitDist = d;
+      hitProp = prop;
+      hitPed = null;
+      hitCop = null;
+      hitPlayer = null;
+    }
+  }
 
   events.push({
     type: 'shot',
@@ -165,7 +189,30 @@ function fireOnce(
     damageCop(state, hitCop, damage, shooter.id, events);
   } else if (hitPed) {
     damagePed(state, hitPed, damage, shooter.id, events);
+  } else if (hitProp) {
+    damageProp(state, hitProp, damage, events);
   }
+}
+
+/** Props take damage and flip to broken — a discrete transition, no physics. */
+export function damageProp(
+  state: GameState,
+  prop: PropState,
+  damage: number,
+  events: SimEvent[],
+): void {
+  if (!prop.intact) return;
+  prop.hp -= damage;
+  if (prop.hp > 0) return;
+  prop.hp = 0;
+  prop.intact = false;
+  events.push({
+    type: 'propDown',
+    tick: state.tick,
+    kind: prop.kind,
+    x: Math.round(prop.pos.x),
+    y: Math.round(prop.pos.y),
+  });
 }
 
 /** Player shots may hit cops. Killing one is a serious crime. */
@@ -283,6 +330,20 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       if (!ped) continue;
       if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
         damagePed(state, ped, Math.abs(v.speed) * 0.2, v.driverId ?? -1, events);
+      }
+    }
+    // Street furniture: smashed at speed, discrete transition + a nudge of
+    // lost momentum. No rigid bodies anywhere near the network.
+    const propsT = getTuning().props;
+    if (Math.abs(v.speed) >= propsT.breakSpeed) {
+      for (const propId of state.props.ids) {
+        const prop = state.props.byId[propId];
+        if (!prop || !prop.intact) continue;
+        const r = (propsT.kinds[prop.kind]?.radius ?? 4) + half;
+        if (Math.abs(prop.pos.x - v.pos.x) < r && Math.abs(prop.pos.y - v.pos.y) < r) {
+          damageProp(state, prop, 1000, events);
+          v.speed = q8(v.speed * propsT.crashSpeedLoss);
+        }
       }
     }
   }
