@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { TICK_RATE } from 'shared';
 import { Bot } from './bot.js';
 import { getScript } from './scripts.js';
+import { loadSharedTuning } from '../tuning.js';
+
+/** Bots predict locally; a hold/fast-forward on the server shows up as a
+ * correction. Anything beyond ~a few held ticks of movement is a real bug. */
+const MAX_ALLOWED_CORRECTION_PX = 32;
 
 interface Args {
   count: number;
@@ -53,6 +58,7 @@ function spawnServer(port: number): Promise<ChildProcess> {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const script = getScript(args.script);
+  loadSharedTuning(); // bots run the real prediction code, which needs tuning
 
   let child: ChildProcess | null = null;
   let url = args.url;
@@ -102,6 +108,9 @@ async function main(): Promise<void> {
       failures.push(`${r.name}: sees ${r.entityCount} entities, expected ${args.count}`);
     }
     if (r.desyncs > 0) failures.push(`${r.name}: ${r.desyncs} hash desyncs`);
+    if (r.maxCorrection > MAX_ALLOWED_CORRECTION_PX) {
+      failures.push(`${r.name}: prediction correction ${r.maxCorrection.toFixed(1)}px`);
+    }
     for (const e of r.errors) failures.push(`${r.name}: ${e}`);
   }
   if (maxTick - minTick > TICK_RATE) {
@@ -113,6 +122,7 @@ async function main(): Promise<void> {
     console.log(
       `${r.name} pid=${r.playerId} tick=${r.lastServerTick} entities=${r.entityCount} ` +
         `desyncs=${r.desyncs} stale=${r.staleDeltas} fulls=${r.fullResyncs} ` +
+        `corr=${r.maxCorrection.toFixed(2)}px ` +
         `in=${(r.bytesIn / 1024).toFixed(1)}KB out=${(r.bytesOut / 1024).toFixed(1)}KB`,
     );
   }

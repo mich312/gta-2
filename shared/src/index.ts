@@ -14,4 +14,5 @@ export * from './net/hash.js';
 export * from './net/messages.js';
 export * from './net/codec.js';
 export * from './net/sync.js';
+export * from './net/prediction.js';
 export * from './replay/format.js';

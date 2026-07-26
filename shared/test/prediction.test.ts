@@ -1,0 +1,83 @@
+import { beforeAll, describe, expect, it } from 'vitest';
+import playerTuning from '../data/player.json';
+import { initTuning } from '../src/tuning.js';
+import { createGameState } from '../src/sim/state.js';
+import { step } from '../src/sim/step.js';
+import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
+import { Predictor } from '../src/net/prediction.js';
+
+beforeAll(() => {
+  initTuning({ player: playerTuning });
+});
+
+function intentAt(seq: number): InputIntent {
+  const phase = Math.floor(seq / 10) % 4;
+  return {
+    ...NULL_INPUT,
+    seq,
+    tick: seq,
+    up: phase === 0,
+    right: phase === 1 || phase === 0,
+    down: phase === 2,
+    left: phase === 3,
+    aimAngle: (seq % 60) / 10 - 3,
+  };
+}
+
+describe('prediction + reconciliation', () => {
+  it('predicts exactly (zero correction) when the server applies every input once, in order', () => {
+    // In-process "server": authoritative state stepping one input per tick.
+    let server = createGameState(101);
+    server = step(server, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'p' }]);
+
+    const predictor = new Predictor();
+    predictor.reconcile(server.players.byId[1]!, 0);
+
+    const LATENCY = 3; // ticks of delay before the client "sees" a snapshot
+    const history: Array<{ state: typeof server; ackSeq: number }> = [];
+
+    for (let seq = 1; seq <= 120; seq++) {
+      const intent = intentAt(seq);
+      predictor.applyLocalInput(intent); // client predicts instantly
+      server = step(server, { 1: intent }, []); // server applies same input
+      history.push({ state: server, ackSeq: seq });
+
+      // Delayed snapshot arrives: reconcile against 3-tick-old authority.
+      const delayed = history[history.length - 1 - LATENCY];
+      if (delayed) {
+        predictor.reconcile(delayed.state.players.byId[1]!, delayed.ackSeq);
+        expect(predictor.lastCorrection).toBe(0);
+      }
+    }
+    expect(predictor.maxCorrection).toBe(0);
+    // And the predicted position leads the last acked authoritative one.
+    expect(predictor.pendingCount).toBe(LATENCY);
+  });
+
+  it('converges after a server-side hiccup (dropped input) instead of drifting forever', () => {
+    let server = createGameState(202);
+    server = step(server, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'p' }]);
+    const predictor = new Predictor();
+    predictor.reconcile(server.players.byId[1]!, 0);
+
+    for (let seq = 1; seq <= 60; seq++) {
+      const intent = intentAt(seq);
+      predictor.applyLocalInput(intent);
+      // Server "loses" input 30 and holds the previous one instead.
+      const applied = seq === 30 ? intentAt(29) : intent;
+      server = step(server, { 1: applied }, []);
+      predictor.reconcile(server.players.byId[1]!, applied.seq);
+    }
+    // After the burst of corrections the predictor must agree with authority
+    // for all acked input — i.e. corrections return to zero.
+    const before = predictor.maxCorrection;
+    for (let seq = 61; seq <= 90; seq++) {
+      const intent = intentAt(seq);
+      predictor.applyLocalInput(intent);
+      server = step(server, { 1: intent }, []);
+      predictor.reconcile(server.players.byId[1]!, seq);
+      if (seq > 65) expect(predictor.lastCorrection).toBe(0);
+    }
+    expect(predictor.maxCorrection).toBe(before); // no new drift accumulated
+  });
+});

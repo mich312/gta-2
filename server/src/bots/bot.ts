@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import {
   PROTOCOL_VERSION,
+  Predictor,
   SnapshotSync,
   TICK_MS,
   jsonCodec,
@@ -18,6 +19,8 @@ export interface BotReport {
   desyncs: number;
   staleDeltas: number;
   fullResyncs: number;
+  /** Worst reconciliation correction seen, px. ~0 means prediction is sound. */
+  maxCorrection: number;
   bytesIn: number;
   bytesOut: number;
   errors: string[];
@@ -35,6 +38,7 @@ export class Bot {
   welcomed = false;
 
   private readonly sync = new SnapshotSync();
+  private readonly predictor = new Predictor();
   private ws: WebSocket | null = null;
   private timer: NodeJS.Timeout | null = null;
   private seq = 1;
@@ -100,6 +104,13 @@ export class Bot {
     }
     if (msg.type === 'snapshot' || msg.type === 'full') {
       this.sync.applyServerMessage(msg);
+      // Bots run real client-side prediction: reconcile against the
+      // authoritative snapshot exactly like the browser client does.
+      const me = this.sync.latest?.players.find((p) => p.id === this.playerId);
+      if (me) {
+        const ackSeq = msg.type === 'snapshot' ? msg.ackSeq : me.lastInputSeq;
+        this.predictor.reconcile(me, ackSeq);
+      }
     }
   }
 
@@ -108,11 +119,9 @@ export class Bot {
     this.timer = setInterval(() => {
       this.localTick++;
       const keys = this.script(this.localTick, this.index);
-      this.send({
-        type: 'input',
-        ackTick: this.sync.ackTick,
-        intents: [{ seq: this.seq++, tick: this.localTick, ...keys }],
-      });
+      const intent = { seq: this.seq++, tick: this.localTick, ...keys };
+      this.send({ type: 'input', ackTick: this.sync.ackTick, intents: [intent] });
+      this.predictor.applyLocalInput(intent);
     }, TICK_MS);
   }
 
@@ -134,6 +143,7 @@ export class Bot {
       desyncs: this.sync.desyncs,
       staleDeltas: this.sync.staleDeltas,
       fullResyncs: this.sync.fullResyncs,
+      maxCorrection: this.predictor.maxCorrection,
       bytesIn: this.bytesIn,
       bytesOut: this.bytesOut,
       errors: this.errors.slice(),

@@ -11,6 +11,10 @@ import {
 } from 'shared';
 
 const INPUT_QUEUE_MAX = 60;
+/** Max consecutive ticks a missing client keeps "holding" their last keys. */
+const MAX_HELD_TICKS = 6;
+/** Max backlog of unapplied intents before we fast-forward through them. */
+const MAX_INPUT_LAG_TICKS = 8;
 
 export interface PlayerSlot {
   playerId: number;
@@ -18,10 +22,12 @@ export interface PlayerSlot {
   resumeToken: string;
   connected: boolean;
   disconnectedAtMs: number | null;
-  /** Unconsumed intents, ascending seq. Phase 1 consumes one per tick; phase 0 applies the newest. */
+  /** Unconsumed intents, ascending seq. Exactly one is applied per tick. */
   queue: InputIntent[];
   /** Held between messages: pressed keys stay pressed until a newer intent arrives. */
   lastIntent: InputIntent | null;
+  /** Consecutive ticks the hold has been in effect; capped so a stalled client stops moving. */
+  heldTicks: number;
   lastQueuedSeq: number;
   /** Last seq actually folded into the sim; echoed as ackSeq. */
   lastInputSeq: number;
@@ -68,6 +74,7 @@ export class Session {
       disconnectedAtMs: null,
       queue: [],
       lastIntent: null,
+      heldTicks: 0,
       lastQueuedSeq: 0,
       lastInputSeq: 0,
       lastAckTick: -1,
@@ -126,14 +133,25 @@ export class Session {
   tick(): FullSnapshot {
     const inputs: Record<number, InputIntent> = {};
     for (const [id, slot] of this.slots) {
-      let intent = slot.lastIntent;
+      let intent: InputIntent | null = null;
       if (slot.queue.length > 0) {
-        intent = slot.queue[slot.queue.length - 1] as InputIntent;
-        slot.queue.length = 0;
+        // One intent per tick, in seq order — required for reconciliation:
+        // the server must apply every seq exactly once. If a client bursts
+        // (network jitter delivered several at once), drain the backlog down
+        // to a small bound so its sim time doesn't lag real time.
+        while (slot.queue.length > MAX_INPUT_LAG_TICKS) {
+          intent = slot.queue.shift() as InputIntent;
+        }
+        intent = slot.queue.shift() as InputIntent;
+        slot.lastIntent = intent;
+        slot.heldTicks = 0;
+      } else if (slot.lastIntent && slot.heldTicks < MAX_HELD_TICKS) {
+        // Brief gap: hold the last keys so movement doesn't stutter.
+        intent = slot.lastIntent;
+        slot.heldTicks++;
       }
       if (intent) {
         inputs[id] = intent;
-        slot.lastIntent = intent;
         slot.lastInputSeq = intent.seq;
       }
     }

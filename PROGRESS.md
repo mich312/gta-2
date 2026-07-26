@@ -1,5 +1,39 @@
 # PROGRESS
 
+## Phase 1 — prediction, reconciliation, interpolation
+
+**What changed.** The server now consumes exactly one input intent per tick,
+in seq order (with a 6-tick bounded hold for gaps and a fast-forward drain
+for bursts) — the contract reconciliation needs. Extracted
+`stepPlayerMovement()` so one function moves a player on the server, in the
+client predictor, and in bots. Added `Predictor` to shared/: applies local
+inputs instantly (zero input lag), and on every snapshot rewinds to the
+authoritative player and replays unacked inputs; it tracks correction
+magnitude, which the overlay shows as ghost drift. The browser client renders
+the local player from the predictor and remote players through a new
+~100 ms (3-tick) interpolation buffer with a servo'd render clock — no
+snapping, no extrapolation. Bots now run the identical Predictor and the
+harness fails if any correction exceeds 32 px.
+
+**Verification.** 29 tests green, including an in-process client/server
+prediction test proving zero correction when each input is applied exactly
+once, and convergence (corrections return to zero, no accumulated drift)
+after a deliberately dropped input. 8-bot 60 s run: lockstep ticks
+1807..1807, 0 desyncs, max correction 4.33 px — exactly one tick of walk
+speed, the expected transient when setInterval jitter makes the server hold
+an input for one tick; it does not accumulate.
+
+**Deliberately deferred.** Smoothing of reconciliation corrections (currently
+applied instantly — at 4 px it's invisible; revisit when vehicles raise
+speeds). Input redundancy (sending last N intents per message) — TCP
+WebSockets don't drop, only delay, so holds are rare and bounded.
+
+**Least confident about.** The "two tabs feel" criterion is verified by
+proxy (bots + math) since this environment has no browser windows;
+interpolation smoothness under real frame-rate jank is untested. The render
+clock servo (5% pull toward target delay) is a guess that may need tuning on
+a real 60 ms connection.
+
 ## Phase 0 — workspace, sim skeleton, transport, bots, overlay, replay
 
 **What changed.** Built the entire phase-0 skeleton from an empty repo: pnpm
