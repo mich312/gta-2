@@ -1,0 +1,23 @@
+{
+  "name": "server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "sh -c 'tsc -b -w --preserveWatchOutput & exec node --watch dist/index.js'",
+    "start": "node dist/index.js",
+    "bots": "node dist/bots/harness.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "shared": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
+}

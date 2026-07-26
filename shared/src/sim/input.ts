@@ -1,0 +1,58 @@
+import { wrapAngle } from '../math/trig.js';
+
+/**
+ * The only thing a client may tell the server about gameplay.
+ * Exactly the shape fixed in the brief — intents, never state.
+ */
+export interface InputIntent {
+  /** Monotonic per client; the server echoes the last applied seq back. */
+  seq: number;
+  /** The client's estimate of the sim tick this input targets. */
+  tick: number;
+  up: boolean;
+  down: boolean;
+  left: boolean;
+  right: boolean;
+  fire: boolean;
+  aimAngle: number;
+  action: boolean;
+}
+
+export const NULL_INPUT: InputIntent = {
+  seq: 0,
+  tick: 0,
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  fire: false,
+  aimAngle: 0,
+  action: false,
+};
+
+/**
+ * Trust boundary: everything off the wire goes through here before it can
+ * touch the sim. Returns null for garbage rather than guessing.
+ */
+export function sanitizeIntent(raw: unknown): InputIntent | null {
+  if (typeof raw !== 'object' || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const seq = r['seq'];
+  const tick = r['tick'];
+  if (typeof seq !== 'number' || !Number.isFinite(seq) || seq < 0) return null;
+  if (typeof tick !== 'number' || !Number.isFinite(tick) || tick < 0) return null;
+  const rawAim = r['aimAngle'];
+  const aimAngle =
+    typeof rawAim === 'number' && Number.isFinite(rawAim) ? wrapAngle(rawAim) : 0;
+  return {
+    seq: Math.floor(seq),
+    tick: Math.floor(tick),
+    up: r['up'] === true,
+    down: r['down'] === true,
+    left: r['left'] === true,
+    right: r['right'] === true,
+    fire: r['fire'] === true,
+    aimAngle,
+    action: r['action'] === true,
+  };
+}
