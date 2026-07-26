@@ -9,7 +9,7 @@
       body {
         margin: 0;
         height: 100%;
-        background: #0b0d10;
+        background: radial-gradient(ellipse at 50% 40%, #14181f 0%, #0b0d10 65%, #06070a 100%);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -18,6 +18,10 @@
       canvas {
         image-rendering: pixelated;
         background: #000;
+        box-shadow:
+          0 0 0 1px #1c2129,
+          0 0 48px rgba(20, 40, 70, 0.45),
+          0 24px 80px rgba(0, 0, 0, 0.6);
       }
     </style>
   </head>

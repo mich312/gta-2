@@ -1,0 +1,6 @@
+{
+  "pistol": { "damage": 12, "cooldownTicks": 9, "range": 230, "spread": 0.025, "pellets": 1 },
+  "smg": { "damage": 7, "cooldownTicks": 3, "range": 200, "spread": 0.07, "pellets": 1 },
+  "shotgun": { "damage": 9, "cooldownTicks": 24, "range": 140, "spread": 0.22, "pellets": 6 },
+  "copPistol": { "damage": 7, "cooldownTicks": 12, "range": 190, "spread": 0.05, "pellets": 1 }
+}

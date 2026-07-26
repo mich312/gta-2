@@ -53,7 +53,7 @@ pnpm test                                   # vitest across shared + server
 pnpm bots --count=8 --script=brawl --duration=60   # headless multiplayer harness
                                             # scripts: idle|cruise|circle|joyride|brawl|jitter
 pnpm mapgen --seed=7                        # render a city to PNG without the game
-pnpm sprites                                # regenerate placeholder sprite sheet
+pnpm sprites                                # regenerate legacy sprite sheet (unused by the client)
 pnpm replay replays/<file>.jsonl            # re-simulate a recording, verify hashes
 node server/dist/tools/persistCheck.js      # e2e: purchase survives server restart
 ```
@@ -72,5 +72,36 @@ re-simulating to identical hashes is the desync alarm.
   only through recorded SimCommands.
 - `client/` — Vite + Canvas 2D. Rendering and input only; predicts the local
   player with rewind/replay reconciliation, interpolates everything else.
+
+## Graphics
+
+The client renders through a layered pipeline (`client/src/render/`), all
+Canvas 2D at a fixed 480×270 internal resolution, no external assets:
+
+- **Procedural sprite atlas** (`atlas.ts`) — people, cars and props are
+  painted in code and pre-baked at 48 rotation steps; palettes (outfits,
+  car colours, cop cap) are part of the sprite key, walk cycles are frames.
+- **Chunked ground** (`ground.ts`) — tiles bake into cached 128px chunks
+  with asphalt speckle, lane paint, kerbs, slab seams, cracks, grass dither
+  and manholes; every mark hashes off (seed, tile), so all clients agree.
+- **Fake-3D buildings** (`buildings.ts`) — GTA2-style perspective extrusion:
+  roofs shear away from the screen centre, walls occlude entities behind
+  them, roof furniture / helipads / seams hash per building. At night a
+  third of the windows glow.
+- **Lighting** (`lighting.ts`) — a day/night cycle derived from the server
+  tick (shared by every client for free), with a lightmap punched by street
+  lamps, shop signs, headlight cones and muzzle flashes.
+- **Weather** (`weather.ts`) — deterministic per-day forecast; rain rolls in
+  smoothly, darkens the sky and splashes on the ground.
+- **Particles + decals** (`particles.ts`, `decals.ts`) — pooled sparks,
+  smoke, blood, debris, exhaust; ring-buffered skid marks and stains.
+- **Camera** (`camera.ts`) — smoothed follow with velocity look-ahead and
+  trauma-based shake (honours `prefers-reduced-motion`).
+- **HUD + minimap** (`hud.ts`, `minimap.ts`, `post.ts`) — ghost-damage
+  health bar, weapon glyphs, kill feed, wanted stars, a baked city minimap
+  with live blips, vignette and hit flashes.
+
+Query params: `?gfx=low` disables lighting/particles/weather;
+`?tod=day|night|dusk` pins the clock for screenshots and debugging.
 
 See `PLAN.md` for the architecture and `PROGRESS.md` for the per-phase log.
