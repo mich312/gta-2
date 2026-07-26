@@ -27,9 +27,18 @@ export interface VehicleTuning {
   halfExtent: number;
 }
 
+export interface WeaponTuning {
+  damage: number;
+  cooldownTicks: number;
+  range: number;
+  spread: number;
+  pellets: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
+  weapons: Record<string, WeaponTuning>;
 }
 
 let current: Tuning | null = null;
@@ -67,13 +76,30 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
   };
 }
 
-export function initTuning(raw: { player: unknown; vehicles?: unknown }): void {
+function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `weapons.${id}.${k}`);
+  return {
+    damage: n('damage'),
+    cooldownTicks: n('cooldownTicks'),
+    range: n('range'),
+    spread: n('spread'),
+    pellets: n('pellets'),
+  };
+}
+
+export function initTuning(raw: { player: unknown; vehicles?: unknown; weapons?: unknown }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
   for (const [kind, v] of Object.entries(vehiclesRaw)) {
     vehicles[kind] = parseVehicleTuning(kind, v);
   }
-  current = { player: parsePlayerTuning(raw.player), vehicles };
+  const weaponsRaw = (raw.weapons ?? {}) as Record<string, unknown>;
+  const weapons: Record<string, WeaponTuning> = {};
+  for (const [id, w] of Object.entries(weaponsRaw)) {
+    weapons[id] = parseWeaponTuning(id, w);
+  }
+  current = { player: parsePlayerTuning(raw.player), vehicles, weapons };
 }
 
 export function getTuning(): Tuning {
@@ -87,4 +113,8 @@ export function getVehicleTuning(kind: string): VehicleTuning {
   const t = getTuning().vehicles[kind];
   if (!t) throw new Error(`no tuning for vehicle kind '${kind}'`);
   return t;
+}
+
+export function getWeaponTuning(id: string): WeaponTuning | null {
+  return getTuning().weapons[id] ?? null;
 }

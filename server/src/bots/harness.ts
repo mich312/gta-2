@@ -119,6 +119,10 @@ async function main(): Promise<void> {
   if (maxTick - minTick > TICK_RATE) {
     failures.push(`tick spread ${maxTick - minTick} exceeds ${TICK_RATE} (not in lockstep)`);
   }
+  if (args.script === 'brawl' && args.duration >= 30) {
+    const totalDeaths = reports.reduce((n, r) => n + r.deaths, 0);
+    if (totalDeaths === 0) failures.push('brawl produced zero deaths — combat is not happening');
+  }
 
   console.log('--- bot harness report ---');
   for (const r of reports) {
@@ -126,6 +130,7 @@ async function main(): Promise<void> {
       `${r.name} pid=${r.playerId} tick=${r.lastServerTick} entities=${r.entityCount} ` +
         `desyncs=${r.desyncs} stale=${r.staleDeltas} fulls=${r.fullResyncs} ` +
         `corr=${r.maxCorrection.toFixed(2)}px${r.everDrove ? ' drove' : ''} ` +
+        `deaths=${r.deaths} kills=${r.killEventsSeen} ` +
         `in=${(r.bytesIn / 1024).toFixed(1)}KB out=${(r.bytesOut / 1024).toFixed(1)}KB`,
     );
   }

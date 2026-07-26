@@ -11,6 +11,8 @@ export interface ServerConfig {
   weaponsLostOnDeath: boolean;
   /** null disables replay recording. */
   replayDir: string | null;
+  /** JSON persistence file (FileStore). MySQL replaces this via the same interface. */
+  persistPath: string;
 }
 
 function envInt(v: string | undefined, fallback: number): number {
@@ -27,5 +29,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     seed: envInt(env['SEED'], Date.now() >>> 0),
     weaponsLostOnDeath: env['WEAPONS_LOST_ON_DEATH'] !== 'false',
     replayDir: env['REPLAY'] === '0' ? null : (env['REPLAY_DIR'] ?? 'replays'),
+    persistPath: env['PERSIST_PATH'] ?? 'data/persist.json',
   };
 }

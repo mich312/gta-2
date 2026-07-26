@@ -6,7 +6,11 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
+import { stepVehicleImpacts, stepWeapons } from './weapons.js';
+import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
+import { boxInSolid } from '../world/collide.js';
+import { PLAYER_RADIUS } from '../constants.js';
 
 /**
  * Advance the simulation by exactly one fixed tick.
@@ -23,7 +27,9 @@ export function step(
   inputs: Record<number, InputIntent | undefined>,
   commands: readonly SimCommand[],
   map: CityMap,
+  outEvents?: SimEvent[],
 ): GameState {
+  const events: SimEvent[] = outEvents ?? [];
   const next = cloneState(state);
   next.tick = state.tick + 1;
   for (const cmd of commands) {
@@ -71,6 +77,9 @@ export function step(
     stepVehicleCoasting(v, map, next);
   }
 
+  stepWeapons(next, inputs, map, events);
+  stepVehicleImpacts(next, events);
+
   return next;
 }
 
@@ -78,15 +87,48 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
   switch (cmd.type) {
     case 'spawnPlayer': {
       if (getEntity(state.players, cmd.playerId)) return;
-      let idx = 0;
-      if (map.playerSpawns.length > 0) {
-        [idx, state.rng] = nextIntRange(state.rng, 0, map.playerSpawns.length);
+      const spawn = pickSpawn(state, map);
+      const player = createPlayer(cmd.playerId, cmd.name, spawn);
+      if (cmd.loadout) {
+        player.weapons = cmd.loadout.map((w) => ({ ...w }));
+        player.activeWeapon = player.weapons.length > 0 ? 0 : -1;
       }
-      const spawn = map.playerSpawns[idx] ?? { x: map.widthPx / 2, y: map.heightPx / 2 };
-      insertEntity(state.players, createPlayer(cmd.playerId, cmd.name, spawn));
+      insertEntity(state.players, player);
       if (cmd.playerId >= state.nextEntityId) {
         state.nextEntityId = cmd.playerId + 1;
       }
+      break;
+    }
+    case 'respawnPlayer': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p || p.mode !== 'dead') return;
+      const spawn = pickSpawn(state, map);
+      p.pos = { x: spawn.x, y: spawn.y };
+      p.vel = { x: 0, y: 0 };
+      p.mode = 'foot';
+      p.health = 100;
+      p.respawnAtTick = null;
+      p.fireCooldown = 0;
+      p.carHitCooldown = 0;
+      p.weapons = cmd.loadout.map((w) => ({ ...w }));
+      p.activeWeapon = p.weapons.length > 0 ? 0 : -1;
+      break;
+    }
+    case 'grantWeapon': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p || p.mode === 'dead') return;
+      const existing = p.weapons.find((w) => w.weaponId === cmd.weaponId);
+      if (existing) {
+        existing.ammo += cmd.ammo;
+      } else {
+        p.weapons.push({ weaponId: cmd.weaponId, ammo: cmd.ammo });
+        if (p.activeWeapon < 0) p.activeWeapon = 0;
+      }
+      break;
+    }
+    case 'setCosmetic': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (p) p.cosmeticId = cmd.cosmeticId;
       break;
     }
     case 'despawnPlayer': {
@@ -110,4 +152,18 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       break;
     }
   }
+}
+
+/** Random spread-apart spawn point; falls back to any non-solid spot. */
+function pickSpawn(state: GameState, map: CityMap): { x: number; y: number } {
+  if (map.playerSpawns.length === 0) {
+    return { x: map.widthPx / 2, y: map.heightPx / 2 };
+  }
+  let idx: number;
+  [idx, state.rng] = nextIntRange(state.rng, 0, map.playerSpawns.length);
+  for (let attempt = 0; attempt < map.playerSpawns.length; attempt++) {
+    const candidate = map.playerSpawns[(idx + attempt) % map.playerSpawns.length];
+    if (candidate && !boxInSolid(map, candidate, PLAYER_RADIUS)) return candidate;
+  }
+  return map.playerSpawns[idx] as { x: number; y: number };
 }

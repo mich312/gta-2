@@ -5,7 +5,10 @@ import {
   type InputIntent,
   type ReplayTickRecord,
   type SimCommand,
+  type SimEvent,
+  type WeaponSlot,
   type WorldgenParams,
+  RESPAWN_DELAY_TICKS,
   SNAPSHOT_RING_TICKS,
   createGameState,
   generateCity,
@@ -16,6 +19,13 @@ import {
 const INPUT_QUEUE_MAX = 60;
 /** How many parked cars a session starts with. */
 const MAX_VEHICLES = 48;
+
+/** What a fresh guest carries. Phase 5 replaces this with account loadouts. */
+export const DEFAULT_LOADOUT: WeaponSlot[] = [{ weaponId: 'pistol', ammo: 90 }];
+
+export interface SessionOptions {
+  weaponsLostOnDeath: boolean;
+}
 /** Max consecutive ticks a missing client keeps "holding" their last keys. */
 const MAX_HELD_TICKS = 6;
 /** Max backlog of unapplied intents before we fast-forward through them. */
@@ -61,12 +71,19 @@ export class Session {
   private pendingCommands: SimCommand[] = [];
   /** One counter for every command-spawned entity (players, vehicles). */
   private nextId = 1;
+  /** Events emitted by the most recent tick (kills, shots, deaths). */
+  lastEvents: SimEvent[] = [];
+  private pendingRespawns: Array<{ playerId: number; dueTick: number; loadout: WeaponSlot[] }> =
+    [];
+  private readonly options: SessionOptions;
 
   constructor(
     seed: number,
     worldgen: WorldgenParams,
     private readonly recorder: ReplayWriter | null = null,
+    options: Partial<SessionOptions> = {},
   ) {
+    this.options = { weaponsLostOnDeath: options.weaponsLostOnDeath ?? true };
     this.seed = seed;
     this.worldgen = worldgen;
     this.map = generateCity(seed, worldgen);
@@ -105,7 +122,12 @@ export class Session {
       lastAckTick: -1,
     };
     this.slots.set(playerId, slot);
-    this.pendingCommands.push({ type: 'spawnPlayer', playerId, name });
+    this.pendingCommands.push({
+      type: 'spawnPlayer',
+      playerId,
+      name,
+      loadout: DEFAULT_LOADOUT.map((w) => ({ ...w })),
+    });
     return slot;
   }
 
@@ -138,6 +160,11 @@ export class Session {
         }
       }
     }
+  }
+
+  /** External (economy) command injection — the one sanctioned write-path. */
+  queueCommand(cmd: SimCommand): void {
+    this.pendingCommands.push(cmd);
   }
 
   queueInput(playerId: number, ackTick: number, intents: InputIntent[]): void {
@@ -180,6 +207,20 @@ export class Session {
         slot.lastInputSeq = intent.seq;
       }
     }
+    // Respawns that have come due join this tick's command batch.
+    const nowTick = this.state.tick + 1;
+    for (let i = this.pendingRespawns.length - 1; i >= 0; i--) {
+      const r = this.pendingRespawns[i];
+      if (r && r.dueTick <= nowTick) {
+        this.pendingCommands.push({
+          type: 'respawnPlayer',
+          playerId: r.playerId,
+          loadout: r.loadout,
+        });
+        this.pendingRespawns.splice(i, 1);
+      }
+    }
+
     const commands = this.pendingCommands;
     this.pendingCommands = [];
 
@@ -189,7 +230,28 @@ export class Session {
       commands,
     });
 
-    this.state = step(this.state, inputs, commands, this.map);
+    const prev = this.state;
+    const events: SimEvent[] = [];
+    this.state = step(this.state, inputs, commands, this.map, events);
+    this.lastEvents = events;
+
+    // Deaths schedule a respawn. The WEAPONS_LOST_ON_DEATH design flag lives
+    // HERE, not in sim code: it only changes what loadout the respawn
+    // command carries, so both settings replay deterministically.
+    for (const ev of events) {
+      if (ev.type !== 'death') continue;
+      if (!this.slots.has(ev.playerId)) continue; // despawned player
+      const weaponsAtDeath = prev.players.byId[ev.playerId]?.weapons ?? [];
+      const loadout = this.options.weaponsLostOnDeath
+        ? DEFAULT_LOADOUT.map((w) => ({ ...w }))
+        : weaponsAtDeath.map((w) => ({ ...w }));
+      this.pendingRespawns.push({
+        playerId: ev.playerId,
+        dueTick: ev.tick + RESPAWN_DELAY_TICKS,
+        loadout,
+      });
+    }
+
     const snap = takeSnapshot(this.state);
     this.latestSnapshot = snap;
     this.snapshotRing.set(snap.tick, snap);

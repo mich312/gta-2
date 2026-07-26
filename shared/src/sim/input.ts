@@ -16,6 +16,8 @@ export interface InputIntent {
   fire: boolean;
   aimAngle: number;
   action: boolean;
+  /** Requested weapon slot; -1 = keep current. Still an intent, never state. */
+  slot: number;
 }
 
 export const NULL_INPUT: InputIntent = {
@@ -28,6 +30,7 @@ export const NULL_INPUT: InputIntent = {
   fire: false,
   aimAngle: 0,
   action: false,
+  slot: -1,
 };
 
 /**
@@ -54,5 +57,9 @@ export function sanitizeIntent(raw: unknown): InputIntent | null {
     fire: r['fire'] === true,
     aimAngle,
     action: r['action'] === true,
+    slot:
+      typeof r['slot'] === 'number' && Number.isInteger(r['slot']) && r['slot'] >= 0 && r['slot'] < 8
+        ? r['slot']
+        : -1,
   };
 }

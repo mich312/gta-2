@@ -10,6 +10,7 @@ import {
 } from 'shared';
 import type { ServerConfig } from '../config.js';
 import type { Session } from '../session.js';
+import type { Economy } from '../economy/economy.js';
 import { buildStateMessage } from './broadcast.js';
 import { ClientConn } from './client.js';
 
@@ -21,6 +22,7 @@ export class GameServer {
   constructor(
     private readonly config: ServerConfig,
     readonly session: Session,
+    readonly economy: Economy,
   ) {}
 
   listen(): Promise<void> {
@@ -42,6 +44,15 @@ export class GameServer {
       const slot = this.session.slots.get(playerId);
       if (!slot || !slot.connected) continue;
       conn.send(buildStateMessage(this.session, slot, snap, withHash));
+      for (const ev of this.session.lastEvents) {
+        conn.send({ type: 'event', tick: snap.tick, event: ev });
+      }
+    }
+
+    // Cash awards from this tick's events + driving coverage.
+    const changed = this.economy.processTick(this.session.lastEvents, this.session.state, Date.now());
+    for (const playerId of changed) {
+      this.byPlayer.get(playerId)?.send({ type: 'wallet', cash: this.economy.cashOf(playerId) });
     }
   }
 
@@ -82,7 +93,41 @@ export class GameServer {
       case 'ping':
         conn.send({ type: 'pong', t: msg.t, serverTick: this.session.state.tick });
         break;
+      case 'buy': {
+        if (conn.playerId === null) break;
+        const result = this.economy.buy(conn.playerId, msg.itemId, this.session.state, this.session.map);
+        if (result.command) this.session.queueCommand(result.command);
+        conn.send({ type: 'event', tick: this.session.state.tick, event: { type: 'notice', text: result.message } });
+        conn.send({ type: 'wallet', cash: result.cash });
+        break;
+      }
+      case 'register': {
+        const res = this.economy.accounts.register(msg.username, msg.password);
+        conn.send({ type: 'account', ok: res.ok, username: res.ok ? msg.username : null, message: res.message });
+        if (res.ok && conn.playerId !== null) this.bindAccount(conn, msg.username);
+        break;
+      }
+      case 'login': {
+        const row = this.economy.accounts.verify(msg.username, msg.password);
+        if (!row) {
+          conn.send({ type: 'account', ok: false, username: null, message: 'bad credentials' });
+          break;
+        }
+        conn.send({ type: 'account', ok: true, username: row.username, message: 'logged in' });
+        if (conn.playerId !== null) this.bindAccount(conn, row.username);
+        break;
+      }
     }
+  }
+
+  private bindAccount(conn: ClientConn, username: string): void {
+    if (conn.playerId === null) return;
+    this.economy.bindAccount(conn.playerId, username);
+    const cosmetic = this.economy.equippedCosmetic(conn.playerId);
+    if (cosmetic > 0) {
+      this.session.queueCommand({ type: 'setCosmetic', playerId: conn.playerId, cosmeticId: cosmetic });
+    }
+    conn.send({ type: 'wallet', cash: this.economy.cashOf(conn.playerId) });
   }
 
   private handleJoin(conn: ClientConn, name: string, resumeToken?: string): void {
@@ -94,6 +139,7 @@ export class GameServer {
       this.byPlayer.get(slot.playerId)?.ws.close();
     } else {
       slot = this.session.addPlayer(name, randomUUID());
+      this.economy.bindGuest(slot.playerId);
     }
     conn.playerId = slot.playerId;
     this.byPlayer.set(slot.playerId, conn);
@@ -110,7 +156,9 @@ export class GameServer {
       snapshot: snap,
       tuning: getTuning(),
       worldgen: this.session.worldgen,
+      catalog: this.economy.catalog,
     });
+    conn.send({ type: 'wallet', cash: this.economy.cashOf(slot.playerId) });
   }
 
   private onClose(conn: ClientConn): void {

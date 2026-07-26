@@ -25,6 +25,8 @@ export interface BotReport {
   /** Worst reconciliation correction seen, px. ~0 means prediction is sound. */
   maxCorrection: number;
   everDrove: boolean;
+  deaths: number;
+  killEventsSeen: number;
   bytesIn: number;
   bytesOut: number;
   errors: string[];
@@ -41,6 +43,9 @@ export class Bot {
   playerId = -1;
   welcomed = false;
   everDrove = false;
+  deaths = 0;
+  killEventsSeen = 0;
+  private wasDead = false;
 
   private readonly sync = new SnapshotSync();
   private readonly predictor = new Predictor();
@@ -112,12 +117,20 @@ export class Bot {
       onWelcome();
       return;
     }
+    if (msg.type === 'event') {
+      if (msg.event.type === 'kill') this.killEventsSeen++;
+      return;
+    }
     if (msg.type === 'snapshot' || msg.type === 'full') {
       this.sync.applyServerMessage(msg);
       // Bots run real client-side prediction: reconcile against the
       // authoritative snapshot exactly like the browser client does.
       const me = this.sync.latest?.players.find((p) => p.id === this.playerId);
       if (me?.mode === 'driving') this.everDrove = true;
+      if (me) {
+        if (me.mode === 'dead' && !this.wasDead) this.deaths++;
+        this.wasDead = me.mode === 'dead';
+      }
       if (me && this.map) {
         const ackSeq = msg.type === 'snapshot' ? msg.ackSeq : me.lastInputSeq;
         const myVehicle =
@@ -163,6 +176,8 @@ export class Bot {
       fullResyncs: this.sync.fullResyncs,
       maxCorrection: this.predictor.maxCorrection,
       everDrove: this.everDrove,
+      deaths: this.deaths,
+      killEventsSeen: this.killEventsSeen,
       bytesIn: this.bytesIn,
       bytesOut: this.bytesOut,
       errors: this.errors.slice(),

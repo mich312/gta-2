@@ -4,3 +4,4 @@ dist/
 replays/
 .vite/
 coverage/
+data/

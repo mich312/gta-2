@@ -11,7 +11,7 @@ import {
 
 export type ScriptedKeys = Pick<
   InputIntent,
-  'up' | 'down' | 'left' | 'right' | 'fire' | 'aimAngle' | 'action'
+  'up' | 'down' | 'left' | 'right' | 'fire' | 'aimAngle' | 'action' | 'slot'
 >;
 
 /** What a bot "sees": its own predicted player and the latest snapshot. */
@@ -40,6 +40,7 @@ const NONE: ScriptedKeys = {
   fire: false,
   aimAngle: 0,
   action: false,
+  slot: -1,
 };
 
 const DIRS: Array<Partial<ScriptedKeys>> = [
@@ -108,6 +109,41 @@ const scripts: Record<string, BotScript> = {
     };
   },
 
+  /**
+   * Gunfight: chase the nearest living player, strafe, and shoot at them.
+   * The 10-minute unattended stability run uses this.
+   */
+  brawl: (tick, botIndex, view) => {
+    const base = cruiseKeys(tick, botIndex);
+    const me = view?.me ?? null;
+    const snap = view?.snapshot ?? null;
+    if (!me || !snap || me.mode === 'dead') return { ...base, fire: false };
+
+    let target: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const p of snap.players) {
+      if (p.id === me.id || p.mode === 'dead') continue;
+      const d = Math.hypot(p.pos.x - me.pos.x, p.pos.y - me.pos.y);
+      if (d < bestD) {
+        bestD = d;
+        target = p.pos;
+      }
+    }
+    if (!target) return base;
+    const aim = Math.atan2(target.y - me.pos.y, target.x - me.pos.x);
+    const strafe = Math.floor(tick / 20 + botIndex) % 2 === 0;
+    const keys =
+      bestD > 90
+        ? seek(me, target.x, target.y)
+        : {
+            up: strafe,
+            down: !strafe && (tick + botIndex) % 5 === 0,
+            left: !strafe,
+            right: strafe && tick % 3 === 0,
+          };
+    return { ...base, ...keys, aimAngle: aim, fire: bestD < 210 };
+  },
+
   /** Deterministic chaos: every key rolled from a per-tick PRNG. */
   jitter: (tick, botIndex) => {
     let s = seedRng(tick * 31 + botIndex * 1009 + 7);
@@ -117,6 +153,7 @@ const scripts: Record<string, BotScript> = {
       return v;
     };
     return {
+      slot: -1,
       up: roll() < 0.4,
       down: roll() < 0.4,
       left: roll() < 0.4,

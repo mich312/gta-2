@@ -1,8 +1,11 @@
 import {
+  type Catalog,
   type CityMap,
+  type ShopKind,
   Predictor,
   SnapshotSync,
   TICK_MS,
+  TILE_SIZE,
   generateCity,
   initTuning,
 } from 'shared';
@@ -14,6 +17,7 @@ import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
 import { NetStats } from './debug/stats.js';
 import { DebugOverlay } from './debug/overlay.js';
+import { Hud } from './render/hud.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -39,11 +43,32 @@ const predictor = new Predictor();
 const interp = new Interpolator();
 const sprites = new SpriteSheet();
 void sprites.load();
+const hud = new Hud();
+
+function nameOf(id: number): string {
+  if (id === -1) return 'the streets';
+  return sync.latest?.players.find((p) => p.id === id)?.name ?? `#${id}`;
+}
 
 let playerId = -1;
 let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
+let catalog: Catalog | null = null;
+
+/** Shop whose doorway the (predicted) local player is standing in. */
+function currentShopKind(): ShopKind | null {
+  const me = predictor.predicted;
+  if (!me || !map || me.mode !== 'foot') return null;
+  for (const s of map.shops) {
+    const cx = (s.doorX + 0.5) * TILE_SIZE;
+    const cy = (s.doorY + 0.5) * TILE_SIZE;
+    if (Math.abs(me.pos.x - cx) < TILE_SIZE * 1.25 && Math.abs(me.pos.y - cy) < TILE_SIZE * 1.25) {
+      return s.kind;
+    }
+  }
+  return null;
+}
 
 function onStateUpdated(ackSeq: number | null): void {
   if (!sync.latest || !map) return;
@@ -73,6 +98,7 @@ const conn = new Connection({
         // the whole city regenerates locally from the seed.
         initTuning(msg.tuning);
         map = generateCity(msg.seed, msg.worldgen);
+        catalog = msg.catalog;
         sync.applyServerMessage(msg);
         stats.onSnapshot();
         onStateUpdated(null);
@@ -91,6 +117,16 @@ const conn = new Connection({
         stats.onPong(msg.t);
         break;
       case 'event':
+        if (msg.event.type === 'notice') hud.notice(msg.event.text);
+        else hud.onEvent(msg.event, nameOf);
+        break;
+      case 'wallet':
+        hud.cash = msg.cash;
+        break;
+      case 'account':
+        hud.accountName = msg.ok ? msg.username : hud.accountName;
+        hud.notice(msg.message);
+        break;
       case 'error':
         console.log(msg);
         break;
@@ -127,6 +163,20 @@ function frame(now: number): void {
   interp.advance(frameMs);
   stats.update();
 
+  // Shop + account interactions (requests only; server validates).
+  const shopKind = currentShopKind();
+  const buyRow = input.consumeBuyRow();
+  if (shopKind && catalog && buyRow !== null) {
+    const row = hud.shopRows(catalog, shopKind)[buyRow];
+    if (row) conn.send({ type: 'buy', itemId: row[0] });
+  }
+  const accountAction = input.consumeAccountAction();
+  if (accountAction) {
+    const username = window.prompt(`${accountAction}: username`) ?? '';
+    const password = username ? (window.prompt(`${accountAction}: password`) ?? '') : '';
+    if (username && password) conn.send({ type: accountAction, username, password });
+  }
+
   const driving = predictor.predicted?.mode === 'driving';
   const scene: Scene | null = sync.latest
     ? {
@@ -136,6 +186,10 @@ function frame(now: number): void {
       }
     : null;
   render(screen, map, scene, cam, sprites);
+  if (shopKind && catalog) {
+    hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
+  }
+  hud.draw(screen.ctx, predictor.predicted ?? null, sync.latest, cam);
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {

@@ -1,6 +1,8 @@
 import { TICK_RATE, getTuning } from 'shared';
 import { loadConfig } from './config.js';
-import { loadSharedTuning, loadWorldgenParams } from './tuning.js';
+import { loadCatalog, loadEconomyParams, loadSharedTuning, loadWorldgenParams } from './tuning.js';
+import { Economy } from './economy/economy.js';
+import { FileStore } from './economy/store.js';
 import { Session } from './session.js';
 import { GameServer } from './net/wsServer.js';
 import { TickLoop } from './loop.js';
@@ -20,8 +22,11 @@ async function main(): Promise<void> {
         worldgen,
       })
     : null;
-  const session = new Session(config.seed, worldgen, recorder);
-  const server = new GameServer(config, session);
+  const session = new Session(config.seed, worldgen, recorder, {
+    weaponsLostOnDeath: config.weaponsLostOnDeath,
+  });
+  const economy = new Economy(new FileStore(config.persistPath), loadCatalog(), loadEconomyParams());
+  const server = new GameServer(config, session, economy);
   await server.listen();
 
   const loop = new TickLoop(() => server.onTick());

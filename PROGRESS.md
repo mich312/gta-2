@@ -1,5 +1,91 @@
 # PROGRESS
 
+## Phase 5 — economy, shops, accounts, persistence
+
+**What changed.** The economy lives entirely server-side behind one seam:
+`Economy` validates everything (the server is the cashier) and its only
+write-path into the sim is the SimCommands it returns (`grantWeapon`,
+`setCosmetic`), which the session queues and records like inputs. Cash is an
+append-only ledger — no balance column anywhere; balance is a fold over
+transactions, every entry carries a reason and a unique idempotency ref
+(duplicate refs are rejected, so retried writes can't double-apply, and
+"where did this cash come from" is one query). Persistence sits behind a
+`PersistenceStore` interface: the JSON `FileStore` (atomic tmp+rename
+writes) is the verified implementation in this environment; the reviewed
+MySQL schema is in `server/mysql/schema.sql` — see the open questions at the
+end of this file. Purchases: `buy` is a request message; the server checks
+alive/on-foot, doorway proximity to the right shop kind, price from its own
+catalog, and balance. Awards: kills pay with per-victim diminishing returns
+inside a time window, driving pays only *novel* road cells at speed, both
+under per-minute caps — all numbers in `economy.json`. No player-to-player
+transfers exist, killing the entire duping/muling class. Accounts are
+optional (guests always play, session-scoped wallets): username+password
+with scrypt from node:crypto; cosmetics persist per account and re-equip on
+login via a command. Client: wallet + shop panel (stand in a doorway,
+Y/U/I/O to buy), L/K prompt-based login/register.
+
+**Verification.** 50 tests green: ledger idempotency + overdraw rejection,
+scrypt account verify (case-insensitive uniqueness, wrong-password fail),
+kill-award decay/window-reset/rate caps, novel-cell driving pay,
+doorway/shop-kind/balance purchase validation, and the phase gate —
+cash, transactions, cosmetics, and idempotency surviving a store reload.
+Full-stack `persistCheck` over the real wire: register → kill server →
+fresh process on the same store → login → wallet identical and starting
+cash seeded exactly once. Kill awards ran live during the brawl runs.
+
+**Deliberately deferred.** MySQL driver integration (no MySQL server in
+this environment + driver is a new dependency needing approval — the store
+interface and schema are ready; see end-of-run questions). Weapon unlocks
+as account inventory — per the death-costs-guns design, weapons are
+repurchased, only cosmetics + cash persist. A real login UI (window.prompt
+is a placeholder). Shop stock limits.
+
+**Least confident about.** Award tuning (does $100/kill vs $250/pistol feel
+right?) is untested by humans. Guest wallets route to a pure-memory ledger
+(the persist file only ever holds account rows), but a guest's cash
+silently evaporating on session end may need messaging in the UI.
+prompt()-based login blocks the render loop while open.
+
+## Phase 4 — weapons, damage, death, respawn, kill feed
+
+**What changed.** Hitscan weapons (pistol/smg/shotgun in `weapons.json`):
+tile-DDA wall ray + analytic ray-circle target tests, nearest hit wins,
+spread rolled from the sim PRNG (server-side weapons pass only — prediction
+never touches the rng). Health/damage/death in the sim: dying drops you out
+of any car, freezes the corpse, clears weapons, stamps `respawnAtTick`.
+Respawning is a server-issued `respawnPlayer` command 3 s after the death
+event — which is exactly where the `WEAPONS_LOST_ON_DEATH` flag (default
+true) lives: it only decides the loadout the command carries (fresh pistol
+vs. weapons at death), so the sim stays flag-free and both settings replay
+deterministically. `step()` now emits deterministic SimEvents (shot/kill/
+death) via an out-param; the server relays them; the client shows a kill
+feed, tracers, health/ammo HUD, and a wasted-screen countdown. Run-over
+damage for fast cars with a short immunity window. Weapon switching added as
+a `slot` field on the input intent (keys 1-8) — still an intent, but it is
+a deliberate extension of the brief's fixed field list, flagged here.
+Brawl bot script: chase nearest living player, strafe, shoot.
+
+**Verification.** 44 tests green: hitscan damage/cooldown/ammo/kill/loot-
+clear/respawn lifecycle, walls actually block shots, bit-identical combat
+determinism (same fight twice), run-over damage. 8-bot brawl 60 s: 21 kills,
+every bot died and respawned, 0 desyncs, corrections back to ≤4.33 px once
+respawn teleports were correctly excluded from the correction metric (they
+are legitimate teleports, not prediction error — that fix is in the
+predictor, found by the harness tripping on 2000 px "corrections").
+**10-minute unattended 8-bot brawl: PASS — 18010 ticks, 135 kills, every
+bot died 14–20 times and respawned, tick spread ≤1, 0 desyncs, corrections
+≤10.3 px, no crash.**
+
+**Deliberately deferred.** Drive-by shooting (fire is on-foot only).
+Vehicle damage/destruction. Weapon pickups/drops on the ground (decided
+against in plan — dupe/grief surface). Damage directionality/knockback.
+
+**Least confident about.** Balance numbers (damage/cooldown/spread) are
+untested by humans. The kill feed names use snapshot lookup at event time —
+a player who disconnects the same tick renders as #id. Shot events are
+broadcast unfiltered; at 8 players this is noise, but phase 7's interest
+management must filter events too, not just entity deltas.
+
 ## Phase 3 — vehicles
 
 **What changed.** Vehicles are sim entities: signed forward speed along a

@@ -1,19 +1,25 @@
 import type { InputIntent } from '../sim/input.js';
 import { sanitizeIntent } from '../sim/input.js';
 import type { FullSnapshot, SnapshotDelta } from './snapshot.js';
+import type { SimEvent } from '../sim/events.js';
 import type { Tuning } from '../tuning.js';
 import type { WorldgenParams } from '../world/params.js';
+import type { Catalog } from '../economy/catalog.js';
 
 const MAX_NAME_LEN = 24;
 const MAX_INTENTS_PER_MSG = 10;
 
-/** Discrete non-state facts (kill feed, purchases…). First real variants in phase 4. */
-export type GameEvent = { type: 'notice'; text: string };
+/** Discrete non-state facts: sim events (kills, shots) + server notices. */
+export type GameEvent = SimEvent | { type: 'notice'; text: string };
 
 export type ClientMessage =
   | { type: 'join'; protocol: number; name: string; resumeToken?: string }
   | { type: 'input'; ackTick: number; intents: InputIntent[] }
-  | { type: 'ping'; t: number };
+  | { type: 'ping'; t: number }
+  /** Requests, not state: the server validates everything about them. */
+  | { type: 'buy'; itemId: string }
+  | { type: 'register'; username: string; password: string }
+  | { type: 'login'; username: string; password: string };
 
 export type ServerMessage =
   | {
@@ -28,6 +34,7 @@ export type ServerMessage =
        * their bundled JSON, so a server-side tune can't desync generation. */
       tuning: Tuning;
       worldgen: WorldgenParams;
+      catalog: Catalog;
     }
   | {
       type: 'snapshot';
@@ -40,6 +47,8 @@ export type ServerMessage =
   | { type: 'full'; tick: number; snapshot: FullSnapshot }
   | { type: 'event'; tick: number; event: GameEvent }
   | { type: 'pong'; t: number; serverTick: number }
+  | { type: 'wallet'; cash: number }
+  | { type: 'account'; ok: boolean; username: string | null; message: string }
   | { type: 'error'; code: string; message: string };
 
 /**
@@ -77,6 +86,21 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (typeof r['t'] !== 'number' || !Number.isFinite(r['t'])) return null;
       return { type: 'ping', t: r['t'] };
     }
+    case 'buy': {
+      const itemId = r['itemId'];
+      if (typeof itemId !== 'string' || itemId.length === 0 || itemId.length > 40) return null;
+      return { type: 'buy', itemId };
+    }
+    case 'register':
+    case 'login': {
+      const username = r['username'];
+      const password = r['password'];
+      if (typeof username !== 'string' || !/^[a-zA-Z0-9_-]{3,20}$/.test(username)) return null;
+      if (typeof password !== 'string' || password.length < 6 || password.length > 128) {
+        return null;
+      }
+      return { type: r['type'], username, password };
+    }
     default:
       return null;
   }
@@ -88,6 +112,8 @@ const SERVER_MESSAGE_TYPES = new Set([
   'full',
   'event',
   'pong',
+  'wallet',
+  'account',
   'error',
 ]);
 

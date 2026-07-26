@@ -40,6 +40,10 @@ export interface PlayerState {
   lastInputSeq: number;
   /** Edge detection for the action button (enter/exit/buy). */
   actionHeld: boolean;
+  /** Ticks until the active weapon may fire again. */
+  fireCooldown: number;
+  /** Ticks of run-over immunity so a car doesn't grind 30 hits/s. */
+  carHitCooldown: number;
 }
 
 /**
@@ -99,6 +103,8 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respawnAtTick: null,
     lastInputSeq: 0,
     actionHeld: false,
+    fireCooldown: 0,
+    carHitCooldown: 0,
   };
 }
 

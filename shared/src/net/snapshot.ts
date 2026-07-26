@@ -37,6 +37,8 @@ const PLAYER_FIELDS = [
   'respawnAtTick',
   'lastInputSeq',
   'actionHeld',
+  'fireCooldown',
+  'carHitCooldown',
 ] as const;
 
 const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;

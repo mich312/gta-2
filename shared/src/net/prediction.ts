@@ -54,13 +54,18 @@ export class Predictor {
     for (const intent of this.pending) {
       this.advance(nextPlayer, nextVehicle, intent, map);
     }
-    if (before) {
+    // Corrections are only meaningful within a mode: death->respawn is a
+    // legitimate teleport, and enter/exit are server-granted transitions the
+    // client deliberately does not predict.
+    if (before && before.mode === nextPlayer.mode) {
       const dx = nextPlayer.pos.x - before.pos.x;
       const dy = nextPlayer.pos.y - before.pos.y;
       this.lastCorrection = Math.sqrt(dx * dx + dy * dy);
       if (this.lastCorrection > this.maxCorrection) {
         this.maxCorrection = this.lastCorrection;
       }
+    } else {
+      this.lastCorrection = 0;
     }
     this.predicted = nextPlayer;
     this.predictedVehicle = nextVehicle;
