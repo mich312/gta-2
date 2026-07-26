@@ -6,6 +6,7 @@
   "park": "#2f4c33",
   "lot": "#45463f",
   "water": "#22384a",
+  "sand": "#b0a074",
   "building": {
     "downtown": "#5a6a86",
     "residential": "#7a5f4e",

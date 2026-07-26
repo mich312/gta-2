@@ -6,7 +6,15 @@ import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { boxInSolid, isSolidTile, moveWithCollision } from '../src/world/collide.js';
-import { T_BUILDING, T_ROAD, T_SIDEWALK, TILE_SIZE, type CityMap } from '../src/world/types.js';
+import {
+  T_BUILDING,
+  T_ROAD,
+  T_SAND,
+  T_SIDEWALK,
+  T_WATER,
+  TILE_SIZE,
+  type CityMap,
+} from '../src/world/types.js';
 import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
@@ -41,7 +49,9 @@ describe('world generation', () => {
     for (const seed of [7, 8, 9]) {
       const map = generateCity(seed, params);
       const counts = tileCounts(map);
-      const total = map.widthTiles * map.heightTiles;
+      // Densities are judged over land — the waterfront band is sea by design.
+      const total =
+        map.widthTiles * map.heightTiles - (counts.get(T_WATER) ?? 0) - (counts.get(T_SAND) ?? 0);
       expect((counts.get(T_ROAD) ?? 0) / total).toBeGreaterThan(0.08);
       expect((counts.get(T_SIDEWALK) ?? 0) / total).toBeGreaterThan(0.03);
       expect((counts.get(T_BUILDING) ?? 0) / total).toBeGreaterThan(0.12);

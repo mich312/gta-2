@@ -3,6 +3,7 @@ import {
   type GameEvent,
   type PlayerState,
   type Vec2,
+  type VehicleState,
   INTERNAL_HEIGHT,
   INTERNAL_WIDTH,
   PLAYER_RADIUS,
@@ -13,11 +14,11 @@ import type { Screen } from './canvas.js';
 import type { RenderWorld } from '../net/interpolation.js';
 import {
   SpriteAtlas,
-  carSpriteKey,
   copSpriteKey,
   pedSpriteKey,
   playerSpriteKey,
   propSpriteKey,
+  vehicleSpriteKey,
 } from './atlas.js';
 import { GroundRenderer } from './ground.js';
 import { BuildingRenderer } from './buildings.js';
@@ -41,7 +42,7 @@ export interface Scene {
   /** Predicted local player (zero input lag). */
   local: PlayerState | null;
   /** Predicted vehicle when the local player is driving. */
-  localVehicle: { pos: { x: number; y: number }; heading: number } | null;
+  localVehicle: VehicleState | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
   /** Newest server tick — drives day/night + weather. */
@@ -168,8 +169,9 @@ export class RenderPipeline {
     }
     this.trackWalkers(scene);
 
-    // --- 1. ground
+    // --- 1. ground (plus the animated glint pass over open water)
     this.ground.draw(ctx, cam);
+    this.ground.drawShimmer(ctx, cam, nowMs);
 
     // --- 2. cast shadows (buildings + trees), under everything mobile
     this.buildings.drawShadows(ctx, cam, this.daylight);
@@ -231,22 +233,26 @@ export class RenderPipeline {
     for (const rv of scene.remotes.vehicles) {
       const sx = rv.x - cam.x;
       const sy = rv.y - cam.y;
-      this.atlas.draw(ctx, 'blob:24x13', sx + shDx, sy + shDy, rv.heading);
-      this.atlas.draw(ctx, carSpriteKey(rv.vehicle.id), sx, sy, rv.heading);
+      const blob = rv.vehicle.kind === 'boat' ? 'blob:28x12' : 'blob:24x13';
+      this.atlas.draw(ctx, blob, sx + shDx, sy + shDy, rv.heading);
+      this.atlas.draw(ctx, vehicleSpriteKey(rv.vehicle), sx, sy, rv.heading);
     }
     if (scene.localVehicle && scene.local) {
       const sx = scene.localVehicle.pos.x - cam.x;
       const sy = scene.localVehicle.pos.y - cam.y;
-      this.atlas.draw(ctx, 'blob:24x13', sx + shDx, sy + shDy, scene.localVehicle.heading);
-      this.atlas.draw(ctx, carSpriteKey(scene.local.vehicleId ?? 0), sx, sy, scene.localVehicle.heading);
+      const blob = scene.localVehicle.kind === 'boat' ? 'blob:28x12' : 'blob:24x13';
+      this.atlas.draw(ctx, blob, sx + shDx, sy + shDy, scene.localVehicle.heading);
+      this.atlas.draw(ctx, vehicleSpriteKey(scene.localVehicle), sx, sy, scene.localVehicle.heading);
     }
 
+    const brollies = this.rain > 0.25;
     for (const pd of scene.remotes.peds) {
       const sx = pd.x - cam.x;
       const sy = pd.y - cam.y;
       const angle = Math.atan2(pd.ped.dirY, pd.ped.dirX);
       this.atlas.draw(ctx, 'blob:10x7', sx + shDx, sy + shDy, 0);
       this.atlas.draw(ctx, pedSpriteKey(pd.ped.id), sx, sy, angle, this.walkFrame(`e${pd.ped.id}`));
+      if (brollies && pd.ped.id % 3 === 0) this.drawUmbrella(ctx, sx, sy, pd.ped.id);
     }
 
     for (const c of scene.remotes.cops) {
@@ -305,6 +311,31 @@ export class RenderPipeline {
     ctx.fillStyle = isLocal ? '#e8f0e8' : '#aeb8c2';
     ctx.fillText(p.name, Math.floor(sx), sy - PLAYER_RADIUS - 7);
     ctx.textAlign = 'left';
+  }
+
+  /** A pedestrian's umbrella, held over the sprite when it rains. */
+  private drawUmbrella(ctx: CanvasRenderingContext2D, sx: number, sy: number, id: number): void {
+    const COLORS = ['#8a3a3a', '#3a5a8a', '#3d3d46', '#8a743a', '#4d6b56'] as const;
+    const c = COLORS[id % COLORS.length] as string;
+    const x = Math.floor(sx) + 2; // held a touch off-centre, like a real one
+    const y = Math.floor(sy) - 2;
+    ctx.fillStyle = 'rgba(10, 12, 16, 0.35)';
+    ctx.beginPath();
+    ctx.arc(x + 1, y + 1, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    ctx.arc(x, y, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath();
+    ctx.moveTo(x - 6, y);
+    ctx.lineTo(x + 6, y);
+    ctx.moveTo(x, y - 6);
+    ctx.lineTo(x, y + 6);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.fillRect(x, y, 1, 1);
   }
 
   // ----------------------------------------------------- animation state
@@ -435,18 +466,27 @@ export class RenderPipeline {
       L.points.push({ x, y, radius: 34, intensity: 0.8, glow: s.kind === 'gun' ? '#e8a075' : '#75c8e8', glowAlpha: 0.10 });
     }
 
-    // Headlights + taillight glow for driven cars and moving traffic.
+    // Headlights + taillight glow for driven cars and moving traffic;
+    // boats carry a soft all-round navigation light instead of a cone.
     const cone = (x: number, y: number, heading: number): void => {
       const fx = x + Math.cos(heading) * 13;
       const fy = y + Math.sin(heading) * 13;
       L.cones.push({ x: fx, y: fy, angle: heading, length: 64, halfWidth: 20, intensity: 0.85 });
       L.points.push({ x: fx, y: fy, radius: 18, intensity: 0.7 });
     };
+    const navLight = (x: number, y: number): void => {
+      L.points.push({ x, y, radius: 40, intensity: 0.7, glow: '#d8e8c8', glowAlpha: 0.08 });
+    };
     for (const rv of scene.remotes.vehicles) {
-      const trafficMoving = rv.vehicle.ai === 1 && Math.abs(rv.vehicle.speed) > 4;
-      if (rv.vehicle.driverId !== null || trafficMoving) cone(rv.x, rv.y, rv.heading);
+      const active = rv.vehicle.driverId !== null || (rv.vehicle.ai === 1 && Math.abs(rv.vehicle.speed) > 4);
+      if (!active) continue;
+      if (rv.vehicle.kind === 'boat') navLight(rv.x, rv.y);
+      else cone(rv.x, rv.y, rv.heading);
     }
-    if (scene.localVehicle) cone(scene.localVehicle.pos.x, scene.localVehicle.pos.y, scene.localVehicle.heading);
+    if (scene.localVehicle) {
+      if (scene.localVehicle.kind === 'boat') navLight(scene.localVehicle.pos.x, scene.localVehicle.pos.y);
+      else cone(scene.localVehicle.pos.x, scene.localVehicle.pos.y, scene.localVehicle.heading);
+    }
 
     // Fresh muzzle flashes light the street for a beat.
     for (const t of this.tracers) {

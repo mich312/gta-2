@@ -6,7 +6,9 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_SAND,
   T_SIDEWALK,
+  T_WATER,
   generateCity,
 } from 'shared';
 import { loadWorldgenParams } from '../tuning.js';
@@ -23,6 +25,8 @@ interface PaletteFile {
   sidewalk: string;
   park: string;
   lot: string;
+  water: string;
+  sand: string;
   building: Record<string, string>;
   shopGun: string;
   shopClothing: string;
@@ -58,6 +62,8 @@ function main(): void {
     [T_SIDEWALK]: hexToRgb(palette.sidewalk),
     [T_PARK]: hexToRgb(palette.park),
     [T_LOT]: hexToRgb(palette.lot),
+    [T_WATER]: hexToRgb(palette.water),
+    [T_SAND]: hexToRgb(palette.sand),
   };
 
   const put = (x: number, y: number, c: [number, number, number]): void => {

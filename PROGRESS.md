@@ -1,5 +1,66 @@
 # PROGRESS
 
+## Phase 10 — waterfront, boats, and nature
+
+**What changed.** The city gets an ecosystem. (1) **Waterfront**: one map
+edge (hash of the seed) becomes open water with a wavy shoreline, a sand
+beach, and a two-tile sidewalk promenade — which pedestrians stroll
+automatically, since they already prefer pavement. The road grid and all
+blocks are confined to the land rect, so nothing builds in the sea. All of
+it is a pure hash of the seed consuming zero rng, and `waterWidth` parses
+to 0 when absent — pre-waterfront replay headers regenerate their
+land-locked cities byte-identically (test-pinned). (2) **Collision media**:
+`isSolidTile` (ground movement) now includes water; boats use an inverted
+predicate (everything but water is solid) threaded through
+`moveWithCollision` as an optional parameter; bullets and police LOS use a
+new buildings-only predicate, so firefights carry across the bay.
+(3) **Boats**: a `boat` vehicle kind (`medium: "water"` in vehicles.json) —
+moored rows near the beach are stealable and drivable (the same shared
+physics predicts them client-side bit-exactly), ambient cruisers wander the
+bay on the 3-tick NPC cadence, braking for other vessels. Exiting mid-water
+is refused by the existing boxed-in rule; a new bow exit candidate lets you
+beach a boat nose-first and step ashore. (4) **Nature & variety (client)**:
+water rendering with depth tones, foam lines and an animated glint pass;
+wet-sand strips, shells, reeds; park bushes, street trees against
+residential/commercial walls, denser flower clusters; car *bodies* now vary
+(sedan / wagon / van / taxi with roof sign) plus a boat sprite; pedestrians
+carry umbrellas in the rain; boats show soft nav lights at night.
+
+**Bandwidth work forced by the denser city.** The joyride gate initially
+FAILED at 55.8 KB/s (the sea squeezes 200 peds + 400 props onto ~93 % of
+the land, and driving clients sweep AOI churn faster). Two interest-
+management changes fixed it properly: props are static, so they are no
+longer radius-filtered at all (one burst in the first full snapshot, then
+only break patches — the AOI add/remove churn was the dearer cost), and
+pedestrians use a 0.75× radius (450 px — they are invisible past ~300 px).
+Brawl is now 34–40 KB/s and joyride 36–45 KB/s, both better than the
+pre-traffic phase-8 baseline.
+
+**Verification.** 81 tests green (6 new): waterfront invariants (water on
+one edge only, promenade present, nothing built in the sea, boat spawns on
+water), the waterWidth-0 back-compat pin, players-can't-swim +
+bullets-fly-over-water, ambient boat cruising 600 ticks without running
+aground (bit-identical twice), and a full steal-sail-refused-exit-beach-
+disembark lifecycle. Interest tests updated for the new prop/ped filter
+rules. Brawl: lockstep 1811..1811, 0 desyncs, under budget; replay
+re-simulates hash-identical; joyride PASS; client build clean. Eyeballed
+live: beach with moored + moving boats and umbrella-carrying peds, city
+streets with a van and a taxi in traffic, night waterfront with headlights
+and lit windows.
+
+**Deliberately deferred.** Rivers/bridges (coastal water only keeps roads
+and water disjoint). Boat traffic interacting with heat/police (no police
+boats — the water is a genuine escape valve, which may be a balance issue
+worth watching). Swimming. Wakes as real decals (exhaust puffs stand in).
+Seagulls.
+
+**Least confident about.** Water-as-escape: cops can shoot across water
+but not pursue onto it, so a boat at range trivially outlasts a wanted
+level — acceptable flavour now, needs police boats or heat rules if it
+warps play. The promenade/beach reduce land area ~7 %; block/shop/spawn
+densities still pass their invariants but downtown can sit closer to the
+shore on some seeds than others (aesthetic variance, not correctness).
+
 ## Phase 9 — city liveliness + map visual variety
 
 **What changed.** Two answers to "the city feels lifeless and the map

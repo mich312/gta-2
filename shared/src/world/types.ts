@@ -11,6 +11,10 @@ export const T_BUILDING = 3;
 export const T_PARK = 4;
 /** Industrial yard: concrete, walkable. */
 export const T_LOT = 5;
+/** Open water: solid for ground movement, open for boats and bullets. */
+export const T_WATER = 6;
+/** Beach sand between the water and the promenade: walkable. */
+export const T_SAND = 7;
 
 export const DISTRICT_TYPES = [
   'downtown',
@@ -75,6 +79,8 @@ export interface CityMap {
   vehicleSpawns: VehicleSpawn[];
   /** Lane-centred spawn points on arterial roads for ambient traffic. */
   trafficSpawns: VehicleSpawn[];
+  /** Boats: moored near the shore (stealable) and cruising open water. */
+  boatSpawns: Array<VehicleSpawn & { moored: boolean }>;
   playerSpawns: Vec2[];
   /** Dense sidewalk points for pedestrian spawning (phase 7). */
   pedSpawns: Vec2[];

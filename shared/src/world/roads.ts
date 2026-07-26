@@ -91,38 +91,44 @@ export function generateRoads(
   params: WorldgenParams,
   districtIdxAt: (tx: number, ty: number) => number,
   rng: number,
+  land?: { x0: number; y0: number; x1: number; y1: number },
 ): RoadsResult {
   const W = params.widthTiles;
   const H = params.heightTiles;
   const aw = params.arterialWidth;
   const sw = params.secondaryWidth;
+  // The waterfront (if any) reserves one edge; roads stay on the land rect.
+  const lx0 = land?.x0 ?? 0;
+  const ly0 = land?.y0 ?? 0;
+  const lx1 = land?.x1 ?? W;
+  const ly1 = land?.y1 ?? H;
 
   // Arterial centre positions, jittered inside their band.
   const xs: number[] = [];
   const ys: number[] = [];
   for (let i = 1; i <= params.arterialsX; i++) {
-    const band = W / (params.arterialsX + 1);
+    const band = (lx1 - lx0) / (params.arterialsX + 1);
     let jitter: number;
     [jitter, rng] = nextRange(rng, -band * 0.25, band * 0.25);
-    xs.push(Math.round(band * i + jitter));
+    xs.push(lx0 + Math.round(band * i + jitter));
   }
   for (let i = 1; i <= params.arterialsY; i++) {
-    const band = H / (params.arterialsY + 1);
+    const band = (ly1 - ly0) / (params.arterialsY + 1);
     let jitter: number;
     [jitter, rng] = nextRange(rng, -band * 0.25, band * 0.25);
-    ys.push(Math.round(band * i + jitter));
+    ys.push(ly0 + Math.round(band * i + jitter));
   }
-  for (const x of xs) carveRect(tiles, W, H, x - Math.floor(aw / 2), 0, aw, H);
-  for (const y of ys) carveRect(tiles, W, H, 0, y - Math.floor(aw / 2), W, aw);
+  for (const x of xs) carveRect(tiles, W, H, x - Math.floor(aw / 2), ly0, aw, ly1 - ly0);
+  for (const y of ys) carveRect(tiles, W, H, lx0, y - Math.floor(aw / 2), lx1 - lx0, aw);
 
-  // Initial regions between arterials (and the map edge).
-  const xCuts = [0, ...xs.map((x) => x - Math.floor(aw / 2)), W];
-  const yCuts = [0, ...ys.map((y) => y - Math.floor(aw / 2)), H];
+  // Initial regions between arterials (and the land edge).
+  const xCuts = [lx0, ...xs.map((x) => x - Math.floor(aw / 2)), lx1];
+  const yCuts = [ly0, ...ys.map((y) => y - Math.floor(aw / 2)), ly1];
   const queue: Region[] = [];
   for (let yi = 0; yi + 1 < yCuts.length; yi++) {
     for (let xi = 0; xi + 1 < xCuts.length; xi++) {
-      const x = xi === 0 ? 0 : (xCuts[xi] as number) + aw;
-      const y = yi === 0 ? 0 : (yCuts[yi] as number) + aw;
+      const x = xi === 0 ? lx0 : (xCuts[xi] as number) + aw;
+      const y = yi === 0 ? ly0 : (yCuts[yi] as number) + aw;
       const x2 = xCuts[xi + 1] as number;
       const y2 = yCuts[yi + 1] as number;
       if (x2 - x >= 3 && y2 - y >= 3) queue.push({ x, y, w: x2 - x, h: y2 - y });

@@ -25,6 +25,8 @@ export interface VehicleTuning {
   enterRadius: number;
   /** Collision box half-extent (cars are boxes for tile collision). */
   halfExtent: number;
+  /** Where this vehicle travels: roads collide with water, boats with land. */
+  medium: 'road' | 'water';
 }
 
 export interface WeaponTuning {
@@ -91,6 +93,12 @@ export interface TrafficTuning {
   decisionCadenceTicks: number;
   /** Chance to turn at an intersection per decision opportunity. */
   turnChance: number;
+  /** Ambient cruising boats a session spawns (waterfront maps only). */
+  boatCount: number;
+  /** Moored, stealable boats along the shore. */
+  mooredBoatCount: number;
+  /** Ambient boat cruise speed, px/s. */
+  boatCruiseSpeed: number;
 }
 
 export interface PropKindTuning {
@@ -148,6 +156,7 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     crashDamp: n('crashDamp'),
     enterRadius: n('enterRadius'),
     halfExtent: n('halfExtent'),
+    medium: r['medium'] === 'water' ? 'water' : 'road',
   };
 }
 
@@ -241,6 +250,11 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     blockedTimeoutTicks: n('blockedTimeoutTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
     turnChance: n('turnChance'),
+    boatCount: r['boatCount'] === undefined ? DEFAULT_TRAFFIC.boatCount : n('boatCount'),
+    mooredBoatCount:
+      r['mooredBoatCount'] === undefined ? DEFAULT_TRAFFIC.mooredBoatCount : n('mooredBoatCount'),
+    boatCruiseSpeed:
+      r['boatCruiseSpeed'] === undefined ? DEFAULT_TRAFFIC.boatCruiseSpeed : n('boatCruiseSpeed'),
   };
 }
 
@@ -257,6 +271,9 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   blockedTimeoutTicks: 75,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
+  boatCount: 8,
+  mooredBoatCount: 8,
+  boatCruiseSpeed: 72,
 };
 
 const DEFAULT_PROPS: PropsTuning = {

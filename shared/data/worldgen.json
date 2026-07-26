@@ -22,5 +22,6 @@
   "parkedCarSpacing": 14,
   "shopQuota": { "gun": 3, "clothing": 3 },
   "playerSpawnCount": 16,
-  "playerSpawnMinDist": 30
+  "playerSpawnMinDist": 30,
+  "waterWidth": 10
 }

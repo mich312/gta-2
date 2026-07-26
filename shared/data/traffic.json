@@ -10,5 +10,8 @@
   "laneKeepGain": 0.03,
   "blockedTimeoutTicks": 75,
   "decisionCadenceTicks": 21,
-  "turnChance": 0.25
+  "turnChance": 0.25,
+  "boatCount": 8,
+  "mooredBoatCount": 8,
+  "boatCruiseSpeed": 72
 }

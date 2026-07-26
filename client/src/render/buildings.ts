@@ -384,7 +384,7 @@ function drawStructure(
   ctx.restore();
 }
 
-const TREE_TONES = ['#2f5a33', '#39653a', '#2a4f36'] as const;
+const TREE_TONES = ['#2f5a33', '#39653a', '#2a4f36', '#4a6136'] as const;
 
 function drawTree(
   ctx: CanvasRenderingContext2D,
@@ -394,7 +394,8 @@ function drawTree(
   cx: number,
   cy: number,
 ): void {
-  const [lx, ly] = lean(tree.x, tree.y, cx, cy, 1.6);
+  const squat = tree.kind === 'bush';
+  const [lx, ly] = lean(tree.x, tree.y, cx, cy, squat ? 0.5 : 1.6);
   const x = tree.x - cam.x + lx;
   const y = tree.y - cam.y + ly;
   const tone = TREE_TONES[treeTone(map, tree)] as string;
@@ -406,6 +407,7 @@ function drawTree(
   ctx.beginPath();
   ctx.arc(x - tree.r * 0.15, y - tree.r * 0.15, tree.r * 0.8, 0, Math.PI * 2);
   ctx.fill();
+  if (squat) return; // bushes keep a flat matte top
   ctx.fillStyle = shade(tone, 0.18);
   ctx.beginPath();
   ctx.arc(x - tree.r * 0.3, y - tree.r * 0.3, tree.r * 0.4, 0, Math.PI * 2);

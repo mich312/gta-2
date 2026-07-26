@@ -6,7 +6,8 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
-import { stepTrafficVehicle } from './traffic.js';
+import { stepBoatVehicle, stepTrafficVehicle } from './traffic.js';
+import { getVehicleTuning } from '../tuning.js';
 import { stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
@@ -81,7 +82,10 @@ export function step(
     const v = next.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
     if (v.ai === 1) {
-      if ((next.tick + id) % 3 === 0) stepTrafficVehicle(next, v, map);
+      if ((next.tick + id) % 3 === 0) {
+        if (getVehicleTuning(v.kind).medium === 'water') stepBoatVehicle(next, v, map);
+        else stepTrafficVehicle(next, v, map);
+      }
     } else {
       stepVehicleCoasting(v, map, next);
     }

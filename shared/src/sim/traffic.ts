@@ -5,7 +5,7 @@ import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, VehicleState } from './state.js';
 import { integrateVehicle } from './vehicle.js';
-import { T_ROAD, TILE_SIZE, tileAt, type CityMap } from '../world/types.js';
+import { T_ROAD, T_WATER, TILE_SIZE, tileAt, type CityMap } from '../world/types.js';
 import { roadSpanAt } from '../world/roads.js';
 
 /**
@@ -186,6 +186,89 @@ export function stepTrafficVehicle(state: GameState, v: VehicleState, map: CityM
     const maxTurn = vt.turnRate * DT * dtMul;
     v.heading = q256(wrapAngle(v.heading + Math.max(-maxTurn, Math.min(maxTurn, diff))));
   }
+
+  integrateVehicle(v, map, state, dtMul);
+}
+
+// -------------------------------------------------------------------- boats
+
+function waterAt(map: CityMap, x: number, y: number): boolean {
+  return tileAt(map, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)) === T_WATER;
+}
+
+/** Pick a new water-valid heading: sides preferred, else turn back. */
+function chooseBoatDir(state: GameState, v: VehicleState, map: CityMap, probe: number): void {
+  const sides: number[] = [];
+  for (const d of [(v.aiDir + 1) & 3, (v.aiDir + 3) & 3]) {
+    if (waterAt(map, v.pos.x + DIR_X[d]! * probe, v.pos.y + DIR_Y[d]! * probe)) sides.push(d);
+  }
+  if (sides.length === 0) {
+    v.aiDir = (v.aiDir + 2) & 3;
+    return;
+  }
+  let pick: number;
+  [pick, state.rng] = nextIntRange(state.rng, 0, sides.length);
+  v.aiDir = sides[pick] as number;
+}
+
+/**
+ * One step for one ambient boat, on the same 3-tick NPC cadence as traffic.
+ * Much simpler than road traffic: no lanes, just a cardinal wander over open
+ * water, braking for other vessels, turning where the water runs out.
+ */
+export function stepBoatVehicle(state: GameState, v: VehicleState, map: CityMap): void {
+  const t = getTuning().traffic;
+  const vt = getVehicleTuning(v.kind);
+  const dtMul = 3;
+  const look = t.lookAhead + 16; // boats are longer and turn lazily
+
+  if (!waterAt(map, v.pos.x + DIR_X[v.aiDir]! * look, v.pos.y + DIR_Y[v.aiDir]! * look)) {
+    chooseBoatDir(state, v, map, look);
+  } else if ((state.tick + v.id) % (t.decisionCadenceTicks * 2) === 0) {
+    let roll: number;
+    [roll, state.rng] = nextFloat01(state.rng);
+    if (roll < t.turnChance) chooseBoatDir(state, v, map, look);
+  }
+
+  // Brake only for other vessels (nothing else lives on the water).
+  const hx = dCos(v.heading);
+  const hy = dSin(v.heading);
+  const reach = t.brakeDistance + Math.abs(v.speed) * t.brakeDistancePerSpeed + vt.halfExtent;
+  let blocked = false;
+  for (const id of state.vehicles.ids) {
+    if (id === v.id) continue;
+    const other = state.vehicles.byId[id];
+    if (!other) continue;
+    const dx = other.pos.x - v.pos.x;
+    const dy = other.pos.y - v.pos.y;
+    const forward = dx * hx + dy * hy;
+    if (forward <= 0 || forward > reach) continue;
+    if (Math.abs(dx * hy - dy * hx) < t.laneHalfWidth + 4) {
+      blocked = true;
+      break;
+    }
+  }
+
+  let target = t.boatCruiseSpeed;
+  const misalign = Math.abs(wrapAngle(DIR_ANGLE[v.aiDir]! - v.heading));
+  if (misalign > 0.25) target = Math.min(target, t.boatCruiseSpeed * 0.55);
+  if (blocked) target = 0;
+  if (v.speed < target) v.speed = Math.min(target, v.speed + vt.accel * DT * dtMul);
+  else if (v.speed > target) v.speed = Math.max(target, v.speed - vt.brake * DT * dtMul);
+
+  if (blocked && Math.abs(v.speed) < t.turnSpeed) {
+    v.aiWait += dtMul;
+    if (v.aiWait >= t.blockedTimeoutTicks) {
+      chooseBoatDir(state, v, map, look);
+      v.aiWait = 0;
+    }
+  } else if (v.aiWait > 0) {
+    v.aiWait = Math.max(0, v.aiWait - dtMul);
+  }
+
+  const diff = wrapAngle(DIR_ANGLE[v.aiDir]! - v.heading);
+  const maxTurn = vt.turnRate * DT * dtMul;
+  v.heading = q256(wrapAngle(v.heading + Math.max(-maxTurn, Math.min(maxTurn, diff))));
 
   integrateVehicle(v, map, state, dtMul);
 }

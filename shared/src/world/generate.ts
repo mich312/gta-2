@@ -11,6 +11,7 @@ import {
   placeTrafficSpawns,
   placeVehicleSpawns,
 } from './amenities.js';
+import { carveWaterfront, placeBoatSpawns } from './water.js';
 import { TILE_SIZE, type CityMap } from './types.js';
 
 /**
@@ -42,6 +43,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     shops: [],
     vehicleSpawns: [],
     trafficSpawns: [],
+    boatSpawns: [],
     playerSpawns: [],
     pedSpawns: [],
     propSpawns: [],
@@ -56,7 +58,11 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     }
   }
 
-  const roads = generateRoads(map.tiles, params, districtIdxAt, rng);
+  // Waterfront first (pure hash of the seed, no rng): the road grid and all
+  // blocks stay inside the returned land rect, so nothing builds in the sea.
+  const land = carveWaterfront(map, params);
+
+  const roads = generateRoads(map.tiles, params, districtIdxAt, rng, land);
   rng = roads.rng;
   map.blocks = roads.blocks;
 
@@ -68,6 +74,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);
   placeTrafficSpawns(map);
+  placeBoatSpawns(map, params);
   placePedSpawns(map);
   placeProps(map);
 

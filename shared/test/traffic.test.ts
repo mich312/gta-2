@@ -47,6 +47,7 @@ function corridorMap(): CityMap {
     shops: [],
     vehicleSpawns: [],
     trafficSpawns: [],
+    boatSpawns: [],
     playerSpawns: [{ x: 500, y: 330 }],
     pedSpawns: [],
     propSpawns: [],

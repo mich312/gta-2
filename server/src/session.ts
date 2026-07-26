@@ -132,6 +132,43 @@ export class Session {
       });
     }
 
+    // The waterfront: moored boats you can steal, plus ambient cruisers.
+    const moored = this.map.boatSpawns.filter((b) => b.moored);
+    const cruising = this.map.boatSpawns.filter((b) => !b.moored);
+    const mooredCount = Math.min(getTuning().traffic.mooredBoatCount, moored.length);
+    const cruisingCount = Math.min(getTuning().traffic.boatCount, cruising.length);
+    const pickSpread = <T>(list: T[], count: number): T[] => {
+      if (count <= 0) return [];
+      const stride = Math.max(1, Math.floor(list.length / count));
+      const out: T[] = [];
+      for (let i = 0; i < count; i++) {
+        const s = list[(i * stride) % list.length];
+        if (s) out.push(s);
+      }
+      return out;
+    };
+    for (const s of pickSpread(moored, mooredCount)) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+      });
+    }
+    for (const s of pickSpread(cruising, cruisingCount)) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: s.kind,
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+        ai: true,
+      });
+    }
+
     // Street furniture.
     for (const spot of this.map.propSpawns) {
       this.pendingCommands.push({
