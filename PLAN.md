@@ -284,6 +284,59 @@ entity-vs-entity circles. Boring and robust.
 
 ---
 
+## 4b. Economy integrity — why the money system can't be cheated
+
+Threat model in two tiers, from hardest to easiest to pull off:
+
+**Tier 1 — protocol cheating (hacked client, replayed messages).** Closed by
+construction, not by detection:
+
+- Clients send only input intents. There is no message in the protocol that
+  names a cash amount, a price, an award, or an inventory change — nothing to
+  tamper with. Every credit originates from a server-observed sim event; every
+  debit from a server-validated purchase.
+- A purchase is an `action` intent. The server checks, on its own state: the
+  player is alive, standing in that shop's doorway zone, the item exists in
+  the server's price JSON, and the ledger balance covers it. Client-side UI is
+  a suggestion; the server is the cashier.
+- Node runs one session on one thread, so check-balance→debit→grant is atomic
+  by construction — no race where two simultaneous buys both pass the balance
+  check.
+- Duplicate/replayed buy messages: a purchase requires a *fresh* action press
+  (edge-triggered, server tracks per-player action state) and each completed
+  purchase gets an idempotency key in the ledger; in phase 5 that key is a
+  MySQL unique constraint, so a retried write after a reconnect can't double-
+  charge or double-grant.
+- `resumeToken` is an unguessable random secret, so one player can't resume
+  as another and spend their balance.
+- Append-only ledger, never a mutable balance column: balance is a fold over
+  the log, every entry carries {type, source event, tick, playerId, session}.
+  If something slips through anyway, the audit trail says exactly when and
+  how, and a periodic reconciliation job can diff fold-of-log against any
+  cached balance.
+
+**Tier 2 — economic exploits with legitimate inputs (the realistic risk).**
+Farming loops, not hacks: two friends trading kills for combat cash, driving
+in circles to milk "driving well" awards, dying on purpose if death ever pays.
+No protocol fix exists for these — they're award-formula bugs. Defenses, all
+as tunable JSON so they can be adjusted without a rebuild:
+
+- Diminishing returns per source: repeated kills of the same victim decay to
+  zero within a time window; driving awards require sustained *novel* road
+  coverage (distinct road-graph edges), not raw distance.
+- Rate caps: per-category cash-per-minute ceilings.
+- No player-to-player cash transfer, period (initially). This single rule
+  removes the entire duping/muling/laundering class — there is no way to move
+  farmed money onto a main account.
+- The ledger's source-event tagging makes farming visible after the fact:
+  "player X earned 90 % of their cash from kills on player Y" is one query.
+
+Guest balances are session-scoped and die with the session, so guests can't
+be used as disposable farming vessels for persistent accounts (nothing
+transfers, per the rule above).
+
+---
+
 ## 5. Determinism enforcement (how, concretely)
 
 - Fixed 30 Hz timestep everywhere; `dt` is a constant, never multiplied from
