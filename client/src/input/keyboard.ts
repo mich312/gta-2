@@ -119,6 +119,9 @@ export class InputSource {
       // not a computation the sim will redo.
       aimAngle: Math.atan2(this.mouseY - py, this.mouseX - px),
       action: this.has('KeyE', 'Enter'),
+      // F for whatever the garage bolted on. Separate from fire, because a
+      // driver can lean out with a pistol and work the guns at the same time.
+      fitting: this.has('KeyF'),
       slot,
     };
   }

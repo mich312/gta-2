@@ -11,7 +11,9 @@ export type CatalogItem =
   | { kind: 'ammo'; shop: ShopKind; price: number; ammo: number }
   | { kind: 'cosmetic'; shop: ShopKind; price: number; cosmeticId: number }
   /** A respray: clears police heat outright. The genre's escape valve. */
-  | { kind: 'spray'; shop: ShopKind; price: number };
+  | { kind: 'spray'; shop: ShopKind; price: number }
+  /** Bolted to the car you drove in: bomb, slick, mines, guns. */
+  | { kind: 'fitting'; shop: ShopKind; price: number; fitting: string; ammo: number };
 
 export type Catalog = Record<string, CatalogItem>;
 
@@ -39,6 +41,15 @@ export function parseCatalog(raw: unknown): Catalog {
       }
       case 'spray': {
         out[id] = { kind: 'spray', shop, price };
+        break;
+      }
+      case 'fitting': {
+        const fitting = r['fitting'];
+        const ammo = r['ammo'];
+        if (typeof fitting !== 'string' || typeof ammo !== 'number') {
+          throw new Error(`catalog: bad fitting for ${id}`);
+        }
+        out[id] = { kind: 'fitting', shop, price, fitting, ammo };
         break;
       }
       case 'cosmetic': {

@@ -397,6 +397,7 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
   // entity must, because `full`/`welcome` carry no ackSeq and the client
   // falls back to this field to reconcile against.
   f('airDist', (w, p) => w.f64(p.airDist), (r, o) => (o['airDist'] = r.f64())),
+  f('fittingCooldown', (w, p) => w.int(p.fittingCooldown), (r, o) => (o['fittingCooldown'] = r.int())),
   f('powerFlags', (w, p) => w.u8(p.powerFlags), (r, o) => (o['powerFlags'] = r.u8())),
   f('powerUntilTick', (w, p) => w.big(p.powerUntilTick), (r, o) => (o['powerUntilTick'] = r.big())),
   f(
@@ -426,6 +427,8 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
     (r, o) => (o['condition'] = VEHICLE_CONDITIONS[r.u8()]),
   ),
   f('fuseAtTick', (w, v) => w.optInt(v.fuseAtTick), (r, o) => (o['fuseAtTick'] = r.optInt())),
+  f('fitting', (w, v) => w.str(v.fitting), (r, o) => (o['fitting'] = r.str())),
+  f('fittingAmmo', (w, v) => w.int(v.fittingAmmo), (r, o) => (o['fittingAmmo'] = r.int())),
 ];
 
 const PROJECTILE_CODECS: Array<FieldCodec<ProjectileState>> = [
@@ -684,7 +687,8 @@ function writeIntent(w: Writer, i: InputIntent): void {
     (i.left ? 4 : 0) |
     (i.right ? 8 : 0) |
     (i.fire ? 16 : 0) |
-    (i.action ? 32 : 0);
+    (i.action ? 32 : 0) |
+    (i.fitting ? 64 : 0);
   w.u8(bits);
   w.q256(i.aimAngle);
   w.int(i.slot);
@@ -703,6 +707,7 @@ function readIntent(r: Reader): InputIntent {
     right: (bits & 8) !== 0,
     fire: (bits & 16) !== 0,
     action: (bits & 32) !== 0,
+    fitting: (bits & 64) !== 0,
     aimAngle: r.q256(),
     slot: r.int(),
   };

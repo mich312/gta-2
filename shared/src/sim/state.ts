@@ -133,6 +133,13 @@ export interface VehicleState {
   condition: VehicleCondition;
   /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
   fuseAtTick: number | null;
+  /**
+   * What the garage bolted on: '' , 'bomb', 'slick', 'mine' or 'guns'.
+   * Two fields on a table that is already on the wire, changing only when
+   * you buy or use something — see FEATURES.md G2.
+   */
+  fitting: string;
+  fittingAmmo: number;
 }
 
 /**
@@ -191,6 +198,8 @@ export interface PlayerState {
   vz: number;
   /** Longest airborne distance of the current jump, px. */
   airDist: number;
+  /** Ticks until the car's fitting may be used again. */
+  fittingCooldown: number;
   /** Active power-ups; see the POWER_* bits. */
   powerFlags: number;
   /** Tick the timed powers lapse on. Meaningless when no timed bit is set. */
@@ -321,6 +330,8 @@ export function createVehicle(
     health: getVehicleTuning(kind).health,
     condition: 'ok',
     fuseAtTick: null,
+    fitting: '',
+    fittingAmmo: 0,
   };
 }
 
@@ -355,6 +366,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     z: 0,
     vz: 0,
     airDist: 0,
+    fittingCooldown: 0,
     powerFlags: 0,
     powerUntilTick: 0,
   };

@@ -208,6 +208,25 @@ export interface TrafficTuning {
   mix: Array<{ kind: string; weight: number }>;
 }
 
+export interface FittingsTuning {
+  /** Seconds between arming a car bomb and the bang. */
+  bombFuseSec: number;
+  dropCooldownTicks: number;
+  gunCooldownTicks: number;
+  /** How far behind the back bumper a mine or slick lands, px. */
+  dropClearance: number;
+  /** How long a dropped mine or slick sits in the road. */
+  dropLifeSec: number;
+  mineBlastRadius: number;
+  mineBlastDamage: number;
+  /** Radians of heading kick a slick delivers. */
+  slickSpin: number;
+  /** Speed retained after hitting one. */
+  slickSpeedLoss: number;
+  slickRadius: number;
+  mineRadius: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
@@ -217,6 +236,7 @@ export interface Tuning {
   props: PropsTuning;
   pickups: PickupsTuning;
   traffic: TrafficTuning;
+  fittings: FittingsTuning;
 }
 
 let current: Tuning | null = null;
@@ -401,6 +421,38 @@ function parsePropsTuning(raw: unknown): PropsTuning {
     ),
   };
 }
+
+function parseFittingsTuning(raw: unknown): FittingsTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `fittings.${k}`);
+  return {
+    bombFuseSec: n('bombFuseSec'),
+    dropCooldownTicks: n('dropCooldownTicks'),
+    gunCooldownTicks: n('gunCooldownTicks'),
+    dropClearance: n('dropClearance'),
+    dropLifeSec: n('dropLifeSec'),
+    mineBlastRadius: n('mineBlastRadius'),
+    mineBlastDamage: n('mineBlastDamage'),
+    slickSpin: n('slickSpin'),
+    slickSpeedLoss: n('slickSpeedLoss'),
+    slickRadius: n('slickRadius'),
+    mineRadius: n('mineRadius'),
+  };
+}
+
+const DEFAULT_FITTINGS: FittingsTuning = {
+  bombFuseSec: 3.5,
+  dropCooldownTicks: 12,
+  gunCooldownTicks: 5,
+  dropClearance: 8,
+  dropLifeSec: 90,
+  mineBlastRadius: 78,
+  mineBlastDamage: 95,
+  slickSpin: 0.9,
+  slickSpeedLoss: 0.55,
+  slickRadius: 22,
+  mineRadius: 14,
+};
 
 function parsePickupsTuning(raw: unknown): PickupsTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
@@ -605,6 +657,7 @@ export function initTuning(
     props?: unknown;
     pickups?: unknown;
     traffic?: unknown;
+    fittings?: unknown;
   },
   opts: InitTuningOptions = {},
 ): string[] {
@@ -659,6 +712,11 @@ export function initTuning(
       'traffic',
       () => (raw.traffic !== undefined ? parseTrafficTuning(raw.traffic) : DEFAULT_TRAFFIC),
       DEFAULT_TRAFFIC,
+    ),
+    fittings: section(
+      'fittings',
+      () => (raw.fittings !== undefined ? parseFittingsTuning(raw.fittings) : DEFAULT_FITTINGS),
+      DEFAULT_FITTINGS,
     ),
   };
   return fellBack;

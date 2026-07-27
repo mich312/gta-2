@@ -21,6 +21,7 @@ import { stepPeds } from './peds.js';
 import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
+import { stepFittings } from './fittings.js';
 import { creditFrenzyKill, stepFrenzy, stepStunts } from './frenzy.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
@@ -104,6 +105,10 @@ export function step(
   stepTrafficPopulation(next, map);
 
   stepWeapons(next, inputs, map, events);
+  // Bolted-on weapons fire and drop before the projectile pass, so anything
+  // laid this tick is stepped on the NEXT one: a mine cannot go off under
+  // the car that dropped it.
+  stepFittings(next, inputs, map, events);
   // Spawned by firing, resolved before the things they hit have moved.
   stepProjectiles(next, map, events);
   stepVehicleImpacts(next, events);
@@ -233,6 +238,17 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (cmd.vehicleId >= state.nextEntityId) {
         state.nextEntityId = cmd.vehicleId + 1;
       }
+      break;
+    }
+    case 'fitVehicle': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p || p.vehicleId === null) return;
+      const v = state.vehicles.byId[p.vehicleId];
+      if (!v) return;
+      // Buying the same fitting again tops it up; a different one replaces
+      // it. One bracket under the bonnet, and the garage does not refund.
+      v.fittingAmmo = v.fitting === cmd.fitting ? v.fittingAmmo + cmd.ammo : cmd.ammo;
+      v.fitting = cmd.fitting;
       break;
     }
     case 'crushVehicle': {

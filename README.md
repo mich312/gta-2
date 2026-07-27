@@ -25,6 +25,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | WASD / arrows | walk, drive (up=throttle, down=brake/reverse, left/right=steer) |
 | Mouse | aim; click or Space to fire, on foot or out of a car window |
 | E / Enter | enter/exit car, context action |
+| F | use the car's fitting: fire the guns, drop a mine or slick, arm the bomb |
 | 1–8 | switch weapon slot |
 | Y U I O H J N P | buy items while inside a shop (or in its doorway) |
 | M | mute / unmute sound |
@@ -51,7 +52,7 @@ file store instead. Set `PERSIST_PATH=data/persist.json` to choose that
 deliberately and silence the warning.
 
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
-weapons, police, peds, props, economy, worldgen, palette) — restart the
+weapons, police, peds, props, economy, fittings, worldgen, palette) — restart the
 server to apply; clients receive tunables in the welcome message.
 
 ## Tooling

@@ -1,12 +1,16 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { q8 } from '../math/vec.js';
-import { getWeaponTuning } from '../tuning.js';
-import type { GameState, ProjectileState } from './state.js';
+import { getTuning, getWeaponTuning } from '../tuning.js';
+import type { GameState, ProjectileState, VehicleState } from './state.js';
 import { removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { blast, vehicleHitRadius } from './vehicleDamage.js';
 import { rayCircleDistance, rayWallDistance } from './weapons.js';
+import { slickVehicle } from './fittings.js';
+
+/** Dropped by a car fitting rather than thrown: no flight, just patience. */
+const DROPS: Record<string, 'mine' | 'slick'> = { mine: 'mine', slick: 'slick' };
 
 /**
  * Things with a flight time: rockets, grenades, molotovs.
@@ -36,6 +40,30 @@ export function stepProjectiles(state: GameState, map: CityMap, events: SimEvent
   for (const id of state.projectiles.ids) {
     const pr = state.projectiles.byId[id];
     if (!pr) continue;
+
+    // Mines and oil slicks: laid in the road by a car fitting, with no
+    // tuning in weapons.json because they are not weapons you carry. They do
+    // not move; they wait for somebody to drive over them.
+    const drop = DROPS[pr.kind];
+    if (drop) {
+      const ft = getTuning().fittings;
+      const radius = drop === 'mine' ? ft.mineRadius : ft.slickRadius;
+      const victim = vehicleOver(state, pr.pos.x, pr.pos.y, radius, pr.ownerId);
+      if (victim) {
+        removeEntity(state.projectiles, id);
+        if (drop === 'mine') {
+          blast(state, pr.pos.x, pr.pos.y, ft.mineBlastRadius, ft.mineBlastDamage, pr.ownerId, events);
+        } else {
+          // Which way it throws you is fixed by the car's id, so both hosts
+          // agree without spending an rng draw on it.
+          slickVehicle(victim, victim.id % 2 === 0 ? 1 : -1);
+        }
+        continue;
+      }
+      if (state.tick >= pr.fuseAtTick) removeEntity(state.projectiles, id);
+      continue;
+    }
+
     const tuning = getWeaponTuning(pr.kind)?.projectile;
     if (!tuning) {
       // Tuning changed out from under a live projectile: drop it rather than
@@ -90,6 +118,28 @@ export function stepProjectiles(state: GameState, map: CityMap, events: SimEvent
  * Infinity. Same iteration order as every other hit test: players, cops,
  * vehicles.
  */
+/** The first vehicle sitting on this point, ignoring the one that laid it. */
+function vehicleOver(
+  state: GameState,
+  x: number,
+  y: number,
+  radius: number,
+  ownerId: number,
+): VehicleState | null {
+  for (const vid of state.vehicles.ids) {
+    const v = state.vehicles.byId[vid];
+    if (!v || v.condition === 'wreck') continue;
+    // Your own car is exempt while you are still in it: driving away over
+    // your own mine is a bug, not a lesson.
+    if (v.driverId === ownerId) continue;
+    const dx = v.pos.x - x;
+    const dy = v.pos.y - y;
+    const r = radius + vehicleHitRadius(v);
+    if (dx * dx + dy * dy <= r * r) return v;
+  }
+  return null;
+}
+
 function nearestHitAlong(
   state: GameState,
   pr: ProjectileState,

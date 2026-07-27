@@ -11,7 +11,7 @@ import {
 
 export type ScriptedKeys = Pick<
   InputIntent,
-  'up' | 'down' | 'left' | 'right' | 'fire' | 'aimAngle' | 'action' | 'slot'
+  'up' | 'down' | 'left' | 'right' | 'fire' | 'aimAngle' | 'action' | 'fitting' | 'slot'
 >;
 
 /** What a bot "sees": its own predicted player and the latest snapshot. */
@@ -40,6 +40,7 @@ const NONE: ScriptedKeys = {
   fire: false,
   aimAngle: 0,
   action: false,
+  fitting: false,
   slot: -1,
 };
 
@@ -171,6 +172,8 @@ const scripts: Record<string, BotScript> = {
       fire: roll() < 0.1,
       aimAngle: roll() * TWO_PI - PI,
       action: roll() < 0.02,
+      // Chaos includes mashing whatever is bolted to the car.
+      fitting: roll() < 0.05,
     };
   },
 };

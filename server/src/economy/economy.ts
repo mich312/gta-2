@@ -170,7 +170,7 @@ export class Economy {
     if (!item) return fail('no such item');
     // A respray is the one thing you buy WITHOUT getting out — you drive the
     // hot car into the garage. Everything else is a shop counter.
-    const drivethrough = item.kind === 'spray';
+    const drivethrough = item.kind === 'spray' || item.kind === 'fitting';
     if (!drivethrough && player.mode !== 'foot') return fail('step out of the car first');
     if (drivethrough && player.mode !== 'driving') return fail('drive a car into the garage');
 
@@ -202,6 +202,8 @@ export class Economy {
     let command: SimCommand;
     if (item.kind === 'spray') {
       command = { type: 'clearHeat', playerId };
+    } else if (item.kind === 'fitting') {
+      command = { type: 'fitVehicle', playerId, fitting: item.fitting, ammo: item.ammo };
     } else if (item.kind === 'cosmetic') {
       const username = this.usernameByPlayer.get(playerId);
       if (username) this.accounts.addCosmetic(username, item.cosmeticId);

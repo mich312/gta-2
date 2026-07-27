@@ -1,0 +1,13 @@
+{
+  "bombFuseSec": 3.5,
+  "dropCooldownTicks": 12,
+  "gunCooldownTicks": 5,
+  "dropClearance": 8,
+  "dropLifeSec": 90,
+  "mineBlastRadius": 78,
+  "mineBlastDamage": 95,
+  "slickSpin": 0.9,
+  "slickSpeedLoss": 0.55,
+  "slickRadius": 22,
+  "mineRadius": 14
+}

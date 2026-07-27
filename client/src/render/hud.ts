@@ -25,6 +25,9 @@ export class Hud {
   accountName: string | null = null;
   /** Named landmark the player is at, shown so the city is legible. */
   place: string | null = null;
+  /** What the garage bolted to the car the player is currently in. */
+  fitting = '';
+  fittingAmmo = 0;
   /** Vehicle kinds the crushers are paying over the odds for. */
   private exportKinds: string[] = [];
   private exportBonus = 1;
@@ -181,6 +184,17 @@ export class Hud {
     } else {
       ctx.fillStyle = slot.ammo <= 10 ? '#e0a03c' : '#d8e0e8';
       ctx.fillText(`${slot.weaponId} ${slot.ammo}`, 6, INTERNAL_HEIGHT - 7);
+    }
+
+    // What is bolted to the car you are in, and how much of it is left.
+    if (me.mode === 'driving' && this.fitting) {
+      ctx.fillStyle = '#d8b45a';
+      ctx.font = '8px monospace';
+      ctx.fillText(
+        this.fittingAmmo > 1 ? `[F] ${this.fitting} ${this.fittingAmmo}` : `[F] ${this.fitting}`,
+        6,
+        INTERNAL_HEIGHT - 17,
+      );
     }
 
     // Speedometer, driving only.

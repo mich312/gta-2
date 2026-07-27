@@ -19,4 +19,6 @@ export type SimCommand =
   | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number }
   | { type: 'spawnPickup'; pickupId: number; kind: PickupKind; x: number; y: number }
   /** Taken off the map with no wreck and no bang: the crusher ate it. */
-  | { type: 'crushVehicle'; vehicleId: number };
+  | { type: 'crushVehicle'; vehicleId: number }
+  /** The garage bolts something to the car the player is sitting in. */
+  | { type: 'fitVehicle'; playerId: number; fitting: string; ammo: number };

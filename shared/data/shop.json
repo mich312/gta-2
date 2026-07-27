@@ -76,6 +76,34 @@
       "shop": "gun",
       "price": 2600,
       "ammo": 6
+    },
+    "bomb": {
+      "kind": "fitting",
+      "shop": "spray",
+      "price": 500,
+      "fitting": "bomb",
+      "ammo": 1
+    },
+    "slick": {
+      "kind": "fitting",
+      "shop": "spray",
+      "price": 1000,
+      "fitting": "slick",
+      "ammo": 10
+    },
+    "guns": {
+      "kind": "fitting",
+      "shop": "spray",
+      "price": 2500,
+      "fitting": "guns",
+      "ammo": 100
+    },
+    "mines": {
+      "kind": "fitting",
+      "shop": "spray",
+      "price": 5000,
+      "fitting": "mine",
+      "ammo": 10
     }
   }
 }

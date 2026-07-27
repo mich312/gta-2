@@ -107,5 +107,12 @@
     "range": 260,
     "spread": 0.03,
     "pellets": 1
+  },
+  "carGun": {
+    "damage": 9,
+    "cooldownTicks": 5,
+    "range": 260,
+    "spread": 0.02,
+    "pellets": 1
   }
 }

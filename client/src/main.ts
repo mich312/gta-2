@@ -483,6 +483,11 @@ function frame(now: number): void {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
   hud.place = currentLandmark();
+  // The fitting lives on the car, so the HUD reads it off whatever the local
+  // player is sitting in — predicted, like everything else about that car.
+  const myCar = predictor.predictedVehicle;
+  hud.fitting = myCar?.fitting ?? '';
+  hud.fittingAmmo = myCar?.fittingAmmo ?? 0;
   hud.draw(
     screen.ctx,
     predictor.predicted ?? null,

@@ -293,7 +293,29 @@ export function render(
   for (const pr of scene.remotes.projectiles) {
     const x = dx(pr.x);
     const y = dy(pr.y);
-    const rocket = pr.projectile.kind === 'rocket';
+    const kind = pr.projectile.kind;
+    if (kind === 'slick') {
+      // A stain on the road, not a bright object: you are meant to be able to
+      // miss it, and to swear when you do not.
+      ctx.fillStyle = 'rgba(20, 18, 26, 0.62)';
+      ctx.beginPath();
+      ctx.ellipse(x, y, 11 * RENDER_SCALE, 8 * RENDER_SCALE, 0, 0, Math.PI * 2);
+      ctx.fill();
+      continue;
+    }
+    if (kind === 'mine') {
+      ctx.fillStyle = '#c85a4a';
+      ctx.fillRect(x - 2 * RENDER_SCALE, y - 2 * RENDER_SCALE, 4 * RENDER_SCALE, 4 * RENDER_SCALE);
+      // A slow blink, so a mine reads as armed rather than as litter.
+      if (Math.floor(scene.nowMs / 500) % 2 === 0) {
+        ctx.fillStyle = 'rgba(255, 120, 90, 0.5)';
+        ctx.beginPath();
+        ctx.arc(x, y, 5 * RENDER_SCALE, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      continue;
+    }
+    const rocket = kind === 'rocket';
     ctx.fillStyle = rocket ? '#ffd27a' : '#c8d0a0';
     ctx.beginPath();
     ctx.arc(x, y, (rocket ? 2.2 : 1.8) * RENDER_SCALE, 0, Math.PI * 2);

@@ -74,6 +74,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.z);
     h = hashNumber(h, p.vz);
     h = hashNumber(h, p.airDist);
+    h = hashNumber(h, p.fittingCooldown);
     h = hashNumber(h, p.powerFlags);
     h = hashNumber(h, p.powerUntilTick);
   }
@@ -88,6 +89,8 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.health);
     h = hashString(h, v.condition);
     h = hashNumber(h, v.fuseAtTick ?? -1);
+    h = hashString(h, v.fitting);
+    h = hashNumber(h, v.fittingAmmo);
   }
   for (const c of snap.cops) {
     h = hashNumber(h, c.id);
