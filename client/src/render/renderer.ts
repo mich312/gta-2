@@ -605,12 +605,9 @@ function drawVehicle(
   const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
   const y = dy(wy) - lift;
-  const name =
-    kind === 'boat'
-      ? 'boat'
-      : kind === 'copcar'
-        ? 'copcar'
-        : `car_v${Math.abs(id) % CAR_VARIANTS}`;
+  // Anything with a sprite of its own uses it; the generic car is the only
+  // kind that comes in colours, so it is the only one that varies by id.
+  const name = kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
   const fp = sprites.footprint(name);
   const shrink = z > 0 ? 0.75 : 1;
   drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);

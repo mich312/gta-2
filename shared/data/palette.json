@@ -173,5 +173,13 @@
   "playerShirtD": "#8a5fa8",
   "boatHull": "#c8ccd2",
   "boatDeck": "#7d6a4f",
-  "boatTrim": "#2f5f9e"
+  "boatTrim": "#2f5f9e",
+  "taxiBody": "#e8b23c",
+  "taxiCheck": "#22242a",
+  "ambBody": "#e9edf2",
+  "ambStripe": "#d1483f",
+  "busBody": "#3f7ac2",
+  "vanBody": "#8d939c",
+  "truckBody": "#6b5f52",
+  "fireBody": "#b8352c"
 }

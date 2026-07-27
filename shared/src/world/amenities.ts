@@ -301,7 +301,10 @@ export function placeParking(map: CityMap): void {
       // Right-hand traffic: the west half of a road carries southbound
       // traffic, the north half carries westbound.
       heading: kerbWest ? HALF_PI : PI,
-      kind: 'car',
+      // Parked stock varies too, on a fixed cycle rather than an rng draw:
+      // worldgen must not consume randomness it did not consume before, or
+      // every seed's city changes shape.
+      kind: PARKED_CYCLE[spots.length % PARKED_CYCLE.length] as string,
     });
   }
   map.parkingSpots = spots;
@@ -419,6 +422,12 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
  * rather than street furniture. Two thirds of the map is still health, ammo
  * and armour.
  */
+/**
+ * Kerbside stock. Mostly cars, with the odd van or truck — a street of
+ * identical hatchbacks is the tell that a city was generated.
+ */
+const PARKED_CYCLE = ['car', 'car', 'car', 'van', 'car', 'taxi', 'car', 'truck', 'car', 'car'] as const;
+
 const PICKUP_CYCLE = [
   'health',
   'armour',

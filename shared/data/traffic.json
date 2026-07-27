@@ -22,5 +22,35 @@
   "spawnMaxDist": 760,
   "despawnDist": 1100,
   "spawnCadenceTicks": 12,
-  "jackHeat": 45
+  "jackHeat": 45,
+  "mix": [
+    {
+      "kind": "car",
+      "weight": 56
+    },
+    {
+      "kind": "taxi",
+      "weight": 12
+    },
+    {
+      "kind": "van",
+      "weight": 12
+    },
+    {
+      "kind": "truck",
+      "weight": 8
+    },
+    {
+      "kind": "bus",
+      "weight": 5
+    },
+    {
+      "kind": "ambulance",
+      "weight": 4
+    },
+    {
+      "kind": "firetruck",
+      "weight": 3
+    }
+  ]
 }

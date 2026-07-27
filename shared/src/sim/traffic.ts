@@ -19,6 +19,28 @@ import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
 
 /**
+ * What turns up next, drawn from the weighted mix in traffic.json.
+ *
+ * The draw happens here, at the moment of spawning, so it costs exactly one
+ * rng value per car and nothing when the population is full. Kinds are read
+ * in tuning order, so the same seed puts the same bus on the same corner.
+ */
+function pickKind(state: GameState): string {
+  const mix = getTrafficTuning().mix;
+  let total = 0;
+  for (const m of mix) total += m.weight;
+  if (total <= 0) return 'car';
+  let roll: number;
+  [roll, state.rng] = nextFloat01(state.rng);
+  let acc = roll * total;
+  for (const m of mix) {
+    acc -= m.weight;
+    if (acc < 0) return m.kind;
+  }
+  return mix[mix.length - 1]?.kind ?? 'car';
+}
+
+/**
  * Ambient traffic.
  *
  * `shared/data/traffic.json` has existed since the beginning as a complete,
@@ -651,7 +673,7 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     if (!clear) continue;
 
     const id = state.nextEntityId++;
-    const v = createVehicle(id, 'car', { x: q8(x), y: q8(y) }, CARDINAL_ANGLE[dirIdx] as number);
+    const v = createVehicle(id, pickKind(state), { x: q8(x), y: q8(y) }, CARDINAL_ANGLE[dirIdx] as number);
     v.speed = q8(t.cruiseSpeed * 0.6);
     v.driverId = -1000 - id; // negative => AI, and never -1
     state.trafficDrivers[id] = { dir: dirIdx, stuck: 0 };

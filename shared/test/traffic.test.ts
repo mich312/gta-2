@@ -412,3 +412,46 @@ describe('carjacking', () => {
     }
   });
 });
+
+describe('vehicle classes (G0)', () => {
+  it('the city is not one car in six colours', () => {
+    // Ambient traffic draws from the weighted mix, so a busy street should
+    // contain more than one kind of vehicle.
+    let state = createGameState(4141);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'watcher' }], map);
+    for (let i = 0; i < 900; i++) {
+      state = step(state, { 1: NULL_INPUT }, [], map);
+    }
+    const kinds = new Set(
+      state.vehicles.ids
+        .map((id) => state.vehicles.byId[id] as VehicleState)
+        .filter((v) => isAiDriver(v.driverId))
+        .map((v) => v.kind),
+    );
+    expect(kinds.size).toBeGreaterThan(1);
+    for (const k of kinds) expect(getVehicleTuning(k).maxSpeed).toBeGreaterThan(0);
+  });
+
+  it('the mix is deterministic, like everything else drawn from the rng', () => {
+    const run = (): string[] => {
+      let s = createGameState(4141);
+      s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'watcher' }], map);
+      for (let i = 0; i < 400; i++) s = step(s, { 1: NULL_INPUT }, [], map);
+      return s.vehicles.ids.map((id) => (s.vehicles.byId[id] as VehicleState).kind);
+    };
+    expect(run()).toEqual(run());
+  });
+
+  it('heavier classes are slower, tougher and turn worse', () => {
+    const car = getVehicleTuning('car');
+    const bus = getVehicleTuning('bus');
+    expect(bus.maxSpeed).toBeLessThan(car.maxSpeed);
+    expect(bus.turnRate).toBeLessThan(car.turnRate);
+    expect(bus.health).toBeGreaterThan(car.health);
+    expect(bus.halfExtent).toBeGreaterThan(car.halfExtent);
+  });
+
+  it('parked stock varies too', () => {
+    expect(new Set(map.parkingSpots.map((s) => s.kind)).size).toBeGreaterThan(1);
+  });
+});

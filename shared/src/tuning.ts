@@ -200,6 +200,12 @@ export interface TrafficTuning {
   spawnCadenceTicks: number;
   /** Heat for dragging a driver out of their car. */
   jackHeat: number;
+  /**
+   * What ambient traffic is made of. Weighted, and drawn deterministically
+   * from the sim rng — a city of one car in six colours is the most visible
+   * thing separating this from what it is in the genre of.
+   */
+  mix: Array<{ kind: string; weight: number }>;
 }
 
 export interface Tuning {
@@ -438,6 +444,16 @@ const DEFAULT_PICKUPS: PickupsTuning = {
   frenzyReward: 1200,
 };
 
+function parseMix(raw: unknown): Array<{ kind: string; weight: number }> {
+  if (!Array.isArray(raw) || raw.length === 0) return [{ kind: 'car', weight: 1 }];
+  return raw.map((v, i) => {
+    const r = (v ?? {}) as Record<string, unknown>;
+    const kind = r['kind'];
+    if (typeof kind !== 'string') throw new Error(`traffic: mix[${i}].kind`);
+    return { kind, weight: num(r['weight'], `traffic.mix[${i}].weight`) };
+  });
+}
+
 function parseTrafficTuning(raw: unknown): TrafficTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `traffic.${k}`);
@@ -469,6 +485,7 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     despawnDist: n('despawnDist'),
     spawnCadenceTicks: n('spawnCadenceTicks'),
     jackHeat: n('jackHeat'),
+    mix: parseMix(r['mix']),
   };
 }
 
@@ -497,6 +514,7 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   despawnDist: 1100,
   spawnCadenceTicks: 12,
   jackHeat: 45,
+  mix: [{ kind: 'car', weight: 1 }],
 };
 
 const DEFAULT_PROPS: PropsTuning = {
