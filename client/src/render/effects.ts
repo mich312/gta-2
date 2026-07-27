@@ -149,6 +149,34 @@ export class Effects {
     this.addDecal(x, y, Math.random() * Math.PI, 3, 3, 'rgba(10, 12, 16, 0.55)', 14);
   }
 
+  /**
+   * A fist swung, and a fist that lands. No sparks, no muzzle flash and no
+   * bullet hole: a punch used to be drawn exactly like a gunshot, because the
+   * sim reports both as a `shot`.
+   */
+  punch(x: number, y: number, angle: number, connected: boolean): void {
+    const count = connected ? 6 : 3;
+    for (let i = 0; i < count; i++) {
+      const spread = (Math.random() - 0.5) * 1.6;
+      const speed = (connected ? 55 : 25) + Math.random() * 60;
+      this.spawn(
+        x,
+        y,
+        Math.cos(angle + spread) * speed,
+        Math.sin(angle + spread) * speed,
+        0.1 + Math.random() * 0.1,
+        connected ? 2 : 1.4,
+        palette.smoke,
+        false,
+        8,
+        0,
+      );
+    }
+    if (!connected) return;
+    // One bright pop on the knuckles, so a landed hit reads at a glance.
+    this.spawn(x, y, 0, 0, 0.07, 3, '#ffffff', true, 0, 5);
+  }
+
   /** A hit on something living: a spray plus a lasting stain. */
   blood(x: number, y: number, angle: number): void {
     for (let i = 0; i < 10; i++) {

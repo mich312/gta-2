@@ -4,9 +4,11 @@ import {
   type PlayerState,
   type PropState,
   type Vec2,
+  type WeaponTuning,
   PLAYER_RADIUS,
   TILE_SIZE,
   clamp,
+  getWeaponTuning,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import type { Screen } from './canvas.js';
@@ -100,6 +102,12 @@ export function cameraLead(
   if (mag < 1) return { x: 0, y: 0 };
   const f = Math.min(1, mag / 130) * 0.35;
   return { x: (velX / mag) * LEAD_MAX * f, y: (velY / mag) * LEAD_MAX * f };
+}
+
+/** Tuning of the weapon a player is holding, or null for bare hands. */
+function weaponOf(p: PlayerState): WeaponTuning | null {
+  const slot = p.weapons[p.activeWeapon];
+  return slot ? getWeaponTuning(slot.weaponId) : null;
 }
 
 /** Below this speed an avatar is standing still and faces wherever it aims. */
@@ -495,7 +503,18 @@ function drawPlayer(
 ): void {
   const variant = Math.abs(p.cosmeticId) % PLAYER_VARIANTS;
   const fallback = isLocal ? LOCAL_COLOR : (REMOTE_COLORS[p.id % REMOTE_COLORS.length] as string);
-  drawCharacter(ctx, sprites, `player_v${variant}_f${frame}`, x, y, body, fallback);
+  // Empty hands look like empty hands. The avatar used to hold a pistol
+  // whatever was selected, so a fist fight was two men pointing guns at each
+  // other and a punch came out of the barrel.
+  const weapon = weaponOf(p);
+  const melee = weapon === null || weapon.melee;
+  const swinging = melee && p.fireCooldown > 0 && weapon !== null && p.fireCooldown * 2 > weapon.cooldownTicks;
+  const name = swinging
+    ? `playerPunch_v${variant}`
+    : melee
+      ? `playerFist_v${variant}_f${frame}`
+      : `player_v${variant}_f${frame}`;
+  drawCharacter(ctx, sprites, name, x, y, body, fallback);
 
   // A short aim tick keeps the firing line legible when the sprite's own
   // weapon is only a few pixels long.

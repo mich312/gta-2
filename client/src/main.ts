@@ -11,6 +11,7 @@ import {
   TICK_MS,
   TILE_SIZE,
   generateCity,
+  getWeaponTuning,
   initTuning,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
@@ -160,8 +161,6 @@ function listen(x: number, y: number): { dist: number; pan: number } {
 function onGameEvent(event: GameEvent): void {
   if (event.type === 'shot') {
     const angle = Math.atan2(event.y1 - event.y0, event.x1 - event.x0);
-    effects.muzzleFlash(event.x0, event.y0, angle);
-    effects.impact(event.x1, event.y1, angle);
     // The event carries no weapon id, so the shooter's active weapon names
     // the sound; a cop shot (negative id) is always the cop pistol.
     const shooter =
@@ -171,6 +170,19 @@ function onGameEvent(event: GameEvent): void {
         ? 'copPistol'
         : (shooter?.weapons[shooter.activeWeapon]?.weaponId ?? 'pistol');
     const at = listen(event.x0, event.y0);
+    const tuning = getWeaponTuning(weapon);
+    if (tuning?.melee) {
+      // A swing, not a shot. The sim reports both as `shot`, so the reach of
+      // the ray is what says whether the punch found anything: a miss runs the
+      // full range of the weapon.
+      const reach = Math.hypot(event.x1 - event.x0, event.y1 - event.y0);
+      const connected = reach < tuning.range - 1;
+      effects.punch(event.x1, event.y1, angle, connected);
+      audio.play(weapon, at.dist, at.pan);
+      return;
+    }
+    effects.muzzleFlash(event.x0, event.y0, angle);
+    effects.impact(event.x1, event.y1, angle);
     audio.play(weapon, at.dist, at.pan);
     const hit = listen(event.x1, event.y1);
     audio.play('impact', hit.dist, hit.pan);
