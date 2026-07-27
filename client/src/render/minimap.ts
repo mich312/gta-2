@@ -36,6 +36,14 @@ const TILE_COLORS: Record<number, string> = {
 };
 const FIELD_COLOR = '#232a26';
 
+/** Gang colours for the turf wash. Mirrors shared/data/gangs.json. */
+const TURF_TINT: Record<number, string> = {
+  1: '#c8543c',
+  2: '#4aa86a',
+  3: '#4a7ac8',
+  4: '#a86ac8',
+};
+
 /**
  * A radar. The genre has had one since its first entry, and without it this
  * city is 114 screenfuls of near-identical grid with six unmarked shops
@@ -123,6 +131,27 @@ export class Minimap {
       ctx.fillStyle = color;
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     };
+
+    // Turf: a faint wash under everything, so you can see whose ground you
+    // are on without anything as loud as a border.
+    if (map.turfCellsWide > 0) {
+      const cellPx = (map.widthTiles / map.turfCellsWide) * TILE_SIZE;
+      ctx.globalAlpha = 0.22;
+      for (let i = 0; i < map.turfCells.length; i++) {
+        const gang = map.turfCells[i] as number;
+        const tint = TURF_TINT[gang];
+        if (!tint) continue;
+        const gx = (i % map.turfCellsWide) * cellPx;
+        const gy = Math.floor(i / map.turfCellsWide) * cellPx;
+        const x = px(gx);
+        const y = py(gy);
+        const w = (cellPx / TILE_SIZE) * BAKE_SCALE * (SIZE / (SPAN * (BAKE_SCALE / TILE_SIZE)));
+        if (x + w < x0 || y + w < y0 || x > x0 + SIZE || y > y0 + SIZE) continue;
+        ctx.fillStyle = tint;
+        ctx.fillRect(x, y, w, w);
+      }
+      ctx.globalAlpha = 1;
+    }
 
     // Landmarks: the things you actually navigate by. Drawn under the shop
     // and entity markers so they never cover a live target.

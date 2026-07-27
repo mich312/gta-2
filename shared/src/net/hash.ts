@@ -109,6 +109,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
   }
   for (const ped of snap.peds) {
     h = hashNumber(h, ped.id);
+    h = hashNumber(h, ped.gangId);
     h = hashNumber(h, ped.pos.x);
     h = hashNumber(h, ped.pos.y);
     h = hashNumber(h, ped.dirX);

@@ -227,6 +227,22 @@ export interface FittingsTuning {
   mineRadius: number;
 }
 
+export interface GangDef {
+  id: number;
+  name: string;
+  color: string;
+  /** Gangs whose losses are this one's gains. Symmetric by construction. */
+  rivals: number[];
+}
+
+export interface GangsTuning {
+  /** Turf cell size, in tiles. Big enough that a block belongs to somebody. */
+  cellTiles: number;
+  /** One pedestrian in this many, on a gang's turf, is one of theirs. */
+  memberEvery: number;
+  gangs: GangDef[];
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
@@ -237,6 +253,7 @@ export interface Tuning {
   pickups: PickupsTuning;
   traffic: TrafficTuning;
   fittings: FittingsTuning;
+  gangs: GangsTuning;
 }
 
 let current: Tuning | null = null;
@@ -454,6 +471,40 @@ const DEFAULT_FITTINGS: FittingsTuning = {
   mineRadius: 14,
 };
 
+function parseGangsTuning(raw: unknown): GangsTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const list = r['gangs'];
+  if (!Array.isArray(list) || list.length === 0) throw new Error('gangs: gangs must be non-empty');
+  return {
+    cellTiles: num(r['cellTiles'], 'gangs.cellTiles'),
+    memberEvery: num(r['memberEvery'], 'gangs.memberEvery'),
+    gangs: list.map((g, i) => {
+      const gr = (g ?? {}) as Record<string, unknown>;
+      const id = gr['id'];
+      const name = gr['name'];
+      const color = gr['color'];
+      const rivals = gr['rivals'];
+      if (typeof id !== 'number' || id <= 0) throw new Error(`gangs[${i}].id must be > 0`);
+      if (typeof name !== 'string' || typeof color !== 'string') {
+        throw new Error(`gangs[${i}] needs a name and a colour`);
+      }
+      if (!Array.isArray(rivals)) throw new Error(`gangs[${i}].rivals`);
+      return { id, name, color, rivals: rivals.map((v) => Number(v)) };
+    }),
+  };
+}
+
+const DEFAULT_GANGS: GangsTuning = {
+  cellTiles: 12,
+  memberEvery: 4,
+  gangs: [
+    { id: 1, name: 'Kessler Row', color: '#c8543c', rivals: [2, 3] },
+    { id: 2, name: 'Sunnyside', color: '#4aa86a', rivals: [1, 4] },
+    { id: 3, name: 'The Quay', color: '#4a7ac8', rivals: [1, 4] },
+    { id: 4, name: 'Halloran', color: '#a86ac8', rivals: [2, 3] },
+  ],
+};
+
 function parsePickupsTuning(raw: unknown): PickupsTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const kindsRaw = (r['kinds'] ?? {}) as Record<string, unknown>;
@@ -658,6 +709,7 @@ export function initTuning(
     pickups?: unknown;
     traffic?: unknown;
     fittings?: unknown;
+    gangs?: unknown;
   },
   opts: InitTuningOptions = {},
 ): string[] {
@@ -717,6 +769,11 @@ export function initTuning(
       'fittings',
       () => (raw.fittings !== undefined ? parseFittingsTuning(raw.fittings) : DEFAULT_FITTINGS),
       DEFAULT_FITTINGS,
+    ),
+    gangs: section(
+      'gangs',
+      () => (raw.gangs !== undefined ? parseGangsTuning(raw.gangs) : DEFAULT_GANGS),
+      DEFAULT_GANGS,
     ),
   };
   return fellBack;

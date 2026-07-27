@@ -109,6 +109,12 @@ export type PedMode = 'walk' | 'flee';
 
 export interface PedState {
   id: number;
+  /**
+   * Which gang this pedestrian belongs to, or 0 for a civilian. Set at spawn
+   * from the turf they appear on and never changed, so it costs one byte at
+   * creation and nothing thereafter.
+   */
+  gangId: number;
   pos: Vec2;
   /** Unit heading the ped walks along. */
   dirX: number;
@@ -283,8 +289,8 @@ export function cloneProp(p: PropState): PropState {
   return { ...p, pos: cloneVec(p.pos) };
 }
 
-export function createPed(id: number, pos: Vec2, health: number): PedState {
-  return { id, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
+export function createPed(id: number, pos: Vec2, health: number, gangId = 0): PedState {
+  return { id, gangId, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
 }
 
 export function clonePed(p: PedState): PedState {

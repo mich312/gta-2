@@ -20,6 +20,7 @@ export function loadSharedTuning(): void {
     pickups: read('pickups.json'),
     traffic: read('traffic.json'),
     fittings: read('fittings.json'),
+    gangs: read('gangs.json'),
   });
 }
 

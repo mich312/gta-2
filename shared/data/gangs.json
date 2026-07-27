@@ -1,0 +1,42 @@
+{
+  "cellTiles": 12,
+  "memberEvery": 4,
+  "gangs": [
+    {
+      "id": 1,
+      "name": "Kessler Row",
+      "color": "#c8543c",
+      "rivals": [
+        2,
+        3
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Sunnyside",
+      "color": "#4aa86a",
+      "rivals": [
+        1,
+        4
+      ]
+    },
+    {
+      "id": 3,
+      "name": "The Quay",
+      "color": "#4a7ac8",
+      "rivals": [
+        1,
+        4
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Halloran",
+      "color": "#a86ac8",
+      "rivals": [
+        2,
+        3
+      ]
+    }
+  ]
+}

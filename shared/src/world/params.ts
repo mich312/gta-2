@@ -24,6 +24,22 @@ export interface WorldgenParams {
   playerSpawnMinDist: number;
   /** River width in tiles. */
   waterWidth: number;
+  /**
+   * Gang territory. Lives here rather than in gangs.json because worldgen
+   * must not depend on runtime tuning being initialised — several tests
+   * generate a city at module scope, before any initTuning() has run. The
+   * gangs' names, colours and rivalries stay in gangs.json, where the sim
+   * reads them.
+   */
+  turf: { cellTiles: number; gangCount: number };
+}
+
+function parseTurf(raw: unknown): { cellTiles: number; gangCount: number } {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    cellTiles: num(r['cellTiles'], 'turf.cellTiles'),
+    gangCount: num(r['gangCount'], 'turf.gangCount'),
+  };
 }
 
 function num(v: unknown, name: string): number {
@@ -62,6 +78,7 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     blockSize,
     districtSeeds,
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
+    turf: parseTurf(r['turf']),
     shopQuota: {
       gun: num(quotaRaw['gun'], 'shopQuota.gun'),
       clothing: num(quotaRaw['clothing'], 'shopQuota.clothing'),

@@ -485,6 +485,7 @@ const COP_CODECS: Array<FieldCodec<CopState>> = [
 ];
 
 const PED_CODECS: Array<FieldCodec<PedState>> = [
+  f('gangId', (w, p) => w.u8(p.gangId), (r, o) => (o['gangId'] = r.u8())),
   f(
     'pos',
     (w, p) => {

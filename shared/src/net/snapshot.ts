@@ -107,7 +107,7 @@ const COP_FIELDS = [
   'vehicleId',
   'stuckTicks',
 ] as const;
-const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
+const PED_FIELDS = ['gangId', 'pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
 const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick'] as const;
 // vel rides along so the client can extrapolate between snapshots; a rocket

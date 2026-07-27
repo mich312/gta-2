@@ -133,6 +133,13 @@ export interface CityMap {
   policeStations: Vec2[];
   /** Car crushers: drive one in, leave on foot and better off. */
   cranes: Vec2[];
+  /** Gang id per turf cell, row-major. 0 = nobody's. */
+  turfCells: Uint8Array;
+  turfCellsWide: number;
+  /** Turf cell size in tiles, so `gangAt` needs no tuning. */
+  turfCellTiles: number;
+  /** Each gang's centre of gravity, for the radar and for spawning. */
+  turfHomes: Array<{ x: number; y: number; gang: number }>;
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

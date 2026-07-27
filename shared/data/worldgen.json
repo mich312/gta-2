@@ -42,5 +42,9 @@
   },
   "playerSpawnCount": 16,
   "playerSpawnMinDist": 30,
-  "waterWidth": 10
+  "waterWidth": 10,
+  "turf": {
+    "cellTiles": 12,
+    "gangCount": 4
+  }
 }

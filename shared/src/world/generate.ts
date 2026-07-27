@@ -1,3 +1,4 @@
+import { assignTurf } from './turf.js';
 import { seedRng } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
 import { placeDistrictSeeds, districtLookup } from './districts.js';
@@ -56,6 +57,10 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     hospitals: [],
     policeStations: [],
     cranes: [],
+    turfCells: new Uint8Array(0),
+    turfCellsWide: 0,
+    turfCellTiles: 1,
+    turfHomes: [],
   };
 
   let seeds;
@@ -102,6 +107,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeBoatSpawns(map);
   placeRamps(map);
   placeCranes(map);
+  assignTurf(map, params);
 
   return map;
 }

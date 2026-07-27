@@ -28,6 +28,7 @@ import { getTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid } from '../world/collide.js';
+import { gangAt } from '../world/turf.js';
 import { PLAYER_RADIUS } from '../constants.js';
 
 /**
@@ -209,7 +210,16 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
     }
     case 'spawnPed': {
       if (getEntity(state.peds, cmd.pedId)) return;
-      insertEntity(state.peds, createPed(cmd.pedId, { x: cmd.x, y: cmd.y }, getTuning().peds.health));
+      // Allegiance is a pure function of where you appear and who you are:
+      // one pedestrian in four, on somebody's turf, is one of theirs. That
+      // keeps the command unchanged and the assignment identical on every
+      // host without spending a random number on it.
+      const turf = gangAt(map, cmd.x, cmd.y);
+      const member = turf !== 0 && cmd.pedId % getTuning().gangs.memberEvery === 0;
+      insertEntity(
+        state.peds,
+        createPed(cmd.pedId, { x: cmd.x, y: cmd.y }, getTuning().peds.health, member ? turf : 0),
+      );
       if (cmd.pedId >= state.nextEntityId) state.nextEntityId = cmd.pedId + 1;
       break;
     }

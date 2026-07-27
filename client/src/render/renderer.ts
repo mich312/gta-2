@@ -24,6 +24,14 @@ import { DEVICE_H, DEVICE_W, RENDER_SCALE, SUN_X, SUN_Y, VIEW_H, VIEW_W } from '
 const REMOTE_COLORS = ['#e05555', '#55b0e0', '#57c98a', '#d3a24a', '#b06ad6', '#5fd6c9', '#d66a9c'];
 const LOCAL_COLOR = '#f2f2f2';
 
+/** Gang colours, keyed by gang id. Mirrors shared/data/gangs.json. */
+const GANG_TINT: Record<number, string> = {
+  1: '#c8543c',
+  2: '#4aa86a',
+  3: '#4a7ac8',
+  4: '#a86ac8',
+};
+
 /** Uniform per force, so what is chasing you is legible at a glance. */
 const COP_TINT: Record<string, string> = {
   patrol: '#3a5fb0',
@@ -285,7 +293,9 @@ export function render(
       dx(pd.x),
       dy(pd.y),
       Math.atan2(pd.ped.dirY, pd.ped.dirX),
-      '#7a7f6d',
+      // Gang members wear their colours. Being able to read a street at a
+      // glance is the whole reason turf exists.
+      GANG_TINT[pd.ped.gangId] ?? '#7a7f6d',
     );
   }
   // Projectiles: small, bright, and drawn over everything on the ground so a
