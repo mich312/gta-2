@@ -6,5 +6,7 @@
   "turnMaxTicks": 140,
   "fleeRadius": 170,
   "fleeTicks": 105,
-  "heatPerPedKill": 80
+  "heatPerPedKill": 80,
+  "downOneIn": 3,
+  "bleedOutSec": 45
 }

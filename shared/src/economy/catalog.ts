@@ -13,7 +13,9 @@ export type CatalogItem =
   /** A respray: clears police heat outright. The genre's escape valve. */
   | { kind: 'spray'; shop: ShopKind; price: number }
   /** Bolted to the car you drove in: bomb, slick, mines, guns. */
-  | { kind: 'fitting'; shop: ShopKind; price: number; fitting: string; ammo: number };
+  | { kind: 'fitting'; shop: ShopKind; price: number; fitting: string; ammo: number }
+  /** Patched up at the hospital counter. */
+  | { kind: 'heal'; shop: ShopKind; price: number; health: number; armour: number };
 
 export type Catalog = Record<string, CatalogItem>;
 
@@ -28,7 +30,7 @@ export function parseCatalog(raw: unknown): Catalog {
     if (typeof price !== 'number' || price <= 0 || !Number.isFinite(price)) {
       throw new Error(`catalog: bad price for ${id}`);
     }
-    if (shop !== 'gun' && shop !== 'clothing' && shop !== 'spray') {
+    if (shop !== 'gun' && shop !== 'clothing' && shop !== 'spray' && shop !== 'clinic') {
       throw new Error(`catalog: bad shop for ${id}`);
     }
     switch (r['kind']) {
@@ -41,6 +43,15 @@ export function parseCatalog(raw: unknown): Catalog {
       }
       case 'spray': {
         out[id] = { kind: 'spray', shop, price };
+        break;
+      }
+      case 'heal': {
+        const health = r['health'];
+        const armour = r['armour'];
+        if (typeof health !== 'number' || typeof armour !== 'number') {
+          throw new Error(`catalog: bad heal for ${id}`);
+        }
+        out[id] = { kind: 'heal', shop, price, health, armour };
         break;
       }
       case 'fitting': {

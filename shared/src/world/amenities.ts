@@ -41,6 +41,10 @@ const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   // A respray garage belongs where the workshops are, and you have to be
   // able to reach it in a car — so industrial and commercial first.
   spray: ['industrial', 'commercial', 'residential'],
+  // Clinics are not placed by the shop pass at all — they are registered at
+  // the hospital landmarks after those exist. Listed only to satisfy the
+  // exhaustive record.
+  clinic: [],
 };
 
 function t(map: CityMap, tx: number, ty: number): number {
@@ -646,6 +650,7 @@ export function placeLandmarks(map: CityMap, rng: number): number {
   map.policeStations = map.landmarks
     .filter((l) => l.kind === 'police')
     .map((l) => ({ x: l.doorX, y: l.doorY }));
+
   return rng;
 }
 
@@ -662,6 +667,34 @@ export function placeLandmarks(map: CityMap, rng: number): number {
  * Placed by a deterministic scan with no rng draw at all, so adding them
  * shifts nobody else's worldgen.
  */
+/**
+ * Register each hospital's door as a clinic counter.
+ *
+ * Runs AFTER placeShops, and that ordering is load-bearing: adding entries to
+ * map.shops beforehand made them count towards the "keep shops apart" rule,
+ * which moved which buildings became shops, which moved the carved interior
+ * floor tiles, which moved player spawns. A test that punches somebody to
+ * death stopped connecting. Worldgen passes must not quietly feed each other.
+ */
+export function registerClinics(map: CityMap): void {
+  for (const l of map.landmarks) {
+    if (l.kind !== 'hospital') continue;
+    map.shops.push({
+      kind: 'clinic',
+      doorX: Math.floor(l.doorX / TILE_SIZE),
+      doorY: Math.floor(l.doorY / TILE_SIZE),
+      buildingIndex: -1,
+      // A clinic has no room you can walk into: the ward is solid, and the
+      // doorway IS the counter. An empty rect says exactly that, and keeps
+      // the invariant that every shop interior is walkable floor true — a
+      // hospital footprint here claimed solid tiles were floor.
+      interior: { x: Math.floor(l.doorX / TILE_SIZE), y: Math.floor(l.doorY / TILE_SIZE), w: 0, h: 0 },
+      entryX: Math.floor(l.doorX / TILE_SIZE),
+      entryY: Math.floor(l.doorY / TILE_SIZE),
+    });
+  }
+}
+
 export function placeCranes(map: CityMap): void {
   const sites: Vec2[] = [];
   let n = 0;

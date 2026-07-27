@@ -1,4 +1,4 @@
-import { DT, PLAYER_RADIUS } from '../constants.js';
+import { DT, PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
@@ -78,6 +78,14 @@ export function stepPeds(
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
     if (!ped) continue;
+
+    // Down but not out: they lie there while the clock runs, and either an
+    // ambulance turns up or it does not.
+    if (ped.mode === 'downed') {
+      if (ped.timer > 0) ped.timer--;
+      else removeEntity(state.peds, id);
+      continue;
+    }
 
     // Gang members with a grudge, on their own ground. Checked before the
     // panic rules, and it overrides them: somebody who has decided to shoot
@@ -249,6 +257,15 @@ export function damagePed(
     // Getting shot at close range is definitely a scare.
     ped.mode = 'flee';
     ped.timer = getTuning().peds.fleeTicks;
+    return;
+  }
+  const t = getTuning().peds;
+  // Not everybody dies. One in three goes down alive, which turns your
+  // violence into somebody else's work — see the ambulance job.
+  if (ped.mode !== 'downed' && ped.id % Math.max(1, Math.round(t.downOneIn)) === 0) {
+    ped.health = 1;
+    ped.mode = 'downed';
+    ped.timer = Math.round(t.bleedOutSec * TICK_RATE);
     return;
   }
   removeEntity(state.peds, ped.id);

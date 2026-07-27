@@ -109,7 +109,7 @@ const TAG_FULL = 2;
 const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
-const PED_MODES = ['walk', 'flee', 'hostile'] as const;
+const PED_MODES = ['walk', 'flee', 'hostile', 'downed'] as const;
 const PICKUP_KINDS = [
   'health',
   'armour',

@@ -73,11 +73,32 @@ describe('world generation', () => {
     }
   });
 
+  it('every hospital has a clinic counter at its door', () => {
+    for (const seed of [31337, 808, 4, 99]) {
+      const map = generateCity(seed, params);
+      const clinics = map.shops.filter((s) => s.kind === 'clinic');
+      expect(clinics.length).toBe(map.hospitals.length);
+      for (const c of clinics) {
+        // The counter sits on the hospital's own door tile.
+        const onDoor = map.hospitals.some(
+          (h) =>
+            Math.abs(Math.floor(h.x / TILE_SIZE) - c.doorX) <= 1 &&
+            Math.abs(Math.floor(h.y / TILE_SIZE) - c.doorY) <= 1,
+        );
+        expect(onDoor).toBe(true);
+      }
+    }
+  });
+
   it('every shop has a room you can walk into from its door', () => {
     for (const seed of [31337, 808, 4, 99]) {
       const map = generateCity(seed, params);
       expect(map.shops.length).toBeGreaterThan(0);
       for (const s of map.shops) {
+        // Clinics are the exception, deliberately: a hospital ward is solid
+        // and its doorway is the counter, so there is no room to walk into.
+        // They are checked separately below.
+        if (s.kind === 'clinic') continue;
         const r = s.interior;
         expect(r.w).toBeGreaterThan(0);
         expect(r.h).toBeGreaterThan(0);

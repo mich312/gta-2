@@ -112,6 +112,14 @@ export interface PoliceTuning {
 }
 
 export interface PedTuning {
+  /**
+   * One in this many "kills" leaves somebody down but alive instead. It is
+   * what makes the ambulance a job rather than a delivery minigame — and in
+   * a shared city, one player's hit-and-run is another player's fare.
+   */
+  downOneIn: number;
+  /** How long they last on the pavement before it stops being a rescue. */
+  bleedOutSec: number;
   walkSpeed: number;
   fleeSpeed: number;
   health: number;
@@ -415,6 +423,8 @@ function parsePedTuning(raw: unknown): PedTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `peds.${k}`);
   return {
+    downOneIn: num(r['downOneIn'], 'peds.downOneIn'),
+    bleedOutSec: num(r['bleedOutSec'], 'peds.bleedOutSec'),
     walkSpeed: n('walkSpeed'),
     fleeSpeed: n('fleeSpeed'),
     health: n('health'),
@@ -696,6 +706,8 @@ const DEFAULT_PROPS: PropsTuning = {
 };
 
 const DEFAULT_PEDS: PedTuning = {
+  downOneIn: 3,
+  bleedOutSec: 45,
   walkSpeed: 48,
   fleeSpeed: 116,
   health: 30,

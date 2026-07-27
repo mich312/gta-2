@@ -72,7 +72,7 @@ export interface Building {
   district: DistrictType;
 }
 
-export type ShopKind = 'gun' | 'clothing' | 'spray';
+export type ShopKind = 'gun' | 'clothing' | 'spray' | 'clinic';
 
 export interface Shop {
   kind: ShopKind;

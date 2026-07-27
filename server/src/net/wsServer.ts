@@ -17,6 +17,7 @@ import type { ServerConfig } from '../config.js';
 import type { Session } from '../session.js';
 import type { Economy } from '../economy/economy.js';
 import { Missions } from '../missions/missions.js';
+import { Jobs } from '../economy/jobs.js';
 import { buildStateMessage, filterSnapshot } from './broadcast.js';
 import { ClientConn } from './client.js';
 
@@ -91,6 +92,26 @@ export class GameServer {
     );
     for (const cmd of crushCommands) this.session.queueCommand(cmd);
 
+    // Service jobs: fares, casualties and vigilante bounties.
+    const jobs = this.jobs.step(
+      this.session.lastEvents,
+      this.session.state,
+      this.session.map,
+      Math.round(getTuning().peds.bleedOutSec * TICK_RATE),
+    );
+    for (const cmd of jobs.commands) this.session.queueCommand(cmd);
+    for (const [playerId, amount] of jobs.pay) {
+      this.economy.payJob(playerId, amount);
+      changed.add(playerId);
+    }
+    for (const n of jobs.notices) {
+      this.byPlayer.get(n.playerId)?.send({
+        type: 'event',
+        tick: this.session.state.tick,
+        event: { type: 'notice', text: n.text },
+      });
+    }
+
     // Missions advance on the same tick as everything else they read.
     const outcome = this.missions.step(this.session.lastEvents, this.session.state, this.session.map);
     for (const cmd of outcome.commands) this.session.queueCommand(cmd);
@@ -121,6 +142,7 @@ export class GameServer {
   }
 
   private readonly missions = new Missions();
+  private readonly jobs = new Jobs();
   private sentExportVersion = -1;
 
   private missionMessage(playerId: number): ServerMessage {

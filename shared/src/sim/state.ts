@@ -106,7 +106,7 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee' | 'hostile';
+export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed';
 
 export interface PedState {
   id: number;

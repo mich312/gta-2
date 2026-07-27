@@ -21,4 +21,8 @@ export type SimCommand =
   /** Taken off the map with no wreck and no bang: the crusher ate it. */
   | { type: 'crushVehicle'; vehicleId: number }
   /** The garage bolts something to the car the player is sitting in. */
-  | { type: 'fitVehicle'; playerId: number; fitting: string; ammo: number };
+  | { type: 'fitVehicle'; playerId: number; fitting: string; ammo: number }
+  /** Patched up at a hospital counter. */
+  | { type: 'healPlayer'; playerId: number; health: number; armour: number }
+  /** Into the back of an ambulance or a taxi: off the map until dropped off. */
+  | { type: 'despawnPed'; pedId: number };

@@ -135,6 +135,11 @@ export class Economy {
     this.raiseMultiplier(playerId, this.params.multiplier.missionGain);
   }
 
+  /** Fares, casualties and bounties. Multiplied like every other earning. */
+  payJob(playerId: number, amount: number): void {
+    this.credit(playerId, amount, 'job');
+  }
+
   /** Success raises the multiplier, capped. Returns the new value. */
   raiseMultiplier(playerId: number, gain: number): number {
     const next = Math.min(this.params.multiplier.max, this.multiplierOf(playerId) + gain);
@@ -214,6 +219,8 @@ export class Economy {
       command = { type: 'clearHeat', playerId };
     } else if (item.kind === 'fitting') {
       command = { type: 'fitVehicle', playerId, fitting: item.fitting, ammo: item.ammo };
+    } else if (item.kind === 'heal') {
+      command = { type: 'healPlayer', playerId, health: item.health, armour: item.armour };
     } else if (item.kind === 'cosmetic') {
       const username = this.usernameByPlayer.get(playerId);
       if (username) this.accounts.addCosmetic(username, item.cosmeticId);

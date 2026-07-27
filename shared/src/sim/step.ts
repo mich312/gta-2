@@ -252,6 +252,18 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       }
       break;
     }
+    case 'despawnPed': {
+      removeEntity(state.peds, cmd.pedId);
+      break;
+    }
+    case 'healPlayer': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p || p.mode === 'dead') return;
+      const t = getTuning().pickups;
+      if (cmd.health > 0) p.health = Math.min(t.maxHealth, p.health + cmd.health);
+      if (cmd.armour > 0) p.armour = Math.min(t.maxArmour, p.armour + cmd.armour);
+      break;
+    }
     case 'fitVehicle': {
       const p = getEntity(state.players, cmd.playerId);
       if (!p || p.vehicleId === null) return;

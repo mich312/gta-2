@@ -13,6 +13,7 @@ import {
   placeLandmarks,
   placePickups,
   placeCranes,
+  registerClinics,
   placePayphones,
   placeRamps,
   placeShops,
@@ -100,6 +101,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // the building list afterwards.
   rng = placeLandmarks(map, rng);
   rng = placeShops(map, params, rng);
+  registerClinics(map);
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);
   placeParking(map);

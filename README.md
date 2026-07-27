@@ -27,7 +27,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | E / Enter | enter/exit car, context action |
 | F | use the car's fitting: fire the guns, drop a mine or slick, arm the bomb |
 | 1–8 | switch weapon slot |
-| Y U I O H J N P | buy items while inside a shop (or in its doorway) |
+| Y U I O H J N P | buy items while inside a shop (or in its doorway) — guns, clothes, resprays, car fittings, hospital treatment |
 | R / G | answer a ringing payphone / walk away from the job |
 | M | mute / unmute sound |
 | L / K | log in / register (optional — guests always play) |

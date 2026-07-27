@@ -104,6 +104,20 @@
       "price": 5000,
       "fitting": "mine",
       "ammo": 10
+    },
+    "treatment": {
+      "kind": "heal",
+      "shop": "clinic",
+      "price": 220,
+      "health": 60,
+      "armour": 0
+    },
+    "vest": {
+      "kind": "heal",
+      "shop": "clinic",
+      "price": 420,
+      "health": 0,
+      "armour": 50
     }
   }
 }
