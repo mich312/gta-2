@@ -66,7 +66,7 @@ before the power-ups arrive one at a time and calcify.
 ```
 Wave F  (rules, no new entities)   F1 score+multiplier ─┬─ F2 arrest
                                                         └─ F3 arsenal
-Wave G  (the city pays you)        G1 crusher/export ── G2 fittings ── G3 jobs
+Wave G  (the city pays you)        G0 vehicle classes ── G1 crusher/export ── G2 fittings ── G3 jobs
 Wave H  (factions)                 H1 turf+gang peds ── H2 respect ── H3 missions
 Wave I  (texture)                  I1 escalation by kind    I2 radio  [independent]
 ```
@@ -75,9 +75,10 @@ F1 gates everything with a payout. F2 needs F1 (the penalty *is* the
 multiplier). H2 needs H1. H3 needs H2 and F1. I1 and I2 are independent and
 can be dropped in any gap.
 
-**Recommended order:** F1 → F2 → I1 → F3 → G1 → G2 → H1 → H2 → H3 → G3 → I2.
-I1 rides early because it is small and the police are the system players touch
-most; G3 and I2 ride late because they are flavour, not structure.
+**Recommended order:** F1 → F2 → I1 → F3 → G0 → G1 → G2 → H1 → H2 → H3 → G3 →
+I2. I1 rides early because it is small and the police are the system players
+touch most; G0 rides ahead of G1 because the export list needs vehicle kinds
+worth listing; G3 and I2 ride late because they are flavour, not structure.
 
 ---
 
@@ -242,6 +243,37 @@ projectile's fuse always resolves, never leaks.
 
 # Wave G — the city pays you
 
+## G0 — Vehicle classes (S–M, low risk)
+
+*The prerequisite the first draft of this document missed.*
+
+`vehicles.json` defines exactly **three** kinds — `car`, `boat`, `copcar`.
+There is no taxi, no ambulance, no bus, no fire truck. G3 was written against
+a taxi that has never existed, and G1's export list needs kinds worth listing.
+
+Add `taxi`, `ambulance`, `bus`, `van`, `truck` and `firetruck` with distinct
+mass, acceleration and top speed, sprites via `pnpm sprites`, and a weighted
+spawn mix in `traffic.json` so the streets stop being one car in six colours.
+Mostly data. It pays off three times over: the export list gets a shopping
+list, the jobs get their vehicles, and a city of identical hatchbacks is the
+most visible thing separating this from the originals' 59- and 69-vehicle
+rosters.
+
+**Files.** `shared/data/vehicles.json`, `shared/data/traffic.json`,
+`shared/data/sprites.json`, sprite regeneration, `client/src/render/renderer.ts`.
+
+**Determinism.** Spawn-mix selection draws from the existing traffic rng at
+its existing point — a weighted pick replacing a uniform one shifts no draw
+counts. Verify, don't assume.
+
+**Bandwidth.** `kind` is already a vehicle field. ~0.
+
+**Gate.** Worldgen/traffic determinism across 50 seeds. Every class drives —
+no kind that spawns but cannot be entered or steered. Bot cruise run stays
+under the gate.
+
+---
+
 ## G1 — Car crusher and the export list (M, low risk)
 
 *Implements idea #7: the city rewards you for using it as intended.*
@@ -325,32 +357,86 @@ identically everywhere.
 determinism. Chain reaction of a bombed car into traffic re-simulates
 identically.
 
-## G3 — Service-vehicle jobs (M, medium risk)
+## G3 — Hospitals, casualties, and service jobs (M, medium risk)
 
 *Idea #7 again, in the mode that makes a city feel inhabited rather than
-staged.*
+staged. Depends on G0 for the vehicles it drives.*
 
-Recommend **taxi and vigilante first**, ambulance and fire deferred — they
-need verbs the game does not have (carrying an injured ped, extinguishing a
-fire), where taxi and vigilante need almost nothing new.
+### G3a — Hospitals you can walk into (S)
 
-- **Taxi** — enter a taxi and fares appear: pick a nearby ped, walk it to the
-  car, remove it from the ped table while riding (cheaper on the wire than a
-  `ridingVehicleId` field, and simpler), pay per distance, restore it at the
-  destination. Server-side job runner; the sim only sees `despawnPed` and
+Hospitals already exist as landmarks with door positions (`map.hospitals`,
+`amenities.ts:604`) and are already the death-respawn anchor
+(`step.ts:141`, `nearestHospital` at `step.ts:232`). But that is *all* they
+are: you wake up outside one and there is nothing to do there.
+
+Make the hospital a **shop kind** (`clinic`) in the system that already
+handles gun and clothing shops — doorway detection, carved interior, server-
+side purchase validation, all of it built and tested (`economy.ts:94-155`).
+Sell health and armour. This is close to free and it converts a landmark that
+currently only punishes you into one you choose to drive to.
+
+### G3b — Downed pedestrians (S–M)
+
+Today a ped is alive or removed. Add `'downed'` to `PedMode` (a field already
+on the wire) with a bleed-out timer: a ped hit by a car or caught by a stray
+round has a chance to go down rather than die outright, lies there for
+`bleedOutSec`, and then dies.
+
+This is the piece that makes the ambulance a *job* instead of a delivery
+minigame, and it has a property worth stating: **your violence generates the
+work.** In a shared city, one player's hit-and-run is another player's fare.
+Nothing else in this plan couples two players' play that cheaply.
+
+### G3c — The ambulance (M)
+
+Drive an ambulance to a downed ped, load them (removed from the ped table
+while aboard, exactly as the taxi fare is), deliver to a hospital door, get
+paid — **more the faster you are and the more life they have left**, so the
+job rewards driving well rather than driving far.
+
+And the ambient half, which the research called out and which is nearly free:
+**ambulances turn up on their own.** A downed ped with no player interest
+draws an AI ambulance that drives to it using the pursuit controller the
+police cruisers already have, loads, and leaves. The city reacting to your
+carnage without you is most of what makes it feel simulated.
+
+### G3d — Taxi and vigilante (S–M)
+
+- **Taxi** — fares board while you drive one, pay per distance, dismount at
+  the destination. Server-side job runner; the sim only sees `despawnPed` and
   `spawnPed` commands.
-- **Vigilante** — in a police cruiser, killing a wanted player or a hostile
-  ped pays a bounty. This is nearly free: the events already exist, it is a
-  new reader in `Economy.processTick`.
+- **Vigilante** — in a cruiser, killing a wanted player or a hostile ped pays
+  a bounty. Nearly free: a new reader over events that already exist in
+  `Economy.processTick`.
 
-**Files.** `server/src/economy/jobs.ts` (new), `economy.ts`, `commands.ts`,
-`hud.ts`.
+**Still deferred: the fire truck.** Extinguishing needs a verb the game has no
+analogue for — every other job here reuses drive-to-a-place-and-transact.
+Vehicle fires exist (`vehicleDamage.ts`), so this is a real future item, just
+not this one.
 
-**Determinism.** All of it is command-driven from outside the sim.
+**Files.** `shared/data/vehicles.json`, `shared/data/traffic.json`,
+`shared/data/shop.json`, `shared/data/peds.json`, `shared/src/sim/peds.ts`
+(downed state), `shared/src/sim/state.ts` (`PedMode`),
+`shared/src/world/amenities.ts` (clinic shops at hospital buildings),
+`server/src/economy/jobs.ts` (new), `server/src/economy/economy.ts`,
+`shared/src/sim/commands.ts`, `client/src/render/hud.ts`, sprite regeneration.
 
-**Gate.** Fares pay per distance and cannot be farmed by driving in a circle
-around the pickup (an explicit anti-exploit test). Vigilante pays only in a
-cruiser.
+**Determinism.** The downed state and its timer are sim state and step inside
+`stepPeds` at its existing slot — no new rng draws if the down-versus-die roll
+reuses the draw the damage path already makes; if it needs its own, that
+shifts every downstream draw and goes in `PROGRESS.md` per invariant #2.
+Everything else is command-driven from outside the sim.
+
+**Tuning.** `peds.json`: `downChance`, `bleedOutSec`. `economy.json`:
+`jobs.{taxiPerPx, ambulanceBase, ambulanceSpeedBonus, vigilanteBounty}`.
+
+**Bandwidth.** `PedMode` gains a value — no new field, ~0. Ambient ambulances
+are ordinary vehicles and cost what any vehicle costs while in view.
+
+**Gate.** Fares and ambulance runs pay per distance and cannot be farmed by
+circling the pickup (explicit anti-exploit test). A downed ped either is
+collected or dies — never leaks. Vigilante pays only in a cruiser. Two
+players racing for the same downed ped: exactly one is paid.
 
 ---
 
@@ -533,17 +619,18 @@ Muting still mutes everything.
 | 2 | F2 arrest | M | Needs F1; makes police meaningful rather than lethal |
 | 3 | I1 escalation by kind | S–M | Small, and finishes an outstanding roadmap item |
 | 4 | F3 arsenal + power-ups | M–L | Biggest wire cost in Wave F; do it before Wave G loads the wire |
-| 5 | G1 crusher + export | M | Cheapest high-value item; reuses drive-in purchase |
-| 6 | G2 fittings | M | Needs G1's shape; makes cars worth keeping |
-| 7 | H1 turf + gang peds | M | Foundation for H2 |
-| 8 | H2 respect | M–L | The distinctive mechanic; highest design risk |
-| 9 | H3 missions | L | Needs H2 + F1; largest item |
-| 10 | G3 service jobs | M | Flavour; safe to slip |
-| 11 | I2 radio | S | Pure texture; safe to slip |
+| 5 | G0 vehicle classes | S–M | Data-only; unblocks G1's export list and G3's jobs |
+| 6 | G1 crusher + export | M | Cheapest high-value item; reuses drive-in purchase |
+| 7 | G2 fittings | M | Needs G1's shape; makes cars worth keeping |
+| 8 | H1 turf + gang peds | M | Foundation for H2 |
+| 9 | H2 respect | M–L | The distinctive mechanic; highest design risk |
+| 10 | H3 missions | L | Needs H2 + F1; largest item |
+| 11 | G3 hospitals, casualties, jobs | M | Needs G0; flavour, safe to slip |
+| 12 | I2 radio | S | Pure texture; safe to slip |
 
-A useful stopping point exists after item 6: F1–G2 alone gives score,
-multiplier, arrest, a real arsenal, and a city that pays for stolen cars —
-which is most of the first original, and a coherent game.
+A useful stopping point exists after item 7: F1–G2 alone gives score,
+multiplier, arrest, a real arsenal, a city of varied traffic, and somewhere
+that pays for stolen cars — most of the first original, and a coherent game.
 
 ---
 
@@ -558,10 +645,12 @@ additions:
 | F2 arrest | 0 | 0 | Existing `mode` field gains a value |
 | F3 projectiles | 0 | 0.5–1.5 KB/s | Combat only; new table |
 | F3 power-up flags | ~0 | ~0 | Two fields, rare changes |
+| G0 vehicle classes | 0 | 0 | `kind` is an existing vehicle field |
 | G1 crusher/export | 0 | 0 | Map data + low-frequency message |
 | G2 fittings | ~0.1 KB/s | ~0.3 KB/s | Two vehicle fields; dropped props |
 | H1 ped gangId | ~0.2 KB/s | — | One byte at spawn only |
 | H2 respect | ~0 | ~0 | Four bytes per player, rare changes |
+| G3 downed peds | ~0 | ~0 | Existing `PedMode` field gains a value |
 | H3 missions | 0 | 0 | Per-player message |
 | I1 cop kind | ~0 | ~0 | One byte at spawn |
 | I2 radio | 0 | 0 | Client-only |
@@ -608,5 +697,6 @@ From `RESEARCH.md` §7 item 11, restated as decisions rather than omissions:
   fidelity to anything, and it should be argued on its own merits.
 - **Hidden packages.** A later-series collectible that neither original had
   (`RESEARCH.md` §5). Frenzies and located power-ups are the genuine article.
-- **Ambulance and fire-truck jobs**, for now. They need verbs the game lacks;
-  G3 ships taxi and vigilante and leaves the rest.
+- **The fire truck**, for now. Extinguishing is the one job verb with no
+  analogue in the game; G3 ships classes, clinics, the ambulance, taxi and
+  vigilante, and leaves fire for later.
