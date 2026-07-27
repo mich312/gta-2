@@ -8,6 +8,7 @@ import {
   placePlayerSpawns,
   placeProps,
   placeBoatSpawns,
+  placeLandmarks,
   placePickups,
   placeShops,
   placeVehicleSpawns,
@@ -47,6 +48,8 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     propSpawns: [],
     pickupSpawns: [],
     boatSpawns: [],
+    landmarks: [],
+    hospitals: [],
   };
 
   let seeds;
@@ -80,6 +83,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     rng = fillBlock(map.tiles, W, H, map.buildings, block, rng);
   }
 
+  // Landmarks first: they stamp big footprints, and shops pick doorways from
+  // the building list afterwards.
+  rng = placeLandmarks(map, rng);
   rng = placeShops(map, params, rng);
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);

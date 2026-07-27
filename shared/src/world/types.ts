@@ -33,6 +33,22 @@ export interface BlockRect {
   district: DistrictType;
 }
 
+export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital'] as const;
+export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
+
+export interface Landmark {
+  kind: LandmarkKind;
+  name: string;
+  /** Tile rect of the structure. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Door/approach point in world px. */
+  doorX: number;
+  doorY: number;
+}
+
 export interface Building {
   x: number;
   y: number;
@@ -86,6 +102,10 @@ export interface CityMap {
   pickupSpawns: Array<{ kind: 'health' | 'armour' | 'ammo'; x: number; y: number }>;
   /** Moorings: open water within reach of the bank. */
   boatSpawns: VehicleSpawn[];
+  /** Oversized, named buildings you can navigate by. */
+  landmarks: Landmark[];
+  /** Where the dead wake up. */
+  hospitals: Vec2[];
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

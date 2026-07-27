@@ -130,7 +130,10 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
     case 'respawnPlayer': {
       const p = getEntity(state.players, cmd.playerId);
       if (!p || p.mode !== 'dead') return;
-      const spawn = pickSpawn(state, map);
+      // You wake up at the nearest hospital, not at a random kerb three
+      // districts away. That is what makes dying a setback in a place you
+      // recognise rather than a teleport to nowhere.
+      const spawn = nearestHospital(map, p.pos) ?? pickSpawn(state, map);
       p.pos = { x: spawn.x, y: spawn.y };
       p.vel = { x: 0, y: 0 };
       p.mode = 'foot';
@@ -216,6 +219,22 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       break;
     }
   }
+}
+
+/** Closest hospital door to a point, or null if the map generated none. */
+function nearestHospital(map: CityMap, from: { x: number; y: number }): { x: number; y: number } | null {
+  let best: { x: number; y: number } | null = null;
+  let bestD = Infinity;
+  for (const h of map.hospitals) {
+    const dx = h.x - from.x;
+    const dy = h.y - from.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD && !boxInSolid(map, h, PLAYER_RADIUS)) {
+      bestD = d;
+      best = h;
+    }
+  }
+  return best;
 }
 
 /** Random spread-apart spawn point; falls back to any non-solid spot. */

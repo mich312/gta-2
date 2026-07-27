@@ -180,9 +180,28 @@ export function fillBlock(
       }
       break;
     }
-    case 'park':
+    case 'park': {
       fill(ctx, ix, iy, iw, ih, T_PARK);
+      // A park was an empty green rectangle. A path across it and a pond in
+      // a big one give it something to be, and give the props pass edges to
+      // hang benches and fences off.
+      if (iw >= 7 && ih >= 7) {
+        const midY = iy + Math.floor(ih / 2);
+        const midX = ix + Math.floor(iw / 2);
+        let which: number;
+        [which, rng] = nextIntRange(rng, 0, 3);
+        if (which !== 1) fill(ctx, ix, midY, iw, 1, T_SIDEWALK);
+        if (which !== 0) fill(ctx, midX, iy, 1, ih, T_SIDEWALK);
+      }
+      if (iw >= 12 && ih >= 12) {
+        let pw: number;
+        let ph: number;
+        [pw, rng] = nextIntRange(rng, 3, Math.min(6, iw - 6));
+        [ph, rng] = nextIntRange(rng, 3, Math.min(6, ih - 6));
+        fill(ctx, ix + 2, iy + 2, pw, ph, T_WATER);
+      }
       break;
+    }
   }
   return rng;
 }

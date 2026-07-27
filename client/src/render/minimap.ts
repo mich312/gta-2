@@ -120,6 +120,14 @@ export class Minimap {
       ctx.fillRect(x - r, y - r, r * 2, r * 2);
     };
 
+    // Landmarks: the things you actually navigate by. Drawn under the shop
+    // and entity markers so they never cover a live target.
+    for (const l of map.landmarks) {
+      const cx = (l.x + l.w / 2) * TILE_SIZE;
+      const cy = (l.y + l.h / 2) * TILE_SIZE;
+      dot(cx, cy, l.kind === 'hospital' ? '#e06a6a' : '#c9cdd4', 2);
+    }
+
     // Shops are the reason this panel exists: six of them across the whole
     // city, otherwise findable only by driving into their doorway.
     for (const shop of map.shops) {

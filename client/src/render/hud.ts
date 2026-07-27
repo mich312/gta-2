@@ -20,6 +20,8 @@ interface Tracer {
 export class Hud {
   cash = 0;
   accountName: string | null = null;
+  /** Named landmark the player is at, shown so the city is legible. */
+  place: string | null = null;
 
   private feed: FeedLine[] = [];
   private tracers: Tracer[] = [];
@@ -159,6 +161,16 @@ export class Hud {
       const a = ((this.hurtUntilMs - now) / 220) * 0.3;
       ctx.fillStyle = `rgba(180, 20, 20, ${a.toFixed(3)})`;
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    }
+
+    // Where you are. The city had nothing to navigate by and nowhere to
+    // arrange to meet; a name under the radar is most of the fix.
+    if (this.place) {
+      ctx.fillStyle = '#a8b8c8';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(this.place, INTERNAL_WIDTH - 6, 90);
+      ctx.textAlign = 'left';
     }
 
     // Wanted stars.

@@ -76,6 +76,25 @@ let localTick = 0;
 let map: CityMap | null = null;
 let catalog: Catalog | null = null;
 
+/** Landmark the local player is currently inside or beside, if any. */
+function currentLandmark(): string | null {
+  const me = predictor.predicted;
+  if (!me || !map) return null;
+  for (const l of map.landmarks) {
+    const x0 = l.x * TILE_SIZE - 24;
+    const y0 = l.y * TILE_SIZE - 24;
+    if (
+      me.pos.x >= x0 &&
+      me.pos.y >= y0 &&
+      me.pos.x <= (l.x + l.w) * TILE_SIZE + 24 &&
+      me.pos.y <= (l.y + l.h) * TILE_SIZE + 24
+    ) {
+      return l.name;
+    }
+  }
+  return null;
+}
+
 /** Shop whose doorway the (predicted) local player is standing in. */
 function currentShopKind(): ShopKind | null {
   const me = predictor.predicted;
@@ -339,6 +358,7 @@ function frame(now: number): void {
   if (shopKind && catalog) {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
+  hud.place = currentLandmark();
   hud.draw(
     screen.ctx,
     predictor.predicted ?? null,
