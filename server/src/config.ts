@@ -11,7 +11,11 @@ export interface ServerConfig {
   weaponsLostOnDeath: boolean;
   /** null disables replay recording. */
   replayDir: string | null;
-  /** Persistence path: *.db => SQLite (node:sqlite, default), *.json => FileStore. */
+  /**
+   * Persistence path: *.db => SQLite (node:sqlite, default), *.json =>
+   * FileStore. A *.db path on a Node without node:sqlite degrades to the
+   * FileStore at the sibling .json path rather than failing to boot.
+   */
   persistPath: string;
   pedCount: number;
   /** Interest-management radius (px): entities beyond it aren't sent. */

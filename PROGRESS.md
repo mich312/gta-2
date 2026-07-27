@@ -1,5 +1,34 @@
 # PROGRESS
 
+## Fix — `Unknown builtin module: node:sqlite`
+
+**What changed.** The SQLite backend assumed `node:sqlite` is a guaranteed
+builtin. It is not: it is absent before Node 22.5, flagged behind
+`--experimental-sqlite` on 22.5–22.12, and compiled out of some distro
+builds — all of which throw `Unknown builtin module: node:sqlite`. Because
+the import sat at module scope in `sqliteStore.ts`, that throw happened at
+load time and killed server startup outright, before any fallback could
+run, and even when `PERSIST_PATH` pointed at a `.json` file that never
+wanted SQLite. The module is now required lazily (`createRequire`, so the
+store stays synchronous) on first `SqliteStore` construction, and
+`createStore` degrades to the JSON `FileStore` at the sibling `.json` path
+with a warning naming the Node requirement rather than refusing to boot.
+The warning is loud because the save file changes: an existing `.db` is not
+read by the file store.
+
+Also fixed: `.gitignore` had an unanchored `data/`, which matched
+`shared/data/` as well as the runtime persistence dir and silently kept the
+gameplay tunables out of the repo. It is now anchored to `/data/` and
+`server/data/`.
+
+**Verification.** `createStore.test.ts` covers backend selection on
+whichever Node runs the suite; `persistFallback.test.ts` mocks the module
+away to exercise the no-SQLite path everywhere (fallback store registers an
+account, appends, rejects a duplicate ref, and reloads from disk). The real
+failure was reproduced end-to-end against the built `dist/` with
+`node:sqlite` blocked at `Module._load`: the store falls back, persists,
+and reloads. `tsc -b server` clean.
+
 ## Phase 8 — destructible props
 
 **What changed.** Lamp posts, bins, and fences as sim entities with exactly

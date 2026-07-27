@@ -4,4 +4,7 @@ dist/
 replays/
 .vite/
 coverage/
-data/
+# Runtime persistence only — anchored, because an unanchored `data/` also
+# matched shared/data/, silently keeping the gameplay tunables out of the repo.
+/data/
+server/data/
