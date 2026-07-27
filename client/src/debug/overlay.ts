@@ -73,6 +73,8 @@ export class DebugOverlay {
         : 0;
 
     const lines = [
+      `fps ${f.stats.fps.toFixed(0)}  frame ${f.stats.frameMs.toFixed(1)}ms`,
+      `peak frame ${f.stats.frameMsPeak.toFixed(1)}ms`,
       `tick ${f.snapshot?.tick ?? '-'} @ ${f.stats.snapshotRate.toFixed(1)}/s`,
       `rtt ${f.stats.rttMs.toFixed(0)}ms`,
       `entities ${f.snapshot?.players.length ?? 0}`,
