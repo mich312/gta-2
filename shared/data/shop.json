@@ -1,0 +1,12 @@
+{
+  "items": {
+    "pistol": { "kind": "weapon", "shop": "gun", "price": 250, "ammo": 60 },
+    "smg": { "kind": "weapon", "shop": "gun", "price": 650, "ammo": 120 },
+    "shotgun": { "kind": "weapon", "shop": "gun", "price": 900, "ammo": 40 },
+    "ammo": { "kind": "ammo", "shop": "gun", "price": 80, "ammo": 60 },
+    "jacket_red": { "kind": "cosmetic", "shop": "clothing", "price": 300, "cosmeticId": 1 },
+    "jacket_blue": { "kind": "cosmetic", "shop": "clothing", "price": 300, "cosmeticId": 2 },
+    "suit_black": { "kind": "cosmetic", "shop": "clothing", "price": 1200, "cosmeticId": 3 },
+    "tracksuit": { "kind": "cosmetic", "shop": "clothing", "price": 500, "cosmeticId": 4 }
+  }
+}

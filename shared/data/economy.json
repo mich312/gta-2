@@ -1,0 +1,10 @@
+{
+  "startingCash": 400,
+  "killAward": 100,
+  "killRepeatDecay": 0.5,
+  "killRepeatWindowSec": 180,
+  "drivingCellAward": 2,
+  "drivingCellSizePx": 128,
+  "drivingMinSpeed": 150,
+  "perMinuteCaps": { "kill": 600, "driving": 240 }
+}

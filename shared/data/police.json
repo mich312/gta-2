@@ -1,0 +1,19 @@
+{
+  "copsPerStar": 2,
+  "maxCopsPerPlayer": 8,
+  "maxCopsTotal": 24,
+  "spawnCooldownTicks": 18,
+  "copHealth": 50,
+  "moveSpeed": 122,
+  "sightRange": 260,
+  "fireRange": 190,
+  "weapon": "copPistol",
+  "spawnMinDist": 260,
+  "spawnMaxDist": 640,
+  "heatPerDamage": 0.8,
+  "heatPerKill": 60,
+  "heatPerTheft": 15,
+  "heatPerCopKill": 120,
+  "heatDecayPerSec": 5.625,
+  "despawnTicks": 150
+}
