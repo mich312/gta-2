@@ -1,18 +1,18 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
-import { q8 } from '../math/vec.js';
-import { HALF_PI, PI, dAtan2, dCos, dSin } from '../math/trig.js';
+import { clamp, q8 } from '../math/vec.js';
+import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
-import type { CopState, GameState, PlayerState } from './state.js';
+import type { CopState, GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat, createCop, wantedLevelOf } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
-import { stepVehicleDriving } from './vehicle.js';
-import { NULL_INPUT, type InputIntent } from './input.js';
+import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
 import { applyDamage, rayWallDistance } from './weapons.js';
 import type { CityMap } from '../world/types.js';
 import { moveWithCollision } from '../world/collide.js';
+import { CARDINAL_ANGLE, dirIsOpen, nearestCardinal } from './roadgrid.js';
 
 /**
  * Wanted levels + deterministic pursuit AI. All in the sim: same seed, same
@@ -140,8 +140,34 @@ function copFire(
   if (hit) applyDamage(state, hit, weapon.damage, -1, 'police', events);
 }
 
-/** Consecutive blocked ticks before an officer abandons their cruiser. */
-const STUCK_BAILOUT_TICKS = 25;
+/**
+ * Cruiser trouble, measured in `cop.stuckTicks`.
+ *
+ * The counter accumulates while a cruiser is not gaining on its target and
+ * drains while it is, because a car clips a kerb constantly during a chase and
+ * reacting to a single blocked tick strips every officer of their car within
+ * seconds. Two thresholds: back out of whatever it is nosed into, and — if
+ * that does not help — abandon the car and continue on foot.
+ *
+ * While the counter is NEGATIVE the cruiser is mid-reverse; it counts up to
+ * zero and then rejoins the chase. Same idiom as ambient traffic.
+ */
+const STUCK_REVERSE_TICKS = 12;
+const STUCK_BAILOUT_TICKS = 45;
+/** How long a recovery reverse lasts. Bounded, like traffic's. */
+const REVERSE_TICKS = 9;
+/** Where the counter resumes after a reverse: one chance, then bail out. */
+const STUCK_AFTER_REVERSE = STUCK_BAILOUT_TICKS - 6;
+/** Steering per radian of heading error, before clamping to full lock. */
+const PURSUIT_STEER_GAIN = 3;
+/** Heading error past which a cruiser needs a U-turn rather than a corner. */
+const PURSUIT_UTURN_ERROR = 2;
+/** Speed it takes that U-turn at, so the radius fits inside a street. */
+const PURSUIT_UTURN_SPEED = 40;
+/** Below this speed a cruiser that ought to be moving is wedged. */
+const PURSUIT_WEDGED_SPEED = 20;
+/** How far ahead the direct line to the target is checked for a wall. */
+const PURSUIT_CLEAR_LOOK = 96;
 
 /** Cop cruisers are AI-driven like traffic, but with a distinct id band. */
 function copDriverId(copId: number): number {
@@ -165,8 +191,43 @@ function motorise(state: GameState, cop: CopState, heading: number): void {
 }
 
 /**
- * Drive a cruiser at its target. Deliberately cruder than the traffic AI —
- * a pursuit car cuts corners and rams; it is not obeying the road rules.
+ * The direction a cruiser should point when the straight line to its target
+ * runs through a building: whichever cardinal has road down it and comes
+ * closest to the bearing of the target, with a nudge in favour of carrying
+ * straight on so a cruiser does not dither at a junction.
+ *
+ * This is the whole of the pursuit "route planner", and deliberately so — the
+ * road grid is regular enough that greedy is indistinguishable from clever
+ * over the two or three blocks a chase lasts.
+ */
+function detourDir(map: CityMap, v: VehicleState, want: number): number | null {
+  const current = nearestCardinal(v.heading);
+  let best: number | null = null;
+  let bestErr = Infinity;
+  for (let i = 0; i < 4; i++) {
+    if (!dirIsOpen(map, v.pos.x, v.pos.y, i)) continue;
+    const err =
+      Math.abs(wrapAngle((CARDINAL_ANGLE[i] as number) - want)) - (i === current ? 0.25 : 0);
+    if (err < bestErr) {
+      bestErr = err;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Drive a cruiser at its target. Deliberately cruder than the traffic AI — a
+ * pursuit car cuts corners, uses both lanes and rams; it is not obeying the
+ * road rules. It does, however, have to be able to drive.
+ *
+ * What it did before: full throttle whenever it was under the speed limit and
+ * a bang-bang wheel with a 0.06 rad deadband, aimed straight at the target
+ * whatever stood between them. So a cruiser that arrived facing the wrong way
+ * drove a wide circle instead of turning round, one nosed into a wall sat
+ * there bouncing off it, and one with a building between it and the fugitive
+ * drove into that building until the bail-out took its car away. The
+ * motorised response mostly consisted of officers losing their cars.
  */
 function drivePursuit(
   state: GameState,
@@ -184,11 +245,15 @@ function drivePursuit(
   }
   const t = getTuning().police;
   const want = dAtan2(target.pos.y - cop.pos.y, target.pos.x - cop.pos.x);
-  let delta = want - v.heading;
-  while (delta > PI) delta -= PI * 2;
-  while (delta < -PI) delta += PI * 2;
-
   const d = dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y);
+
+  /** The officer rides with the car. */
+  const ride = (): void => {
+    cop.pos.x = v.pos.x;
+    cop.pos.y = v.pos.y;
+    cop.vel.x = 0;
+    cop.vel.y = 0;
+  };
 
   // Pull up and finish the job on foot. A cruiser gets an officer across the
   // city; it cannot follow a fugitive into a park interior or a plaza, and
@@ -201,27 +266,59 @@ function drivePursuit(
     return;
   }
 
-  const input: InputIntent = {
-    ...NULL_INPUT,
-    up: Math.abs(v.speed) < t.copCarSpeed,
-    left: delta < -0.06,
-    right: delta > 0.06,
-  };
-  stepVehicleDriving(v, input, map, state, events);
+  // Backing out of whatever it got wedged in. Reversing inverts the steering,
+  // so the wheel goes the other way to swing the nose towards the target.
+  if (cop.stuckTicks < 0) {
+    cop.stuckTicks++;
+    const away = wrapAngle(want - v.heading);
+    driveVehicle(v, -1, away > 0 ? -1 : 1, map, state, events, false, 1);
+    if (cop.stuckTicks === 0) cop.stuckTicks = STUCK_AFTER_REVERSE;
+    ride();
+    return;
+  }
 
-  // "Not closing" rather than merely "not moving": the closing speed is the
-  // forward velocity projected onto the direction of the target, so this
-  // catches a wedged cruiser AND one orbiting at a constant distance. It has
-  // to be SUSTAINED — a car clips a kerb constantly while turning, and
-  // bailing on the first blocked tick strips every officer of their car
-  // within seconds.
-  // Accumulate-and-decay rather than reset: a cruiser nosed into a wall
-  // bounces off it (crashDamp), so it alternates closing and not-closing and
-  // a hard reset would never reach the threshold. Genuine progress closes on
-  // most ticks and drains this back to zero.
-  const closing = v.speed * dCos(delta);
-  if (closing < 20) cop.stuckTicks += 2;
-  else cop.stuckTicks = Math.max(0, cop.stuckTicks - 1);
+  // Aim at the target, unless there is a building in the way — then follow the
+  // road grid around it rather than driving into it.
+  const look = Math.min(d, PURSUIT_CLEAR_LOOK);
+  const blocked = rayWallDistance(map, v.pos.x, v.pos.y, dCos(want), dSin(want), look) < look;
+  let aim = want;
+  if (blocked) {
+    const dir = detourDir(map, v, want);
+    if (dir !== null) aim = CARDINAL_ANGLE[dir] as number;
+  }
+  const err = wrapAngle(aim - v.heading);
+
+  // Ease off for a corner: a cruiser cannot turn at 300 px/s, and a chase that
+  // understeers past every junction never catches anybody. Pointing the wrong
+  // way entirely means a U-turn, and the turn radius is speed/turnRate — so
+  // walking pace and full lock comes round inside a two-tile street, where
+  // 300 px/s would describe a circle the width of a block.
+  const absErr = Math.abs(err);
+  const cruise =
+    absErr > PURSUIT_UTURN_ERROR
+      ? PURSUIT_UTURN_SPEED
+      : t.copCarSpeed * (absErr > 1.2 ? 0.3 : absErr > 0.5 ? 0.6 : 1);
+  const throttle = v.speed < cruise ? 1 : v.speed > cruise * 1.2 ? -1 : 0;
+  const steer = clamp(err * PURSUIT_STEER_GAIN, -1, 1);
+  driveVehicle(v, throttle, steer, map, state, events, false, 1);
+
+  // "Not closing" rather than merely "not moving": closing speed is the
+  // forward velocity projected onto the bearing of the TARGET, not of the
+  // detour, so an honest drive round a block still counts as making no
+  // progress — it just counts slowly, while being wedged counts fast.
+  const closing = v.speed * dCos(wrapAngle(want - v.heading));
+  if (throttle > 0 && Math.abs(v.speed) < PURSUIT_WEDGED_SPEED) {
+    cop.stuckTicks += 3;
+    if (cop.stuckTicks >= STUCK_REVERSE_TICKS && cop.stuckTicks < STUCK_BAILOUT_TICKS) {
+      cop.stuckTicks = -REVERSE_TICKS;
+      ride();
+      return;
+    }
+  } else if (closing < 10) {
+    cop.stuckTicks += 1;
+  } else {
+    cop.stuckTicks = Math.max(0, cop.stuckTicks - 2);
+  }
   if (cop.stuckTicks >= STUCK_BAILOUT_TICKS) {
     v.driverId = null;
     cop.vehicleId = null;
@@ -229,11 +326,7 @@ function drivePursuit(
     return;
   }
 
-  // The officer rides with the car.
-  cop.pos.x = v.pos.x;
-  cop.pos.y = v.pos.y;
-  cop.vel.x = 0;
-  cop.vel.y = 0;
+  ride();
 }
 
 /**

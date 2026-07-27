@@ -1,5 +1,34 @@
 # PROGRESS
 
+## Police pursuit driving
+
+The cruisers were the last vehicles in the game driving badly. The pursuit
+controller held full throttle whenever it was under `copCarSpeed` and steered
+bang-bang with a 0.06 rad deadband, straight at the target whatever stood
+between them. Three consequences: a cruiser that arrived facing the wrong way
+drove a circle the width of a block instead of turning round; one nosed into a
+wall sat there bouncing off it; and one with a building between it and the
+fugitive drove into that building. All three ended at the bail-out, which took
+the officer's car away. Measured over a four-star chase: **all six** motorised
+officers abandoned their cars within ~20 ticks of getting them — the motorised
+response was an on-foot posse that spawned litter.
+
+Now: proportional steering on the shared `driveVehicle`, corner speeds by
+heading error, a tight U-turn at walking pace when pointing the wrong way (the
+turn radius is speed/turnRate, so 40 px/s comes round inside a two-tile street
+where 300 px/s cannot), a bounded reverse to back out of whatever it is wedged
+in, and — when the straight line runs through a building — a greedy road-grid
+detour instead of a wall. The bail-out survives as the last resort it was meant
+to be, and now distinguishes wedged (counts fast) from driving-but-not-gaining
+(counts slowly), so an honest detour round a block no longer costs an officer
+their car. Same four-star chase: cruisers stay in the chase, and the officers
+who do end up on foot are mostly the ones who deliberately pulled up inside
+`dismountDist`.
+
+`CARDINALS`/`dirIsOpen`/`nearestCardinal` moved to `sim/roadgrid.ts`, shared by
+traffic and pursuit — both AIs navigate by probing the tile grid, and only the
+lane discipline differs.
+
 ## Play-test fixes — facing, traffic, impacts, fists, shop interiors
 
 Five things reported from actually playing it.

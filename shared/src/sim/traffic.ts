@@ -4,7 +4,15 @@ import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTrafficTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
 import { createVehicle } from './state.js';
-import { T_BRIDGE, T_ROAD, TILE_SIZE, type CityMap } from '../world/types.js';
+import { TILE_SIZE, type CityMap } from '../world/types.js';
+import {
+  CARDINALS,
+  CARDINAL_ANGLE,
+  dirIsOpen,
+  drivableAt,
+  drivableTile,
+  nearestCardinal,
+} from './roadgrid.js';
 import { isSolidAtWorld } from '../world/collide.js';
 import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
@@ -49,15 +57,6 @@ import type { SimEvent } from './events.js';
  * moving vehicles inside the bandwidth gate.
  */
 
-/** Cardinal directions traffic follows: +x, +y, -x, -y (screen axes). */
-const CARDINALS: ReadonlyArray<readonly [number, number]> = [
-  [1, 0],
-  [0, 1],
-  [-1, 0],
-  [0, -1],
-];
-/** Heading of each cardinal direction. */
-const CARDINAL_ANGLE = [0, HALF_PI, PI, -HALF_PI] as const;
 /**
  * Which way is a driver's RIGHT, per cardinal, as a signed step along the
  * perpendicular axis. Screen y points down, so the right of "east" is south.
@@ -79,23 +78,6 @@ const WEDGED_SPEED = 12;
 /** AI drivers are negative ids; -1 is reserved for "the streets". */
 export function isAiDriver(driverId: number | null): boolean {
   return driverId !== null && driverId < -1;
-}
-
-/** Drivable by an ambient car: road, and the bridges that carry it. */
-function drivableTile(map: CityMap, tx: number, ty: number): boolean {
-  if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
-  const tile = map.tiles[ty * map.widthTiles + tx];
-  return tile === T_ROAD || tile === T_BRIDGE;
-}
-
-function drivableAt(map: CityMap, x: number, y: number): boolean {
-  return drivableTile(map, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE));
-}
-
-/** Cardinal index nearest to a heading. */
-function nearestCardinal(heading: number): number {
-  const raw = Math.round(wrapAngle(heading) / HALF_PI);
-  return ((raw % 4) + 4) % 4;
 }
 
 /**
@@ -178,15 +160,6 @@ function recoverTarget(map: CityMap, x: number, y: number): { x: number; y: numb
     }
   }
   return best;
-}
-
-/** Worth following: is there road that way for a couple of tiles? */
-function dirIsOpen(map: CityMap, x: number, y: number, dirIdx: number): boolean {
-  const [dx, dy] = CARDINALS[dirIdx] as readonly [number, number];
-  return (
-    drivableAt(map, x + dx * TILE_SIZE * 1.5, y + dy * TILE_SIZE * 1.5) &&
-    drivableAt(map, x + dx * TILE_SIZE * 2.5, y + dy * TILE_SIZE * 2.5)
-  );
 }
 
 /**

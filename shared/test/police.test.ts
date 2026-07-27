@@ -431,6 +431,56 @@ describe('escalation by kind', () => {
     expect(after!.vehicleId).toBeNull();
   });
 
+  it('a cruiser facing the wrong way turns round instead of ditching the car', () => {
+    // The old pursuit controller held the throttle down whenever it was under
+    // the speed limit and steered bang-bang at the target, so a cruiser that
+    // arrived pointing away drove a circle the width of a block, never closed,
+    // and hit the bail-out — the officer lost the car within half a second and
+    // ran the rest. It should U-turn and drive.
+    const start = { x: 1000, y: 1000 };
+    const targetAt = { x: 1240, y: 1000 };
+    let state = wedged(start, targetAt);
+    state.vehicles.byId[501]!.heading = Math.PI; // facing directly away
+    const before = Math.hypot(start.x - targetAt.x, start.y - targetAt.y);
+    for (let i = 0; i < 40; i++) {
+      state.players.byId[1]!.heat = 410;
+      state = step(state, {}, [], map);
+    }
+    const cop = state.cops.byId[500]!;
+    expect(cop.vehicleId).toBe(501); // still driving
+    const after = Math.hypot(cop.pos.x - targetAt.x, cop.pos.y - targetAt.y);
+    expect(after).toBeLessThan(before);
+  });
+
+  it('officers keep the cruiser they arrived in for more than a moment', () => {
+    // Measured on the old controller: all six motorised officers abandoned
+    // their cars within 20 ticks of getting them, every time — so the
+    // "motorised response" was really an on-foot posse that spawned litter.
+    let state = createGameState(55);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    const gotCarAt = new Map<number, number>();
+    let longestDrive = 0;
+    for (let i = 0; i < 600; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 410;
+      if (p.mode === 'dead') {
+        p.health = 100;
+        p.mode = 'foot';
+        p.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map);
+      for (const cid of state.cops.ids) {
+        const cop = state.cops.byId[cid]!;
+        if (cop.vehicleId !== null) {
+          if (!gotCarAt.has(cid)) gotCarAt.set(cid, i);
+          longestDrive = Math.max(longestDrive, i - (gotCarAt.get(cid) as number));
+        }
+      }
+    }
+    expect(gotCarAt.size).toBeGreaterThan(0);
+    expect(longestDrive).toBeGreaterThan(90);
+  });
+
   it('the whole motorised chase is deterministic', () => {
     const run = (): number => hashState(chaseAt(4, 900, 88).state);
     expect(run()).toBe(run());
