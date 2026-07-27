@@ -21,14 +21,15 @@ boat test assumed the first mooring on the map pointed down the river.
 ## Deployment: reaching the right server, and not serving stale sprites
 
 Found by running the container path locally — built client, served by the game
-server, WebSocket on the same port. `serverUrl()` used the page's origin only
-on https, so a built client served over plain http fell back to
-`ws://<host>:8080`: wrong for every `docker compose up` on any other port. It
-keys off `import.meta.env.DEV` now. And the static server sent no cache headers
-at all, so a browser could hold the old `sprites.png` against the new
+server, WebSocket on the same port. The static server sent no cache headers at
+all, so a browser could hold the old `sprites.png` against the new
 `sprites.meta.json` and draw every sprite from the wrong coordinates — the game
 comes up corrupt for one person after a deploy that was otherwise fine. Fixed
 names are `no-cache`; only the content-hashed bundles are immutable.
+
+(`serverUrl()` picking `:8080` on a plain-http page is deliberate, not a bug:
+that is the port the container publishes and the port local dev runs on. A
+build served from anywhere else uses `?server=`.)
 
 ## Drive-bys, kerbside parking, impacts you can see, and rubber on the road
 

@@ -34,15 +34,12 @@ import { Audio } from './audio/audio.js';
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
   if (override) return override;
-  // A BUILT client is served by the game server itself, so the page's own
-  // origin is the server: same host, same port, and wss when the page is
-  // https (a browser on an https page refuses to open an insecure ws://).
-  // Keying this off https alone was wrong for a container reached over plain
-  // http on any port but 8080 — including every local `docker compose up`.
-  // Under `vite dev` the client is served separately and the server is on its
-  // own port.
-  const dev = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
-  if (!dev) return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+  // Behind a TLS proxy (e.g. https://gta.mich312.com) the server shares the
+  // page's origin and speaks wss on the standard port — a browser on an https
+  // page refuses to open an insecure ws://. Local dev (http) keeps :8080,
+  // which is also the port the container publishes, so a plain-http page and
+  // the game server are on it either way. Use `?server=` for anything else.
+  if (location.protocol === 'https:') return `wss://${location.host}`;
   return `ws://${location.hostname}:8080`;
 }
 
