@@ -5,7 +5,7 @@ open-city games, written so that design arguments in `ROADMAP.md` can cite
 something concrete instead of somebody's memory of playing them.
 
 This is a **research document, not a spec**. Nothing here is a commitment to
-build. Where a mechanic is worth an analogue in this project, §6 says so and
+build. Where a mechanic is worth an analogue in this project, §7 says so and
 points at the file it would live in. Names, brands, gang names, city names,
 radio-station names and music are **not** to be copied — this repo is original
 work in the genre, and the value of the research is the *systems*, not the
@@ -17,11 +17,11 @@ Direct page fetches were unavailable from this container: `gta.fandom.com`,
 `wikipedia.org`, `grandtheftwiki.com`, `strategywiki.org` and `wikigta.org`
 all return **403 at the egress proxy**, which is an environment policy, not a
 site outage. Everything below therefore comes from web-search result
-summaries (sources listed in §7) plus general knowledge of the games.
+summaries (sources listed in §9) plus general knowledge of the games.
 
 Claims are marked:
 
-- unmarked — corroborated by at least one search result quoted in §7;
+- unmarked — corroborated by at least one search result quoted in §9;
 - **⚠** — believed correct but *not* corroborated by a source I could reach;
   treat as a hypothesis to check before any of it drives a design decision.
 
@@ -111,7 +111,8 @@ the whole level building.
 
 ## 1.6 Weapons
 
-A deliberately tiny set, each with one clear role:
+A deliberately tiny set — **five, exactly**, one of which cannot kill — each
+with one clear role:
 
 | Weapon | Role |
 |---|---|
@@ -201,8 +202,8 @@ station.
 | District | Gangs |
 |---|---|
 | Downtown | the corporation, the asylum escapees (microcars, surgical green), the drug-lab syndicate (sports cars, deep blue) |
-| Residential | the corporation, the trailer-park rednecks, the pacifists-turned-violent |
-| Industrial | the corporation, the Russian mob, the science faction |
+| Residential | the corporation, the trailer-park rednecks, the science faction (weapons research, cloning, robotics) |
+| Industrial | the corporation, the Russian mob, the pacifists-turned-violent |
 
 Gang members walk their own streets, drive their own cars, and shoot on sight
 if they hate you. Hijacking a gang car gets you attacked by its occupants.
@@ -285,22 +286,51 @@ Only the fifteen-count, invisibility, double damage and the cut Instant Gang
 are sourced; the rest of the enumeration is from general knowledge and should
 be verified.
 
-## 2.7 Garages: the three-shop economy
+## 2.7 Garages: the shop economy
 
-Garage complexes appear in every district and bundle three services:
+Garage complexes appear in every district and bundle several services:
 
 - **Respray** — repairs the car and clears the wanted level, for a fee.
-- **Bomb shop** — fits a car bomb; **$5,000 per use**.
+- **Bomb shop** — fits a car bomb; **$5,000 per use**, behaving as it did in
+  the first game.
 - **Car crusher** — drive a stolen car under the crane, collect the payout
   from the conveyor. The reward depends on the vehicle, and it is not just
   cash: crushers dispense **weapons and power-ups**, including police bribes.
+- **Vehicle weapons** — the garage will arm an ordinary road car, which is a
+  system the first game did not have at all:
+
+| Fitting | Price | Quantity | Effect |
+|---|---|---|---|
+| Oil slick | $10,000 | 10 | Anything that drives over one veers wildly out of control |
+| Mines | $50,000 | 10 | Dropped behind you |
+| Machine guns | $25,000 | 10 rounds × 10 bullets | Two streams of fire in the direction aimed |
+| Car bomb | $5,000 | 1 | As the first game |
+
+Note the prices against the $5,000 bomb: a full set of mines costs ten times a
+bomb, which makes arming a car a genuine investment in a game where money is
+also your progress. Losing that car to a wall costs you the fitting too.
+
+## 2.8 Water is a wall that kills you
+
+Neither game lets you swim, and there are **no player boats**. Falling in is
+instant death, in a vehicle or on foot; in the first game you can walk in from
+a level shoreline and paddle a few seconds before drowning, but going in from
+a height or trying to sail is immediate. Water exists as a **lethal map
+boundary** — the thing that stops you reaching areas the level hasn't unlocked
+yet. Swimming did not arrive in the series for two more mainline games.
+
+Worth flagging because this project diverges deliberately: `data/vehicles.json`
+has a `boat` entry with `"medium": "water"`, and `ROADMAP.md` D1 treats water
+as navigable terrain. That is a **departure from the originals**, not an
+imitation of them, and it is the right call for a persistent shared city where
+an invisible instant-death boundary would read as a bug.
 
 That last one is the mechanic worth stealing conceptually. It closes the loop
 between the theft verb and the combat verb: a stolen car is not just money,
 it's ammunition, and the city has a lookup table telling you which car is
 worth which reward.
 
-## 2.8 Kill frenzies, sharpened
+## 2.9 Kill frenzies, sharpened
 
 **120-second** limit. Two forms:
 
@@ -314,7 +344,7 @@ Pass: **wanted level cleared and +1 life**. Fail (timeout, busted, or wasted):
 the wanted level stays if you're still alive, and **the frenzy does not
 respawn** — you must reload a save to retry.
 
-## 2.9 Jobs and special vehicles
+## 2.10 Jobs and special vehicles
 
 Ordinary vehicles carry job loops, which is where the "living city" feeling
 comes from:
@@ -329,28 +359,28 @@ comes from:
 
 **69 vehicles** total.
 
-## 2.10 Saving costs money
+## 2.11 Saving costs money
 
 The famous one: progress is saved **at a church**, and saving **costs cash**.
 Since money is also score and also the mission economy, saving is a real
 decision — you pay for the right not to lose the run. Consoles handled this
 differently.
 
-## 2.11 Radio
+## 2.12 Radio
 
 **Eleven stations**, several of them **owned by the gangs** — the Russian
 mob's station broadcasts in the Industrial district, and so on. The radio
 doubles as a map legend: what you're hearing tells you whose turf you're on.
 One station covers the whole city; the rest are regional.
 
-## 2.12 Multiplayer
+## 2.13 Multiplayer
 
 Up to **6 players**, in practice ≤3 over consumer broadband of the era and 6
 on LAN. Modes: deathmatch, **Tag**, and a third. Shipped with a Windows
 "GTA2 Manager" front-end for hosting and joining — a real improvement over
 typing IPs.
 
-## 2.13 Port differences
+## 2.14 Port differences
 
 | | PC | PlayStation | Dreamcast | Game Boy Color |
 |---|---|---|---|---|
@@ -362,7 +392,68 @@ typing IPs.
 
 ---
 
-# 3. What changed between the two
+# 3. Mission taxonomy, AI, and city simulation
+
+Cross-cutting material that applies to both games. Most of this subsection is
+marked ⚠ — it is the part of the record that circulating summaries agree on
+but that I could not corroborate against a reachable primary page.
+
+## 3.1 What the missions actually are
+
+Under the payphone shell, the job list is a small set of verbs recombined: ⚠
+
+- assassinate a named target
+- deliver a vehicle, a person, or cargo to a place
+- steal a specific car (often a specific *model*, from a specific place)
+- escape a pursuit to a drop point
+- destroy a target — vehicle, building, or person
+- plant a bomb, then leave
+- escort or protect someone
+- race / beat a clock
+- gang warfare: hit a rival faction's people or property
+
+Failure conditions are as important as the objectives, because they are what
+make a mission tense in a sandbox where the player can always drive away: a
+job fails if the **vehicle it depends on is destroyed**, if the **clock runs
+out**, or if an **NPC who had to survive dies**. ⚠ The mission is glued to
+fragile world objects, so the sandbox's own chaos can kill it.
+
+## 3.2 Ambient AI
+
+The behaviours that make the streets read as inhabited: ⚠
+
+| Actor | Behaviour |
+|---|---|
+| Pedestrians | wander, panic, flee, get in vehicles, fight back |
+| Drivers | circulate, obey junctions, sound horns, flee danger and gunfire |
+| Gang members | patrol their own turf, attack rivals on sight, attack you at negative respect |
+| Police | pursue, shoot, set roadblocks, arrest |
+
+The gang row is the one with no equivalent in the first game, and it is what
+makes the second game's streets feel authored rather than random: a block is
+not "some pedestrians", it is *somebody's* block.
+
+## 3.3 City simulation
+
+Traffic that flows rather than spawns in front of you; vehicles that catch
+fire, explode, and take other vehicles with them; emergency services that turn
+up to the results; civilians who react to all of it. ⚠
+
+Two claims that circulate and are **wrong**, both listed in §5: there is no
+dynamic day/night cycle, and there are no hidden packages.
+
+## 3.4 Technical framing
+
+For the era, the impressive parts were the **streaming map** — a full city
+with no loading between neighbourhoods — with hundreds of active NPCs and
+vehicles that persist where you left them. ⚠ That is worth remembering when
+reading the mechanics above: several of the design choices (lethal water as a
+boundary, districts unlocked in sequence, a level being a *mode* over a shared
+city map) are as much memory-budget decisions as design ones.
+
+---
+
+# 4. What changed between the two
 
 | System | 1997 | 1999 |
 |---|---|---|
@@ -386,7 +477,28 @@ in what wraps them.
 
 ---
 
-# 4. The mechanics that actually carry the genre
+# 5. Commonly repeated errors
+
+Claims that circulate widely in feature summaries of these two games and that
+the sources contradict. Collected because they are the ones most likely to be
+copied into a design doc by accident.
+
+| Claim | Correction |
+|---|---|
+| The first game had molotov cocktails | It has **exactly five** weapons: fists, pistol, machine gun, rocket launcher, flamethrower. Thrown weapons arrive in the sequel. |
+| The first game escalated police → SWAT → FBI → army | All four of its tiers are **police**; the tiers add armour, speed, roadblocks and machine guns, not new forces. Escalation *by force type* is the second game's innovation and is the more interesting idea of the two. |
+| Hidden packages | A later-series collectible. The 2D games have kill frenzies and fixed power-up locations. |
+| "Rampages" | The later-series name. Here they are **kill frenzies**, with different rules (120 s, +1 life, clears the wanted level, gone for good if failed). |
+| Day/night lighting | Neither game cycles. Time of day is a **fixed per-platform setting** — PC offers noon or dusk, Dreamcast dusk only, PlayStation and Game Boy Color day only. |
+| Each of the first game's three cities contained two districts | Two **levels** per city, not two districts. The level — its own target score and mission set over the city map — is the unit of progression. |
+| The seven gangs are Zaibatsu, Loonies, Rednecks, Scientists, SRS, Krishna, Russian Mafia | "Scientists" and "SRS" are **one gang** (the SRS Scientists). The one usually dropped from these lists is the **Yakuza**. |
+| Districts unlock at a score threshold | That is the *first* game's gate, and it gates levels. The second game's districts open on **mission progress**. ⚠ |
+| Player-drivable boats | Neither game has them. Water is instant death (§2.8). |
+| The first game's gangs included the Loonies | The Loonies are a sequel gang. The first game's factions are **mission-giving crime bosses**, not territorial gangs with turf and standing. ⚠ |
+
+---
+
+# 6. The mechanics that actually carry the genre
 
 Stripping the nouns away, the load-bearing ideas are:
 
@@ -409,7 +521,7 @@ Stripping the nouns away, the load-bearing ideas are:
 
 ---
 
-# 5. Where this project already stands
+# 7. Where this project already stands
 
 Assessed against `shared/src/sim/` and `shared/data/` on this branch. This is
 description, not a plan — `ROADMAP.md` owns sequencing.
@@ -437,7 +549,7 @@ implementation cost:
 1. **Score-and-multiplier economy.** `economy.ts:192` keeps a leaderboard of
    kills/frenzies/best stunt; there is no single number that is
    simultaneously score, money and progress, and no multiplier at all. This is
-   idea #1 and #2 from §4 — the largest single gap.
+   idea #1 and #2 from §6 — the largest single gap.
 2. **Arrest.** Cops here only kill. There is no bust state, no station, no
    differentiated penalty, so idea #5 is entirely absent.
 3. **Gangs and respect.** No factions, no turf, no reputation. The whole of
@@ -449,7 +561,10 @@ implementation cost:
    A1 already flags this ("higher tiers change *kind* not *count*").
 6. **Car crusher / import-export.** Nothing converts a stolen car into money
    or equipment. Cheap to add and directly rewards the title verb.
-7. **Bomb shop / car bombs.**
+7. **Bomb shop / car bombs, and car-mounted weapons.** The garage fittings in
+   §2.7 (slick, mines, guns) are the cheapest way to make a car worth more
+   than the next car — which is the problem any game with infinite stealable
+   vehicles eventually has, and which this one has now.
 8. **Service-vehicle jobs** — taxi fares, ambulance, fire, vigilante.
 9. **Weapon and power-up breadth.** Four player weapons
    (fists/pistol/smg/shotgun); no explosive, incendiary or thrown weapon, and
@@ -469,7 +584,7 @@ level targets and pay-to-save do not, and should not be forced.
 
 ---
 
-# 6. Open questions for a second pass
+# 8. Open questions for a second pass
 
 Things I could not verify and that would change a design if they went the
 other way:
@@ -484,13 +599,17 @@ other way:
 - The car-crusher reward table — which vehicle yields which weapon or
   power-up. This is documented in community guides and would be the concrete
   reference if we ever build the analogue.
+- The whole of §3 (mission verb list, failure conditions, ambient AI
+  behaviours, NPC counts). Widely agreed in summaries, uncorroborated here.
+- What actually gates the second game's district transitions.
+- Whether traffic obeys signals in either game, or merely yields at junctions.
 
 All of these are answerable from the community wikis once the environment can
 reach them; §0 explains why it currently cannot.
 
 ---
 
-# 7. Sources
+# 9. Sources
 
 Everything above that is unmarked traces to one of these. Pages were read via
 search-result summaries only, per §0.
@@ -535,5 +654,12 @@ search-result summaries only, per §0.
 - [Multiplayer — GTAMods Wiki](https://gtamods.com/wiki/Multiplayer)
 - [GTA2 multiplayer guide — GTAMP](https://gtamp.com/gta2/gta2-multiplayer/)
 - [Multiplayer (GTA2) — WikiGTA](https://en.wikigta.org/wiki/Multiplayer_(GTA2))
+- [Weapons in GTA and expansions — GTA Wiki](https://gta.fandom.com/wiki/Weapons_in_GTA)
+- [Vehicle Weapons — Neoseeker GTA Wiki](https://gta.neoseeker.com/wiki/Vehicle_Weapons)
+- [Equipment in Grand Theft Auto 2 — Neoseeker GTA Wiki](https://gta.neoseeker.com/wiki/Equipment_in_Grand_Theft_Auto_2)
+- [Vehicular Combat — Grand Theft Wiki](https://www.grandtheftwiki.com/Vehicular_Combat)
+- [Water — GTA Wiki](https://gta.fandom.com/wiki/Water)
+- [Swimming — GTA Wiki](https://gta.fandom.com/wiki/Swimming)
+- [Scientists — GTA Wiki](https://gta.fandom.com/wiki/Scientists)
 - [Game Boy Color — GTA Wiki](https://gta.fandom.com/wiki/Game_Boy_Color)
 - [Protagonists in GTA 2 (GBC) — GTA Wiki](https://gta.fandom.com/wiki/Protagonists_in_GTA_2_(GBC))
