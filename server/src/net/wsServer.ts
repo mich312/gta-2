@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
+import { createStaticServer } from './staticServer.js';
 import {
   RESUME_GRACE_MS,
   SNAPSHOT_HASH_INTERVAL,
@@ -17,6 +19,7 @@ import { ClientConn } from './client.js';
 
 export class GameServer {
   private wss: WebSocketServer | null = null;
+  private httpServer: HttpServer | null = null;
   private readonly conns = new Set<ClientConn>();
   private readonly byPlayer = new Map<number, ClientConn>();
 
@@ -28,11 +31,24 @@ export class GameServer {
 
   listen(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const wss = new WebSocketServer({ host: this.config.host, port: this.config.port });
+      let wss: WebSocketServer;
+      if (this.config.clientDir) {
+        // Production: one HTTP server serves the built client AND carries the
+        // WebSocket upgrade, so a single TLS origin (the edge proxy) fronts
+        // both. The client connects to wss://<host> (same origin).
+        const http = createStaticServer(this.config.clientDir);
+        this.httpServer = http;
+        wss = new WebSocketServer({ server: http });
+        http.once('error', reject);
+        http.listen(this.config.port, this.config.host, () => resolve());
+      } else {
+        // Local dev: standalone WS; the client runs on Vite (:5173) over ws://.
+        wss = new WebSocketServer({ host: this.config.host, port: this.config.port });
+        wss.once('listening', () => resolve());
+        wss.once('error', reject);
+      }
       this.wss = wss;
       wss.on('connection', (ws) => this.onConnection(ws));
-      wss.once('listening', () => resolve());
-      wss.once('error', reject);
     });
   }
 
@@ -69,6 +85,7 @@ export class GameServer {
   close(): void {
     for (const conn of this.conns) conn.ws.close();
     this.wss?.close();
+    this.httpServer?.close();
   }
 
   private onConnection(ws: WebSocket): void {
