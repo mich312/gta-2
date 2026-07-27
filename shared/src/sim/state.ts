@@ -14,6 +14,12 @@ export interface WeaponSlot {
 
 export interface CopState {
   id: number;
+  /**
+   * Which force this officer belongs to (see police.json `kinds`). Set at
+   * spawn from the wanted tier and never changed: escalation fields new
+   * units, it does not upgrade the ones already chasing you.
+   */
+  kind: string;
   pos: Vec2;
   vel: Vec2;
   targetId: number | null;
@@ -210,9 +216,10 @@ export function clonePed(p: PedState): PedState {
   return { ...p, pos: cloneVec(p.pos) };
 }
 
-export function createCop(id: number, pos: Vec2, health: number): CopState {
+export function createCop(id: number, pos: Vec2, health: number, kind = 'patrol'): CopState {
   return {
     id,
+    kind,
     pos: cloneVec(pos),
     vel: vec(),
     targetId: null,
@@ -294,12 +301,16 @@ export function clonePlayer(p: PlayerState): PlayerState {
   };
 }
 
+/**
+ * Six levels, not five: the top two exist so the ladder has somewhere to put
+ * the federal and army tiers (police.json `tiers`).
+ */
 export function wantedLevelOf(p: PlayerState): number {
-  return Math.min(5, Math.floor(p.heat / 100));
+  return Math.min(6, Math.floor(p.heat / 100));
 }
 
 export function addHeat(p: PlayerState, amount: number): void {
-  p.heat = Math.min(599, p.heat + amount);
+  p.heat = Math.min(699, p.heat + amount);
 }
 
 export function cloneState(s: GameState): GameState {

@@ -416,6 +416,7 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
 ];
 
 const COP_CODECS: Array<FieldCodec<CopState>> = [
+  f('kind', (w, c) => w.str(c.kind), (r, o) => (o['kind'] = r.str())),
   f(
     'pos',
     (w, c) => {

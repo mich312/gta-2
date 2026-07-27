@@ -87,6 +87,7 @@ const VEHICLE_FIELDS = [
   'fuseAtTick',
 ] as const;
 const COP_FIELDS = [
+  'kind',
   'pos',
   'vel',
   'targetId',

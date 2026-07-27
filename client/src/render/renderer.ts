@@ -24,6 +24,14 @@ import { DEVICE_H, DEVICE_W, RENDER_SCALE, SUN_X, SUN_Y, VIEW_H, VIEW_W } from '
 const REMOTE_COLORS = ['#e05555', '#55b0e0', '#57c98a', '#d3a24a', '#b06ad6', '#5fd6c9', '#d66a9c'];
 const LOCAL_COLOR = '#f2f2f2';
 
+/** Uniform per force, so what is chasing you is legible at a glance. */
+const COP_TINT: Record<string, string> = {
+  patrol: '#3a5fb0',
+  swat: '#2c3038',
+  fed: '#1f2c58',
+  army: '#4a5334',
+};
+
 /** World px a walking entity covers per animation frame. */
 const STRIDE = 7;
 /** Sprite variant counts, mirroring shared/data/sprites.json. */
@@ -283,7 +291,10 @@ export function render(
   for (const c of scene.remotes.cops) {
     const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
     const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
-    drawCharacter(ctx, sprites, `cop_f${frame}`, dx(c.x), dy(c.y), angle, '#3a5fb0');
+    // The uniform says which force you have brought down on yourself. Police
+    // blue, SWAT charcoal, federal navy, army olive — you should be able to
+    // tell what is chasing you without reading the star count.
+    drawCharacter(ctx, sprites, `cop_f${frame}`, dx(c.x), dy(c.y), angle, COP_TINT[c.cop.kind] ?? '#3a5fb0');
   }
   for (const r of scene.remotes.players) {
     const key = `p${r.player.id}`;

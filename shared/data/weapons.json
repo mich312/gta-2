@@ -35,5 +35,26 @@
     "range": 190,
     "spread": 0.05,
     "pellets": 1
+  },
+  "copShotgun": {
+    "damage": 8,
+    "cooldownTicks": 22,
+    "range": 130,
+    "spread": 0.2,
+    "pellets": 5
+  },
+  "copSmg": {
+    "damage": 6,
+    "cooldownTicks": 4,
+    "range": 210,
+    "spread": 0.08,
+    "pellets": 1
+  },
+  "copRifle": {
+    "damage": 14,
+    "cooldownTicks": 8,
+    "range": 260,
+    "spread": 0.03,
+    "pellets": 1
   }
 }

@@ -46,6 +46,26 @@ export function anyCopSees(state: GameState, map: CityMap, p: PlayerState): bool
   return false;
 }
 
+/**
+ * Which force answers a given wanted level, and what it is made of.
+ *
+ * The ladder is the point: at the bottom it is patrol officers with sidearms,
+ * and at the top it is the army with rifles. More of the same is not
+ * escalation — a fifth patrolman is the same problem as the fourth.
+ */
+export function copKindFor(wanted: number): string {
+  const t = getTuning().police;
+  if (wanted <= 0) return t.tiers[0] ?? 'patrol';
+  return t.tiers[Math.min(t.tiers.length, wanted) - 1] ?? 'patrol';
+}
+
+function copStats(kind: string): { health: number; weapon: string; moveSpeed: number } {
+  const t = getTuning().police;
+  // Fall back to the flat numbers so a police.json without a `kinds` block
+  // still produces a working force rather than an invisible one.
+  return t.kinds[kind] ?? { health: t.copHealth, weapon: t.weapon, moveSpeed: t.moveSpeed };
+}
+
 function maybeSpawnCop(state: GameState, map: CityMap): void {
   const t = getTuning().police;
   if (state.cops.ids.length >= t.maxCopsTotal) return;
@@ -76,7 +96,9 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
       if (!candidate) continue;
       const d = dist(candidate.x, candidate.y, p.pos.x, p.pos.y);
       if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
-      const cop = createCop(state.nextEntityId++, candidate, t.copHealth);
+      const kind = copKindFor(wanted);
+      const stats = copStats(kind);
+      const cop = createCop(state.nextEntityId++, candidate, stats.health, kind);
       cop.targetId = pid;
       insertEntity(state.cops, cop);
       // From carsFromStar upward, units ARRIVE by car. Motorising mid-chase
@@ -120,7 +142,7 @@ function copFire(
   events: SimEvent[],
 ): void {
   const t = getTuning().police;
-  const weapon = getWeaponTuning(t.weapon);
+  const weapon = getWeaponTuning(copStats(cop.kind).weapon) ?? getWeaponTuning(t.weapon);
   if (!weapon) return;
   cop.fireCooldown = weapon.cooldownTicks;
   let roll: number;
@@ -486,18 +508,19 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // them on foot, so the delta traffic this costs is nothing; the 200-strong
     // crowd is where that argument still bites, and it keeps its 10 Hz.
     if (bestD > 24) {
+      const moveSpeed = copStats(cop.kind).moveSpeed;
       const dirX = (target.pos.x - cop.pos.x) / bestD;
       const dirY = (target.pos.y - cop.pos.y) / bestD;
-      cop.vel.x = dirX * t.moveSpeed;
-      cop.vel.y = dirY * t.moveSpeed;
+      cop.vel.x = dirX * moveSpeed;
+      cop.vel.y = dirY * moveSpeed;
       moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT, cop.vel.y * DT);
       if (cop.vel.x === 0 && cop.vel.y === 0) {
         // Fully wedged in a corner: deterministic sidestep along a wall.
         let flip: number;
         [flip, state.rng] = nextFloat01(state.rng);
         const side = flip < 0.5 ? 1 : -1;
-        const sx = -dirY * side * t.moveSpeed;
-        const sy = dirX * side * t.moveSpeed;
+        const sx = -dirY * side * moveSpeed;
+        const sy = dirX * side * moveSpeed;
         cop.vel.x = sx;
         cop.vel.y = sy;
         moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT, sy * DT);
@@ -515,7 +538,7 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // arrests them. Checked before the fire test so a point-blank cop never
     // shoots somebody they could have taken in.
     if (cop.fireCooldown === 0 && tryBust(state, cop, target, events)) {
-      cop.fireCooldown = getWeaponTuning(t.weapon)?.cooldownTicks ?? 0;
+      cop.fireCooldown = getWeaponTuning(copStats(cop.kind).weapon)?.cooldownTicks ?? 0;
       continue;
     }
 

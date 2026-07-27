@@ -89,6 +89,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
   }
   for (const c of snap.cops) {
     h = hashNumber(h, c.id);
+    h = hashString(h, c.kind);
     h = hashNumber(h, c.pos.x);
     h = hashNumber(h, c.pos.y);
     h = hashNumber(h, c.vel.x);

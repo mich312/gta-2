@@ -4,10 +4,11 @@ import vehiclesJson from '../data/vehicles.json';
 import weaponsJson from '../data/weapons.json';
 import policeJson from '../data/police.json';
 import worldgenJson from '../data/worldgen.json';
-import { initTuning, getTuning, getVehicleTuning } from '../src/tuning.js';
+import { initTuning, getTuning, getVehicleTuning, getWeaponTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import {
+  addHeat,
   createCop,
   createGameState,
   createVehicle,
@@ -580,5 +581,88 @@ describe('arrest (F2): busted is not wasted', () => {
     const after = step(state, {}, [{ type: 'respawnPlayer', playerId: 1, loadout: [] }], map);
     const at = after.players.byId[1]!.pos;
     expect(Math.min(...map.hospitals.map((h) => Math.hypot(h.x - at.x, h.y - at.y)))).toBe(0);
+  });
+});
+
+describe('escalation by kind (I1)', () => {
+  /** Hold a player at `stars` long enough for the response to turn out. */
+  function forceAt(stars: number, ticks = 400): GameState {
+    let state = createGameState(31);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    for (let i = 0; i < ticks; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = stars * 100 + 10;
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 }; // fleeing, not surrendering
+      if (p.mode === 'dead') {
+        p.health = 100;
+        p.mode = 'foot';
+        p.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map);
+    }
+    return state;
+  }
+
+  function kindsPresent(state: GameState): Set<string> {
+    return new Set(state.cops.ids.map((id) => state.cops.byId[id]!.kind));
+  }
+
+  it('each tier fields a different force, not more of the last one', () => {
+    // The point of the ladder: a fifth patrolman is the same problem as the
+    // fourth. These must differ in KIND.
+    expect(kindsPresent(forceAt(2))).toEqual(new Set(['patrol']));
+    expect(kindsPresent(forceAt(4))).toEqual(new Set(['swat']));
+    expect(kindsPresent(forceAt(5))).toEqual(new Set(['fed']));
+    expect(kindsPresent(forceAt(6))).toEqual(new Set(['army']));
+  });
+
+  it('the ceiling is six, and heat cannot climb past it', () => {
+    const p = { heat: 0 } as never as Parameters<typeof wantedLevelOf>[0];
+    for (let i = 0; i < 100; i++) addHeat(p, 100);
+    expect(wantedLevelOf(p)).toBe(6);
+  });
+
+  it('higher tiers are tougher and better armed', () => {
+    const t = getTuning().police;
+    const patrol = t.kinds['patrol']!;
+    const army = t.kinds['army']!;
+    expect(army.health).toBeGreaterThan(patrol.health);
+    expect(getWeaponTuning(army.weapon)!.damage).toBeGreaterThan(
+      getWeaponTuning(patrol.weapon)!.damage,
+    );
+  });
+
+  it('an officer keeps the uniform they turned out in', () => {
+    // Escalation fields new units; it does not upgrade the ones already
+    // chasing you, or a two-star pursuit would silently become a six-star one
+    // in the officers' hands.
+    let state = forceAt(2, 200);
+    const original = state.cops.ids.slice();
+    expect(original.length).toBeGreaterThan(0);
+    expect(original.every((id) => state.cops.byId[id]!.kind === 'patrol')).toBe(true);
+
+    for (let i = 0; i < 60; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 610; // straight to the top of the ladder
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      state = step(state, {}, [], map);
+    }
+
+    // Every officer who was already on the scene is still a patrolman...
+    for (const id of original) {
+      const cop = state.cops.byId[id];
+      if (!cop) continue; // some will have despawned or died; those prove nothing
+      expect(cop.kind).toBe('patrol');
+    }
+    // ...and the reinforcements are army.
+    const fresh = state.cops.ids.filter((id) => !original.includes(id));
+    expect(fresh.length).toBeGreaterThan(0);
+    expect(fresh.every((id) => state.cops.byId[id]!.kind === 'army')).toBe(true);
+  });
+
+  it('the cop kind survives the wire and the hash', () => {
+    const state = forceAt(6);
+    expect(kindsPresent(state)).toEqual(new Set(['army']));
+    expect(hashState(state)).toBe(hashState(state));
   });
 });

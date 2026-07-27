@@ -84,6 +84,13 @@ export interface PoliceTuning {
   bustRadius: number;
   /** Move faster than this and you get shot instead of nicked. */
   bustSpeedMax: number;
+  /**
+   * Which force turns out at each wanted level, indexed by star - 1.
+   * Escalation changes the KIND of opposition, not merely the count: the
+   * distinction the 1999 game made and the 1997 one did not.
+   */
+  tiers: string[];
+  kinds: Record<string, { health: number; weapon: string; moveSpeed: number }>;
 }
 
 export interface PedTuning {
@@ -244,6 +251,30 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
   };
 }
 
+function parseTiers(raw: unknown): string[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error('police: tiers must be a non-empty array');
+  return raw.map((v, i) => {
+    if (typeof v !== 'string' || v.length === 0) throw new Error(`police: tiers[${i}]`);
+    return v;
+  });
+}
+
+function parseCopKinds(raw: unknown): Record<string, { health: number; weapon: string; moveSpeed: number }> {
+  if (typeof raw !== 'object' || raw === null) throw new Error('police: kinds must be an object');
+  const out: Record<string, { health: number; weapon: string; moveSpeed: number }> = {};
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    const r = (v ?? {}) as Record<string, unknown>;
+    const weapon = r['weapon'];
+    if (typeof weapon !== 'string') throw new Error(`police: kinds.${id}.weapon`);
+    out[id] = {
+      health: num(r['health'], `police.kinds.${id}.health`),
+      weapon,
+      moveSpeed: num(r['moveSpeed'], `police.kinds.${id}.moveSpeed`),
+    };
+  }
+  return out;
+}
+
 function parsePoliceTuning(raw: unknown): PoliceTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `police.${k}`);
@@ -277,6 +308,8 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     sprayCost: n('sprayCost'),
     bustRadius: n('bustRadius'),
     bustSpeedMax: n('bustSpeedMax'),
+    tiers: parseTiers(r['tiers']),
+    kinds: parseCopKinds(r['kinds']),
   };
 }
 
@@ -481,6 +514,13 @@ const DEFAULT_POLICE: PoliceTuning = {
   sprayCost: 400,
   bustRadius: 22,
   bustSpeedMax: 40,
+  tiers: ['patrol', 'patrol', 'patrol', 'swat', 'fed', 'army'],
+  kinds: {
+    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73 },
+    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79 },
+    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88 },
+    army: { health: 220, weapon: 'copRifle', moveSpeed: 77 },
+  },
 };
 
 export interface InitTuningOptions {
