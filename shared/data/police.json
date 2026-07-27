@@ -15,5 +15,13 @@
   "heatPerTheft": 15,
   "heatPerCopKill": 120,
   "heatDecayPerSec": 5,
-  "despawnTicks": 450
+  "despawnTicks": 450,
+  "carsFromStar": 3,
+  "roadblocksFromStar": 4,
+  "copCarSpeed": 300,
+  "maxCopCars": 6,
+  "roadblockCooldownTicks": 240,
+  "roadblockAheadDist": 420,
+  "sprayCost": 400,
+  "dismountDist": 150
 }

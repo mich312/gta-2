@@ -99,16 +99,21 @@ export class Economy {
       cash: key ? this.ledgerFor(key).balance(key) : 0,
     });
     if (!key || !player) return fail('no wallet');
-    if (player.mode !== 'foot') return fail('step out of the car first');
     const item = this.catalog[itemId];
     if (!item) return fail('no such item');
+    // A respray is the one thing you buy WITHOUT getting out — you drive the
+    // hot car into the garage. Everything else is a shop counter.
+    const drivethrough = item.kind === 'spray';
+    if (!drivethrough && player.mode !== 'foot') return fail('step out of the car first');
+    if (drivethrough && player.mode !== 'driving') return fail('drive a car into the garage');
 
-    // Must be standing in a doorway of the right shop kind.
+    // Must be standing (or parked) in a doorway of the right shop kind.
     const inShop = map.shops.some((s) => {
       if (s.kind !== item.shop) return false;
       const cx = (s.doorX + 0.5) * TILE_SIZE;
       const cy = (s.doorY + 0.5) * TILE_SIZE;
-      return Math.abs(player.pos.x - cx) < DOORWAY_RADIUS_PX && Math.abs(player.pos.y - cy) < DOORWAY_RADIUS_PX;
+      const reach = drivethrough ? DOORWAY_RADIUS_PX * 2 : DOORWAY_RADIUS_PX;
+      return Math.abs(player.pos.x - cx) < reach && Math.abs(player.pos.y - cy) < reach;
     });
     if (!inShop) return fail(`find a ${item.shop} shop doorway`);
 
@@ -119,7 +124,9 @@ export class Economy {
     }
 
     let command: SimCommand;
-    if (item.kind === 'cosmetic') {
+    if (item.kind === 'spray') {
+      command = { type: 'clearHeat', playerId };
+    } else if (item.kind === 'cosmetic') {
       const username = this.usernameByPlayer.get(playerId);
       if (username) this.accounts.addCosmetic(username, item.cosmeticId);
       command = { type: 'setCosmetic', playerId, cosmeticId: item.cosmeticId };

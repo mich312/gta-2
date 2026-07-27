@@ -50,11 +50,15 @@ export class Hud {
     const y = INTERNAL_HEIGHT - h - 26;
     ctx.fillStyle = 'rgba(8, 12, 16, 0.85)';
     ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = kind === 'gun' ? '#c8583c' : '#3ca0c8';
+    ctx.strokeStyle = kind === 'gun' ? '#c8583c' : kind === 'spray' ? '#c8a03c' : '#3ca0c8';
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     ctx.font = '8px monospace';
     ctx.fillStyle = '#e8f0e8';
-    ctx.fillText(kind === 'gun' ? 'GUN SHOP' : 'CLOTHING', x + 5, y + 10);
+    ctx.fillText(
+      kind === 'gun' ? 'GUN SHOP' : kind === 'spray' ? "PAY'N'SPRAY" : 'CLOTHING',
+      x + 5,
+      y + 10,
+    );
     rows.forEach(([id, price], i) => {
       ctx.fillStyle = '#c0cad0';
       ctx.fillText(`[${BUY_KEYS[i]}] ${id} $${price}`, x + 5, y + 21 + i * 11);

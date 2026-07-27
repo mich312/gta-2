@@ -194,6 +194,10 @@ describe('fists', () => {
     );
     expect(state.players.byId[1]!.weapons.length).toBe(2);
 
+    // Put the victim on an actual road lane: a car driven into a building
+    // now takes collision damage and can burn out before it kills anybody.
+    const lane = map.vehicleSpawns.find((sp, i) => i > 3 && i < 300)!;
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     state = step(
       state,
       {},
@@ -202,19 +206,22 @@ describe('fists', () => {
           type: 'spawnVehicle',
           vehicleId: 20,
           kind: 'car',
-          x: state.players.byId[1]!.pos.x,
-          y: state.players.byId[1]!.pos.y,
-          heading: 0,
+          x: lane.x,
+          y: lane.y,
+          heading: lane.heading,
         },
       ],
       map,
     );
-    for (let i = 0; i < 40 && state.players.byId[1]!.mode !== 'dead'; i++) {
-      state.vehicles.byId[20]!.speed = 300;
-      state.vehicles.byId[20]!.pos = {
-        x: state.players.byId[1]!.pos.x,
-        y: state.players.byId[1]!.pos.y,
-      };
+    for (let i = 0; i < 60 && state.players.byId[1]!.mode !== 'dead'; i++) {
+      const car = state.vehicles.byId[20]!;
+      // Hold the car intact and on top of them: this test is about what the
+      // corpse keeps, not about vehicle durability.
+      car.health = 100;
+      car.condition = 'ok';
+      car.fuseAtTick = null;
+      car.speed = 300;
+      car.pos = { x: state.players.byId[1]!.pos.x, y: state.players.byId[1]!.pos.y };
       state = step(state, {}, [], map);
     }
     expect(state.players.byId[1]!.mode).toBe('dead');

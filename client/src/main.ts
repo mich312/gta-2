@@ -79,11 +79,17 @@ let catalog: Catalog | null = null;
 /** Shop whose doorway the (predicted) local player is standing in. */
 function currentShopKind(): ShopKind | null {
   const me = predictor.predicted;
-  if (!me || !map || me.mode !== 'foot') return null;
+  if (!me || !map) return null;
+  if (me.mode !== 'foot' && me.mode !== 'driving') return null;
   for (const s of map.shops) {
+    // A respray is a drive-through: you buy it from the seat, and the
+    // catchment is wider because you arrive at speed.
+    const driving = me.mode === 'driving';
+    if (driving !== (s.kind === 'spray')) continue;
+    const reach = TILE_SIZE * (s.kind === 'spray' ? 2.5 : 1.25);
     const cx = (s.doorX + 0.5) * TILE_SIZE;
     const cy = (s.doorY + 0.5) * TILE_SIZE;
-    if (Math.abs(me.pos.x - cx) < TILE_SIZE * 1.25 && Math.abs(me.pos.y - cy) < TILE_SIZE * 1.25) {
+    if (Math.abs(me.pos.x - cx) < reach && Math.abs(me.pos.y - cy) < reach) {
       return s.kind;
     }
   }

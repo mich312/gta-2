@@ -20,6 +20,9 @@ import {
 const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   gun: ['industrial', 'commercial', 'downtown'],
   clothing: ['commercial', 'downtown', 'residential'],
+  // A respray garage belongs where the workshops are, and you have to be
+  // able to reach it in a car — so industrial and commercial first.
+  spray: ['industrial', 'commercial', 'residential'],
 };
 
 function t(map: CityMap, tx: number, ty: number): number {
@@ -55,7 +58,7 @@ function findDoorway(map: CityMap, b: Building): { x: number; y: number } | null
 }
 
 export function placeShops(map: CityMap, params: WorldgenParams, rng: number): number {
-  for (const kind of ['gun', 'clothing'] as const) {
+  for (const kind of ['gun', 'clothing', 'spray'] as const) {
     const quota = params.shopQuota[kind];
     const preferred = SHOP_DISTRICTS[kind];
     // Candidates in preference order, then by index (deterministic).

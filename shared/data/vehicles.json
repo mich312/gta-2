@@ -37,5 +37,24 @@
     "explosionRadius": 84,
     "explosionDamage": 85,
     "collisionDamagePerSpeed": 0.16
+  },
+  "copcar": {
+    "accel": 290,
+    "brake": 520,
+    "reverseAccel": 140,
+    "maxSpeed": 300,
+    "maxReverseSpeed": 90,
+    "friction": 180,
+    "turnRate": 2.8,
+    "minSteerSpeedFrac": 0.25,
+    "crashDamp": 0.25,
+    "enterRadius": 26,
+    "halfExtent": 9,
+    "health": 130,
+    "burnSeconds": 4,
+    "wreckSeconds": 25,
+    "explosionRadius": 74,
+    "explosionDamage": 85,
+    "collisionDamagePerSpeed": 0.16
   }
 }

@@ -85,6 +85,8 @@ const COP_FIELDS = [
   'fireCooldown',
   'idleTicks',
   'carHitCooldown',
+  'vehicleId',
+  'stuckTicks',
 ] as const;
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;

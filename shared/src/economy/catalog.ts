@@ -9,7 +9,9 @@ import type { ShopKind } from '../world/types.js';
 export type CatalogItem =
   | { kind: 'weapon'; shop: ShopKind; price: number; ammo: number }
   | { kind: 'ammo'; shop: ShopKind; price: number; ammo: number }
-  | { kind: 'cosmetic'; shop: ShopKind; price: number; cosmeticId: number };
+  | { kind: 'cosmetic'; shop: ShopKind; price: number; cosmeticId: number }
+  /** A respray: clears police heat outright. The genre's escape valve. */
+  | { kind: 'spray'; shop: ShopKind; price: number };
 
 export type Catalog = Record<string, CatalogItem>;
 
@@ -24,13 +26,19 @@ export function parseCatalog(raw: unknown): Catalog {
     if (typeof price !== 'number' || price <= 0 || !Number.isFinite(price)) {
       throw new Error(`catalog: bad price for ${id}`);
     }
-    if (shop !== 'gun' && shop !== 'clothing') throw new Error(`catalog: bad shop for ${id}`);
+    if (shop !== 'gun' && shop !== 'clothing' && shop !== 'spray') {
+      throw new Error(`catalog: bad shop for ${id}`);
+    }
     switch (r['kind']) {
       case 'weapon':
       case 'ammo': {
         const ammo = r['ammo'];
         if (typeof ammo !== 'number' || ammo <= 0) throw new Error(`catalog: bad ammo for ${id}`);
         out[id] = { kind: r['kind'], shop, price, ammo };
+        break;
+      }
+      case 'spray': {
+        out[id] = { kind: 'spray', shop, price };
         break;
       }
       case 'cosmetic': {

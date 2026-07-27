@@ -7,12 +7,19 @@ import worldgenJson from '../data/worldgen.json';
 import { initTuning, getTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
-import { createCop, createGameState, wantedLevelOf, type GameState } from '../src/sim/state.js';
+import {
+  createCop,
+  createGameState,
+  createVehicle,
+  wantedLevelOf,
+  type GameState,
+} from '../src/sim/state.js';
 import { insertEntity } from '../src/sim/entities.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -192,6 +199,15 @@ describe('wanted + police', () => {
     let minDist = Infinity;
     let peakCops = 0;
     for (let i = 0; i < 600; i++) {
+      // Keep the fugitive on their feet and wanted: a dead target has no
+      // pursuers, and this test is about whether pursuit converges.
+      const me = state.players.byId[1]!;
+      me.heat = Math.max(me.heat, 310);
+      if (me.mode === 'dead') {
+        me.mode = 'foot';
+        me.health = 100;
+        me.respawnAtTick = null;
+      }
       state = step(state, {}, [], map);
       peakCops = Math.max(peakCops, state.cops.ids.length);
       for (const cid of state.cops.ids) {
@@ -258,6 +274,143 @@ describe('wanted + police', () => {
       for (let i = 0; i < 200; i++) state = step(state, {}, [], map);
       return hashState(state);
     };
+    expect(run()).toBe(run());
+  });
+});
+
+describe('escalation by kind', () => {
+  /**
+   * Hold a player at `stars` and run the chase. Reports the peak number of
+   * officers seen actually driving, because a cruiser is a means of arrival —
+   * they dismount inside dismountDist — so any single instant undercounts.
+   */
+  function chaseAt(
+    stars: number,
+    ticks: number,
+    seed = 55,
+  ): { state: GameState; peakDriving: number; peakCars: number } {
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    let peakDriving = 0;
+    let peakCars = 0;
+    for (let i = 0; i < ticks; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = stars * 100 + 10; // hold the tier steady
+      if (p.mode === 'dead') {
+        p.health = 100;
+        p.mode = 'foot';
+        p.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map);
+      peakDriving = Math.max(
+        peakDriving,
+        state.cops.ids.filter((c) => state.cops.byId[c]!.vehicleId !== null).length,
+      );
+      peakCars = Math.max(peakCars, copCars(state));
+    }
+    return { state, peakDriving, peakCars };
+  }
+
+  function copCars(state: GameState): number {
+    let n = 0;
+    for (const id of state.vehicles.ids) {
+      if (state.vehicles.byId[id]!.kind === 'copcar') n++;
+    }
+    return n;
+  }
+
+  it('two stars is still an on-foot posse', () => {
+    const { state, peakCars, peakDriving } = chaseAt(2, 700);
+    expect(state.cops.ids.length).toBeGreaterThan(0);
+    expect(peakCars).toBe(0);
+    expect(peakDriving).toBe(0);
+  });
+
+  it('three stars puts officers in cruisers', () => {
+    const { peakCars, peakDriving } = chaseAt(3, 900);
+    expect(peakCars).toBeGreaterThan(0);
+    expect(peakDriving).toBeGreaterThan(0);
+  });
+
+  it('cruisers can actually keep up with a car', () => {
+    // This is the hole the whole phase exists to close: cops on foot move at
+    // 122 px/s against a player car's 330, so any vehicle was a guaranteed
+    // escape from the entire police force.
+    const t = getTuning().police;
+    expect(t.copCarSpeed).toBeGreaterThan(getTuning().vehicles['car']!.maxSpeed * 0.85);
+  });
+
+  it('four stars throws roadblocks across the road', () => {
+    const three = chaseAt(3, 1500, 61).peakCars;
+    const four = chaseAt(4, 1500, 61).peakCars;
+    // Roadblock cruisers are additional to pursuit cruisers.
+    expect(four).toBeGreaterThan(three);
+  });
+
+  /** Put officer 500 in cruiser 501 at `at`, chasing player 1 at `targetAt`. */
+  function wedged(at: { x: number; y: number }, targetAt: { x: number; y: number }): GameState {
+    let state = createGameState(71);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    const p = state.players.byId[1]!;
+    p.heat = 410;
+    p.pos = { x: targetAt.x, y: targetAt.y };
+    const cop = createCop(500, at, getTuning().police.copHealth);
+    cop.targetId = 1;
+    insertEntity(state.cops, cop);
+    const heading = Math.atan2(targetAt.y - at.y, targetAt.x - at.x);
+    const car = createVehicle(501, 'copcar', at, heading);
+    car.driverId = -100000 - 500;
+    insertEntity(state.vehicles, car);
+    cop.vehicleId = 501;
+    return state;
+  }
+
+  it('an officer pulls up and finishes the chase on foot', () => {
+    const t = getTuning().police;
+    // Close enough to be inside dismountDist on the very next tick.
+    let state = wedged({ x: 1000, y: 1000 }, { x: 1000 + t.dismountDist - 40, y: 1000 });
+    state = step(state, {}, [], map);
+    const cop = state.cops.byId[500]!;
+    expect(cop.vehicleId).toBeNull();
+    // The cruiser is left behind as an ordinary abandoned car.
+    expect(state.vehicles.byId[501]!.driverId).toBeNull();
+  });
+
+  it('an officer bails out of a cruiser that cannot close, rather than being lost', () => {
+    // Target parked inside a building, so no amount of driving closes the
+    // gap: the officer must give up on the car and continue on foot.
+    let solid = { x: 0, y: 0 };
+    outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
+      for (let tx = 4; tx < map.widthTiles - 4; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) {
+          solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+          break outer;
+        }
+      }
+    }
+    let state = wedged({ x: solid.x - 300, y: solid.y }, solid);
+    for (let i = 0; i < 200 && state.cops.byId[500]?.vehicleId != null; i++) {
+      const c = state.cops.byId[500];
+      if (c?.vehicleId != null) {
+        const veh = state.vehicles.byId[c.vehicleId];
+        if (veh) {
+          // Keep it intact: a car ramming a wall now damages itself and can
+          // detonate, which would end the officer before the bail-out fires.
+          veh.health = 130;
+          veh.condition = 'ok';
+          veh.fuseAtTick = null;
+        }
+      }
+      state.players.byId[1]!.heat = 410;
+      state = step(state, {}, [], map);
+    }
+    const after = state.cops.byId[500];
+    expect(after).toBeDefined();
+    expect(after!.vehicleId).toBeNull();
+  });
+
+  it('the whole motorised chase is deterministic', () => {
+    const run = (): number => hashState(chaseAt(4, 900, 88).state);
     expect(run()).toBe(run());
   });
 });

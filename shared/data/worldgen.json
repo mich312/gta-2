@@ -6,11 +6,26 @@
   "arterialWidth": 4,
   "secondaryWidth": 2,
   "blockSize": {
-    "downtown": [9, 14],
-    "residential": [12, 20],
-    "industrial": [18, 30],
-    "commercial": [10, 16],
-    "park": [16, 28]
+    "downtown": [
+      9,
+      14
+    ],
+    "residential": [
+      12,
+      20
+    ],
+    "industrial": [
+      18,
+      30
+    ],
+    "commercial": [
+      10,
+      16
+    ],
+    "park": [
+      16,
+      28
+    ]
   },
   "districtSeeds": {
     "downtown": 1,
@@ -20,7 +35,11 @@
     "park": 2
   },
   "parkedCarSpacing": 14,
-  "shopQuota": { "gun": 3, "clothing": 3 },
+  "shopQuota": {
+    "gun": 3,
+    "clothing": 3,
+    "spray": 4
+  },
   "playerSpawnCount": 16,
   "playerSpawnMinDist": 30,
   "waterWidth": 10

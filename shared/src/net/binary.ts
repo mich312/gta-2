@@ -431,6 +431,8 @@ const COP_CODECS: Array<FieldCodec<CopState>> = [
     (w, c) => w.int(c.carHitCooldown),
     (r, o) => (o['carHitCooldown'] = r.int()),
   ),
+  f('vehicleId', (w, c) => w.optInt(c.vehicleId), (r, o) => (o['vehicleId'] = r.optInt())),
+  f('stuckTicks', (w, c) => w.int(c.stuckTicks), (r, o) => (o['stuckTicks'] = r.int())),
 ];
 
 const PED_CODECS: Array<FieldCodec<PedState>> = [

@@ -24,6 +24,10 @@ export interface CopState {
   /** Ticks of run-over immunity, exactly as players have — a car sitting on
    *  top of a cop must not land 30 hits a second. */
   carHitCooldown: number;
+  /** Cruiser this officer is driving, or null if on foot. */
+  vehicleId: number | null;
+  /** Consecutive ticks a cruiser has been unable to move. */
+  stuckTicks: number;
 }
 
 export interface PropState {
@@ -184,6 +188,8 @@ export function createCop(id: number, pos: Vec2, health: number): CopState {
     fireCooldown: 0,
     idleTicks: 0,
     carHitCooldown: 0,
+    vehicleId: null,
+    stuckTicks: 0,
   };
 }
 

@@ -159,6 +159,20 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (p) p.cosmeticId = cmd.cosmeticId;
       break;
     }
+    case 'clearHeat': {
+      // A respray. Heat, wanted level and the interest of every cop already
+      // on the street all go at once, which is what makes it an escape and
+      // not merely a discount.
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p) return;
+      p.heat = 0;
+      p.wantedLevel = 0;
+      for (const cid of state.cops.ids) {
+        const cop = state.cops.byId[cid];
+        if (cop && cop.targetId === cmd.playerId) cop.targetId = null;
+      }
+      break;
+    }
     case 'despawnPlayer': {
       const p = getEntity(state.players, cmd.playerId);
       if (p && p.vehicleId !== null) {

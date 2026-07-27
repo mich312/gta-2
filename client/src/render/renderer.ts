@@ -459,7 +459,12 @@ function drawVehicle(
 ): void {
   const x = dx(wx);
   const y = dy(wy);
-  const name = kind === 'boat' ? 'boat' : `car_v${Math.abs(id) % CAR_VARIANTS}`;
+  const name =
+    kind === 'boat'
+      ? 'boat'
+      : kind === 'copcar'
+        ? 'copcar'
+        : `car_v${Math.abs(id) % CAR_VARIANTS}`;
   const fp = sprites.footprint(name);
   drawShadow(ctx, x, y, fp.rx * 0.92, fp.ry * 1.05, 4);
 
@@ -483,6 +488,14 @@ function drawVehicle(
     ctx.fillStyle = palette.carBody;
     ctx.fillRect(-12 * RENDER_SCALE, -6 * RENDER_SCALE, 24 * RENDER_SCALE, 12 * RENDER_SCALE);
     ctx.restore();
+  }
+
+  // Strobing light bar on any cruiser with an officer aboard.
+  if (kind === 'copcar' && occupied) {
+    const phase = Math.sin(nowMs * 0.012 + id) > 0;
+    const bx = x + Math.cos(heading) * 2 * RENDER_SCALE;
+    const by = y + Math.sin(heading) * 2 * RENDER_SCALE;
+    lights.point(bx, by, 20 * RENDER_SCALE, phase ? 'red' : 'blue', 0.8);
   }
 
   if (condition === 'burning') {

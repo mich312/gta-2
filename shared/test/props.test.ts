@@ -5,6 +5,7 @@ import weaponsJson from '../data/weapons.json';
 import policeJson from '../data/police.json';
 import pedsJson from '../data/peds.json';
 import propsJson from '../data/props.json';
+import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -15,8 +16,25 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { rayWallDistance } from '../src/sim/weapons.js';
 
 const map = generateCity(9009, parseWorldgenParams(worldgenJson));
+
+/**
+ * An axis direction with at least `need` px of clear line from `from`.
+ *
+ * These tests used to assume +x was clear from wherever the player happened
+ * to spawn. That held only by luck: any change to worldgen's rng order moves
+ * every spawn point, and adding a shop kind was enough to park a player
+ * against a wall with the target behind it.
+ */
+function clearAim(from: { x: number; y: number }, need = 60): number {
+  for (const angle of [0, Math.PI, Math.PI / 2, -Math.PI / 2]) {
+    const d = rayWallDistance(map, from.x, from.y, Math.cos(angle), Math.sin(angle), need + 20);
+    if (d >= need) return angle;
+  }
+  throw new Error('no clear direction from spawn — pick another seed');
+}
 
 beforeAll(() => {
   initTuning({
@@ -26,6 +44,9 @@ beforeAll(() => {
     police: policeJson,
     peds: pedsJson,
     props: propsJson,
+    // These tests shoot at a specific prop across open ground; ambient
+    // traffic would drive through the firing line and block the shot.
+    traffic: { ...trafficJson, count: 0 },
   });
 });
 
@@ -49,10 +70,20 @@ describe('destructible props', () => {
       map,
     );
     const p1 = state.players.byId[1]!;
+    const aim = clearAim(p1.pos);
     state = step(
       state,
       {},
-      [{ type: 'spawnProp', propId: 77, kind: 'bin', x: p1.pos.x + 30, y: p1.pos.y, orient: 0 }],
+      [
+        {
+          type: 'spawnProp',
+          propId: 77,
+          kind: 'bin',
+          x: p1.pos.x + Math.cos(aim) * 30,
+          y: p1.pos.y + Math.sin(aim) * 30,
+          orient: 0,
+        },
+      ],
       map,
     );
     expect(state.props.byId[77]!.intact).toBe(true);
@@ -62,7 +93,7 @@ describe('destructible props', () => {
     for (let i = 0; i < 60 && state.props.byId[77]!.intact; i++) {
       state = step(
         state,
-        { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: true, aimAngle: 0 } },
+        { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: true, aimAngle: aim } },
         [],
         map,
         events,
@@ -78,7 +109,7 @@ describe('destructible props', () => {
     const moreEvents: SimEvent[] = [];
     state = step(
       state,
-      { 1: { ...NULL_INPUT, seq: seq++, tick: 99, fire: false, aimAngle: 0 } },
+      { 1: { ...NULL_INPUT, seq: seq++, tick: 99, fire: false, aimAngle: aim } },
       [],
       map,
       moreEvents,
@@ -92,16 +123,28 @@ describe('destructible props', () => {
     let state = createGameState(2);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
     const p1 = state.players.byId[1]!;
+    // Run the car in along a stretch of road that is actually clear.
+    const lane = map.vehicleSpawns.find((sp, i) => i > 3 && i < 300)!;
+    const ux = Math.cos(lane.heading);
+    const uy = Math.sin(lane.heading);
+    void p1;
     const cmds: SimCommand[] = [
-      { type: 'spawnVehicle', vehicleId: 5, kind: 'car', x: p1.pos.x - 200, y: p1.pos.y, heading: 0 },
-      { type: 'spawnProp', propId: 88, kind: 'lamp', x: p1.pos.x - 60, y: p1.pos.y, orient: 0 },
+      { type: 'spawnVehicle', vehicleId: 5, kind: 'car', x: lane.x, y: lane.y, heading: lane.heading },
+      {
+        type: 'spawnProp',
+        propId: 88,
+        kind: 'lamp',
+        x: lane.x + ux * 70,
+        y: lane.y + uy * 70,
+        orient: 0,
+      },
     ];
     state = step(state, {}, cmds, map);
-    state.vehicles.byId[5]!.speed = 300;
     const events: SimEvent[] = [];
     let broke = false;
     let speedAtBreak = 0;
     for (let i = 0; i < 40 && !broke; i++) {
+      state.vehicles.byId[5]!.speed = 300;
       const preSpeed = state.vehicles.byId[5]!.speed;
       state = step(state, {}, [], map, events);
       if (!state.props.byId[88]!.intact) {
@@ -165,18 +208,26 @@ describe('the world replenishes', () => {
       map,
     );
     const p = state.players.byId[1]!;
-    // Prop just to the right of the spawn, shot along the +x axis — the same
-    // arrangement the destruction tests above use.
+    const aim = clearAim(p.pos);
     state = step(
       state,
       {},
-      [{ type: 'spawnProp', propId: 5, kind: 'bin', x: p.pos.x + 30, y: p.pos.y, orient: 0 }],
+      [
+        {
+          type: 'spawnProp',
+          propId: 5,
+          kind: 'bin',
+          x: p.pos.x + Math.cos(aim) * 30,
+          y: p.pos.y + Math.sin(aim) * 30,
+          orient: 0,
+        },
+      ],
       map,
     );
     for (let i = 0; i < 60 && state.props.byId[5]!.intact; i++) {
       state = step(
         state,
-        { 1: { ...NULL_INPUT, seq: i + 1, tick: i + 1, fire: true, aimAngle: 0 } },
+        { 1: { ...NULL_INPUT, seq: i + 1, tick: i + 1, fire: true, aimAngle: aim } },
         [],
         map,
       );

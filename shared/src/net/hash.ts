@@ -92,6 +92,8 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, c.fireCooldown);
     h = hashNumber(h, c.idleTicks);
     h = hashNumber(h, c.carHitCooldown);
+    h = hashNumber(h, c.vehicleId ?? -1);
+    h = hashNumber(h, c.stuckTicks);
   }
   for (const ped of snap.peds) {
     h = hashNumber(h, ped.id);

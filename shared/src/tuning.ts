@@ -66,6 +66,18 @@ export interface PoliceTuning {
   heatPerCopKill: number;
   heatDecayPerSec: number;
   despawnTicks: number;
+  /** Wanted level from which cops arrive in cars. */
+  carsFromStar: number;
+  /** Wanted level from which roadblocks are thrown across your path. */
+  roadblocksFromStar: number;
+  copCarSpeed: number;
+  maxCopCars: number;
+  roadblockCooldownTicks: number;
+  roadblockAheadDist: number;
+  /** Officers leave the cruiser and finish on foot inside this range. */
+  dismountDist: number;
+  /** Price of a respray, which clears heat outright. */
+  sprayCost: number;
 }
 
 export interface PedTuning {
@@ -218,6 +230,14 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerCopKill: n('heatPerCopKill'),
     heatDecayPerSec: n('heatDecayPerSec'),
     despawnTicks: n('despawnTicks'),
+    carsFromStar: n('carsFromStar'),
+    roadblocksFromStar: n('roadblocksFromStar'),
+    copCarSpeed: n('copCarSpeed'),
+    maxCopCars: n('maxCopCars'),
+    roadblockCooldownTicks: n('roadblockCooldownTicks'),
+    roadblockAheadDist: n('roadblockAheadDist'),
+    dismountDist: n('dismountDist'),
+    sprayCost: n('sprayCost'),
   };
 }
 
@@ -305,8 +325,14 @@ const DEFAULT_PICKUPS: PickupsTuning = {
 function parseTrafficTuning(raw: unknown): TrafficTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `traffic.${k}`);
+  // count may legitimately be zero: a server (or a test) can ask for a city
+  // with no ambient traffic at all, the same way PED_COUNT=0 is allowed.
+  const count = r['count'];
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) {
+    throw new Error('tuning: traffic.count must be a non-negative finite number');
+  }
   return {
-    count: n('count'),
+    count,
     cruiseSpeed: n('cruiseSpeed'),
     lookAhead: n('lookAhead'),
     turnProbe: n('turnProbe'),
@@ -382,6 +408,14 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerCopKill: 120,
   heatDecayPerSec: 5,
   despawnTicks: 150,
+  carsFromStar: 3,
+  roadblocksFromStar: 4,
+  copCarSpeed: 300,
+  maxCopCars: 6,
+  roadblockCooldownTicks: 240,
+  roadblockAheadDist: 420,
+  dismountDist: 150,
+  sprayCost: 400,
 };
 
 export function initTuning(raw: {
