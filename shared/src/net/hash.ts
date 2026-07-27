@@ -107,6 +107,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, prop.orient);
     h = hashBool(h, prop.intact);
     h = hashNumber(h, prop.hp);
+    h = hashNumber(h, prop.respawnAtTick ?? -1);
   }
   return h >>> 0;
 }

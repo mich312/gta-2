@@ -206,6 +206,7 @@ export function damageProp(
   if (prop.hp > 0) return;
   prop.hp = 0;
   prop.intact = false;
+  prop.respawnAtTick = state.tick + Math.round(getTuning().props.respawnDelaySec * TICK_RATE);
   events.push({
     type: 'propDown',
     tick: state.tick,
@@ -307,6 +308,44 @@ export function stepWeapons(
       const angle = p.aimAngle + (roll - 0.5) * 2 * weapon.spread;
       fireOnce(state, map, p, angle, weapon.range, weapon.damage, slot.weaponId, events);
     }
+  }
+}
+
+/**
+ * Street furniture comes back. Without this the city is consume-only: every
+ * session monotonically strips itself of lamps, bins and fences and never
+ * recovers. Repairs are held back until nobody is close enough to watch a
+ * lamp post reassemble itself.
+ */
+export function stepProps(state: GameState, events: SimEvent[]): void {
+  const t = getTuning().props;
+  const minDist2 = t.respawnMinDistFromPlayer * t.respawnMinDistFromPlayer;
+  for (const id of state.props.ids) {
+    const prop = state.props.byId[id];
+    if (!prop || prop.intact || prop.respawnAtTick === null) continue;
+    if (state.tick < prop.respawnAtTick) continue;
+    let watched = false;
+    for (const pid of state.players.ids) {
+      const p = state.players.byId[pid];
+      if (!p || p.mode === 'dead') continue;
+      const dx = p.pos.x - prop.pos.x;
+      const dy = p.pos.y - prop.pos.y;
+      if (dx * dx + dy * dy < minDist2) {
+        watched = true;
+        break;
+      }
+    }
+    if (watched) continue;
+    prop.intact = true;
+    prop.hp = t.kinds[prop.kind]?.hp ?? 10;
+    prop.respawnAtTick = null;
+    events.push({
+      type: 'propUp',
+      tick: state.tick,
+      kind: prop.kind,
+      x: Math.round(prop.pos.x),
+      y: Math.round(prop.pos.y),
+    });
   }
 }
 

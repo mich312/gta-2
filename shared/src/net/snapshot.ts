@@ -67,7 +67,7 @@ const COP_FIELDS = [
   'carHitCooldown',
 ] as const;
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
-const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp'] as const;
+const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {

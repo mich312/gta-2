@@ -77,6 +77,10 @@ export interface PropsTuning {
   breakSpeed: number;
   /** Speed multiplier applied to the car per prop smashed. */
   crashSpeedLoss: number;
+  /** Seconds a smashed prop stays broken before it is repaired. */
+  respawnDelaySec: number;
+  /** No prop is repaired within this many px of a living player. */
+  respawnMinDistFromPlayer: number;
 }
 
 export interface Tuning {
@@ -176,6 +180,14 @@ function parsePedTuning(raw: unknown): PedTuning {
   };
 }
 
+/** Top-level props.json keys that are settings, not prop kinds. */
+const PROP_SCALARS = new Set([
+  'breakSpeed',
+  'crashSpeedLoss',
+  'respawnDelaySec',
+  'respawnMinDistFromPlayer',
+]);
+
 function parsePropsTuning(raw: unknown): PropsTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   // Accept both the flat props.json file shape and the already-parsed
@@ -186,7 +198,7 @@ function parsePropsTuning(raw: unknown): PropsTuning {
       : r;
   const kinds: Record<string, PropKindTuning> = {};
   for (const [k, v] of Object.entries(kindsSrc)) {
-    if (k === 'breakSpeed' || k === 'crashSpeedLoss') continue;
+    if (PROP_SCALARS.has(k)) continue;
     const kv = (v ?? {}) as Record<string, unknown>;
     kinds[k] = { hp: num(kv['hp'], `props.${k}.hp`), radius: num(kv['radius'], `props.${k}.radius`) };
   }
@@ -194,6 +206,11 @@ function parsePropsTuning(raw: unknown): PropsTuning {
     kinds,
     breakSpeed: num(r['breakSpeed'], 'props.breakSpeed'),
     crashSpeedLoss: num(r['crashSpeedLoss'], 'props.crashSpeedLoss'),
+    respawnDelaySec: num(r['respawnDelaySec'], 'props.respawnDelaySec'),
+    respawnMinDistFromPlayer: num(
+      r['respawnMinDistFromPlayer'],
+      'props.respawnMinDistFromPlayer',
+    ),
   };
 }
 
@@ -205,6 +222,8 @@ const DEFAULT_PROPS: PropsTuning = {
   },
   breakSpeed: 110,
   crashSpeedLoss: 0.92,
+  respawnDelaySec: 45,
+  respawnMinDistFromPlayer: 260,
 };
 
 const DEFAULT_PEDS: PedTuning = {

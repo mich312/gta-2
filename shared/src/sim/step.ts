@@ -6,7 +6,7 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
-import { stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
 import { createPed } from './state.js';
@@ -24,7 +24,8 @@ import { PLAYER_RADIUS } from '../constants.js';
  *
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
- *   driverless vehicles coast.
+ *   driverless vehicles coast → weapons → vehicle impacts → police → peds
+ *   → prop repair.
  */
 export function step(
   state: GameState,
@@ -85,6 +86,7 @@ export function step(
   stepVehicleImpacts(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  stepProps(next, events);
 
   return next;
 }

@@ -146,3 +146,83 @@ describe('destructible props', () => {
     expect(run()).toBe(run());
   });
 });
+
+describe('the world replenishes', () => {
+  /** A lone prop, smashed, with the player parked far away. */
+  function smashedProp(seed: number): GameState {
+    let state = createGameState(seed);
+    state = step(
+      state,
+      {},
+      [
+        {
+          type: 'spawnPlayer',
+          playerId: 1,
+          name: 'p',
+          loadout: [{ weaponId: 'shotgun', ammo: 99 }],
+        },
+      ],
+      map,
+    );
+    const p = state.players.byId[1]!;
+    // Prop just to the right of the spawn, shot along the +x axis — the same
+    // arrangement the destruction tests above use.
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnProp', propId: 5, kind: 'bin', x: p.pos.x + 30, y: p.pos.y, orient: 0 }],
+      map,
+    );
+    for (let i = 0; i < 60 && state.props.byId[5]!.intact; i++) {
+      state = step(
+        state,
+        { 1: { ...NULL_INPUT, seq: i + 1, tick: i + 1, fire: true, aimAngle: 0 } },
+        [],
+        map,
+      );
+    }
+    expect(state.props.byId[5]!.intact).toBe(false);
+    return state;
+  }
+
+  it('a smashed prop schedules its own repair', () => {
+    const state = smashedProp(31);
+    expect(state.props.byId[5]!.respawnAtTick).not.toBeNull();
+    expect(state.props.byId[5]!.respawnAtTick).toBeGreaterThan(state.tick);
+  });
+
+  it('it comes back once the delay passes and nobody is watching', () => {
+    let state = smashedProp(31);
+    // Walk the witness far away, then run past the repair delay.
+    state.players.byId[1]!.pos = { x: map.widthPx - 40, y: map.heightPx - 40 };
+    const due = state.props.byId[5]!.respawnAtTick!;
+    const events: SimEvent[] = [];
+    while (state.tick <= due + 5) state = step(state, {}, [], map, events);
+    expect(state.props.byId[5]!.intact).toBe(true);
+    expect(state.props.byId[5]!.hp).toBeGreaterThan(0);
+    expect(state.props.byId[5]!.respawnAtTick).toBeNull();
+    expect(events.some((e) => e.type === 'propUp')).toBe(true);
+  });
+
+  it('but never while somebody is stood over it', () => {
+    let state = smashedProp(31);
+    const prop = state.props.byId[5]!;
+    const due = prop.respawnAtTick!;
+    while (state.tick <= due + 60) {
+      // Keep the witness parked right on top of the wreckage.
+      state.players.byId[1]!.pos = { x: prop.pos.x + 5, y: prop.pos.y + 5 };
+      state = step(state, {}, [], map);
+    }
+    expect(state.props.byId[5]!.intact).toBe(false);
+  });
+
+  it('repair is deterministic', () => {
+    const run = (): number => {
+      let state = smashedProp(31);
+      state.players.byId[1]!.pos = { x: map.widthPx - 40, y: map.heightPx - 40 };
+      for (let i = 0; i < 60 * 30; i++) state = step(state, {}, [], map);
+      return hashState(state);
+    };
+    expect(run()).toBe(run());
+  });
+});

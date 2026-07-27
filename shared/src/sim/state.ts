@@ -33,6 +33,8 @@ export interface PropState {
   orient: number;
   intact: boolean;
   hp: number;
+  /** Tick this prop is repaired on, or null while intact. */
+  respawnAtTick: number | null;
 }
 
 export type PedMode = 'walk' | 'flee';
@@ -126,7 +128,7 @@ export function createProp(
   orient: number,
   hp: number,
 ): PropState {
-  return { id, kind, pos: cloneVec(pos), orient, intact: true, hp };
+  return { id, kind, pos: cloneVec(pos), orient, intact: true, hp, respawnAtTick: null };
 }
 
 export function cloneProp(p: PropState): PropState {
