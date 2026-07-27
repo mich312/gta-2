@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import playerTuning from '../data/player.json';
 import vehiclesJson from '../data/vehicles.json';
+import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -40,7 +41,7 @@ function arenaMap(wallAtTx: number | null): CityMap {
 }
 
 beforeAll(() => {
-  initTuning({ player: playerTuning, vehicles: vehiclesJson });
+  initTuning({ player: playerTuning, vehicles: vehiclesJson, traffic: trafficJson });
 });
 
 function key(seq: number, keys: Partial<InputIntent>): InputIntent {
@@ -150,6 +151,47 @@ describe('vehicles', () => {
     }
     expect(maxSpeed).toBeGreaterThan(200); // it really drove
     expect(crashed).toBe(true); // and it really crashed (speed damped)
+  });
+
+  it('an ambient-speed car runs a pedestrian down and knocks them clear', () => {
+    // The run-over threshold used to sit ABOVE the speed ambient traffic
+    // cruises at, so every NPC car in the city drove through people without
+    // touching them. A car doing the speed limit has to hurt.
+    const arena = arenaMap(null);
+    let state = createGameState(7);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'victim' }], arena);
+    const victim = state.players.byId[1]!;
+    const cruise = trafficJson.cruiseSpeed;
+    state = step(
+      state,
+      {},
+      [
+        {
+          type: 'spawnVehicle',
+          vehicleId: 2,
+          kind: 'car',
+          x: victim.pos.x - 40,
+          y: victim.pos.y,
+          heading: 0,
+        },
+      ],
+      arena,
+    );
+    const car = state.vehicles.byId[2]!;
+    car.speed = cruise;
+    car.driverId = -1001; // an ambient driver, nobody's fault but the city's
+
+    let hitTick = -1;
+    for (let i = 0; i < 30 && hitTick < 0; i++) {
+      state.vehicles.byId[2]!.speed = cruise;
+      state = step(state, {}, [], arena);
+      if (state.players.byId[1]!.health < 100) hitTick = i;
+    }
+    expect(hitTick).toBeGreaterThanOrEqual(0);
+    const hit = state.players.byId[1]!;
+    expect(hit.carHitCooldown).toBeGreaterThan(0);
+    // Shoved along the car's line rather than merely dented.
+    expect(hit.vel.x).toBeGreaterThan(30);
   });
 
   it('prediction while driving is bit-exact (zero correction, no other cars)', () => {

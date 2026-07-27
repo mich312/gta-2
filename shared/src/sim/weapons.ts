@@ -24,8 +24,23 @@ export const RESPAWN_DELAY_TICKS = TICK_RATE * 3;
 /** The one weapon everybody always has. */
 export const FISTS_ID = 'fists';
 export const FISTS_SLOT: { weaponId: string; ammo: number } = { weaponId: FISTS_ID, ammo: 0 };
-const RUNOVER_MIN_SPEED = 130;
+/**
+ * Speed at which a car starts hurting whoever it drives into.
+ *
+ * This was 130 px/s, which is ABOVE the speed ambient traffic cruises at
+ * (`traffic.cruiseSpeed`, 104) — so every NPC car in the city drove straight
+ * through pedestrians and players without touching them, and the only vehicle
+ * in the game that could run anybody over was one a player was flooring. A
+ * car rolling off a kerb is enough; the damage scales with speed from there.
+ */
+const RUNOVER_MIN_SPEED = 40;
 const RUNOVER_IMMUNITY_TICKS = 12;
+/** Damage per px/s of the car's speed. */
+const RUNOVER_DAMAGE_PER_SPEED = 0.13;
+/** Ditto for pedestrians, who are rather less robust. */
+const RUNOVER_PED_DAMAGE_PER_SPEED = 0.2;
+/** How much of the car's speed is transferred to whoever it hits, as px/s. */
+const RUNOVER_KNOCKBACK = 0.7;
 
 /** Distance along a ray until it enters a solid tile (DDA; exact ops). */
 export function rayWallDistance(
@@ -407,8 +422,20 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       if (!p || p.mode !== 'foot' || p.carHitCooldown > 0) continue;
       if (Math.abs(p.pos.x - v.pos.x) < half && Math.abs(p.pos.y - v.pos.y) < half) {
         p.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
-        const damage = Math.abs(v.speed) * 0.12;
-        applyDamage(state, p, damage, v.driverId ?? -1, 'vehicle', events);
+        // Thrown along the car's line, not merely damaged. Walk acceleration
+        // eats the extra velocity over the next few ticks, which is what reads
+        // as being knocked off your feet rather than teleported.
+        const shove = Math.abs(v.speed) * RUNOVER_KNOCKBACK * (v.speed >= 0 ? 1 : -1);
+        p.vel.x = q8(p.vel.x + dCos(v.heading) * shove);
+        p.vel.y = q8(p.vel.y + dSin(v.heading) * shove);
+        applyDamage(
+          state,
+          p,
+          Math.abs(v.speed) * RUNOVER_DAMAGE_PER_SPEED,
+          v.driverId ?? -1,
+          'vehicle',
+          events,
+        );
       }
     }
     // Fixed order: players, then cops, then peds. Never reorder — the damage
@@ -418,14 +445,14 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       if (!cop || cop.carHitCooldown > 0) continue;
       if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
         cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
-        damageCop(state, cop, Math.abs(v.speed) * 0.12, v.driverId ?? -1, events);
+        damageCop(state, cop, Math.abs(v.speed) * RUNOVER_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
       }
     }
     for (const pedId of [...state.peds.ids]) {
       const ped = state.peds.byId[pedId];
       if (!ped) continue;
       if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
-        damagePed(state, ped, Math.abs(v.speed) * 0.2, v.driverId ?? -1, events);
+        damagePed(state, ped, Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
       }
     }
     // Street furniture: smashed at speed, discrete transition + a nudge of
