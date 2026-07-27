@@ -1,6 +1,6 @@
 # topdown-city (gta-2): the authoritative WebSocket game server, which also
 # serves the built client on the same port (CLIENT_DIR). One origin behind the
-# edge TLS proxy at https://gta.mich312.dev — the browser speaks wss:// there.
+# edge TLS proxy at https://gta.mich312.com — the browser speaks wss:// there.
 #
 #   docker build -t gta-2 .
 #   docker run -p 8080:8080 -v ./data:/app/data gta-2

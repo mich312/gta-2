@@ -1,5 +1,5 @@
 # Run the game behind the shared external reverse proxy (edge stack), which
-# terminates TLS at https://gta.mich312.dev and passes the WebSocket upgrade
+# terminates TLS at https://gta.mich312.com and passes the WebSocket upgrade
 # through transparently. Layer on top of the base compose:
 #
 #   docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build

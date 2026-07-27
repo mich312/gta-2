@@ -4,7 +4,7 @@
 #
 # Build-on-server: pull main, rebuild the image (pnpm build + vite build), and
 # health-check. Health-checks the container's own loopback port rather than the
-# public URL, so a deploy succeeds even before DNS/cert for gta.mich312.dev is
+# public URL, so a deploy succeeds even before DNS/cert for gta.mich312.com is
 # live (the edge proxy is verified separately). Rolls back on failure — and a
 # failed build leaves the old container running.
 set -euo pipefail
