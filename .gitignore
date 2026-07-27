@@ -8,3 +8,4 @@ coverage/
 # matched shared/data/, silently keeping the gameplay tunables out of the repo.
 /data/
 server/data/
+sprites.preview.png

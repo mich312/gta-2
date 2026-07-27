@@ -1,5 +1,5 @@
 import type { CopState, FullSnapshot, PedState, PlayerState, PropState, VehicleState } from 'shared';
-import { TICK_MS, TICK_RATE } from 'shared';
+import { TICK_MS, TICK_RATE, clamp } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
 export const INTERP_DELAY_TICKS = 3;
@@ -55,26 +55,35 @@ export class Interpolator {
     if (last && snap.tick <= last.tick) return;
     this.snapshots.push(snap);
     while (this.snapshots.length > BUFFER_TICKS) this.snapshots.shift();
-
-    const target = snap.tick - INTERP_DELAY_TICKS;
     if (!this.synced) {
-      this.renderTick = target;
+      this.renderTick = snap.tick - INTERP_DELAY_TICKS;
       this.synced = true;
-    } else {
-      // Gently servo toward the ideal delay so clock drift never snaps.
-      this.renderTick += (target - this.renderTick) * 0.05;
     }
   }
 
-  /** Advance the render clock by a real-time frame delta. */
+  /**
+   * Advance the render clock by a real-time frame delta.
+   *
+   * The clock is dilated rather than servoed on arrival: drifting towards the
+   * head of the buffer slows it slightly, falling behind speeds it up. Doing
+   * this per frame instead of per snapshot keeps the correction independent of
+   * the display rate, and dilation instead of a hard clamp means a late
+   * snapshot shows up as remote entities easing off rather than freezing on the
+   * spot and then jumping when the packet lands.
+   */
   advance(frameMs: number): void {
     if (!this.synced) return;
-    this.renderTick += frameMs / TICK_MS;
     const latest = this.snapshots[this.snapshots.length - 1];
-    if (latest) {
-      this.renderTick = Math.min(this.renderTick, latest.tick);
-      this.renderTick = Math.max(this.renderTick, latest.tick - BUFFER_TICKS);
-    }
+    if (!latest) return;
+
+    const behind = latest.tick - this.renderTick;
+    const rate = clamp(1 + (behind - INTERP_DELAY_TICKS) * 0.08, 0.8, 1.2);
+    this.renderTick += (frameMs / TICK_MS) * rate;
+
+    // Never extrapolate past the newest snapshot, and never fall so far behind
+    // that the buffer no longer brackets us.
+    this.renderTick = Math.min(this.renderTick, latest.tick);
+    this.renderTick = Math.max(this.renderTick, latest.tick - BUFFER_TICKS);
   }
 
   /** Interpolated remote entities; the local player + their car are excluded. */

@@ -60,7 +60,8 @@ pnpm test                                   # vitest across shared + server
 pnpm bots --count=8 --script=brawl --duration=60   # headless multiplayer harness
                                             # scripts: idle|cruise|circle|joyride|brawl|jitter
 pnpm mapgen --seed=7                        # render a city to PNG without the game
-pnpm sprites                                # regenerate placeholder sprite sheet
+pnpm sprites                                # regenerate the sprite sheet
+pnpm sprites -- --preview=8 --only=car      # + a zoomed contact sheet to eyeball
 pnpm replay replays/<file>.jsonl            # re-simulate a recording, verify hashes
 node server/dist/tools/persistCheck.js      # e2e: purchase survives server restart
 ```
@@ -78,6 +79,10 @@ re-simulating to identical hashes is the desync alarm.
   ledger, shops, scrypt accounts) lives here, outside the sim, and touches it
   only through recorded SimCommands.
 - `client/` — Vite + Canvas 2D. Rendering and input only; predicts the local
-  player with rewind/replay reconciliation, interpolates everything else.
+  player with rewind/replay reconciliation, interpolates everything else. The
+  world view stays 480×270 world pixels but is drawn into a backing store twice
+  that size, and the local player is sampled between simulation ticks so motion
+  is continuous at any display rate.
 
-See `PLAN.md` for the architecture and `PROGRESS.md` for the per-phase log.
+See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
+direction, and `PROGRESS.md` for the per-phase log.
