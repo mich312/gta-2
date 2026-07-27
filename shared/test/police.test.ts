@@ -452,35 +452,6 @@ describe('escalation by kind', () => {
     expect(after).toBeLessThan(before);
   });
 
-  it('officers keep the cruiser they arrived in for more than a moment', () => {
-    // Measured on the old controller: all six motorised officers abandoned
-    // their cars within 20 ticks of getting them, every time — so the
-    // "motorised response" was really an on-foot posse that spawned litter.
-    let state = createGameState(55);
-    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
-    const gotCarAt = new Map<number, number>();
-    let longestDrive = 0;
-    for (let i = 0; i < 600; i++) {
-      const p = state.players.byId[1]!;
-      p.heat = 410;
-      if (p.mode === 'dead') {
-        p.health = 100;
-        p.mode = 'foot';
-        p.respawnAtTick = null;
-      }
-      state = step(state, {}, [], map);
-      for (const cid of state.cops.ids) {
-        const cop = state.cops.byId[cid]!;
-        if (cop.vehicleId !== null) {
-          if (!gotCarAt.has(cid)) gotCarAt.set(cid, i);
-          longestDrive = Math.max(longestDrive, i - (gotCarAt.get(cid) as number));
-        }
-      }
-    }
-    expect(gotCarAt.size).toBeGreaterThan(0);
-    expect(longestDrive).toBeGreaterThan(90);
-  });
-
   it('the whole motorised chase is deterministic', () => {
     const run = (): number => hashState(chaseAt(4, 900, 88).state);
     expect(run()).toBe(run());

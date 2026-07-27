@@ -168,6 +168,8 @@ const PURSUIT_UTURN_SPEED = 40;
 const PURSUIT_WEDGED_SPEED = 20;
 /** How far ahead the direct line to the target is checked for a wall. */
 const PURSUIT_CLEAR_LOOK = 96;
+/** Multiple of `dismountDist` within which a walled-off target is walked to. */
+const PURSUIT_FOOT_DIST_FACTOR = 2;
 
 /** Cop cruisers are AI-driven like traffic, but with a distinct id band. */
 function copDriverId(copId: number): number {
@@ -281,6 +283,17 @@ function drivePursuit(
   // road grid around it rather than driving into it.
   const look = Math.min(d, PURSUIT_CLEAR_LOOK);
   const blocked = rayWallDistance(map, v.pos.x, v.pos.y, dCos(want), dSin(want), look) < look;
+
+  // Close, but with a wall in between: the fugitive is inside a building, a
+  // plaza or a park interior, and no amount of driving will help. Park it and
+  // go in on foot. Without this an officer circles the block indefinitely —
+  // never near enough to dismount, never blocked enough to give up on the car.
+  if (blocked && d <= t.dismountDist * PURSUIT_FOOT_DIST_FACTOR) {
+    v.driverId = null;
+    cop.vehicleId = null;
+    cop.stuckTicks = 0;
+    return;
+  }
   let aim = want;
   if (blocked) {
     const dir = detourDir(map, v, want);

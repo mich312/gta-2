@@ -11,6 +11,7 @@ import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
+import { openWater } from './helpers.js';
 import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
@@ -154,7 +155,9 @@ describe('boats', () => {
   });
 
   it('a boat drives on water and is stopped by the bank', () => {
-    const mooring = map.boatSpawns[0]!;
+    // A mooring with river ahead of it, not merely the first one on the map —
+    // see test/helpers.ts.
+    const mooring = openWater(map, 80);
     let state = createGameState(6);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'sailor' }], map);
     state = step(
