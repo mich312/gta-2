@@ -4,6 +4,7 @@ import type { Vec2 } from '../math/vec.js';
 import type { WorldgenParams } from './params.js';
 import {
   T_BUILDING,
+  T_LOT,
   T_PARK,
   T_ROAD,
   T_SIDEWALK,
@@ -218,4 +219,35 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
   }
   map.playerSpawns = spawns;
   return rng;
+}
+
+const PICKUP_CYCLE = ['health', 'armour', 'ammo', 'health', 'ammo'] as const;
+
+/**
+ * Health/armour/ammo crates. Placed on open ground away from the road —
+ * parks and industrial lots — so collecting one is a small detour rather
+ * than something you drive over by accident. Deterministic row-major
+ * sampling with a fixed kind cycle, exactly like the prop pass.
+ */
+export function placePickups(map: CityMap): void {
+  const spawns: CityMap['pickupSpawns'] = [];
+  const spacing = 34;
+  let n = 0;
+  for (let ty = 0; ty < map.heightTiles; ty++) {
+    for (let tx = 0; tx < map.widthTiles; tx++) {
+      const tile = t(map, tx, ty);
+      if (tile !== T_PARK && tile !== T_LOT) continue;
+      // Interior tiles only: a crate flush against a wall is a pain to reach.
+      if (t(map, tx - 1, ty) === T_BUILDING || t(map, tx + 1, ty) === T_BUILDING) continue;
+      if (t(map, tx, ty - 1) === T_BUILDING || t(map, tx, ty + 1) === T_BUILDING) continue;
+      n++;
+      if (n % spacing !== 0) continue;
+      spawns.push({
+        kind: PICKUP_CYCLE[spawns.length % PICKUP_CYCLE.length] as 'health' | 'armour' | 'ammo',
+        x: (tx + 0.5) * TILE_SIZE,
+        y: (ty + 0.5) * TILE_SIZE,
+      });
+    }
+  }
+  map.pickupSpawns = spawns;
 }

@@ -33,6 +33,10 @@ export interface WeaponTuning {
   range: number;
   spread: number;
   pellets: number;
+  /** Swung, not shot: no ammo, no tracer, very short reach. */
+  melee: boolean;
+  /** Never consumes ammo. Fists always work; that is the point of them. */
+  infiniteAmmo: boolean;
 }
 
 export interface PoliceTuning {
@@ -83,6 +87,21 @@ export interface PropsTuning {
   respawnMinDistFromPlayer: number;
 }
 
+export interface PickupKindTuning {
+  value: number;
+  respawnSec: number;
+}
+
+export interface PickupsTuning {
+  /** Collection radius, px. */
+  radius: number;
+  maxHealth: number;
+  maxArmour: number;
+  kinds: Record<'health' | 'armour' | 'ammo', PickupKindTuning>;
+  /** Roughly one pickup per N eligible open tiles, at worldgen time. */
+  spacing: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
@@ -90,6 +109,7 @@ export interface Tuning {
   police: PoliceTuning;
   peds: PedTuning;
   props: PropsTuning;
+  pickups: PickupsTuning;
 }
 
 let current: Tuning | null = null;
@@ -136,6 +156,8 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
     range: n('range'),
     spread: n('spread'),
     pellets: n('pellets'),
+    melee: r['melee'] === true,
+    infiniteAmmo: r['infiniteAmmo'] === true,
   };
 }
 
@@ -214,6 +236,38 @@ function parsePropsTuning(raw: unknown): PropsTuning {
   };
 }
 
+function parsePickupsTuning(raw: unknown): PickupsTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const kindsRaw = (r['kinds'] ?? {}) as Record<string, unknown>;
+  const kinds = {} as PickupsTuning['kinds'];
+  for (const k of ['health', 'armour', 'ammo'] as const) {
+    const kv = (kindsRaw[k] ?? {}) as Record<string, unknown>;
+    kinds[k] = {
+      value: num(kv['value'], `pickups.${k}.value`),
+      respawnSec: num(kv['respawnSec'], `pickups.${k}.respawnSec`),
+    };
+  }
+  return {
+    radius: num(r['radius'], 'pickups.radius'),
+    maxHealth: num(r['maxHealth'], 'pickups.maxHealth'),
+    maxArmour: num(r['maxArmour'], 'pickups.maxArmour'),
+    kinds,
+    spacing: num(r['spacing'], 'pickups.spacing'),
+  };
+}
+
+const DEFAULT_PICKUPS: PickupsTuning = {
+  radius: 11,
+  maxHealth: 100,
+  maxArmour: 100,
+  kinds: {
+    health: { value: 40, respawnSec: 30 },
+    armour: { value: 50, respawnSec: 50 },
+    ammo: { value: 45, respawnSec: 25 },
+  },
+  spacing: 34,
+};
+
 const DEFAULT_PROPS: PropsTuning = {
   kinds: {
     lamp: { hp: 15, radius: 4 },
@@ -267,6 +321,7 @@ export function initTuning(raw: {
   police?: unknown;
   peds?: unknown;
   props?: unknown;
+  pickups?: unknown;
 }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
@@ -285,6 +340,7 @@ export function initTuning(raw: {
     police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
     peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
     props: raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS,
+    pickups: raw.pickups !== undefined ? parsePickupsTuning(raw.pickups) : DEFAULT_PICKUPS,
   };
 }
 

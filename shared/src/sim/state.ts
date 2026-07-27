@@ -37,6 +37,18 @@ export interface PropState {
   respawnAtTick: number | null;
 }
 
+export type PickupKind = 'health' | 'armour' | 'ammo';
+
+export interface PickupState {
+  id: number;
+  kind: PickupKind;
+  pos: Vec2;
+  /** False while on cooldown; the sprite is hidden and it cannot be taken. */
+  active: boolean;
+  /** Tick it returns on, or null while active. */
+  respawnAtTick: number | null;
+}
+
 export type PedMode = 'walk' | 'flee';
 
 export interface PedState {
@@ -69,6 +81,8 @@ export interface PlayerState {
   aimAngle: number;
   mode: PlayerMode;
   health: number;
+  /** Soaks damage before health does. Bought or picked up; never regenerates. */
+  armour: number;
   vehicleId: number | null;
   /** Injected at spawn / via sim commands — never client-set. */
   weapons: WeaponSlot[];
@@ -105,6 +119,7 @@ export interface GameState {
   cops: EntityTable<CopState>;
   peds: EntityTable<PedState>;
   props: EntityTable<PropState>;
+  pickups: EntityTable<PickupState>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -118,7 +133,16 @@ export function createGameState(seed: number): GameState {
     cops: createTable(),
     peds: createTable(),
     props: createTable(),
+    pickups: createTable(),
   };
+}
+
+export function createPickup(id: number, kind: PickupKind, pos: Vec2): PickupState {
+  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null };
+}
+
+export function clonePickup(p: PickupState): PickupState {
+  return { ...p, pos: cloneVec(p.pos) };
 }
 
 export function createProp(
@@ -182,6 +206,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     aimAngle: 0,
     mode: 'foot',
     health: 100,
+    armour: 0,
     vehicleId: null,
     weapons: [],
     activeWeapon: -1,
@@ -221,5 +246,6 @@ export function cloneState(s: GameState): GameState {
     cops: cloneTable(s.cops, cloneCop),
     peds: cloneTable(s.peds, clonePed),
     props: cloneTable(s.props, cloneProp),
+    pickups: cloneTable(s.pickups, clonePickup),
   };
 }

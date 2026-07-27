@@ -1,6 +1,6 @@
 import { nextIntRange } from '../rng/prng.js';
 import type { GameState } from './state.js';
-import { cloneState, createPlayer, createProp, createVehicle } from './state.js';
+import { cloneState, createPickup, createPlayer, createProp, createVehicle } from './state.js';
 import { insertEntity, removeEntity, getEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
@@ -9,6 +9,7 @@ import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicl
 import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
+import { stepPickups } from './pickups.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
@@ -25,7 +26,7 @@ import { PLAYER_RADIUS } from '../constants.js';
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
  *   driverless vehicles coast → weapons → vehicle impacts → police → peds
- *   → prop repair.
+ *   → prop repair → pickups.
  */
 export function step(
   state: GameState,
@@ -87,6 +88,7 @@ export function step(
   stepPolice(next, map, events);
   stepPeds(next, map, events);
   stepProps(next, events);
+  stepPickups(next, events);
 
   return next;
 }
@@ -162,6 +164,12 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
         createProp(cmd.propId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.orient, hp),
       );
       if (cmd.propId >= state.nextEntityId) state.nextEntityId = cmd.propId + 1;
+      break;
+    }
+    case 'spawnPickup': {
+      if (getEntity(state.pickups, cmd.pickupId)) return;
+      insertEntity(state.pickups, createPickup(cmd.pickupId, cmd.kind, { x: cmd.x, y: cmd.y }));
+      if (cmd.pickupId >= state.nextEntityId) state.nextEntityId = cmd.pickupId + 1;
       break;
     }
     case 'spawnVehicle': {

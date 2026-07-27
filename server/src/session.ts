@@ -20,8 +20,14 @@ const INPUT_QUEUE_MAX = 60;
 /** How many parked cars a session starts with. */
 const MAX_VEHICLES = 48;
 
-/** What a fresh guest carries. Phase 5 replaces this with account loadouts. */
-export const DEFAULT_LOADOUT: WeaponSlot[] = [{ weaponId: 'pistol', ammo: 90 }];
+/**
+ * What a fresh guest carries. Fists come first and are never taken away —
+ * an unarmed player still needs a verb.
+ */
+export const DEFAULT_LOADOUT: WeaponSlot[] = [
+  { weaponId: 'fists', ammo: 0 },
+  { weaponId: 'pistol', ammo: 90 },
+];
 
 export interface SessionOptions {
   weaponsLostOnDeath: boolean;
@@ -125,6 +131,17 @@ export class Session {
         x: spot.x,
         y: spot.y,
         orient: spot.orient,
+      });
+    }
+
+    // Health, armour and ammo crates.
+    for (const spot of this.map.pickupSpawns) {
+      this.pendingCommands.push({
+        type: 'spawnPickup',
+        pickupId: this.nextId++,
+        kind: spot.kind,
+        x: spot.x,
+        y: spot.y,
       });
     }
 
@@ -323,7 +340,11 @@ export class Session {
       const weaponsAtDeath = prev.players.byId[ev.playerId]?.weapons ?? [];
       const loadout = this.options.weaponsLostOnDeath
         ? DEFAULT_LOADOUT.map((w) => ({ ...w }))
-        : weaponsAtDeath.map((w) => ({ ...w }));
+        : // Keeping your guns still means keeping exactly one pair of fists.
+          [
+            { weaponId: 'fists', ammo: 0 },
+            ...weaponsAtDeath.filter((w) => w.weaponId !== 'fists').map((w) => ({ ...w })),
+          ];
       this.pendingRespawns.push({
         playerId: ev.playerId,
         dueTick: ev.tick + RESPAWN_DELAY_TICKS,

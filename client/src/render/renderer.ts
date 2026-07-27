@@ -1,5 +1,6 @@
 import {
   type CityMap,
+  type PickupState,
   type PlayerState,
   type PropState,
   type Vec2,
@@ -188,6 +189,7 @@ export function render(
   }
 
   drawProps(ctx, sprites, scene.remotes.props, dx, dy);
+  drawPickups(ctx, scene.remotes.pickups, dx, dy, lights, scene.nowMs);
 
   for (const pd of scene.remotes.peds) {
     const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
@@ -306,6 +308,51 @@ function drawProps(
       ctx.fillStyle = prop.intact ? '#8a8f96' : '#4a4e53';
       ctx.fillRect(x - 3 * RENDER_SCALE, y - 3 * RENDER_SCALE, 6 * RENDER_SCALE, 6 * RENDER_SCALE);
     }
+  }
+}
+
+const PICKUP_COLORS: Record<string, string> = {
+  health: '#57c98a',
+  armour: '#5aa8e0',
+  ammo: '#e0b452',
+};
+
+/**
+ * Pickups are drawn rather than sprited: a small floating lozenge with a
+ * glow, bobbing on wall-clock time. They have to read instantly at a glance
+ * from across the street, and a flat colour-coded shape does that better
+ * than a 12-pixel crate would.
+ */
+function drawPickups(
+  ctx: CanvasRenderingContext2D,
+  pickups: PickupState[],
+  dx: (n: number) => number,
+  dy: (n: number) => number,
+  lights: LightPass,
+  nowMs: number,
+): void {
+  for (const pu of pickups) {
+    if (!pu.active) continue;
+    const color = PICKUP_COLORS[pu.kind] ?? '#c0c0c0';
+    const bob = Math.sin(nowMs * 0.004 + pu.id) * 1.5 * RENDER_SCALE;
+    const x = dx(pu.pos.x);
+    const y = dy(pu.pos.y) + bob;
+    const r = 4 * RENDER_SCALE;
+
+    drawShadow(ctx, dx(pu.pos.x), dy(pu.pos.y), r * 1.1, r * 0.8, 2);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = RENDER_SCALE;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    lights.point(x, y, 9 * RENDER_SCALE, 'head', 0.22);
   }
 }
 

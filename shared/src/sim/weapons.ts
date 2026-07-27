@@ -13,6 +13,9 @@ import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile } from '../world/collide.js';
 
 export const RESPAWN_DELAY_TICKS = TICK_RATE * 3;
+/** The one weapon everybody always has. */
+export const FISTS_ID = 'fists';
+export const FISTS_SLOT: { weaponId: string; ammo: number } = { weaponId: FISTS_ID, ammo: 0 };
 const RUNOVER_MIN_SPEED = 130;
 const RUNOVER_IMMUNITY_TICKS = 12;
 
@@ -242,6 +245,12 @@ export function applyDamage(
   events: SimEvent[],
 ): void {
   if (victim.mode === 'dead') return;
+  // Armour soaks first and is spent doing it; the remainder reaches health.
+  if (victim.armour > 0) {
+    const soaked = Math.min(victim.armour, damage);
+    victim.armour = q8(victim.armour - soaked);
+    damage -= soaked;
+  }
   victim.health -= damage;
   // Violence against players is a crime (cop shooters pass attackerId -1).
   const attacker = attackerId !== victim.id ? state.players.byId[attackerId] : undefined;
@@ -262,8 +271,10 @@ export function applyDamage(
   victim.vel.x = 0;
   victim.vel.y = 0;
   victim.respawnAtTick = state.tick + RESPAWN_DELAY_TICKS;
-  victim.weapons = [];
-  victim.activeWeapon = -1;
+  victim.armour = 0;
+  // Guns are lost, hands are not. An unarmed player must still have a verb.
+  victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
+  victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
   if (attackerId !== victim.id) {
     events.push({
@@ -296,11 +307,12 @@ export function stepWeapons(
     }
     if (!input.fire || p.fireCooldown > 0 || p.mode !== 'foot') continue;
     const slot = p.weapons[p.activeWeapon];
-    if (!slot || slot.ammo <= 0) continue;
+    if (!slot) continue;
     const weapon = getWeaponTuning(slot.weaponId);
     if (!weapon) continue;
+    if (slot.ammo <= 0 && !weapon.infiniteAmmo) continue;
 
-    slot.ammo--;
+    if (!weapon.infiniteAmmo) slot.ammo--;
     p.fireCooldown = weapon.cooldownTicks;
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
       let roll: number;

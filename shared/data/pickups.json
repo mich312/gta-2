@@ -1,0 +1,11 @@
+{
+  "radius": 11,
+  "maxHealth": 100,
+  "maxArmour": 100,
+  "kinds": {
+    "health": { "value": 40, "respawnSec": 30 },
+    "armour": { "value": 50, "respawnSec": 50 },
+    "ammo": { "value": 45, "respawnSec": 25 }
+  },
+  "spacing": 34
+}

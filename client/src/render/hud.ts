@@ -111,6 +111,12 @@ export class Hud {
     ctx.fillRect(5, INTERNAL_HEIGHT - 21, Math.max(0, (me.health / 100) * w), 6);
     ctx.strokeStyle = '#ffffff55';
     ctx.strokeRect(4.5, INTERNAL_HEIGHT - 21.5, w + 1, 7);
+    // Armour rides directly under health — it is spent first, so it reads as
+    // the outer layer of the same bar.
+    if (me.armour > 0) {
+      ctx.fillStyle = '#5aa8e0';
+      ctx.fillRect(5, INTERNAL_HEIGHT - 13, Math.max(0, (me.armour / 100) * w), 3);
+    }
 
     // Weapon + ammo.
     const slot = me.weapons[me.activeWeapon];

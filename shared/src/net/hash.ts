@@ -53,6 +53,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.aimAngle);
     h = hashString(h, p.mode);
     h = hashNumber(h, p.health);
+    h = hashNumber(h, p.armour);
     h = hashNumber(h, p.vehicleId ?? -1);
     h = hashNumber(h, p.weapons.length);
     for (const w of p.weapons) {
@@ -108,6 +109,14 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashBool(h, prop.intact);
     h = hashNumber(h, prop.hp);
     h = hashNumber(h, prop.respawnAtTick ?? -1);
+  }
+  for (const pu of snap.pickups) {
+    h = hashNumber(h, pu.id);
+    h = hashString(h, pu.kind);
+    h = hashNumber(h, pu.pos.x);
+    h = hashNumber(h, pu.pos.y);
+    h = hashBool(h, pu.active);
+    h = hashNumber(h, pu.respawnAtTick ?? -1);
   }
   return h >>> 0;
 }

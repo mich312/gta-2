@@ -7,6 +7,7 @@ import {
   placePedSpawns,
   placePlayerSpawns,
   placeProps,
+  placePickups,
   placeShops,
   placeVehicleSpawns,
 } from './amenities.js';
@@ -43,6 +44,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     playerSpawns: [],
     pedSpawns: [],
     propSpawns: [],
+    pickupSpawns: [],
   };
 
   let seeds;
@@ -67,6 +69,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   rng = placePlayerSpawns(map, params, rng);
   placePedSpawns(map);
   placeProps(map);
+  placePickups(map);
 
   return map;
 }

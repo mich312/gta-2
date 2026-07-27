@@ -11,4 +11,13 @@ export type SimEvent =
   | { type: 'copDown'; tick: number; killerId: number }
   | { type: 'pedDown'; tick: number; killerId: number }
   | { type: 'propDown'; tick: number; kind: string; x: number; y: number }
-  | { type: 'propUp'; tick: number; kind: string; x: number; y: number };
+  | { type: 'propUp'; tick: number; kind: string; x: number; y: number }
+  | {
+      type: 'pickupTaken';
+      tick: number;
+      kind: string;
+      playerId: number;
+      x: number;
+      y: number;
+    }
+  | { type: 'pickupUp'; tick: number; kind: string; id: number };

@@ -78,6 +78,8 @@ export interface CityMap {
   pedSpawns: Vec2[];
   /** Street furniture: lamp posts, bins, fences (phase 8). */
   propSpawns: Array<{ kind: string; x: number; y: number; orient: number }>;
+  /** Health/armour/ammo crates (roadmap A3). */
+  pickupSpawns: Array<{ kind: 'health' | 'armour' | 'ammo'; x: number; y: number }>;
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {
