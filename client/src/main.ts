@@ -6,6 +6,8 @@ import {
   type Vec2,
   Predictor,
   SnapshotSync,
+  INTERNAL_HEIGHT,
+  INTERNAL_WIDTH,
   TICK_MS,
   TILE_SIZE,
   generateCity,
@@ -25,6 +27,7 @@ import { NetStats } from './debug/stats.js';
 import { DebugOverlay } from './debug/overlay.js';
 import { Hud } from './render/hud.js';
 import { Minimap } from './render/minimap.js';
+import { Audio } from './audio/audio.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -56,6 +59,7 @@ const playerPose = new PoseSmoother();
 const vehiclePose = new PoseSmoother();
 const hud = new Hud();
 const minimap = new Minimap();
+const audio = new Audio();
 
 // The tile cache bakes sprites (trees, bushes, yard clutter) into its chunks,
 // so anything built before the sheet arrives has to be thrown away.
@@ -114,17 +118,51 @@ function onStateUpdated(ackSeq: number | null): void {
   }
 }
 
-/** Turn the sim's discrete events into muzzle flashes, sparks and stains. */
+/**
+ * Distance and stereo pan of a world point relative to the camera, for
+ * positional audio. The camera is the listener, not the player: what you can
+ * see is what you should be able to hear.
+ */
+function listen(x: number, y: number): { dist: number; pan: number } {
+  const cx = cam.x + VIEW_CENTER_X;
+  const cy = cam.y + VIEW_CENTER_Y;
+  const dx = x - cx;
+  const dy = y - cy;
+  return { dist: Math.hypot(dx, dy), pan: Math.max(-1, Math.min(1, dx / VIEW_CENTER_X)) };
+}
+
+/** Turn the sim's discrete events into muzzle flashes, sparks, stains and noise. */
 function onGameEvent(event: GameEvent): void {
   if (event.type === 'shot') {
     const angle = Math.atan2(event.y1 - event.y0, event.x1 - event.x0);
     effects.muzzleFlash(event.x0, event.y0, angle);
     effects.impact(event.x1, event.y1, angle);
+    // The event carries no weapon id, so the shooter's active weapon names
+    // the sound; a cop shot (negative id) is always the cop pistol.
+    const shooter =
+      event.playerId >= 0 ? sync.latest?.players.find((p) => p.id === event.playerId) : null;
+    const weapon =
+      event.playerId < 0
+        ? 'copPistol'
+        : (shooter?.weapons[shooter.activeWeapon]?.weaponId ?? 'pistol');
+    const at = listen(event.x0, event.y0);
+    audio.play(weapon, at.dist, at.pan);
+    const hit = listen(event.x1, event.y1);
+    audio.play('impact', hit.dist, hit.pan);
   } else if (event.type === 'propDown') {
     effects.debris(event.x, event.y);
+    const at = listen(event.x, event.y);
+    audio.play('propDown', at.dist, at.pan);
+  } else if (event.type === 'pickupTaken') {
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
   } else if (event.type === 'kill') {
     const victim = sync.latest?.players.find((p) => p.id === event.victimId);
-    if (victim) effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+    if (victim) {
+      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+      const at = listen(victim.pos.x, victim.pos.y);
+      audio.play('death', at.dist, at.pan);
+    }
   }
 }
 
@@ -200,6 +238,9 @@ const MAX_FRAME_MS = 250;
 let last = performance.now();
 let acc = 0;
 let cam: Vec2 = { x: 0, y: 0 };
+/** Half the viewport, in world px — the listener offset for positional audio. */
+const VIEW_CENTER_X = INTERNAL_WIDTH / 2;
+const VIEW_CENTER_Y = INTERNAL_HEIGHT / 2;
 /** Smoothed camera lead. Eased so a hard corner glides instead of snapping. */
 let lead: Vec2 = { x: 0, y: 0 };
 
@@ -233,6 +274,11 @@ function frame(now: number): void {
     const row = hud.shopRows(catalog, shopKind)[buyRow];
     if (row) conn.send({ type: 'buy', itemId: row[0] });
   }
+  // AudioContext cannot start before a user gesture, so it is created on the
+  // first key or click and never before.
+  if (input.hasGestured) audio.resume();
+  if (input.consumeMute()) hud.notice(audio.toggleMute() ? 'sound off' : 'sound on');
+
   const accountAction = input.consumeAccountAction();
   if (accountAction) {
     const username = window.prompt(`${accountAction}: username`) ?? '';
@@ -295,6 +341,11 @@ function frame(now: number): void {
     (driving ? smoothVehicle : smoothPlayer) ?? null,
     sync.latest,
   );
+
+  // Continuous audio: engine note tracks the predicted vehicle, sirens play
+  // while police are actually on screen.
+  audio.setEngine(driving ? (predictor.predictedVehicle?.speed ?? 0) : 0);
+  audio.setSiren((sync.latest?.cops.length ?? 0) > 0, now);
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {

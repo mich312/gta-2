@@ -1,0 +1,19 @@
+{
+  "masterGain": 0.5,
+  "maxVoices": 16,
+  "audibleRadius": 340,
+  "sounds": {
+    "pistol":   { "kind": "noise", "attack": 0.001, "decay": 0.11, "filter": 1900, "gain": 0.5,  "tone": 260, "toneGain": 0.35, "toneDecay": 0.07 },
+    "smg":      { "kind": "noise", "attack": 0.001, "decay": 0.07, "filter": 2400, "gain": 0.35, "tone": 320, "toneGain": 0.25, "toneDecay": 0.05 },
+    "shotgun":  { "kind": "noise", "attack": 0.001, "decay": 0.26, "filter": 1200, "gain": 0.7,  "tone": 130, "toneGain": 0.5,  "toneDecay": 0.16 },
+    "copPistol":{ "kind": "noise", "attack": 0.001, "decay": 0.12, "filter": 1700, "gain": 0.4,  "tone": 240, "toneGain": 0.3,  "toneDecay": 0.07 },
+    "fists":    { "kind": "noise", "attack": 0.002, "decay": 0.05, "filter": 700,  "gain": 0.3,  "tone": 110, "toneGain": 0.25, "toneDecay": 0.04 },
+    "impact":   { "kind": "noise", "attack": 0.001, "decay": 0.05, "filter": 3200, "gain": 0.18, "tone": 0,   "toneGain": 0,    "toneDecay": 0 },
+    "death":    { "kind": "tone",  "attack": 0.01,  "decay": 0.5,  "filter": 900,  "gain": 0.35, "tone": 180, "toneGain": 0.4,  "toneDecay": 0.5, "sweepTo": 60 },
+    "propDown": { "kind": "noise", "attack": 0.001, "decay": 0.2,  "filter": 2600, "gain": 0.3,  "tone": 90,  "toneGain": 0.2,  "toneDecay": 0.1 },
+    "pickup":   { "kind": "tone",  "attack": 0.005, "decay": 0.16, "filter": 4000, "gain": 0.3,  "tone": 660, "toneGain": 0.45, "toneDecay": 0.16, "sweepTo": 1180 },
+    "explosion":{ "kind": "noise", "attack": 0.002, "decay": 0.75, "filter": 700,  "gain": 0.9,  "tone": 70,  "toneGain": 0.7,  "toneDecay": 0.5, "sweepTo": 32 }
+  },
+  "engine": { "baseHz": 42, "hzPerSpeed": 0.34, "gain": 0.11, "filter": 620 },
+  "siren":  { "lowHz": 620, "highHz": 940, "periodSec": 0.7, "gain": 0.07 }
+}
