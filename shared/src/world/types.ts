@@ -11,6 +11,10 @@ export const T_BUILDING = 3;
 export const T_PARK = 4;
 /** Industrial yard: concrete, walkable. */
 export const T_LOT = 5;
+/** River/harbour. Solid to anything on land, the only thing a boat can cross. */
+export const T_WATER = 6;
+/** Road carried over water. Passable on land AND by boats underneath. */
+export const T_BRIDGE = 7;
 
 export const DISTRICT_TYPES = [
   'downtown',
@@ -80,6 +84,8 @@ export interface CityMap {
   propSpawns: Array<{ kind: string; x: number; y: number; orient: number }>;
   /** Health/armour/ammo crates (roadmap A3). */
   pickupSpawns: Array<{ kind: 'health' | 'armour' | 'ammo'; x: number; y: number }>;
+  /** Moorings: open water within reach of the bank. */
+  boatSpawns: VehicleSpawn[];
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

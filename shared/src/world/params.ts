@@ -22,6 +22,8 @@ export interface WorldgenParams {
   shopQuota: { gun: number; clothing: number; spray: number };
   playerSpawnCount: number;
   playerSpawnMinDist: number;
+  /** River width in tiles. */
+  waterWidth: number;
 }
 
 function num(v: unknown, name: string): number {
@@ -67,5 +69,6 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     },
     playerSpawnCount: num(r['playerSpawnCount'], 'playerSpawnCount'),
     playerSpawnMinDist: num(r['playerSpawnMinDist'], 'playerSpawnMinDist'),
+    waterWidth: num(r['waterWidth'], 'waterWidth'),
   };
 }

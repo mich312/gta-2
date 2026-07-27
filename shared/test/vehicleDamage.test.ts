@@ -16,6 +16,7 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { clearSpot, roadLane } from './helpers.js';
 
 initTuning({
   player: playerTuning,
@@ -39,13 +40,18 @@ function shooterAndCar(seed = 1): GameState {
     map,
   );
   const p = state.players.byId[1]!;
+  const spot = clearSpot(map, p.pos, 60);
+  aimAt = spot.angle;
   return step(
     state,
     {},
-    [{ type: 'spawnVehicle', vehicleId: 9, kind: 'car', x: p.pos.x + 60, y: p.pos.y, heading: 0 }],
+    [{ type: 'spawnVehicle', vehicleId: 9, kind: 'car', x: spot.x, y: spot.y, heading: 0 }],
     map,
   );
 }
+
+/** Direction from the shooter to the car in the current fixture. */
+let aimAt = 0;
 
 function shootUntil(
   state: GameState,
@@ -57,7 +63,7 @@ function shootUntil(
   for (let i = 0; i < maxTicks && !pred(state); i++) {
     state = step(
       state,
-      { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: true, aimAngle: 0 } },
+      { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: true, aimAngle: aimAt } },
       [],
       map,
       events,
@@ -99,13 +105,16 @@ describe('vehicle destruction', () => {
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'b' }], map);
     const car = state.vehicles.byId[9]!;
     state.players.byId[2]!.pos = { x: car.pos.x + 12, y: car.pos.y };
+    void car;
 
     const events: SimEvent[] = [];
     state = shootUntil(state, (s) => s.vehicles.byId[9]!.condition === 'burning', 400, events);
     const due = state.vehicles.byId[9]!.fuseAtTick!;
     while (state.tick <= due) {
       const b = state.players.byId[2]!;
-      if (b.mode !== 'dead') b.pos = { x: state.vehicles.byId[9]!.pos.x + 12, y: car.pos.y };
+      if (b.mode !== 'dead') {
+        b.pos = { x: state.vehicles.byId[9]!.pos.x + 8, y: state.vehicles.byId[9]!.pos.y };
+      }
       state = step(state, {}, [], map, events);
     }
     const victim = state.players.byId[2]!;
@@ -136,7 +145,7 @@ describe('vehicle destruction', () => {
   it('ramming a parked car shoves it instead of stopping dead', () => {
     // Both cars go on an actual stretch of road, aligned with it — dropped at
     // an arbitrary offset they just hit a building before ever meeting.
-    const spawn = map.vehicleSpawns.find((s, i) => i > 4 && i < 200)!;
+    const spawn = roadLane(map);
     const ux = Math.cos(spawn.heading);
     const uy = Math.sin(spawn.heading);
 

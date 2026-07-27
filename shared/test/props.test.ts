@@ -16,6 +16,7 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { roadLane } from './helpers.js';
 import { rayWallDistance } from '../src/sim/weapons.js';
 
 const map = generateCity(9009, parseWorldgenParams(worldgenJson));
@@ -124,7 +125,7 @@ describe('destructible props', () => {
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
     const p1 = state.players.byId[1]!;
     // Run the car in along a stretch of road that is actually clear.
-    const lane = map.vehicleSpawns.find((sp, i) => i > 3 && i < 300)!;
+    const lane = roadLane(map);
     const ux = Math.cos(lane.heading);
     const uy = Math.sin(lane.heading);
     void p1;

@@ -32,6 +32,8 @@ export interface VehicleTuning {
   wreckSeconds: number;
   explosionRadius: number;
   explosionDamage: number;
+  /** What this vehicle travels through. Boats float; everything else drives. */
+  medium: 'land' | 'water';
   /** Damage per px/s of closing speed in a collision. */
   collisionDamagePerSpeed: number;
 }
@@ -189,6 +191,7 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     wreckSeconds: n('wreckSeconds'),
     explosionRadius: n('explosionRadius'),
     explosionDamage: n('explosionDamage'),
+    medium: r['medium'] === 'water' ? 'water' : 'land',
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
   };
 }

@@ -1,17 +1,18 @@
 import { seedRng } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
 import { placeDistrictSeeds, districtLookup } from './districts.js';
-import { generateRoads } from './roads.js';
+import { carveRiver, generateRoads } from './roads.js';
 import { fillBlock } from './buildings.js';
 import {
   placePedSpawns,
   placePlayerSpawns,
   placeProps,
+  placeBoatSpawns,
   placePickups,
   placeShops,
   placeVehicleSpawns,
 } from './amenities.js';
-import { TILE_SIZE, type CityMap } from './types.js';
+import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE, type CityMap } from './types.js';
 
 /**
  * The city as a pure function of (seed, params). The server picks the seed,
@@ -45,6 +46,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     pedSpawns: [],
     propSpawns: [],
     pickupSpawns: [],
+    boatSpawns: [],
   };
 
   let seeds;
@@ -56,9 +58,23 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     }
   }
 
+  // The river goes in first so the road generator lays its grid around it.
+  const river = carveRiver(map.tiles, W, H, params.waterWidth, rng);
+  rng = river.rng;
+
   const roads = generateRoads(map.tiles, params, districtIdxAt, rng);
   rng = roads.rng;
   map.blocks = roads.blocks;
+
+  // Where an ARTERIAL was carved straight over the river, that becomes a
+  // bridge: road on top, navigable water underneath. Everything else the
+  // roads trampled goes back to being river, so the crossings stay few and
+  // the river stays a real barrier.
+  for (let i = 0; i < map.tiles.length; i++) {
+    if (river.mask[i] !== 1) continue;
+    const bridged = map.tiles[i] === T_ROAD && roads.arterialMask[i] === 1;
+    map.tiles[i] = bridged ? T_BRIDGE : T_WATER;
+  }
 
   for (const block of map.blocks) {
     rng = fillBlock(map.tiles, W, H, map.buildings, block, rng);
@@ -70,6 +86,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placePedSpawns(map);
   placeProps(map);
   placePickups(map);
+  placeBoatSpawns(map);
 
   return map;
 }

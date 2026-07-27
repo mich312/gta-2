@@ -8,6 +8,8 @@ import {
   T_PARK,
   T_ROAD,
   T_SIDEWALK,
+  T_WATER,
+  T_BRIDGE,
   TILE_SIZE,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -326,9 +328,69 @@ export class TileLayer {
       case T_LOT:
         this.paintLot(ctx, tx, ty, x, y);
         break;
+      case T_WATER:
+        this.paintWater(ctx, tx, ty, x, y);
+        break;
+      case T_BRIDGE:
+        this.paintBridge(ctx, tx, ty, x, y);
+        break;
       default:
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
+    }
+  }
+
+  /**
+   * River. Banded rather than flat so the surface reads as moving water at a
+   * glance, with a lighter lip where it meets the bank.
+   */
+  private paintWater(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    ctx.fillStyle = palette.water;
+    ctx.fillRect(x, y, TD, TD);
+    const h = hash2(tx, ty, 91);
+    ctx.fillStyle = shade(palette.water, 0.16, '#8fbcd6');
+    for (let i = 0; i < 3; i++) {
+      const band = (h >> (i * 5)) & 31;
+      const by = y + ((band / 32) * TD) | 0;
+      const bw = (TD * (0.35 + ((band & 7) / 20))) | 0;
+      const bx = x + (((h >> (i * 3 + 2)) & 15) / 16) * (TD - bw);
+      ctx.fillRect(bx | 0, by, bw, Math.max(1, (TD / 12) | 0));
+    }
+    // Shore lip against any non-water neighbour.
+    ctx.fillStyle = shade(palette.water, 0.3, '#bfe0ef');
+    if (this.tileAt(tx, ty - 1) !== T_WATER && this.tileAt(tx, ty - 1) !== T_BRIDGE) {
+      ctx.fillRect(x, y, TD, Math.max(1, (TD / 14) | 0));
+    }
+    if (this.tileAt(tx - 1, ty) !== T_WATER && this.tileAt(tx - 1, ty) !== T_BRIDGE) {
+      ctx.fillRect(x, y, Math.max(1, (TD / 14) | 0), TD);
+    }
+  }
+
+  /** Bridge deck: road surface with a rail down each side. */
+  private paintBridge(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    this.paintRoad(ctx, tx, ty, x, y);
+    ctx.fillStyle = palette.kerb;
+    const rail = Math.max(1, (TD / 10) | 0);
+    // Rails run along the deck, i.e. across whichever axis leaves the bridge.
+    const alongX = this.tileAt(tx - 1, ty) === T_BRIDGE || this.tileAt(tx + 1, ty) === T_BRIDGE;
+    if (alongX) {
+      ctx.fillRect(x, y, TD, rail);
+      ctx.fillRect(x, y + TD - rail, TD, rail);
+    } else {
+      ctx.fillRect(x, y, rail, TD);
+      ctx.fillRect(x + TD - rail, y, rail, TD);
     }
   }
 

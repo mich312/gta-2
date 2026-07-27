@@ -215,9 +215,13 @@ function drivePursuit(
   // to be SUSTAINED — a car clips a kerb constantly while turning, and
   // bailing on the first blocked tick strips every officer of their car
   // within seconds.
+  // Accumulate-and-decay rather than reset: a cruiser nosed into a wall
+  // bounces off it (crashDamp), so it alternates closing and not-closing and
+  // a hard reset would never reach the threshold. Genuine progress closes on
+  // most ticks and drains this back to zero.
   const closing = v.speed * dCos(delta);
-  if (closing < 20) cop.stuckTicks++;
-  else cop.stuckTicks = 0;
+  if (closing < 20) cop.stuckTicks += 2;
+  else cop.stuckTicks = Math.max(0, cop.stuckTicks - 1);
   if (cop.stuckTicks >= STUCK_BAILOUT_TICKS) {
     v.driverId = null;
     cop.vehicleId = null;

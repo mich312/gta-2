@@ -51,7 +51,7 @@ function integrateVehicle(
   const dx = dCos(v.heading) * v.speed * DT;
   const dy = dSin(v.heading) * v.speed * DT;
   const tmpVel = { x: dx, y: dy };
-  moveWithCollision(map, v.pos, tmpVel, t.halfExtent, dx, dy);
+  moveWithCollision(map, v.pos, tmpVel, t.halfExtent, dx, dy, t.medium);
   const hitWall = (dx !== 0 && tmpVel.x === 0) || (dy !== 0 && tmpVel.y === 0);
   if (hitWall) {
     const closing = Math.abs(v.speed);
@@ -188,6 +188,8 @@ export function tryExitVehicle(state: GameState, p: PlayerState, map: CityMap): 
   ];
   for (const [ox, oy] of candidates) {
     const spot = { x: v.pos.x + ox, y: v.pos.y + oy };
+    // Land check regardless of the vehicle's medium: stepping off a boat
+    // has to put you on a bank, not into the river.
     if (!boxInSolid(map, spot, PLAYER_RADIUS)) {
       v.driverId = null;
       p.mode = 'foot';

@@ -5,6 +5,7 @@ import {
   T_PARK,
   T_ROAD,
   T_SIDEWALK,
+  T_WATER,
   type BlockRect,
   type Building,
 } from './types.js';
@@ -19,9 +20,31 @@ interface Ctx {
 function fill(ctx: Ctx, x: number, y: number, w: number, h: number, t: number): void {
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
-      if (tx >= 0 && ty >= 0 && tx < ctx.W && ty < ctx.H) ctx.tiles[ty * ctx.W + tx] = t;
+      if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
+      // Never build on the river. Blocks are carved between roads and can
+      // straddle water, so this guard is what keeps offices out of the bay.
+      if (ctx.tiles[ty * ctx.W + tx] === T_WATER) continue;
+      ctx.tiles[ty * ctx.W + tx] = t;
     }
   }
+}
+
+/**
+ * True if any tile of this footprint is river.
+ *
+ * `fill` already refuses to paint over water, but the Building RECORD is what
+ * shop doorways are derived from — so a footprint straddling the bank would
+ * paint correctly and still put a gun shop door in the water. Footprints that
+ * touch the river are not placed at all.
+ */
+function rectHasWater(ctx: Ctx, x: number, y: number, w: number, h: number): boolean {
+  for (let ty = y; ty < y + h; ty++) {
+    for (let tx = x; tx < x + w; tx++) {
+      if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
+      if (ctx.tiles[ty * ctx.W + tx] === T_WATER) return true;
+    }
+  }
+  return false;
 }
 
 function isRoad(ctx: Ctx, tx: number, ty: number): boolean {
@@ -35,6 +58,7 @@ function laySidewalk(ctx: Ctx, b: BlockRect): void {
     for (let tx = b.x; tx < b.x + b.w; tx++) {
       const perimeter = tx === b.x || ty === b.y || tx === b.x + b.w - 1 || ty === b.y + b.h - 1;
       if (!perimeter) continue;
+      if (ctx.tiles[ty * ctx.W + tx] === T_WATER) continue; // no kerb on a river
       if (
         isRoad(ctx, tx - 1, ty) ||
         isRoad(ctx, tx + 1, ty) ||
@@ -63,7 +87,7 @@ function packRect(
   if (w <= maxSize && h <= maxSize) {
     let roll: number;
     [roll, rng] = nextFloat01(rng);
-    if (roll >= plazaChance) {
+    if (roll >= plazaChance && !rectHasWater(ctx, x, y, w, h)) {
       fill(ctx, x, y, w, h, T_BUILDING);
       ctx.buildings.push({ x, y, w, h, district: b.district });
     }
@@ -128,7 +152,7 @@ export function fillBlock(
         [yOff, rng] = nextIntRange(rng, 0, Math.max(1, ih - h));
         const y = iy + yOff;
         const cw = Math.min(w, ix + iw - x);
-        if (cw >= 3 && h >= 3) {
+        if (cw >= 3 && h >= 3 && !rectHasWater(ctx, x, y, cw, h)) {
           fill(ctx, x, y, cw, h, T_BUILDING);
           buildings.push({ x, y, w: cw, h, district: b.district });
         }
@@ -145,7 +169,7 @@ export function fillBlock(
           [skip, rng] = nextFloat01(rng);
           const w = Math.min(size, ix + iw - x);
           const h = Math.min(size, iy + ih - y);
-          if (skip >= 0.2 && w >= 2 && h >= 2) {
+          if (skip >= 0.2 && w >= 2 && h >= 2 && !rectHasWater(ctx, x, y, w, h)) {
             fill(ctx, x, y, w, h, T_BUILDING);
             buildings.push({ x, y, w, h, district: b.district });
           }

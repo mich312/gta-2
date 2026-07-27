@@ -15,6 +15,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { roadLane } from './helpers.js';
 
 const map = generateCity(5150, parseWorldgenParams(worldgenJson));
 
@@ -196,7 +197,7 @@ describe('fists', () => {
 
     // Put the victim on an actual road lane: a car driven into a building
     // now takes collision damage and can burn out before it kills anybody.
-    const lane = map.vehicleSpawns.find((sp, i) => i > 3 && i < 300)!;
+    const lane = roadLane(map);
     state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     state = step(
       state,

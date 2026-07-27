@@ -10,6 +10,8 @@ import {
   T_PARK,
   T_ROAD,
   T_SIDEWALK,
+  T_WATER,
+  T_BRIDGE,
 } from 'shared';
 
 /** On-screen size of the map panel, in world (HUD) pixels. */
@@ -25,6 +27,8 @@ const TILE_COLORS: Record<number, string> = {
   [T_BUILDING]: '#2a3038',
   [T_PARK]: '#2f4c33',
   [T_LOT]: '#45463f',
+  [T_WATER]: '#22384a',
+  [T_BRIDGE]: '#5a606a',
 };
 const FIELD_COLOR = '#232a26';
 

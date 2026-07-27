@@ -134,6 +134,19 @@ export class Session {
       });
     }
 
+    // Boats at their moorings. The river is the only thing they can cross,
+    // and it is the only thing a car cannot.
+    for (const s of this.map.boatSpawns) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: 'boat',
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+      });
+    }
+
     // Health, armour and ammo crates.
     for (const spot of this.map.pickupSpawns) {
       this.pendingCommands.push({

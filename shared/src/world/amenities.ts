@@ -7,6 +7,7 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_WATER,
   T_SIDEWALK,
   TILE_SIZE,
   type Building,
@@ -253,4 +254,55 @@ export function placePickups(map: CityMap): void {
     }
   }
   map.pickupSpawns = spawns;
+}
+
+
+/**
+ * Moorings: water tiles with a bank close by, so a boat is reachable on
+ * foot rather than stranded mid-river. Deterministic row-major sampling.
+ */
+export function placeBoatSpawns(map: CityMap): void {
+  const spawns: VehicleSpawn[] = [];
+  let n = 0;
+  for (let ty = 1; ty < map.heightTiles - 1; ty++) {
+    for (let tx = 1; tx < map.widthTiles - 1; tx++) {
+      if (t(map, tx, ty) !== T_WATER) continue;
+      // The whole 3x3 must be open water: a boat is 22 px across, so a
+      // mooring pressed against the bank leaves the hull overlapping land
+      // and the boat cannot move at all.
+      let roomy = true;
+      for (let dy = -1; dy <= 1 && roomy; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (t(map, tx + dx, ty + dy) !== T_WATER) {
+            roomy = false;
+            break;
+          }
+        }
+      }
+      if (!roomy) continue;
+      // ...and dry land within reach, or nobody can get aboard.
+      let bank = false;
+      for (let dy = -3; dy <= 3 && !bank; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const near = t(map, tx + dx, ty + dy);
+          if (near === T_SIDEWALK || near === T_ROAD || near === T_PARK || near === T_LOT) {
+            bank = true;
+            break;
+          }
+        }
+      }
+      if (!bank) continue;
+      n++;
+      if (n % 24 !== 0) continue;
+      // Point along the river: whichever axis has more open water.
+      const alongX = t(map, tx - 1, ty) === T_WATER && t(map, tx + 1, ty) === T_WATER;
+      spawns.push({
+        x: (tx + 0.5) * TILE_SIZE,
+        y: (ty + 0.5) * TILE_SIZE,
+        heading: alongX ? 0 : HALF_PI,
+        kind: 'boat',
+      });
+    }
+  }
+  map.boatSpawns = spawns;
 }

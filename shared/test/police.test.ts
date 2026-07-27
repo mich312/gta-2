@@ -20,6 +20,7 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
+import { clearSpot, roadLane } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -59,7 +60,10 @@ function commitCrimes(targetLevel: number): GameState {
     const p1 = state.players.byId[1]!;
     const p2 = state.players.byId[2]!;
     if (p2.mode !== 'dead' && Math.hypot(p2.pos.x - p1.pos.x, p2.pos.y - p1.pos.y) > 120) {
-      p2.pos = { x: p1.pos.x + 60, y: p1.pos.y };
+      // Along a clear line, not a fixed +x offset: a wall between the two
+      // makes this a test of nothing.
+      const spot = clearSpot(map, p1.pos, 60);
+      p2.pos = { x: spot.x, y: spot.y };
     }
     const aim = Math.atan2(p2.pos.y - p1.pos.y, p2.pos.x - p1.pos.x);
     const cmds: Array<{ type: 'respawnPlayer'; playerId: number; loadout: typeof PISTOL }> = [];
@@ -87,11 +91,22 @@ describe('wanted + police', () => {
   function boardParkedCar(seed: number): GameState {
     let state = createGameState(seed);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'thief' }], map);
-    const p = state.players.byId[1]!;
+    // On a real lane with road ahead, so the car can actually be driven.
+    const lane = roadLane(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     state = step(
       state,
       {},
-      [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: p.pos.x, y: p.pos.y, heading: 0 }],
+      [
+        {
+          type: 'spawnVehicle',
+          vehicleId: 2,
+          kind: 'car',
+          x: lane.x,
+          y: lane.y,
+          heading: lane.heading,
+        },
+      ],
       map,
     );
     return step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
