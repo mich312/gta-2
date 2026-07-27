@@ -47,7 +47,7 @@ export type ServerMessage =
   | { type: 'full'; tick: number; snapshot: FullSnapshot }
   | { type: 'event'; tick: number; event: GameEvent }
   | { type: 'pong'; t: number; serverTick: number }
-  | { type: 'wallet'; cash: number }
+  | { type: 'wallet'; cash: number; multiplier: number; lifetime: number }
   | { type: 'account'; ok: boolean; username: string | null; message: string }
   | { type: 'error'; code: string; message: string };
 

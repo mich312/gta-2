@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import playerTuning from '../../shared/data/player.json';
@@ -9,6 +9,8 @@ import worldgenJson from '../../shared/data/worldgen.json';
 import shopJson from '../../shared/data/shop.json';
 import economyJson from '../../shared/data/economy.json';
 import {
+  type GameState,
+  type SimEvent,
   TILE_SIZE,
   createGameState,
   generateCity,
@@ -178,6 +180,194 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
       expect(store.hasRef('r1')).toBe(true);
     },
   );
+});
+
+describe('score multiplier', () => {
+  function setup() {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, params);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'earner' }], map);
+    economy.bindGuest(1);
+    return { map, economy, state };
+  }
+
+  /** Cash earned by running exactly these events through the economy. */
+  function earn(economy: Economy, state: GameState, events: SimEvent[], nowMs = 1_000_000): number {
+    const before = economy.cashOf(1);
+    economy.processTick(events, state, nowMs);
+    return economy.cashOf(1) - before;
+  }
+
+  it('multiplies every award path, and nothing else', () => {
+    // The gate from FEATURES.md F1: no earning path may bypass the
+    // multiplier. Each award source is driven twice — once at ×1, once at
+    // ×3 — and must pay exactly three times as much the second time.
+    const paths: Array<[string, (tick: number) => SimEvent[]]> = [
+      ['kill', (t) => [{ type: 'kill', tick: t, killerId: 1, victimId: 50 + t, weaponId: 'pistol' }]],
+      [
+        'frenzy',
+        (t) => [{ type: 'frenzyEnded', tick: t, playerId: 1, kills: 5, target: 5, completed: true }],
+      ],
+      ['stunt', (t) => [{ type: 'stuntLanded', tick: t, playerId: 1, distance: 200, x: 0, y: 0 }]],
+    ];
+
+    for (const [name, mk] of paths) {
+      const plain = setup();
+      const base = earn(plain.economy, plain.state, mk(1));
+      expect(base, `${name} pays something at ×1`).toBeGreaterThan(0);
+
+      const boosted = setup();
+      boosted.economy.raiseMultiplier(1, 2); // ×3
+      expect(boosted.economy.multiplierOf(1)).toBe(3);
+      const paid = earn(boosted.economy, boosted.state, mk(1));
+      expect(paid, `${name} pays 3x at x3`).toBe(base * 3);
+    }
+  });
+
+  it('multiplies the driving award too (the path with no event)', () => {
+    // Driving pays off state, not events — exactly the kind of path that
+    // quietly skips a chokepoint.
+    function driveOnce(economy: Economy, state: GameState): number {
+      const p = state.players.byId[1]!;
+      p.mode = 'driving';
+      p.vehicleId = 7;
+      state.vehicles.byId[7] = {
+        id: 7,
+        kind: 'car',
+        pos: { x: 4000, y: 4000 },
+        heading: 0,
+        speed: 300,
+        driverId: 1,
+        health: 100,
+        condition: 'ok',
+        fuseAtTick: null,
+      };
+      state.vehicles.ids = [7];
+      const before = economy.cashOf(1);
+      economy.processTick([], state, 2_000_000);
+      return economy.cashOf(1) - before;
+    }
+
+    const plain = setup();
+    const base = driveOnce(plain.economy, plain.state);
+    expect(base).toBeGreaterThan(0);
+
+    const boosted = setup();
+    boosted.economy.raiseMultiplier(1, 2);
+    expect(driveOnce(boosted.economy, boosted.state)).toBe(base * 3);
+  });
+
+  it('a completed frenzy raises the multiplier, and the cap holds', () => {
+    const { economy, state } = setup();
+    expect(economy.multiplierOf(1)).toBe(1);
+    economy.processTick(
+      [{ type: 'frenzyEnded', tick: 1, playerId: 1, kills: 5, target: 5, completed: true }],
+      state,
+      1_000_000,
+    );
+    expect(economy.multiplierOf(1)).toBe(1 + params.multiplier.frenzyGain);
+
+    // A failed frenzy pays nothing and raises nothing.
+    const before = economy.multiplierOf(1);
+    const cash = economy.cashOf(1);
+    economy.processTick(
+      [{ type: 'frenzyEnded', tick: 2, playerId: 1, kills: 2, target: 5, completed: false }],
+      state,
+      1_000_100,
+    );
+    expect(economy.multiplierOf(1)).toBe(before);
+    expect(economy.cashOf(1)).toBe(cash);
+
+    for (let i = 0; i < 50; i++) economy.raiseMultiplier(1, 1);
+    expect(economy.multiplierOf(1)).toBe(params.multiplier.max);
+  });
+
+  it('arrest halves it and death does not; the floor is 1', () => {
+    const { economy } = setup();
+    economy.raiseMultiplier(1, 5); // ×6
+    expect(economy.penaliseMultiplier(1)).toBe(3);
+    expect(economy.penaliseMultiplier(1)).toBe(1); // floor(3*0.5)=1
+    expect(economy.penaliseMultiplier(1)).toBe(1); // never below 1
+  });
+
+  it('purchases are not multiplied — you do not pay x3 for a pistol', () => {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, params);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'shopper' }], map);
+    economy.bindGuest(1);
+    economy.raiseMultiplier(1, 4);
+    const gunShop = map.shops.find((s) => s.kind === 'gun')!;
+    state.players.byId[1]!.pos = {
+      x: (gunShop.doorX + 0.5) * TILE_SIZE,
+      y: (gunShop.doorY + 0.5) * TILE_SIZE,
+    };
+    const before = economy.cashOf(1);
+    expect(economy.buy(1, 'pistol', state, map).ok).toBe(true);
+    expect(economy.cashOf(1)).toBe(before - 250);
+  });
+
+  it('starting cash is not multiplied either', () => {
+    const economy = new Economy(new MemoryStore(), catalog, params);
+    economy.bindGuest(1);
+    economy.raiseMultiplier(1, 3);
+    economy.bindAccount(1, 'dave');
+    expect(economy.cashOf(1)).toBe(params.startingCash);
+  });
+
+  it('the leaderboard ranks on cash, not on kills', () => {
+    const { economy, state } = setup();
+    economy.bindGuest(2);
+    // Player 2 gets one kill; player 1 gets none but is handed cash by
+    // spending nothing and earning a big stunt.
+    economy.processTick(
+      [
+        { type: 'kill', tick: 1, killerId: 2, victimId: 9, weaponId: 'pistol' },
+        { type: 'stuntLanded', tick: 1, playerId: 1, distance: 900, x: 0, y: 0 },
+      ],
+      state,
+      3_000_000,
+    );
+    const board = economy.leaderboard();
+    expect(board[0]!.playerId).toBe(1);
+    expect(board[0]!.cash).toBeGreaterThan(board[1]!.cash);
+    expect(board[1]!.kills).toBe(1); // the killer is still ranked below
+  });
+
+  it('no new earning path can bypass the chokepoint unnoticed', () => {
+    // The behavioural tests above cover the paths that exist today. This one
+    // is for the path somebody adds next year: every write to a ledger in
+    // Economy is enumerated here, so a new one fails this test and forces a
+    // decision — route it through credit(), or add it to this list and say
+    // why it is exempt.
+    const src = readFileSync(new URL('../src/economy/economy.ts', import.meta.url), 'utf8');
+    const sites = src.match(/\.append\(/g) ?? [];
+    const exempt = [
+      "guestLedger.append(key, this.params.startingCash", // opening balance
+      "acctLedger.append(key, this.params.startingCash", // opening balance
+      'ledger.append(key, -item.price', // a purchase is a debit
+      'ledger.append(key, item.price', // its refund
+    ];
+    for (const e of exempt) expect(src, `exempt site missing: ${e}`).toContain(e);
+    // exempt sites + the single credit() site
+    expect(
+      sites.length,
+      'a ledger write was added to Economy: route earnings through credit() so they are multiplied, or list it as exempt here',
+    ).toBe(exempt.length + 1);
+  });
+
+  it('lifetime earnings accumulate the multiplied amounts', () => {
+    const { economy, state } = setup();
+    economy.raiseMultiplier(1, 1); // x2
+    economy.processTick(
+      [{ type: 'kill', tick: 1, killerId: 1, victimId: 5, weaponId: 'pistol' }],
+      state,
+      4_000_000,
+    );
+    expect(economy.walletOf(1).lifetime).toBe(params.killAward * 2);
+    expect(economy.walletOf(1).multiplier).toBe(2);
+  });
 });
 
 describe("Pay'n'Spray", () => {

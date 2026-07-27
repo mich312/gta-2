@@ -7,6 +7,18 @@ export interface EconomyParams {
   drivingCellSizePx: number;
   drivingMinSpeed: number;
   perMinuteCaps: { kill: number; driving: number };
+  /**
+   * The score multiplier: what success raises and arrest halves. Every award
+   * is multiplied by it before it lands, so a good run accelerates — the one
+   * mechanic the 1997 original built its whole economy around.
+   */
+  multiplier: {
+    max: number;
+    frenzyGain: number;
+    missionGain: number;
+    /** Fraction of the multiplier kept when busted. 0.5 = halved. */
+    bustPenalty: number;
+  };
 }
 
 export function parseEconomyParams(raw: unknown): EconomyParams {
@@ -24,6 +36,14 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
     if (typeof v !== 'number' || v <= 0) throw new Error(`economy: perMinuteCaps.${k}`);
     return v;
   };
+  const mult = (r['multiplier'] ?? {}) as Record<string, unknown>;
+  const m = (k: string, min: number): number => {
+    const v = mult[k];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min) {
+      throw new Error(`economy: multiplier.${k} must be a number >= ${min}`);
+    }
+    return v;
+  };
   return {
     startingCash: n('startingCash'),
     killAward: n('killAward'),
@@ -33,6 +53,12 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
     drivingCellSizePx: n('drivingCellSizePx'),
     drivingMinSpeed: n('drivingMinSpeed'),
     perMinuteCaps: { kill: cap('kill'), driving: cap('driving') },
+    multiplier: {
+      max: m('max', 1),
+      frenzyGain: m('frenzyGain', 0),
+      missionGain: m('missionGain', 0),
+      bustPenalty: m('bustPenalty', 0),
+    },
   };
 }
 

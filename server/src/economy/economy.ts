@@ -24,6 +24,14 @@ export interface BuyResult {
   cash: number;
 }
 
+/** Everything the HUD needs about a player's standing, in one shot. */
+export interface Wallet {
+  cash: number;
+  multiplier: number;
+  /** Total ever earned this session. Flavour — the rank is cash. */
+  lifetime: number;
+}
+
 /**
  * The economy facade: cash, purchases, awards, accounts. Lives entirely
  * outside the deterministic sim — its only write-path into the sim is the
@@ -39,6 +47,13 @@ export class Economy {
   /** playerId -> accountKey (guest:<uuid> or acct:<username>) */
   private readonly keyByPlayer = new Map<number, string>();
   private readonly usernameByPlayer = new Map<number, string>();
+  /**
+   * Score multiplier, per player. Session-scoped on purpose: it is a streak,
+   * and a streak that survives logout is not a streak. Never persisted, never
+   * in the sim — nothing in step() reads a multiplier.
+   */
+  private readonly multiplierByPlayer = new Map<number, number>();
+  private readonly lifetimeByPlayer = new Map<number, number>();
 
   constructor(
     store: PersistenceStore,
@@ -74,11 +89,47 @@ export class Economy {
   unbind(playerId: number): void {
     this.keyByPlayer.delete(playerId);
     this.usernameByPlayer.delete(playerId);
+    this.multiplierByPlayer.delete(playerId);
+    this.lifetimeByPlayer.delete(playerId);
   }
 
   cashOf(playerId: number): number {
     const key = this.keyByPlayer.get(playerId);
     return key ? this.ledgerFor(key).balance(key) : 0;
+  }
+
+  multiplierOf(playerId: number): number {
+    return this.multiplierByPlayer.get(playerId) ?? 1;
+  }
+
+  /** Cash, multiplier and lifetime earnings — what the `wallet` message carries. */
+  walletOf(playerId: number): Wallet {
+    return {
+      cash: this.cashOf(playerId),
+      multiplier: this.multiplierOf(playerId),
+      lifetime: this.lifetimeByPlayer.get(playerId) ?? 0,
+    };
+  }
+
+  /** Success raises the multiplier, capped. Returns the new value. */
+  raiseMultiplier(playerId: number, gain: number): number {
+    const next = Math.min(this.params.multiplier.max, this.multiplierOf(playerId) + gain);
+    this.multiplierByPlayer.set(playerId, next);
+    return next;
+  }
+
+  /**
+   * Arrest halves it — floor 1, rounded down. Death deliberately does NOT
+   * call this: the asymmetry between busted and wasted is the whole point of
+   * having two failure modes.
+   */
+  penaliseMultiplier(playerId: number): number {
+    const next = Math.max(
+      1,
+      Math.floor(this.multiplierOf(playerId) * this.params.multiplier.bustPenalty),
+    );
+    this.multiplierByPlayer.set(playerId, next);
+    return next;
   }
 
   equippedCosmetic(playerId: number): number {
@@ -169,6 +220,10 @@ export class Economy {
         const reward = getTuning().pickups.frenzyReward;
         if (this.credit(ev.playerId, reward, `frenzy:${ev.tick}`)) changed.add(ev.playerId);
         this.bumpScore(ev.playerId, 0, 1);
+        // Pay at the multiplier you had, THEN raise it: the frenzy you just
+        // finished is worth what it was worth, and the next one is worth more.
+        this.raiseMultiplier(ev.playerId, this.params.multiplier.frenzyGain);
+        changed.add(ev.playerId);
       } else if (ev.type === 'stuntLanded') {
         const reward = stuntReward(ev.distance);
         if (reward > 0 && this.credit(ev.playerId, reward, `stunt:${ev.tick}`)) {
@@ -202,17 +257,51 @@ export class Economy {
     sc.bestStunt = Math.max(sc.bestStunt, stuntDistance);
   }
 
-  /** Session leaderboard, best first. */
-  leaderboard(): Array<{ playerId: number; kills: number; frenzies: number; bestStunt: number }> {
-    return [...this.scores.entries()]
-      .map(([playerId, s]) => ({ playerId, ...s }))
-      .sort((a, b) => b.frenzies - a.frenzies || b.kills - a.kills || b.bestStunt - a.bestStunt);
+  /**
+   * Session leaderboard, richest first. The rank is **cash**, exactly as the
+   * originals ranked on a score that doubled as your wallet: spending is
+   * supposed to cost you standing, or the shops are free in the only currency
+   * that matters. Kills and frenzies survive as tie-breaks and flavour.
+   */
+  leaderboard(): Array<{
+    playerId: number;
+    cash: number;
+    multiplier: number;
+    kills: number;
+    frenzies: number;
+    bestStunt: number;
+  }> {
+    const ids = new Set([...this.scores.keys(), ...this.keyByPlayer.keys()]);
+    return [...ids]
+      .map((playerId) => ({
+        playerId,
+        cash: this.cashOf(playerId),
+        multiplier: this.multiplierOf(playerId),
+        ...(this.scores.get(playerId) ?? { kills: 0, frenzies: 0, bestStunt: 0 }),
+      }))
+      .sort((a, b) => b.cash - a.cash || b.kills - a.kills || b.bestStunt - a.bestStunt);
   }
 
+  /**
+   * The one place an award becomes money. Every earning path in this class
+   * goes through here and gets multiplied — that is what makes the multiplier
+   * a real mechanic rather than a HUD decoration, and `awardSources()` exists
+   * so a future path that forgets cannot land silently.
+   *
+   * Debits (purchases) and starting cash deliberately bypass it: you do not
+   * pay ×3 for a pistol, and a multiplier on your opening balance would be
+   * free money.
+   */
   private credit(playerId: number, amount: number, reason: string): boolean {
     const key = this.keyByPlayer.get(playerId);
     if (!key) return false;
-    return this.ledgerFor(key).append(key, amount, reason, `award:${randomUUID()}`);
+    const scaled = Math.floor(amount * this.multiplierOf(playerId));
+    if (scaled <= 0) return false;
+    const ok = this.ledgerFor(key).append(key, scaled, reason, `award:${randomUUID()}`);
+    if (ok) {
+      this.lifetimeByPlayer.set(playerId, (this.lifetimeByPlayer.get(playerId) ?? 0) + scaled);
+    }
+    return ok;
   }
 }
 

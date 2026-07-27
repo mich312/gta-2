@@ -6,5 +6,11 @@
   "drivingCellAward": 5,
   "drivingCellSizePx": 512,
   "drivingMinSpeed": 120,
-  "perMinuteCaps": { "kill": 500, "driving": 150 }
+  "perMinuteCaps": { "kill": 500, "driving": 150 },
+  "multiplier": {
+    "max": 8,
+    "frenzyGain": 1,
+    "missionGain": 1,
+    "bustPenalty": 0.5
+  }
 }

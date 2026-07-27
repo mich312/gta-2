@@ -19,6 +19,9 @@ interface Tracer {
 /** Health/ammo HUD, kill feed, tracers, shop panel, death screen. */
 export class Hud {
   cash = 0;
+  /** Score multiplier. Every award is worth this much more. */
+  multiplier = 1;
+  private multiplierChangedAtMs = 0;
   accountName: string | null = null;
   /** Named landmark the player is at, shown so the city is legible. */
   place: string | null = null;
@@ -35,6 +38,20 @@ export class Hud {
   notice(text: string): void {
     this.feed.push({ text, expiresAtMs: performance.now() + 5000 });
     while (this.feed.length > 5) this.feed.shift();
+  }
+
+  /** A `wallet` message landed. Announce the multiplier only when it moves. */
+  setWallet(cash: number, multiplier: number): void {
+    this.cash = cash;
+    if (multiplier !== this.multiplier) {
+      const up = multiplier > this.multiplier;
+      // The first climb off ×1 is the one worth explaining; after that the
+      // number in the corner speaks for itself.
+      if (up && this.multiplier === 1) this.notice(`multiplier ×${multiplier} — everything pays more`);
+      else if (!up) this.notice(`multiplier down to ×${multiplier}`);
+      this.multiplier = multiplier;
+      this.multiplierChangedAtMs = performance.now();
+    }
   }
 
   /** Items for the shop the player is standing in, in stable order. */
@@ -217,6 +234,14 @@ export class Hud {
     // Wallet + account (top left, under the overlay's zone).
     ctx.fillStyle = '#bde8bd';
     ctx.fillText(`$${this.cash}`, 6, 10);
+    // The multiplier sits beside the cash because it is a property of the
+    // cash: it says what the next thing you do is worth. It pulses for a
+    // second when it moves, in either direction — losing it should sting.
+    if (this.multiplier > 1) {
+      const since = now - this.multiplierChangedAtMs;
+      ctx.fillStyle = since < 1000 && Math.floor(since / 125) % 2 === 0 ? '#fff2a8' : '#f0c040';
+      ctx.fillText(`×${this.multiplier}`, 6 + ctx.measureText(`$${this.cash}`).width + 5, 10);
+    }
     if (this.accountName) {
       ctx.fillStyle = '#8fa8c8';
       ctx.fillText(this.accountName, 6, 20);

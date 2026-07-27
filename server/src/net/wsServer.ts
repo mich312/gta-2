@@ -78,7 +78,7 @@ export class GameServer {
     // Cash awards from this tick's events + driving coverage.
     const changed = this.economy.processTick(this.session.lastEvents, this.session.state, Date.now());
     for (const playerId of changed) {
-      this.byPlayer.get(playerId)?.send({ type: 'wallet', cash: this.economy.cashOf(playerId) });
+      this.byPlayer.get(playerId)?.send({ type: 'wallet', ...this.economy.walletOf(playerId) });
     }
   }
 
@@ -143,7 +143,7 @@ export class GameServer {
         const result = this.economy.buy(conn.playerId, msg.itemId, this.session.state, this.session.map);
         if (result.command) this.session.queueCommand(result.command);
         conn.send({ type: 'event', tick: this.session.state.tick, event: { type: 'notice', text: result.message } });
-        conn.send({ type: 'wallet', cash: result.cash });
+        conn.send({ type: 'wallet', ...this.economy.walletOf(conn.playerId) });
         break;
       }
       case 'register': {
@@ -172,7 +172,7 @@ export class GameServer {
     if (cosmetic > 0) {
       this.session.queueCommand({ type: 'setCosmetic', playerId: conn.playerId, cosmeticId: cosmetic });
     }
-    conn.send({ type: 'wallet', cash: this.economy.cashOf(conn.playerId) });
+    conn.send({ type: 'wallet', ...this.economy.walletOf(conn.playerId) });
   }
 
   private handleJoin(conn: ClientConn, name: string, resumeToken?: string): void {
@@ -208,7 +208,7 @@ export class GameServer {
       worldgen: this.session.worldgen,
       catalog: this.economy.catalog,
     });
-    conn.send({ type: 'wallet', cash: this.economy.cashOf(slot.playerId) });
+    conn.send({ type: 'wallet', ...this.economy.walletOf(slot.playerId) });
   }
 
   private onClose(conn: ClientConn): void {
