@@ -1,4 +1,5 @@
 import { nextIntRange } from '../rng/prng.js';
+import { q256 } from '../math/vec.js';
 import type { GameState } from './state.js';
 import { cloneState, createPickup, createPlayer, createProp, createVehicle } from './state.js';
 import { insertEntity, removeEntity, getEntity } from './entities.js';
@@ -68,7 +69,7 @@ export function step(
         p.pos.y = v.pos.y;
         if (input) {
           p.lastInputSeq = input.seq;
-          p.aimAngle = input.aimAngle;
+          p.aimAngle = q256(input.aimAngle); // same invariant as on foot
         }
       }
     } else {

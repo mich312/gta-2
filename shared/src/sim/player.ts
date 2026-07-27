@@ -1,5 +1,5 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
-import { approach, q8 } from '../math/vec.js';
+import { approach, q8, q256 } from '../math/vec.js';
 import { getTuning } from '../tuning.js';
 import type { GameState, PlayerState } from './state.js';
 import type { InputIntent } from './input.js';
@@ -20,7 +20,12 @@ export function stepPlayerMovement(
 ): void {
   if (input) {
     p.lastInputSeq = input.seq;
-    p.aimAngle = input.aimAngle;
+    // Quantised HERE, not merely trusted to arrive quantised. sanitizeIntent
+    // already q256s anything off the wire, but the client's own predictor
+    // feeds raw atan2 output straight in, and the binary codec encodes this
+    // field on the q256 grid — so the sim owns the invariant rather than
+    // depending on every caller to have honoured it.
+    p.aimAngle = q256(input.aimAngle);
   }
   if (p.mode === 'dead') return;
 

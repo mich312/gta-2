@@ -1,5 +1,5 @@
 import type { Vec2 } from '../math/vec.js';
-import { vec, cloneVec } from '../math/vec.js';
+import { vec, cloneVec, q256 } from '../math/vec.js';
 import type { EntityTable } from './entities.js';
 import { createTable, cloneTable } from './entities.js';
 import { seedRng } from '../rng/prng.js';
@@ -190,7 +190,10 @@ export function createVehicle(
   pos: Vec2,
   heading: number,
 ): VehicleState {
-  return { id, kind, pos: cloneVec(pos), heading, speed: 0, driverId: null };
+  // Quantised at birth. Steering already q256s the heading every tick, but a
+  // parked car that never turns would otherwise keep the raw HALF_PI it was
+  // spawned with — and the binary codec encodes headings on the q256 grid.
+  return { id, kind, pos: cloneVec(pos), heading: q256(heading), speed: 0, driverId: null };
 }
 
 export function cloneVehicle(v: VehicleState): VehicleState {

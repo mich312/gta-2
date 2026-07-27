@@ -3,7 +3,7 @@ import {
   type InputIntent,
   type ServerMessage,
   PROTOCOL_VERSION,
-  jsonCodec,
+  binaryCodec,
   parseServerMessage,
 } from 'shared';
 import type { NetStats } from '../debug/stats.js';
@@ -33,6 +33,9 @@ export class Connection {
   connect(): void {
     this.closedByUs = false;
     const ws = new WebSocket(this.opts.url);
+    // Without this the browser hands us Blobs, which are async to read and
+    // would put snapshot decoding a microtask behind the frame that needs it.
+    ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onopen = () => {
       this.connected = true;
@@ -46,11 +49,19 @@ export class Connection {
       this.send(join);
     };
     ws.onmessage = (ev: MessageEvent) => {
-      if (typeof ev.data !== 'string') return;
-      this.opts.stats.addIn(ev.data.length);
+      let frame: string | Uint8Array;
+      if (typeof ev.data === 'string') {
+        frame = ev.data;
+        this.opts.stats.addIn(ev.data.length);
+      } else if (ev.data instanceof ArrayBuffer) {
+        frame = new Uint8Array(ev.data);
+        this.opts.stats.addIn(frame.byteLength);
+      } else {
+        return;
+      }
       let msg: ServerMessage | null;
       try {
-        msg = parseServerMessage(jsonCodec.decode(ev.data));
+        msg = parseServerMessage(binaryCodec.decode(frame));
       } catch {
         return;
       }
@@ -67,7 +78,7 @@ export class Connection {
 
   send(msg: ClientMessage): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const data = jsonCodec.encode(msg);
+    const data = binaryCodec.encode(msg);
     if (typeof data === 'string') {
       this.opts.stats.addOut(data.length);
       this.ws.send(data);
