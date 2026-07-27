@@ -197,6 +197,12 @@ function onGameEvent(event: GameEvent): void {
     audio.play(weapon, at.dist, at.pan);
     const hit = listen(event.x1, event.y1);
     audio.play('impact', hit.dist, hit.pan);
+  } else if (event.type === 'runOver') {
+    // A car connecting with somebody. Non-fatal hits used to have no outward
+    // sign at all — the victim's HUD flashed and nothing else happened.
+    effects.blood(event.x, event.y, event.angle);
+    const at = listen(event.x, event.y);
+    audio.play('thud', at.dist, at.pan);
   } else if (event.type === 'propDown') {
     effects.debris(event.x, event.y);
     const at = listen(event.x, event.y);

@@ -110,7 +110,12 @@ export class Session {
 
     // Populate the streets: parked cars from the map's spawn list. Commands,
     // so they land in the replay and reproduce exactly.
-    const spawns = this.map.vehicleSpawns.filter((_, i) => i % 3 === 0).slice(0, MAX_VEHICLES);
+    // Spread across the whole city, not the first N of a row-major list: that
+    // put every parked car in the map's top-left corner, where they jammed the
+    // streets solid, and left the rest of the city bare.
+    const spots = this.map.parkingSpots;
+    const parkStride = Math.max(1, Math.floor(spots.length / MAX_VEHICLES));
+    const spawns = spots.filter((_, i) => i % parkStride === 0).slice(0, MAX_VEHICLES);
     for (const s of spawns) {
       this.pendingCommands.push({
         type: 'spawnVehicle',

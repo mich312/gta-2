@@ -10,6 +10,18 @@ export type SimEvent =
   | { type: 'death'; tick: number; playerId: number }
   | { type: 'copDown'; tick: number; killerId: number }
   | { type: 'pedDown'; tick: number; killerId: number }
+  | {
+      /** A vehicle struck somebody on foot. Non-fatal hits have no other
+       *  outward sign — a kill emits `kill` as well. */
+      type: 'runOver';
+      tick: number;
+      x: number;
+      y: number;
+      /** Heading of the car, so the client throws the blood the right way. */
+      angle: number;
+      /** Closing speed, for scaling the noise and the spray. */
+      speed: number;
+    }
   | { type: 'propDown'; tick: number; kind: string; x: number; y: number }
   | { type: 'propUp'; tick: number; kind: string; x: number; y: number }
   | {

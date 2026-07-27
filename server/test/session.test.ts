@@ -37,6 +37,25 @@ function intent(seq: number, tick: number, pid: number): InputIntent {
 }
 
 describe('session', () => {
+  it('spreads its parked cars across the city, not into one corner', () => {
+    // They were taken as the first N of a row-major list, which put every
+    // parked car in the map's top-left and left the rest of the city bare —
+    // and jammed those few streets solid with ambient traffic.
+    const session = new Session(4242, worldgen);
+    session.tick(0);
+    const cars = session.state.vehicles.ids
+      .map((id) => session.state.vehicles.byId[id]!)
+      .filter((v) => v.kind === 'car');
+    expect(cars.length).toBeGreaterThan(20);
+    const xs = cars.map((v) => v.pos.x);
+    const ys = cars.map((v) => v.pos.y);
+    const spanX = Math.max(...xs) - Math.min(...xs);
+    const spanY = Math.max(...ys) - Math.min(...ys);
+    // Spread over most of the map in both axes, rather than one neighbourhood.
+    expect(spanX).toBeGreaterThan(session.map.widthPx * 0.5);
+    expect(spanY).toBeGreaterThan(session.map.heightPx * 0.5);
+  });
+
   it('records a replay that reproduces the exact final state, twice', () => {
     const sink = new MemorySink();
     const recorder = new ReplayRecorder(sink, {

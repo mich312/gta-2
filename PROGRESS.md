@@ -1,5 +1,54 @@
 # PROGRESS
 
+## Drive-bys, kerbside parking, impacts you can see, and rubber on the road
+
+**Drive-by shooting.** `stepWeapons` gated firing on `mode !== 'foot'`, which
+was the right call when there was nothing to shoot at from a moving car and is
+not any more. A driver can now fire anything but their fists, the muzzle sits
+outside the car's own body (otherwise every drive-by put its first round into
+the door it came through, since the ray starts at the car's centre), the
+shooter's own car is excluded from the ray, and firing one-handed across a
+moving car costs accuracy in proportion to speed.
+
+**Traffic brakes for people.** Drivers now stop for pedestrians, players and
+officers on foot — but only inside the distance they can actually stop in,
+which is a much shorter probe than the one they use for cars. Standing in the
+road holds traffic up; stepping off the kerb in front of a moving car still
+gets you run over. A driver waiting for somebody to cross gets three times the
+patience of one nosed into a wall, because people move on their own and a car
+reversing away from a pedestrian looks deranged. Pedestrians now also scatter
+from a car that is right on top of them at any speed, not just from one doing
+140+, so a stopped car moves them along instead of waiting forever.
+
+**Run-over feedback.** A non-fatal car strike emitted nothing at all: the
+victim's HUD flashed red and that was the entire outward sign. There is now a
+`runOver` event carrying the point, the car's line and its speed, and the
+client throws blood along it and plays a thud (synthesised from
+`audio.json` like everything else).
+
+**Parked cars.** Three separate problems, one of them embarrassing:
+- The session took the first N of a row-major list, so every parked car in the
+  city was in the map's top-left corner — jamming those few streets solid and
+  leaving the rest of the city bare. They are sampled across the whole list
+  now.
+- They sat in the middle of the carriageway. `map.parkingSpots` is a new list,
+  separate from the kerbside spawn points that cops, roadblocks and ambient
+  traffic are drawn from (those must not move), with cars flush against the
+  kerb where the road is wide enough to pass and half up on the pavement where
+  it is not — a car is 18 px and a lane is 16.
+- Traffic modelled one lane per direction, so a car parked on a four-tile
+  arterial pushed everything on that side into the oncoming half, where it met
+  the traffic coming the other way and both stopped. Wide roads now have two
+  lanes each way and a driver takes the first that is free, with the oncoming
+  half as a last resort.
+
+**Brake marks.** `Effects.skid` was written complete and never called until
+cornering brought it to life; braking is the other half, and the one you see
+most, because every car in the city brakes. Marks go down under hard
+deceleration (300 px/s²: the pedal, not lifting off) — four wheels locked,
+against two under a slide — and a crash is excluded, because a rebound off a
+wall is not a brake mark.
+
 ## Police pursuit driving
 
 The cruisers were the last vehicles in the game driving badly. The pursuit

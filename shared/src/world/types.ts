@@ -101,7 +101,10 @@ export interface CityMap {
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];
+  /** Kerbside points cars are spawned FROM: ambient traffic, cops, roadblocks. */
   vehicleSpawns: VehicleSpawn[];
+  /** Where cars are left standing: at the kerb, out of the way of traffic. */
+  parkingSpots: VehicleSpawn[];
   playerSpawns: Vec2[];
   /** Dense sidewalk points for pedestrian spawning (phase 7). */
   pedSpawns: Vec2[];

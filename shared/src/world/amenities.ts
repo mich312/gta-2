@@ -24,6 +24,13 @@ import {
   type VehicleSpawn,
 } from './types.js';
 
+/**
+ * Half a car, in px (`vehicles.json: car.halfExtent`). Worldgen cannot read the
+ * tuning file — it is a pure function of (seed, params) and runs before any of
+ * it is loaded — so the one number it needs is stated here.
+ */
+const PARKED_HALF_EXTENT = 9;
+
 const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   gun: ['industrial', 'commercial', 'downtown'],
   clothing: ['commercial', 'downtown', 'residential'],
@@ -239,6 +246,61 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
   }
   map.vehicleSpawns = spawns;
   return rng;
+}
+
+/**
+ * Where cars are left parked, as opposed to where they are spawned from.
+ *
+ * These used to be the same list, and a parked car sat in the middle of the
+ * carriageway. A car's collision box is 18 px and a tile is 16, so on a
+ * two-tile street — every secondary road in the city — a parked car left 14 px
+ * of gap and blocked the street outright: ambient traffic queued behind it
+ * until its own stuck-recovery backed it out.
+ *
+ * So: park flush against the kerb where the road is wide enough to pass, and
+ * half up on the pavement where it is not, which is what people do on a
+ * narrow street anyway. Heading follows the traffic that side of the road
+ * carries, so a parked car points the way its lane goes rather than at random.
+ *
+ * Derived from the tile grid with no rng of its own, deliberately: the spawn
+ * list it filters is what cops, roadblocks and ambient traffic are drawn from,
+ * and those must not move because parking changed.
+ */
+export function placeParking(map: CityMap): void {
+  const spots: VehicleSpawn[] = [];
+  const half = PARKED_HALF_EXTENT;
+  for (const s of map.vehicleSpawns) {
+    const tx = Math.floor(s.x / TILE_SIZE);
+    const ty = Math.floor(s.y / TILE_SIZE);
+    const kerbWest = t(map, tx - 1, ty) === T_SIDEWALK;
+    const kerbNorth = t(map, tx, ty - 1) === T_SIDEWALK;
+    if (!kerbWest && !kerbNorth) continue;
+
+    // How much carriageway there is, counting away from the kerb.
+    let width = 1;
+    for (let i = 1; i <= 5; i++) {
+      const tile = kerbWest ? t(map, tx + i, ty) : t(map, tx, ty + i);
+      if (tile !== T_ROAD) break;
+      width++;
+    }
+    const kerbEdge = (kerbWest ? tx : ty) * TILE_SIZE;
+    // Wide enough to be passed: sit in the road with the wheels on the kerb.
+    // Otherwise put half the car up on the pavement so the street stays open.
+    // Wide enough to be passed: sit in the road with the wheels against the
+    // kerb. Otherwise put the car half up on the pavement, which is what
+    // people do on a street too narrow to do anything else — and leaves the
+    // carriageway usable rather than plugged.
+    const offset = width >= 3 ? half : 0;
+    spots.push({
+      x: kerbWest ? kerbEdge + offset : s.x,
+      y: kerbWest ? s.y : kerbEdge + offset,
+      // Right-hand traffic: the west half of a road carries southbound
+      // traffic, the north half carries westbound.
+      heading: kerbWest ? HALF_PI : PI,
+      kind: 'car',
+    });
+  }
+  map.parkingSpots = spots;
 }
 
 /** Every 5th sidewalk tile, row-major: plenty of deterministic ped spots. */

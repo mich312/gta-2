@@ -10,6 +10,8 @@ import { T_SIDEWALK, TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile, moveWithCollision } from '../world/collide.js';
 
 const PED_RADIUS = 5;
+/** A car this close scares a pedestrian whether it is moving or not. */
+const NUDGE_RADIUS = 26;
 const DIRS: Array<[number, number]> = [
   [1, 0],
   [-1, 0],
@@ -88,14 +90,19 @@ export function stepPeds(
         break;
       }
     }
-    // Speeding cars nearby also scatter the crowd.
+    // Speeding cars nearby scatter the crowd — and so does one right on top of
+    // you at any speed, which is what gets a pedestrian off the road again
+    // after traffic has stopped for them. Without it a single jaywalker holds
+    // up the street indefinitely.
     if (ped.mode === 'walk') {
       for (const vid of state.vehicles.ids) {
         const v = state.vehicles.byId[vid];
-        if (!v || Math.abs(v.speed) < 140) continue;
+        if (!v) continue;
+        const loud = Math.abs(v.speed) >= 140;
         const dx = ped.pos.x - v.pos.x;
         const dy = ped.pos.y - v.pos.y;
         const d2 = dx * dx + dy * dy;
+        if (!loud && d2 > NUDGE_RADIUS * NUDGE_RADIUS) continue;
         if (d2 < 90 * 90 && d2 > 0.0001) {
           const d = Math.sqrt(d2);
           ped.dirX = dx / d;

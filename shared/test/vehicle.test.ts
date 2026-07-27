@@ -12,6 +12,7 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import { Predictor } from '../src/net/prediction.js';
 import { boxInSolid } from '../src/world/collide.js';
 import type { SimCommand } from '../src/sim/commands.js';
+import type { SimEvent } from '../src/sim/events.js';
 import { T_BUILDING, T_FIELD, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
 const map = generateCity(2026, parseWorldgenParams(worldgenJson));
@@ -192,6 +193,40 @@ describe('vehicles', () => {
     expect(hit.carHitCooldown).toBeGreaterThan(0);
     // Shoved along the car's line rather than merely dented.
     expect(hit.vel.x).toBeGreaterThan(30);
+  });
+
+  it('reports the strike, so the client has something to draw and play', () => {
+    const arena = arenaMap(null);
+    let state = createGameState(8);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'victim' }], arena);
+    const victim = state.players.byId[1]!;
+    state = step(
+      state,
+      {},
+      [
+        {
+          type: 'spawnVehicle',
+          vehicleId: 2,
+          kind: 'car',
+          x: victim.pos.x - 40,
+          y: victim.pos.y,
+          heading: 0,
+        },
+      ],
+      arena,
+    );
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 30; i++) {
+      state.vehicles.byId[2]!.speed = 200;
+      state = step(state, {}, [], arena, events);
+    }
+    const hit = events.find((e) => e.type === 'runOver') as
+      | Extract<SimEvent, { type: 'runOver' }>
+      | undefined;
+    expect(hit).toBeDefined();
+    // Thrown the way the car was going, at the speed it was doing.
+    expect(Math.abs(hit!.angle)).toBeLessThan(0.1);
+    expect(hit!.speed).toBeGreaterThan(150);
   });
 
   it('prediction while driving is bit-exact (zero correction, no other cars)', () => {

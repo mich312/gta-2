@@ -4,6 +4,7 @@ import { placeDistrictSeeds, districtLookup } from './districts.js';
 import { carveRiver, generateRoads } from './roads.js';
 import { fillBlock } from './buildings.js';
 import {
+  placeParking,
   placePedSpawns,
   placePlayerSpawns,
   placeProps,
@@ -44,6 +45,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     buildings: [],
     shops: [],
     vehicleSpawns: [],
+    parkingSpots: [],
     playerSpawns: [],
     pedSpawns: [],
     propSpawns: [],
@@ -90,6 +92,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   rng = placeShops(map, params, rng);
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);
+  placeParking(map);
   placePedSpawns(map);
   placeProps(map);
   placePickups(map);

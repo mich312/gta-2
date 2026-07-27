@@ -74,6 +74,9 @@ const MAX_LANE_TILES = 4;
 const TURN_ERROR = 0.35;
 /** Speed below which a car that ought to be moving counts as wedged. */
 const WEDGED_SPEED = 12;
+/** Standing distance a driver keeps from somebody on foot, px, plus per px/s. */
+const PERSON_GAP = 6;
+const PERSON_GAP_PER_SPEED = 0.13;
 
 /** AI drivers are negative ids; -1 is reserved for "the streets". */
 export function isAiDriver(driverId: number | null): boolean {
@@ -81,19 +84,26 @@ export function isAiDriver(driverId: number | null): boolean {
 }
 
 /**
- * The two lane centres of the carriageway under the car, measured across the
- * direction of travel: `keep` is the right-hand lane, where it belongs, and
- * `other` is the oncoming half — available for an overtake and nothing else.
+ * The lanes available to a driver, measured across its direction of travel and
+ * listed in the order it should prefer them: the kerb-side lane of its own
+ * half first, then the inner lane of its own half where the road is wide
+ * enough to have one, and the oncoming half last of all.
+ *
+ * The middle option is what makes a parked car survivable. An arterial is four
+ * tiles across, so it has two lanes each way — and with only one lane per
+ * direction modelled, a single car parked at the kerb pushed all the traffic
+ * on that side into the oncoming half, where it met the traffic coming the
+ * other way and both stopped.
  *
  * Null when the car is not on a road at all, which is the signal to hold the
  * current heading rather than steer at a phantom lane.
  */
-function laneCentres(
+function laneOptions(
   map: CityMap,
   x: number,
   y: number,
   dirIdx: number,
-): { keep: number; other: number } | null {
+): number[] | null {
   const alongX = dirIdx === 0 || dirIdx === 2;
   const tx = Math.floor(x / TILE_SIZE);
   const ty = Math.floor(y / TILE_SIZE);
@@ -111,15 +121,51 @@ function laneCentres(
   }
   if (hi - lo + 1 > MAX_LANE_TILES) return null;
 
+  const tiles = hi - lo + 1;
   const centre = ((lo + hi + 1) / 2) * TILE_SIZE;
-  const halfWidth = ((hi - lo + 1) / 2) * TILE_SIZE;
-  // A one-tile lane has no sides to keep to: everybody shares the middle.
-  const offset = hi === lo ? 0 : halfWidth / 2;
+  const halfWidth = (tiles / 2) * TILE_SIZE;
   const sign = RIGHT_SIGN[dirIdx] as number;
-  return { keep: centre + sign * offset, other: centre - sign * offset };
+  // A one-tile lane has no sides to keep to: everybody shares the middle.
+  if (tiles === 1) return [centre];
+  if (tiles >= 4) {
+    return [
+      centre + sign * halfWidth * 0.75, // kerb lane
+      centre + sign * halfWidth * 0.25, // inner lane, same direction
+      centre - sign * halfWidth * 0.5, // oncoming, last resort
+    ];
+  }
+  return [centre + sign * halfWidth * 0.5, centre - sign * halfWidth * 0.5];
 }
 
-/** Is another vehicle sitting on this point? */
+/**
+ * Is somebody on foot standing on this point — a pedestrian, or a player out
+ * of their car? Cops on foot count too; an officer directing traffic he is
+ * about to be flattened by is not the look.
+ */
+function personAt(state: GameState, x: number, y: number, reach: number): boolean {
+  for (const id of state.peds.ids) {
+    const ped = state.peds.byId[id];
+    if (!ped) continue;
+    if (Math.abs(ped.pos.x - x) < reach && Math.abs(ped.pos.y - y) < reach) return true;
+  }
+  for (const id of state.players.ids) {
+    const p = state.players.byId[id];
+    if (!p || p.mode !== 'foot') continue;
+    if (Math.abs(p.pos.x - x) < reach && Math.abs(p.pos.y - y) < reach) return true;
+  }
+  for (const id of state.cops.ids) {
+    const cop = state.cops.byId[id];
+    if (!cop || cop.vehicleId !== null) continue;
+    if (Math.abs(cop.pos.x - x) < reach && Math.abs(cop.pos.y - y) < reach) return true;
+  }
+  return false;
+}
+
+/**
+ * Is another vehicle sitting on this point? The reach has to stay under the
+ * lane spacing (16 px on an arterial), or a car in the next lane along reads
+ * as blocking this one and nobody ever changes lane.
+ */
 function vehicleAt(state: GameState, self: VehicleState, x: number, y: number): boolean {
   const reach = getVehicleTuning(self.kind).halfExtent * 1.6;
   for (const id of state.vehicles.ids) {
@@ -203,7 +249,7 @@ function laneControl(
   map: CityMap,
   v: VehicleState,
   driver: TrafficDriver,
-): { throttle: number; steer: number } {
+): { throttle: number; steer: number; personBlocked: boolean } {
   const t = getTrafficTuning();
   const dirIdx = driver.dir >= 0 ? driver.dir : nearestCardinal(v.heading);
   const [dx, dy] = CARDINALS[dirIdx] as readonly [number, number];
@@ -215,7 +261,7 @@ function laneControl(
   let targetX = v.pos.x + dx * t.lookAhead;
   let targetY = v.pos.y + dy * t.lookAhead;
 
-  const lanes = laneCentres(map, v.pos.x, v.pos.y, dirIdx);
+  const lanes = laneOptions(map, v.pos.x, v.pos.y, dirIdx);
   if (!drivableAt(map, v.pos.x, v.pos.y)) {
     // Off the carriageway: get back on it before worrying about which side.
     const back = recoverTarget(map, v.pos.x, v.pos.y);
@@ -224,9 +270,9 @@ function laneControl(
       targetY = back.y;
     }
   } else if (lanes) {
-    // Overtake: if our own lane is occupied ahead and the other half of the
-    // road is clear, use it. A parked car is 18 px wide in a 16 px lane, so
-    // without this every one of them is a permanent roadblock.
+    // Take the first lane that is actually free, in preference order. A parked
+    // car is 18 px wide in a 16 px lane, so without this every one of them is a
+    // permanent roadblock.
     //
     // Looked for further ahead than the car is steering — a lane change wants
     // to start before the obstacle is on the bumper, or it becomes a stop
@@ -234,16 +280,16 @@ function laneControl(
     const scan = t.lookAhead + Math.abs(v.speed) * t.brakeDistancePerSpeed;
     const probeX = v.pos.x + dx * scan;
     const probeY = v.pos.y + dy * scan;
-    const keepX = alongX ? probeX : lanes.keep;
-    const keepY = alongX ? lanes.keep : probeY;
-    const otherX = alongX ? probeX : lanes.other;
-    const otherY = alongX ? lanes.other : probeY;
-    const useOther =
-      vehicleAt(state, v, keepX, keepY) &&
-      drivableAt(map, otherX, otherY) &&
-      !vehicleAt(state, v, otherX, otherY);
-    if (alongX) targetY = useOther ? lanes.other : lanes.keep;
-    else targetX = useOther ? lanes.other : lanes.keep;
+    let lane = lanes[0] as number;
+    for (const option of lanes) {
+      const ox = alongX ? probeX : option;
+      const oy = alongX ? option : probeY;
+      if (!drivableAt(map, ox, oy) || vehicleAt(state, v, ox, oy)) continue;
+      lane = option;
+      break;
+    }
+    if (alongX) targetY = lane;
+    else targetX = lane;
   }
 
   const err = wrapAngle(dAtan2(targetY - v.pos.y, targetX - v.pos.x) - v.heading);
@@ -259,7 +305,19 @@ function laneControl(
   const sin = dSin(v.heading);
   const gap = half + t.brakeDistance + Math.abs(v.speed) * t.brakeDistancePerSpeed;
   const solid = isSolidAtWorld(map, v.pos.x + cos * (half + 5), v.pos.y + sin * (half + 5));
-  const blocked = solid || vehicleAt(state, v, v.pos.x + cos * gap, v.pos.y + sin * gap);
+  // People get braked for at the distance a car can actually stop in, and no
+  // further: traffic that halts for anybody within five car lengths never
+  // moves in a city with two hundred pedestrians in it, and stepping off the
+  // kerb in front of a moving car should still be a bad idea.
+  const stopGap = half + PERSON_GAP + Math.abs(v.speed) * PERSON_GAP_PER_SPEED;
+  const personBlocked = personAt(
+    state,
+    v.pos.x + cos * stopGap,
+    v.pos.y + sin * stopGap,
+    half,
+  );
+  const blocked =
+    personBlocked || solid || vehicleAt(state, v, v.pos.x + cos * gap, v.pos.y + sin * gap);
 
   // Corner speed. `turnSpeed` has sat in the tuning file since the beginning
   // with nothing reading it; this is what it was for.
@@ -273,7 +331,7 @@ function laneControl(
   } else if (v.speed >= cruise) {
     throttle = v.speed > cruise * 1.25 ? -0.6 : 0;
   }
-  return { throttle, steer };
+  return { throttle, steer, personBlocked };
 }
 
 /**
@@ -323,15 +381,21 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
 
     // Three physics ticks, steering recomputed for each so the car tracks its
     // lane instead of holding a stale wheel for 100 ms.
+    let personBlocked = false;
     for (let i = 0; i < 3; i++) {
       const ctrl = laneControl(state, map, v, driver);
+      personBlocked = ctrl.personBlocked;
       driveVehicle(v, ctrl.throttle, ctrl.steer, map, state, events, false, 1);
     }
 
-    // Wedged? Count it, and past the limit back out.
+    // Wedged? Count it, and past the limit back out. A driver waiting for
+    // somebody to finish crossing gets three times the patience of one nosed
+    // into a wall: people move on their own, and a car reversing away from a
+    // pedestrian looks deranged.
+    const patience = personBlocked ? t.blockedTimeoutTicks * 3 : t.blockedTimeoutTicks;
     if (Math.abs(v.speed) < WEDGED_SPEED) {
       driver.stuck++;
-      if (driver.stuck >= t.blockedTimeoutTicks) driver.stuck = -t.reverseTicks;
+      if (driver.stuck >= patience) driver.stuck = -t.reverseTicks;
     } else if (driver.stuck > 0) {
       driver.stuck--;
     }
@@ -403,10 +467,11 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     // seconds crossing back over, which is the very thing this pass is about.
     const dirIdx = nearestCardinal(candidate.heading);
     if (!dirIsOpen(map, candidate.x, candidate.y, dirIdx)) continue;
-    const lanes = laneCentres(map, candidate.x, candidate.y, dirIdx);
+    const lanes = laneOptions(map, candidate.x, candidate.y, dirIdx);
+    const lane = lanes ? (lanes[0] as number) : null;
     const alongX = dirIdx === 0 || dirIdx === 2;
-    const x = lanes && !alongX ? lanes.keep : candidate.x;
-    const y = lanes && alongX ? lanes.keep : candidate.y;
+    const x = lane !== null && !alongX ? lane : candidate.x;
+    const y = lane !== null && alongX ? lane : candidate.y;
 
     // Never spawn on top of an existing vehicle.
     let clear = true;

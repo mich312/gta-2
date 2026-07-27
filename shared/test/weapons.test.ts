@@ -183,4 +183,57 @@ describe('weapons', () => {
   it('respawn delay constant matches what the sim stamps on the corpse', () => {
     expect(RESPAWN_DELAY_TICKS).toBe(90);
   });
+
+  it('a driver can shoot out of the car, and never into their own', () => {
+    const map = arena(null);
+    let state = duel(map);
+    const p1 = state.players.byId[1]!;
+    // Put p1 behind the wheel; p2 is 100 px east and directly in the line.
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 3, kind: 'car', x: p1.pos.x, y: p1.pos.y, heading: 0 }],
+      map,
+    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: 200, tick: 200, action: true } }, [], map);
+    expect(state.players.byId[1]!.mode).toBe('driving');
+
+    const carHealth = state.vehicles.byId[3]!.health;
+    const victimHealth = state.players.byId[2]!.health;
+    const events: SimEvent[] = [];
+    let seq = 300;
+    for (let i = 0; i < 40; i++) {
+      state = step(state, { 1: fireIntent(seq++, 0) }, [], map, events);
+    }
+    // Rounds left the car and reached the target...
+    expect(events.some((e) => e.type === 'shot')).toBe(true);
+    expect(state.players.byId[2]!.health).toBeLessThan(victimHealth);
+    // ...without any of them hitting the door on the way out.
+    expect(state.vehicles.byId[3]!.health).toBe(carHealth);
+    // The muzzle is outside the car body, not at its centre.
+    const shot = events.find((e) => e.type === 'shot') as Extract<SimEvent, { type: 'shot' }>;
+    const car = state.vehicles.byId[3]!;
+    expect(Math.abs(shot.x0 - car.pos.x)).toBeGreaterThan(9);
+  });
+
+  it('fists cannot be swung from the driving seat', () => {
+    const map = arena(null);
+    let state = duel(map);
+    const p1 = state.players.byId[1]!;
+    p1.weapons = [{ weaponId: 'fists', ammo: 0 }];
+    p1.activeWeapon = 0;
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 3, kind: 'car', x: p1.pos.x, y: p1.pos.y, heading: 0 }],
+      map,
+    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: 400, tick: 400, action: true } }, [], map);
+    expect(state.players.byId[1]!.mode).toBe('driving');
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 20; i++) {
+      state = step(state, { 1: fireIntent(500 + i, 0) }, [], map, events);
+    }
+    expect(events.some((e) => e.type === 'shot')).toBe(false);
+  });
 });

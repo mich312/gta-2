@@ -23,7 +23,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | Input | Action |
 | --- | --- |
 | WASD / arrows | walk, drive (up=throttle, down=brake/reverse, left/right=steer) |
-| Mouse | aim; click or Space to fire |
+| Mouse | aim; click or Space to fire, on foot or out of a car window |
 | E / Enter | enter/exit car, context action |
 | 1–8 | switch weapon slot |
 | Y / U / I / O | buy items while inside a shop (or in its doorway) |

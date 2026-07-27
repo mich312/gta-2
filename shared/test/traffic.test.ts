@@ -126,6 +126,45 @@ function census(seed: number, ticks = 2400): Census {
   return out;
 }
 
+/**
+ * A long straight eastbound stretch: returns the centre of the right-hand lane
+ * at the west end, so a test car can be dropped on it and driven east.
+ */
+function eastboundLane(minRunTiles = 14): { x: number; y: number } {
+  for (let ty = 6; ty < map.heightTiles - 6; ty++) {
+    for (let tx = 6; tx < map.widthTiles - 6; tx++) {
+      if (!isDrivable(tx, ty)) continue;
+      let run = 0;
+      for (let i = 1; i <= minRunTiles + 2; i++) {
+        if (!isDrivable(tx + i, ty)) break;
+        run++;
+      }
+      if (run < minRunTiles) continue;
+      // Two tiles of carriageway across, so there is a right-hand lane at all.
+      if (!isDrivable(tx, ty + 1) || isDrivable(tx, ty + 2)) continue;
+      if (isDrivable(tx, ty - 1)) continue;
+      // Eastbound keeps to the southern half.
+      return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 1.5) * TILE_SIZE };
+    }
+  }
+  throw new Error('no straight two-tile road on this map');
+}
+
+/** Put an ambient driver at the wheel of a freshly spawned car. */
+function ambientCar(state: GameState, id: number, at: { x: number; y: number }): GameState {
+  const next = step(
+    state,
+    {},
+    [{ type: 'spawnVehicle', vehicleId: id, kind: 'car', x: at.x, y: at.y, heading: 0 }],
+    map,
+  );
+  const v = next.vehicles.byId[id]!;
+  v.driverId = -1000 - id;
+  v.speed = getTrafficTuning().cruiseSpeed;
+  next.trafficDrivers[id] = { dir: 0, stuck: 0 };
+  return next;
+}
+
 describe('ambient traffic', () => {
   it('populates the streets around a player', () => {
     const state = withTraffic(1);
@@ -183,6 +222,51 @@ describe('ambient traffic', () => {
   it('is deterministic', () => {
     const run = (): number => hashState(withTraffic(77, 700));
     expect(run()).toBe(run());
+  });
+
+  it('brakes for somebody standing in the road, then carries on', () => {
+    const lane = eastboundLane();
+    let state = createGameState(101);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'jaywalker' }], map);
+    state = ambientCar(state, 900, lane);
+    // Stand the player in the lane, a few car lengths ahead.
+    const victim = state.players.byId[1]!;
+    victim.pos = { x: lane.x + 90, y: lane.y };
+
+    for (let i = 0; i < 60; i++) {
+      const p = state.players.byId[1]!;
+      p.pos = { x: lane.x + 90, y: lane.y }; // hold their ground
+      state = step(state, {}, [], map);
+      if (!state.vehicles.byId[900]) break;
+    }
+    const car = state.vehicles.byId[900]!;
+    expect(Math.abs(car.speed)).toBeLessThan(20); // stopped short
+    expect(car.pos.x).toBeLessThan(lane.x + 90); // and stopped short OF them
+    expect(state.players.byId[1]!.health).toBe(100);
+
+    // Step out of the road and the driver gets going again.
+    state.players.byId[1]!.pos = { x: lane.x + 90, y: lane.y - TILE_SIZE * 3 };
+    for (let i = 0; i < 60; i++) state = step(state, {}, [], map);
+    expect(state.vehicles.byId[900]!.speed).toBeGreaterThan(20);
+  });
+
+  it('still runs down anyone who steps out in front of it', () => {
+    // Braking for people must not make traffic harmless: the gap a driver
+    // brakes at is the distance it can stop in, not five car lengths.
+    const lane = eastboundLane();
+    let state = createGameState(102);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'unlucky' }], map);
+    state = ambientCar(state, 901, lane);
+    let hurt = false;
+    for (let i = 0; i < 90 && !hurt; i++) {
+      const car = state.vehicles.byId[901];
+      if (!car) break;
+      // Keep the victim just in front of the bumper: stepping out late.
+      state.players.byId[1]!.pos = { x: car.pos.x + 12, y: car.pos.y };
+      state = step(state, {}, [], map);
+      hurt = state.players.byId[1]!.health < 100;
+    }
+    expect(hurt).toBe(true);
   });
 
   it('drives on the right-hand side of the road', () => {

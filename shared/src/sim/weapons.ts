@@ -1,6 +1,6 @@
 import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
-import { dCos, dSin } from '../math/trig.js';
+import { PI, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
 import type {
@@ -41,6 +41,11 @@ const RUNOVER_DAMAGE_PER_SPEED = 0.13;
 const RUNOVER_PED_DAMAGE_PER_SPEED = 0.2;
 /** How much of the car's speed is transferred to whoever it hits, as px/s. */
 const RUNOVER_KNOCKBACK = 0.7;
+/** How far past the car's own body a drive-by round starts, px. */
+const DRIVEBY_MUZZLE_CLEARANCE = 4;
+/** Extra spread per px/s of the car's speed, and its ceiling (radians). */
+const DRIVEBY_SPREAD_PER_SPEED = 0.0004;
+const DRIVEBY_MAX_EXTRA_SPREAD = 0.1;
 
 /** Distance along a ray until it enters a solid tile (DDA; exact ops). */
 export function rayWallDistance(
@@ -105,15 +110,20 @@ function fireOnce(
   state: GameState,
   map: CityMap,
   shooter: PlayerState,
+  /** Muzzle, which is not always the shooter: a drive-by leaves the car body. */
+  ox: number,
+  oy: number,
   angle: number,
   range: number,
   damage: number,
   weaponId: string,
+  /** Vehicle the shot comes out of, and therefore cannot hit. */
+  skipVehicleId: number | null,
   events: SimEvent[],
 ): void {
   const dirX = dCos(angle);
   const dirY = dSin(angle);
-  const wallDist = rayWallDistance(map, shooter.pos.x, shooter.pos.y, dirX, dirY, range);
+  const wallDist = rayWallDistance(map, ox, oy, dirX, dirY, range);
 
   let hitPlayer: PlayerState | null = null;
   let hitCop: CopState | null = null;
@@ -126,8 +136,8 @@ function fireOnce(
     const target = state.players.byId[id];
     if (!target || target.mode === 'dead') continue;
     const d = rayCircleDistance(
-      shooter.pos.x,
-      shooter.pos.y,
+      ox,
+      oy,
       dirX,
       dirY,
       target.pos.x,
@@ -143,8 +153,8 @@ function fireOnce(
     const cop = state.cops.byId[id];
     if (!cop) continue;
     const d = rayCircleDistance(
-      shooter.pos.x,
-      shooter.pos.y,
+      ox,
+      oy,
       dirX,
       dirY,
       cop.pos.x,
@@ -161,8 +171,8 @@ function fireOnce(
     const ped = state.peds.byId[id];
     if (!ped) continue;
     const d = rayCircleDistance(
-      shooter.pos.x,
-      shooter.pos.y,
+      ox,
+      oy,
       dirX,
       dirY,
       ped.pos.x,
@@ -182,8 +192,8 @@ function fireOnce(
     if (!prop || !prop.intact) continue;
     const radius = propKinds[prop.kind]?.radius ?? 4;
     const d = rayCircleDistance(
-      shooter.pos.x,
-      shooter.pos.y,
+      ox,
+      oy,
       dirX,
       dirY,
       prop.pos.x,
@@ -202,11 +212,12 @@ function fireOnce(
   // Vehicles are shootable — without this nothing in the game could destroy
   // a car, which is the toy the whole genre is built around.
   for (const id of state.vehicles.ids) {
+    if (id === skipVehicleId) continue;
     const veh = state.vehicles.byId[id];
     if (!veh || veh.condition !== 'ok') continue;
     const d = rayCircleDistance(
-      shooter.pos.x,
-      shooter.pos.y,
+      ox,
+      oy,
       dirX,
       dirY,
       veh.pos.x,
@@ -228,10 +239,10 @@ function fireOnce(
     tick: state.tick,
     playerId: shooter.id,
     // Rounded: tracer endpoints are display-only, ints keep events small.
-    x0: Math.round(shooter.pos.x),
-    y0: Math.round(shooter.pos.y),
-    x1: Math.round(shooter.pos.x + dirX * hitDist),
-    y1: Math.round(shooter.pos.y + dirY * hitDist),
+    x0: Math.round(ox),
+    y0: Math.round(oy),
+    x1: Math.round(ox + dirX * hitDist),
+    y1: Math.round(oy + dirY * hitDist),
   });
 
   if (hitPlayer) {
@@ -355,20 +366,54 @@ export function stepWeapons(
     if (input.slot >= 0 && input.slot < p.weapons.length) {
       p.activeWeapon = input.slot;
     }
-    if (!input.fire || p.fireCooldown > 0 || p.mode !== 'foot') continue;
+    if (!input.fire || p.fireCooldown > 0) continue;
+    const driving = p.mode === 'driving';
+    if (!driving && p.mode !== 'foot') continue;
     const slot = p.weapons[p.activeWeapon];
     if (!slot) continue;
     const weapon = getWeaponTuning(slot.weaponId);
     if (!weapon) continue;
+    // A punch needs both hands and a pavement.
+    if (driving && weapon.melee) continue;
     if (slot.ammo <= 0 && !weapon.infiniteAmmo) continue;
+
+    // Where the muzzle is. On foot it is the shooter; leaning out of a car it
+    // has to clear the car's own body, or every drive-by would put its first
+    // round into the door it came through.
+    let ox = p.pos.x;
+    let oy = p.pos.y;
+    let spread = weapon.spread;
+    const car = driving && p.vehicleId !== null ? state.vehicles.byId[p.vehicleId] : undefined;
+    if (car) {
+      const clear = getVehicleTuning(car.kind).halfExtent + DRIVEBY_MUZZLE_CLEARANCE;
+      ox = p.pos.x + dCos(p.aimAngle) * clear;
+      oy = p.pos.y + dSin(p.aimAngle) * clear;
+      // Firing one-handed across a moving car costs accuracy.
+      spread += Math.min(
+        DRIVEBY_MAX_EXTRA_SPREAD,
+        Math.abs(car.speed) * DRIVEBY_SPREAD_PER_SPEED,
+      );
+    }
 
     if (!weapon.infiniteAmmo) slot.ammo--;
     p.fireCooldown = weapon.cooldownTicks;
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
       let roll: number;
       [roll, state.rng] = nextFloat01(state.rng);
-      const angle = p.aimAngle + (roll - 0.5) * 2 * weapon.spread;
-      fireOnce(state, map, p, angle, weapon.range, weapon.damage, slot.weaponId, events);
+      const angle = p.aimAngle + (roll - 0.5) * 2 * spread;
+      fireOnce(
+        state,
+        map,
+        p,
+        ox,
+        oy,
+        angle,
+        weapon.range,
+        weapon.damage,
+        slot.weaponId,
+        car ? car.id : null,
+        events,
+      );
     }
   }
 }
@@ -411,6 +456,28 @@ export function stepProps(state: GameState, events: SimEvent[]): void {
   }
 }
 
+/**
+ * A car struck somebody. Reported so the client can throw blood and make a
+ * noise: a non-fatal hit used to have no outward sign at all beyond the
+ * victim's own HUD flashing red.
+ */
+function pushRunOver(
+  events: SimEvent[],
+  tick: number,
+  x: number,
+  y: number,
+  v: VehicleState,
+): void {
+  events.push({
+    type: 'runOver',
+    tick,
+    x: Math.round(x),
+    y: Math.round(y),
+    angle: v.speed >= 0 ? v.heading : wrapAngle(v.heading + PI),
+    speed: Math.round(Math.abs(v.speed)),
+  });
+}
+
 /** Run-over damage: fast cars hurt anyone on foot they overlap. */
 export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
   for (const vid of state.vehicles.ids) {
@@ -428,6 +495,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         const shove = Math.abs(v.speed) * RUNOVER_KNOCKBACK * (v.speed >= 0 ? 1 : -1);
         p.vel.x = q8(p.vel.x + dCos(v.heading) * shove);
         p.vel.y = q8(p.vel.y + dSin(v.heading) * shove);
+        pushRunOver(events, state.tick, p.pos.x, p.pos.y, v);
         applyDamage(
           state,
           p,
@@ -445,6 +513,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       if (!cop || cop.carHitCooldown > 0) continue;
       if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
         cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
+        pushRunOver(events, state.tick, cop.pos.x, cop.pos.y, v);
         damageCop(state, cop, Math.abs(v.speed) * RUNOVER_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
       }
     }
@@ -452,6 +521,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       const ped = state.peds.byId[pedId];
       if (!ped) continue;
       if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
+        pushRunOver(events, state.tick, ped.pos.x, ped.pos.y, v);
         damagePed(state, ped, Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
       }
     }

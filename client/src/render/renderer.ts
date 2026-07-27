@@ -605,6 +605,10 @@ function drawVehicle(
     lights.point(x, y, 30 * RENDER_SCALE, 'head', 0.75 * flicker);
   }
 
+  // Rubber goes down whoever is driving and whatever the lights are doing:
+  // an AI car standing on the brakes for a pedestrian leaves marks too.
+  layRubber(effects, id, wx, wy, heading, speed, nowMs);
+
   // Only a car with someone in it has its lights on — a street of parked cars
   // all blazing away washes the scene out and reads as nonsense.
   if (!occupied) return;
@@ -645,17 +649,37 @@ function drawVehicle(
   layRubber(effects, id, wx, wy, heading, speed, nowMs);
 }
 
-/** Per-vehicle heading history, for spotting a hard corner. */
-const skidState = new Map<number, { heading: number; ms: number; nextAtMs: number }>();
+/** Per-vehicle heading and speed history, for spotting a slide or a stop. */
+const skidState = new Map<
+  number,
+  { heading: number; speed: number; ms: number; nextAtMs: number }
+>();
 
 /** Below this there is not enough weight on the tyres to mark the road. */
 const SKID_MIN_SPEED = 170;
 /** Rad/s of yaw that counts as a slide. Peak steering authority is 2.8. */
 const SKID_MIN_YAW_RATE = 1.9;
+/**
+ * Deceleration that counts as standing on the brakes, px/s². A car brakes at
+ * 520 and coasts down at 180 (`vehicles.json`), so this catches the pedal and
+ * ignores lifting off.
+ */
+const SKID_MIN_DECEL = 300;
+/** ...and the speed it has to be doing for the marks to show. */
+const SKID_MIN_BRAKE_SPEED = 90;
 /** Rubber is laid at a wall-clock cadence, not per frame — a 240 Hz display
  *  must not lay four times the rubber of a 60 Hz one. */
 const SKID_INTERVAL_MS = 45;
 
+/**
+ * Tyre marks: two arcs under the rear wheels through a slide, four straight
+ * ones under a hard stop.
+ *
+ * `Effects.skid` was written, complete, at the same time as the rest of the
+ * particle pool and then never called from anywhere — the review flagged it as
+ * dead code. Cornering brought it to life; braking is the other half, and it
+ * is the one you see most, because every car in the city brakes.
+ */
 function layRubber(
   effects: Effects,
   id: number,
@@ -668,6 +692,7 @@ function layRubber(
   const prev = skidState.get(id);
   skidState.set(id, {
     heading,
+    speed,
     ms: nowMs,
     nextAtMs: prev?.nextAtMs ?? 0,
   });
@@ -681,17 +706,26 @@ function layRubber(
   while (delta > Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
   const yawRate = Math.abs(delta) / (dtMs / 1000);
+  const sliding = Math.abs(speed) >= SKID_MIN_SPEED && yawRate >= SKID_MIN_YAW_RATE;
 
-  if (Math.abs(speed) < SKID_MIN_SPEED || yawRate < SKID_MIN_YAW_RATE) return;
+  // Braking, as opposed to crashing: a wall reverses the speed outright, and
+  // a rebound is not a brake mark.
+  const decel = (Math.abs(prev.speed) - Math.abs(speed)) / (dtMs / 1000);
+  const braking =
+    Math.abs(speed) >= SKID_MIN_BRAKE_SPEED && speed * prev.speed > 0 && decel >= SKID_MIN_DECEL;
+
+  if (!sliding && !braking) return;
   if (nowMs < prev.nextAtMs) return;
 
-  // One mark under each rear wheel, laid along the car's axis.
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
-  const back = 8;
   const track = 5;
-  for (const s of [-1, 1]) {
-    effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
+  // A slide marks the rear wheels; all four lock up under braking.
+  const axles = braking ? [8, -8] : [8];
+  for (const back of axles) {
+    for (const s of [-1, 1]) {
+      effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
+    }
   }
-  skidState.set(id, { heading, ms: nowMs, nextAtMs: nowMs + SKID_INTERVAL_MS });
+  skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: nowMs + SKID_INTERVAL_MS });
 }

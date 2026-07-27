@@ -133,6 +133,36 @@ describe('world generation', () => {
     expect(drivable.length).toBeGreaterThan(0);
   });
 
+  it('parks cars at the kerb rather than in the middle of the road', () => {
+    const map = generateCity(808, params);
+    expect(map.parkingSpots.length).toBeGreaterThan(20);
+    let wide = 0;
+    for (const s of map.parkingSpots) {
+      const tx = Math.floor(s.x / TILE_SIZE);
+      const ty = Math.floor(s.y / TILE_SIZE);
+      const kerbWest = map.tiles[ty * map.widthTiles + tx - 1] === T_SIDEWALK;
+      // Work out the carriageway this spot belongs to and where its far kerb
+      // is; a parked car must be in the half nearest the near kerb, never
+      // sitting on the centreline where traffic has to swerve round it.
+      let width = 0;
+      for (let i = 0; i <= 5; i++) {
+        const tile = kerbWest
+          ? map.tiles[ty * map.widthTiles + tx + i]
+          : map.tiles[(ty + i) * map.widthTiles + tx];
+        if (tile !== T_ROAD) break;
+        width++;
+      }
+      if (width < 3) continue;
+      wide++;
+      const kerbEdge = (kerbWest ? tx : ty) * TILE_SIZE;
+      const offset = (kerbWest ? s.x : s.y) - kerbEdge;
+      // Within one car's width of the kerb it is parked against.
+      expect(offset).toBeGreaterThanOrEqual(0);
+      expect(offset).toBeLessThanOrEqual(TILE_SIZE);
+    }
+    expect(wide).toBeGreaterThan(0);
+  });
+
   it('player spawns are walkable, inside the map, and spread apart', () => {
     const map = generateCity(555, params);
     expect(map.playerSpawns.length).toBeGreaterThanOrEqual(8);
