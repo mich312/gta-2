@@ -23,6 +23,12 @@ export class Hud {
 
   private feed: FeedLine[] = [];
   private tracers: Tracer[] = [];
+  /** Previous health, for spotting the moment damage lands. */
+  private lastHealth = 100;
+  private hurtUntilMs = 0;
+  /** Wall-clock ms the local player died at; drives the death fade. */
+  private diedAtMs = 0;
+  private wasDead = false;
 
   notice(text: string): void {
     this.feed.push({ text, expiresAtMs: performance.now() + 5000 });
@@ -80,6 +86,7 @@ export class Hud {
     me: PlayerState | null,
     snapshot: FullSnapshot | null,
     cam: Vec2,
+    speed = 0,
   ): void {
     const now = performance.now();
     this.feed = this.feed.filter((f) => f.expiresAtMs > now);
@@ -118,11 +125,37 @@ export class Hud {
       ctx.fillRect(5, INTERNAL_HEIGHT - 13, Math.max(0, (me.armour / 100) * w), 3);
     }
 
-    // Weapon + ammo.
+    // Weapon + ammo. Fists have no magazine, so they show no number, and a
+    // nearly-empty gun turns amber before it turns into a problem.
     const slot = me.weapons[me.activeWeapon];
-    ctx.fillStyle = '#d8e0e8';
     ctx.font = '8px monospace';
-    ctx.fillText(slot ? `${slot.weaponId} ${slot.ammo}` : 'unarmed', 6, INTERNAL_HEIGHT - 7);
+    if (!slot) {
+      ctx.fillStyle = '#d8e0e8';
+      ctx.fillText('unarmed', 6, INTERNAL_HEIGHT - 7);
+    } else if (slot.weaponId === 'fists') {
+      ctx.fillStyle = '#d8e0e8';
+      ctx.fillText('fists', 6, INTERNAL_HEIGHT - 7);
+    } else {
+      ctx.fillStyle = slot.ammo <= 10 ? '#e0a03c' : '#d8e0e8';
+      ctx.fillText(`${slot.weaponId} ${slot.ammo}`, 6, INTERNAL_HEIGHT - 7);
+    }
+
+    // Speedometer, driving only.
+    if (me.mode === 'driving') {
+      ctx.fillStyle = '#9fb4c4';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${Math.round(Math.abs(speed))}`, INTERNAL_WIDTH - 84, INTERNAL_HEIGHT - 7);
+      ctx.textAlign = 'left';
+    }
+
+    // Damage flash: a red vignette on the frame health actually dropped.
+    if (me.health < this.lastHealth) this.hurtUntilMs = now + 220;
+    this.lastHealth = me.health;
+    if (now < this.hurtUntilMs) {
+      const a = ((this.hurtUntilMs - now) / 220) * 0.3;
+      ctx.fillStyle = `rgba(180, 20, 20, ${a.toFixed(3)})`;
+      ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    }
 
     // Wanted stars.
     if (me.wantedLevel > 0) {
@@ -140,19 +173,32 @@ export class Hud {
       ctx.fillText(this.accountName, 6, 20);
     }
 
-    // Death overlay.
-    if (me.mode === 'dead' && snapshot) {
-      ctx.fillStyle = 'rgba(20, 0, 0, 0.45)';
+    // Death: a beat, not a switch. The overlay eases in over half a second
+    // so dying registers as something that happened to you.
+    if (me.mode === 'dead') {
+      if (!this.wasDead) {
+        this.diedAtMs = now;
+        this.wasDead = true;
+      }
+      const t = Math.min(1, (now - this.diedAtMs) / 500);
+      ctx.fillStyle = `rgba(18, 0, 0, ${(0.55 * t).toFixed(3)})`;
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
-      const secs =
-        me.respawnAtTick !== null
-          ? Math.max(0, Math.ceil((me.respawnAtTick - snapshot.tick) / TICK_RATE))
-          : 0;
-      ctx.fillStyle = '#f0d0d0';
-      ctx.font = '10px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`wasted — respawning in ${secs}`, INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2);
+      ctx.fillStyle = `rgba(232, 196, 196, ${t.toFixed(3)})`;
+      ctx.font = '16px monospace';
+      ctx.fillText('WASTED', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 - 4);
+      if (snapshot) {
+        const secs =
+          me.respawnAtTick !== null
+            ? Math.max(0, Math.ceil((me.respawnAtTick - snapshot.tick) / TICK_RATE))
+            : 0;
+        ctx.font = '8px monospace';
+        ctx.fillStyle = `rgba(200, 170, 170, ${t.toFixed(3)})`;
+        ctx.fillText(`respawning in ${secs}`, INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 + 10);
+      }
       ctx.textAlign = 'left';
+    } else {
+      this.wasDead = false;
     }
   }
 }

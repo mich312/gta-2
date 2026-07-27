@@ -12,7 +12,7 @@ import {
   initTuning,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
-import { computeCamera, render, type Scene } from './render/renderer.js';
+import { cameraLead, computeCamera, render, type Scene } from './render/renderer.js';
 import { SpriteSheet } from './render/sprites.js';
 import { TileLayer } from './render/tiles.js';
 import { Effects } from './render/effects.js';
@@ -24,6 +24,7 @@ import { InputSource } from './input/keyboard.js';
 import { NetStats } from './debug/stats.js';
 import { DebugOverlay } from './debug/overlay.js';
 import { Hud } from './render/hud.js';
+import { Minimap } from './render/minimap.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -54,6 +55,7 @@ const lights = new LightPass();
 const playerPose = new PoseSmoother();
 const vehiclePose = new PoseSmoother();
 const hud = new Hud();
+const minimap = new Minimap();
 
 // The tile cache bakes sprites (trees, bushes, yard clutter) into its chunks,
 // so anything built before the sheet arrives has to be thrown away.
@@ -142,6 +144,7 @@ const conn = new Connection({
         initTuning(msg.tuning);
         map = generateCity(msg.seed, msg.worldgen);
         tiles.setMap(map);
+        minimap.setMap(map);
         catalog = msg.catalog;
         sync.applyServerMessage(msg);
         stats.onSnapshot();
@@ -197,6 +200,8 @@ const MAX_FRAME_MS = 250;
 let last = performance.now();
 let acc = 0;
 let cam: Vec2 = { x: 0, y: 0 };
+/** Smoothed camera lead. Eased so a hard corner glides instead of snapping. */
+let lead: Vec2 = { x: 0, y: 0 };
 
 function frame(now: number): void {
   const rawMs = now - last;
@@ -240,7 +245,18 @@ function frame(now: number): void {
   const smoothPlayer = playerPose.sample(alpha);
   const smoothVehicle = vehiclePose.sample(alpha);
   const driving = predictor.predicted?.mode === 'driving';
-  cam = computeCamera(map, (driving ? smoothVehicle : smoothPlayer) ?? smoothPlayer);
+
+  // Camera lead, eased towards its target at a rate independent of frame
+  // rate, so the view glides into a corner rather than snapping to it.
+  const target = cameraLead(
+    driving && smoothVehicle ? smoothVehicle.angle : null,
+    predictor.predictedVehicle?.speed ?? 0,
+    predictor.predicted?.vel.x ?? 0,
+    predictor.predicted?.vel.y ?? 0,
+  );
+  const ease = 1 - Math.pow(0.0025, frameMs / 1000);
+  lead = { x: lead.x + (target.x - lead.x) * ease, y: lead.y + (target.y - lead.y) * ease };
+  cam = computeCamera(map, (driving ? smoothVehicle : smoothPlayer) ?? smoothPlayer, lead);
 
   const scene: Scene | null = sync.latest
     ? {
@@ -266,7 +282,19 @@ function frame(now: number): void {
   if (shopKind && catalog) {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
-  hud.draw(screen.ctx, predictor.predicted ?? null, sync.latest, cam);
+  hud.draw(
+    screen.ctx,
+    predictor.predicted ?? null,
+    sync.latest,
+    cam,
+    predictor.predictedVehicle?.speed ?? 0,
+  );
+  minimap.draw(
+    screen.ctx,
+    predictor.predicted ?? null,
+    (driving ? smoothVehicle : smoothPlayer) ?? null,
+    sync.latest,
+  );
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {

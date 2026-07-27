@@ -44,16 +44,55 @@ export interface Scene {
   nowMs: number;
 }
 
-/** Camera top-left in world coords. Deliberately *not* rounded — see `render`. */
-export function computeCamera(map: CityMap | null, local: Vec2 | null): Vec2 {
+/** How far ahead of the player the camera leads, at full speed, in world px. */
+const LEAD_MAX = 54;
+/** Speed at which the lead reaches its maximum. */
+const LEAD_FULL_SPEED = 280;
+
+/**
+ * Camera top-left in world coords. Deliberately *not* rounded — see `render`.
+ *
+ * The camera leads towards where the player is going. Without it, a car at
+ * 330 px/s crosses the 480 px viewport in 1.45 s, so the driver only ever
+ * sees ~0.7 s of road ahead and is permanently steering into the blind half
+ * of the screen.
+ */
+export function computeCamera(
+  map: CityMap | null,
+  local: Vec2 | null,
+  lead: Vec2 | null = null,
+): Vec2 {
   const w = map?.widthPx ?? VIEW_W;
   const h = map?.heightPx ?? VIEW_H;
-  const cx = local ? local.x : w / 2;
-  const cy = local ? local.y : h / 2;
+  const cx = (local ? local.x : w / 2) + (lead?.x ?? 0);
+  const cy = (local ? local.y : h / 2) + (lead?.y ?? 0);
   return {
     x: clamp(cx - VIEW_W / 2, 0, Math.max(0, w - VIEW_W)),
     y: clamp(cy - VIEW_H / 2, 0, Math.max(0, h - VIEW_H)),
   };
+}
+
+/**
+ * Where the camera should lead, given the local player's motion. Returns a
+ * world-space offset; the caller smooths it so the view eases rather than
+ * snapping when a car changes direction.
+ */
+export function cameraLead(
+  heading: number | null,
+  speed: number,
+  velX: number,
+  velY: number,
+): Vec2 {
+  if (heading !== null) {
+    // Driving: lead along the car's nose, scaled by how fast it is going.
+    const f = Math.min(1, Math.abs(speed) / LEAD_FULL_SPEED);
+    const dir = speed >= 0 ? 1 : -1;
+    return { x: Math.cos(heading) * LEAD_MAX * f * dir, y: Math.sin(heading) * LEAD_MAX * f * dir };
+  }
+  const mag = Math.hypot(velX, velY);
+  if (mag < 1) return { x: 0, y: 0 };
+  const f = Math.min(1, mag / 130) * 0.35;
+  return { x: (velX / mag) * LEAD_MAX * f, y: (velY / mag) * LEAD_MAX * f };
 }
 
 /** Per-entity walk-cycle state, keyed by table and id. */
