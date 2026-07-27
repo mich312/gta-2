@@ -456,14 +456,19 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     }
 
     // Chase: greedy steering; axis-separated collision gives wall-slide.
-    // Staggered 3-tick cadence like peds: NPC motion at 10 Hz, 3x step —
-    // interpolation smooths it and delta traffic drops to a third.
-    if (bestD > 24 && (state.tick + cid) % 3 === 0) {
+    //
+    // Every tick, not the staggered 10 Hz the crowd uses. An officer runs at
+    // 122 px/s, so stepping three ticks at once and standing still for the
+    // other two moved him in twelve-pixel jumps — and a pursuer is the one NPC
+    // the player is watching most closely. There are only ever a handful of
+    // them on foot, so the delta traffic this costs is nothing; the 200-strong
+    // crowd is where that argument still bites, and it keeps its 10 Hz.
+    if (bestD > 24) {
       const dirX = (target.pos.x - cop.pos.x) / bestD;
       const dirY = (target.pos.y - cop.pos.y) / bestD;
       cop.vel.x = dirX * t.moveSpeed;
       cop.vel.y = dirY * t.moveSpeed;
-      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT * 3, cop.vel.y * DT * 3);
+      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT, cop.vel.y * DT);
       if (cop.vel.x === 0 && cop.vel.y === 0) {
         // Fully wedged in a corner: deterministic sidestep along a wall.
         let flip: number;
@@ -473,13 +478,13 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
         const sy = dirX * side * t.moveSpeed;
         cop.vel.x = sx;
         cop.vel.y = sy;
-        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT * 3, sy * DT * 3);
+        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT, sy * DT);
       }
       cop.pos.x = q8(cop.pos.x);
       cop.pos.y = q8(cop.pos.y);
       cop.vel.x = q8(cop.vel.x);
       cop.vel.y = q8(cop.vel.y);
-    } else if (bestD <= 24) {
+    } else {
       cop.vel.x = 0;
       cop.vel.y = 0;
     }

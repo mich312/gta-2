@@ -51,10 +51,13 @@ import type { SimEvent } from './events.js';
  *    brake pedal down against the obstacle, and `down` past a standstill is
  *    reverse — which is why ambient traffic drove backwards down the street.
  *
- * Decisions run on the same staggered 3-tick cadence as pedestrians and cops
- * (NPC thinking at 10 Hz), while the physics still integrates every tick and
- * the client interpolates it smooth. That is what keeps a city's worth of
- * moving vehicles inside the bandwidth gate.
+ * ROUTING runs on a staggered 3-tick cadence (NPC thinking at 10 Hz), but the
+ * wheel, the pedals and the physics run EVERY tick. They have to: a car that
+ * integrates three ticks' worth of motion on one tick and stands still for the
+ * next two is not being simulated at 10 Hz, it is teleporting nine pixels at a
+ * time, and no amount of interpolation on the client can smooth a step
+ * function whose steps land on tick boundaries. Deciding at 10 Hz is free;
+ * moving at 10 Hz is the stutter.
  */
 
 /**
@@ -95,15 +98,19 @@ export function isAiDriver(driverId: number | null): boolean {
  * on that side into the oncoming half, where it met the traffic coming the
  * other way and both stopped.
  *
+ * Keeping the oncoming half in the same ordered list — rather than gating it
+ * behind "is the obstacle stationary?", so that a driver queues behind moving
+ * traffic and only crosses the centreline for a parked car — is measured, not
+ * assumed. Gating it is worse on every count: over twelve seeds, lane
+ * discipline 90.8% -> 89.5%, head-on encounters 4.2% -> 4.8% of samples, and
+ * traffic under way 81% -> 79%. Cars that cannot flow round each other queue,
+ * queues wedge, and a wedged driver's recovery manoeuvre puts it further out
+ * of position than an overtake ever did.
+ *
  * Null when the car is not on a road at all, which is the signal to hold the
  * current heading rather than steer at a phantom lane.
  */
-function laneOptions(
-  map: CityMap,
-  x: number,
-  y: number,
-  dirIdx: number,
-): number[] | null {
+function laneOptions(map: CityMap, x: number, y: number, dirIdx: number): number[] | null {
   const alongX = dirIdx === 0 || dirIdx === 2;
   const tx = Math.floor(x / TILE_SIZE);
   const ty = Math.floor(y / TILE_SIZE);
@@ -352,9 +359,6 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
       continue;
     }
 
-    // 10 Hz decisions, staggered by id.
-    if ((state.tick + id) % 3 !== 0) continue;
-
     let driver = state.trafficDrivers[id];
     if (!driver) {
       driver = { dir: nearestCardinal(v.heading), stuck: 0 };
@@ -366,27 +370,32 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
       // a fresh direction from wherever it managed to reach. This is the only
       // path in the whole system that ever selects reverse.
       driver.stuck++;
-      for (let i = 0; i < 3; i++) driveVehicle(v, -1, 0, map, state, events, false, 1);
+      driveVehicle(v, -1, 0, map, state, events, false, 1);
       if (driver.stuck === 0) driver.dir = chooseDir(state, map, v, nearestCardinal(v.heading));
       continue;
     }
 
-    // Routing: hold the current intent while it still leads somewhere, re-pick
-    // the moment it does not, and reconsider now and then at a junction.
-    if (driver.dir < 0 || !dirIsOpen(map, v.pos.x, v.pos.y, driver.dir)) {
-      driver.dir = chooseDir(state, map, v, driver.dir < 0 ? nearestCardinal(v.heading) : driver.dir);
-    } else if ((state.tick + id) % t.decisionCadenceTicks < 3) {
-      driver.dir = chooseDir(state, map, v, driver.dir);
+    // Routing at 10 Hz, staggered by id: hold the current intent while it still
+    // leads somewhere, re-pick the moment it does not, and reconsider now and
+    // then at a junction. This is the only part that is allowed to be coarse —
+    // it decides which way the car is going, not where it is.
+    if ((state.tick + id) % 3 === 0) {
+      if (driver.dir < 0 || !dirIsOpen(map, v.pos.x, v.pos.y, driver.dir)) {
+        driver.dir = chooseDir(
+          state,
+          map,
+          v,
+          driver.dir < 0 ? nearestCardinal(v.heading) : driver.dir,
+        );
+      } else if ((state.tick + id) % t.decisionCadenceTicks < 3) {
+        driver.dir = chooseDir(state, map, v, driver.dir);
+      }
     }
 
-    // Three physics ticks, steering recomputed for each so the car tracks its
-    // lane instead of holding a stale wheel for 100 ms.
-    let personBlocked = false;
-    for (let i = 0; i < 3; i++) {
-      const ctrl = laneControl(state, map, v, driver);
-      personBlocked = ctrl.personBlocked;
-      driveVehicle(v, ctrl.throttle, ctrl.steer, map, state, events, false, 1);
-    }
+    // Wheel, pedals and physics: every tick, steering recomputed each time so
+    // the car tracks its lane instead of holding a stale wheel for 100 ms.
+    const { throttle, steer, personBlocked } = laneControl(state, map, v, driver);
+    driveVehicle(v, throttle, steer, map, state, events, false, 1);
 
     // Wedged? Count it, and past the limit back out. A driver waiting for
     // somebody to finish crossing gets three times the patience of one nosed

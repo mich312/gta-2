@@ -1,5 +1,6 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { approach, q8, q256 } from '../math/vec.js';
+import { dCos, dSin } from '../math/trig.js';
 import { getTuning } from '../tuning.js';
 import type { GameState, PlayerState } from './state.js';
 import type { InputIntent } from './input.js';
@@ -32,14 +33,31 @@ export function stepPlayerMovement(
   const { walkSpeed, accel } = getTuning().player;
   const maxDelta = accel * DT;
 
+  // Movement is relative to where the player is AIMING, not to the screen: up
+  // runs towards the mouse, down backs away from it, left and right sidestep
+  // across it. Screen-relative movement made the two halves of the control
+  // scheme disagree — you pointed the pointer at a doorway and then held a key
+  // that had nothing to do with it, and the avatar ran off at whatever angle
+  // the two happened to make.
+  //
+  // Screen y points down, so the driver's right of a heading is a quarter turn
+  // clockwise: right = (-sin, cos).
   let dx = 0;
   let dy = 0;
   if (input) {
-    dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
-    if (dx !== 0 && dy !== 0) {
-      dx *= INV_SQRT2;
-      dy *= INV_SQRT2;
+    const forward = (input.up ? 1 : 0) - (input.down ? 1 : 0);
+    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    if (forward !== 0 || strafe !== 0) {
+      const cos = dCos(p.aimAngle);
+      const sin = dSin(p.aimAngle);
+      dx = cos * forward - sin * strafe;
+      dy = sin * forward + cos * strafe;
+      // A rotation preserves length, so this is the same diagonal correction
+      // as before: two keys at once must not be faster than one.
+      if (forward !== 0 && strafe !== 0) {
+        dx *= INV_SQRT2;
+        dy *= INV_SQRT2;
+      }
     }
   }
 

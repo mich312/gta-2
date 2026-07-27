@@ -231,6 +231,7 @@ function onGameEvent(event: GameEvent): void {
       audio.play(weapon, at.dist, at.pan);
       return;
     }
+    hud.tracer(event.x0, event.y0, event.x1, event.y1);
     effects.muzzleFlash(event.x0, event.y0, angle);
     effects.impact(event.x1, event.y1, angle);
     audio.play(weapon, at.dist, at.pan);

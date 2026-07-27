@@ -269,6 +269,36 @@ describe('ambient traffic', () => {
     expect(hurt).toBe(true);
   });
 
+  it('moves every tick, not three ticks at a time', () => {
+    // The AI used to think and drive on the same staggered 3-tick cadence, so
+    // a car under way integrated three ticks' worth of motion on one tick and
+    // stood perfectly still for the next two. The average speed was right and
+    // the city still looked broken: nine-pixel jumps land on tick boundaries,
+    // which is exactly what the client's interpolator cannot smooth over.
+    let state = withTraffic(31, 600);
+    const last = new Map<number, { x: number; y: number }>();
+    let steps = 0;
+    let stalled = 0;
+    for (let i = 0; i < 600; i++) {
+      state = step(state, {}, [], map);
+      for (const id of state.vehicles.ids) {
+        const v = state.vehicles.byId[id]!;
+        if (!isAiDriver(v.driverId)) continue;
+        const prev = last.get(id);
+        last.set(id, { x: v.pos.x, y: v.pos.y });
+        // Only cars that are definitely moving: one that is braking for a
+        // pedestrian is meant to be standing still.
+        if (!prev || Math.abs(v.speed) < 40) continue;
+        steps++;
+        if (Math.hypot(v.pos.x - prev.x, v.pos.y - prev.y) < 0.2) stalled++;
+      }
+    }
+    expect(steps).toBeGreaterThan(500);
+    // Not "less than a third": zero, give or take a car pinned against a wall
+    // at speed for a tick. It was 66.7%.
+    expect(stalled / steps).toBeLessThan(0.02);
+  });
+
   it('drives on the right-hand side of the road', () => {
     const c = census(4);
     expect(c.samples).toBeGreaterThan(100);

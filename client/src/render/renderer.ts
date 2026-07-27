@@ -110,49 +110,17 @@ function weaponOf(p: PlayerState): WeaponTuning | null {
   return slot ? getWeaponTuning(slot.weaponId) : null;
 }
 
-/** Below this speed an avatar is standing still and faces wherever it aims. */
-const FACING_MIN_SPEED = 12;
-/** How fast a body turns to a new facing, rad/s. */
-const FACING_TURN_RATE = 15;
-
-/** Per-entity body facing, eased. Keyed like `walkState`. */
-const facingState = new Map<string, number>();
-
-function shortestTurn(from: number, to: number): number {
-  let d = to - from;
-  while (d > Math.PI) d -= Math.PI * 2;
-  while (d < -Math.PI) d += Math.PI * 2;
-  return d;
-}
-
 /**
- * Which way an avatar's BODY points, as opposed to where its weapon is aimed.
+ * Which way an avatar's BODY points: wherever it is aiming, which is wherever
+ * the mouse is.
  *
- * The sim only knows `aimAngle` — the mouse — and the sprite used to be drawn
- * at it, so a player running north with the pointer to the east ran sideways
- * like a crab: the legs, the shoulders and the direction of travel all
- * disagreed. On foot the body now turns to face the way it is actually going,
- * which is how the genre has always looked, and the aim tick keeps showing
- * where the shot will go.
- *
- * Aim wins in the two cases where it is what the player means: while standing
- * still, and while shooting — you turn to face what you are shooting at.
+ * There is nothing else it could be. Movement on foot is aim-relative — `up`
+ * runs towards the pointer and the strafe keys sidestep across it — so the
+ * facing IS the frame the controls are expressed in, and drawing the body at
+ * anything else (the direction of travel, say) would leave the avatar pointing
+ * one way while `up` sent it another. Sidestepping therefore looks like
+ * sidestepping, which is what it is.
  */
-function bodyAngle(key: string, vel: Vec2, aim: number, firing: boolean, dt: number): number {
-  const speed = Math.hypot(vel.x, vel.y);
-  const target = !firing && speed > FACING_MIN_SPEED ? Math.atan2(vel.y, vel.x) : aim;
-  const current = facingState.get(key);
-  if (current === undefined) {
-    facingState.set(key, target);
-    return target;
-  }
-  // Eased at a rate per second, so the turn looks the same at any frame rate.
-  const delta = shortestTurn(current, target);
-  const step = FACING_TURN_RATE * Math.min(dt, 0.1);
-  const next = Math.abs(delta) <= step ? target : current + (delta > 0 ? step : -step);
-  facingState.set(key, next);
-  return next;
-}
 
 /** Per-entity walk-cycle state, keyed by table and id. */
 const walkState = new Map<string, { x: number; y: number; dist: number }>();
@@ -317,14 +285,7 @@ export function render(
   for (const r of scene.remotes.players) {
     const key = `p${r.player.id}`;
     const frame = walkFrame(key, r.x, r.y);
-    const body = bodyAngle(
-      key,
-      r.player.vel,
-      r.aimAngle,
-      r.player.fireCooldown > 0,
-      scene.dt,
-    );
-    drawPlayer(ctx, sprites, r.player, dx(r.x), dy(r.y), r.aimAngle, body, frame, false);
+    drawPlayer(ctx, sprites, r.player, dx(r.x), dy(r.y), r.aimAngle, frame, false);
   }
   if (scene.local && scene.localPos && scene.local.mode !== 'driving') {
     const frame = walkFrame('local', scene.localPos.x, scene.localPos.y);
@@ -332,13 +293,6 @@ export function render(
     // and a 30 Hz aim tick on a 144 Hz display is just as visible as a 30 Hz
     // position.
     const aim = scene.localPos.angle;
-    const body = bodyAngle(
-      'local',
-      scene.local.vel,
-      aim,
-      scene.local.fireCooldown > 0,
-      scene.dt,
-    );
     drawPlayer(
       ctx,
       sprites,
@@ -346,7 +300,6 @@ export function render(
       dx(scene.localPos.x),
       dy(scene.localPos.y),
       aim,
-      body,
       frame,
       true,
     );
@@ -503,8 +456,8 @@ function drawPlayer(
   p: PlayerState,
   x: number,
   y: number,
+  /** Where the mouse points: both the firing line and the way the body faces. */
   aim: number,
-  body: number,
   frame: number,
   isLocal: boolean,
 ): void {
@@ -521,7 +474,7 @@ function drawPlayer(
     : melee
       ? `playerFist_v${variant}_f${frame}`
       : `player_v${variant}_f${frame}`;
-  drawCharacter(ctx, sprites, name, x, y, body, fallback);
+  drawCharacter(ctx, sprites, name, x, y, aim, fallback);
 
   // A short aim tick keeps the firing line legible when the sprite's own
   // weapon is only a few pixels long.

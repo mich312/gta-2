@@ -1,5 +1,52 @@
 # PROGRESS
 
+## Running where you point, and traffic that moves every tick
+
+**Movement follows the mouse.** On foot the keys are now read in the frame the
+player is aiming in: `up` runs towards the pointer, `down` backs away from it,
+`left`/`right` sidestep across it. Screen-relative keys meant the two halves of
+the control scheme disagreed — you pointed at a doorway, held a key that knew
+nothing about the pointer, and the avatar left at whatever angle the two
+happened to make. The body sprite is drawn at the aim angle for the same
+reason: the facing IS the frame the controls are expressed in, so anything else
+would leave the avatar pointing one way while `up` sent it another. Verified in
+the browser: mouse north/east/south/north-west, hold `W`, travel direction
+matches the pointer to 0°.
+
+**Traffic stuttered because it only moved ten times a second.** Ambient drivers
+thought *and drove* on a staggered 3-tick cadence: `stepTraffic` ran three
+`driveVehicle` calls on one tick and skipped the next two. The average speed
+came out right and the city still looked broken — a car under way did not move
+at all on 66.7% of ticks and then jumped nine pixels, and those jumps land
+exactly on the tick boundaries the client interpolates between, so no amount of
+smoothing on the client could hide it. Routing still runs at 10 Hz (it decides
+which way a car is going, not where it is); the wheel, the pedals and the
+physics now run every tick. Stalled ticks 66.7% -> 0%, and the spread of
+per-tick displacement drops from 1.47 to 0.20 of its mean. `blockedTimeoutTicks`
+and `reverseTicks` are rescaled x3 because they now count real ticks, which is
+what their names always claimed. On-foot officers had the same defect at
+122 px/s and are fixed the same way; the 200-strong crowd keeps its 10 Hz,
+which is where the delta-traffic argument for the cadence actually bites.
+
+Lane discipline is unchanged at 90.4% over twelve seeds — the remaining 10% is
+junctions and overtaking parked cars. Two attempts to improve it were measured
+and thrown away: a longer or gentler pure-pursuit look-ahead is worse at every
+setting tried, and so is forbidding a driver to cross the centreline for
+anything that is still moving (lane discipline 90.8% -> 89.5%, head-on
+encounters 4.2% -> 4.8%, traffic under way 81% -> 79% — cars that cannot flow
+round each other queue, queues wedge, and the recovery manoeuvre costs more
+position than the overtake did). Both findings are recorded in the code so the
+next person does not re-derive them.
+
+**Punching drew a bullet tracer.** The melee fix went into the effects layer but
+not into the HUD, which drew a tracer for every `shot` event — and the sim
+reports a punch as a `shot`. So a swing put a yellow bullet line and a puff of
+smoke on the end of the player's fist, which is exactly what it looks like when
+you shoot. The HUD no longer decides for itself: `Hud.tracer()` is called by the
+event handler, which is the only place that knows which weapon threw the event.
+Counted in the browser by instrumenting `stroke()`: 48 tracer strokes over four
+seconds of punching before, 0 after.
+
 ## Wider side streets
 
 A two-tile secondary road is 32 px and a car's collision box is 18, so two

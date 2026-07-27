@@ -143,9 +143,9 @@ export interface TrafficTuning {
   brakeDistancePerSpeed: number;
   /** Wheel per radian of heading error, before clamping to full lock. */
   steerGain: number;
-  /** Wedged decision-ticks a driver tolerates before backing out. */
+  /** Wedged sim ticks a driver tolerates before backing out (30 = 1 s). */
   blockedTimeoutTicks: number;
-  /** How long that reverse lasts, in decision ticks. Bounded on purpose. */
+  /** How long that reverse lasts, in sim ticks. Bounded on purpose. */
   reverseTicks: number;
   decisionCadenceTicks: number;
   turnChance: number;
@@ -384,8 +384,8 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   brakeDistance: 8,
   brakeDistancePerSpeed: 0.22,
   steerGain: 4.5,
-  blockedTimeoutTicks: 30,
-  reverseTicks: 10,
+  blockedTimeoutTicks: 90,
+  reverseTicks: 30,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
   spawnMinDist: 420,

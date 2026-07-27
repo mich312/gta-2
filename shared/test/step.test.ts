@@ -10,6 +10,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import { hashState } from '../src/net/hash.js';
 import type { SimCommand } from '../src/sim/commands.js';
+import { HALF_PI, PI, wrapAngle } from '../src/math/trig.js';
 
 const map = generateCity(4242, parseWorldgenParams(worldgenJson));
 
@@ -104,5 +105,64 @@ describe('step', () => {
     }
     expect(state.players.byId[1]!.vel.x).toBe(0);
     expect(state.players.byId[1]!.vel.y).toBe(0);
+  });
+
+  it('runs towards the mouse: movement is relative to the aim, not the screen', () => {
+    // Pick an open spot so nothing is clipping a wall, and drive each of the
+    // four keys at four different aim angles. `up` must always go where the
+    // player is pointing; `right` must always be a quarter turn clockwise of
+    // it on a y-down screen, and so on round.
+    const spot = { x: map.playerSpawns[0]!.x, y: map.playerSpawns[0]!.y };
+    const keys = [
+      { name: 'up', input: { up: true }, offset: 0 },
+      { name: 'right', input: { right: true }, offset: HALF_PI },
+      { name: 'down', input: { down: true }, offset: PI },
+      { name: 'left', input: { left: true }, offset: -HALF_PI },
+    ];
+
+    for (const aimAngle of [0, HALF_PI, PI, -HALF_PI * 0.5]) {
+      for (const key of keys) {
+        let state = createGameState(12);
+        state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+        state.players.byId[1]!.pos = { ...spot };
+        // Two ticks is enough to have velocity without having travelled far
+        // enough to reach anything solid, whatever the map looks like here.
+        for (let i = 0; i < 2; i++) {
+          state = step(
+            state,
+            { 1: { ...NULL_INPUT, seq: i + 1, tick: state.tick, aimAngle, ...key.input } },
+            [],
+            map,
+          );
+        }
+        const vel = state.players.byId[1]!.vel;
+        expect(Math.hypot(vel.x, vel.y)).toBeGreaterThan(0);
+        const heading = Math.atan2(vel.y, vel.x);
+        const want = wrapAngle(aimAngle + key.offset);
+        expect(Math.abs(wrapAngle(heading - want))).toBeLessThan(0.02);
+      }
+    }
+  });
+
+  it('two keys at once are no faster than one', () => {
+    // The diagonal correction has to survive the rotation into aim space, or
+    // running forwards-and-right is 41% quicker than running forwards.
+    const speeds = [{ up: true }, { up: true, right: true }].map((keys) => {
+      let state = createGameState(13);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+      state.players.byId[1]!.pos = { ...map.playerSpawns[0]! };
+      for (let i = 0; i < 20; i++) {
+        state = step(
+          state,
+          { 1: { ...NULL_INPUT, seq: i + 1, tick: state.tick, aimAngle: 0.7, ...keys } },
+          [],
+          map,
+        );
+      }
+      const v = state.players.byId[1]!.vel;
+      return Math.hypot(v.x, v.y);
+    });
+    expect(speeds[0]!).toBeGreaterThan(0);
+    expect(Math.abs(speeds[1]! - speeds[0]!)).toBeLessThan(0.5);
   });
 });

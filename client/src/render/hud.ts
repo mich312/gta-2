@@ -76,15 +76,18 @@ export class Hud {
         expiresAtMs: now + 6000,
       });
       while (this.feed.length > 5) this.feed.shift();
-    } else if (event.type === 'shot') {
-      this.tracers.push({
-        x0: event.x0,
-        y0: event.y0,
-        x1: event.x1,
-        y1: event.y1,
-        expiresAtMs: now + 70,
-      });
     }
+  }
+
+  /**
+   * A round in flight. Called by the event handler rather than driven off
+   * `shot` here, because a `shot` is not necessarily a shot: the sim reports a
+   * punch the same way, and drawing a tracer for one put a bullet line and a
+   * puff of smoke on the end of the player's fist. Only the caller knows which
+   * weapon threw the event, so only the caller may ask for a tracer.
+   */
+  tracer(x0: number, y0: number, x1: number, y1: number): void {
+    this.tracers.push({ x0, y0, x1, y1, expiresAtMs: performance.now() + 70 });
   }
 
   draw(
