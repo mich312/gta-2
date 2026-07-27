@@ -654,6 +654,59 @@ export function placeLandmarks(map: CityMap, rng: number): number {
  * Stunt ramps, dropped on industrial lots where there is room to build up
  * speed. Replaces the jump the genre never had with the thing it did have.
  */
+/**
+ * Car crushers: open-air crane sites on industrial lots, reachable by road.
+ *
+ * Deliberately NOT a carved building like the shops — you drive a car in and
+ * leave on foot, so the site has to be somewhere a car can get to and stop.
+ * Placed by a deterministic scan with no rng draw at all, so adding them
+ * shifts nobody else's worldgen.
+ */
+export function placeCranes(map: CityMap): void {
+  const sites: Vec2[] = [];
+  let n = 0;
+  for (let ty = 2; ty < map.heightTiles - 2; ty++) {
+    for (let tx = 2; tx < map.widthTiles - 2; tx++) {
+      if (t(map, tx, ty) !== T_LOT) continue;
+      // Room for the jaws, and a road within reach so it is drivable-to.
+      let open = true;
+      for (let oy = -1; oy <= 1 && open; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (t(map, tx + ox, ty + oy) !== T_LOT) {
+            open = false;
+            break;
+          }
+        }
+      }
+      if (!open) continue;
+      let nearRoad = false;
+      for (let d = 2; d <= 5 && !nearRoad; d++) {
+        for (const [ox, oy] of [
+          [d, 0],
+          [-d, 0],
+          [0, d],
+          [0, -d],
+        ] as const) {
+          if (t(map, tx + ox, ty + oy) === T_ROAD) {
+            nearRoad = true;
+            break;
+          }
+        }
+      }
+      if (!nearRoad) continue;
+      n++;
+      // Sparse: a crusher on every lot would make theft trivially profitable.
+      if (n % 40 !== 0) continue;
+      const tooClose = sites.some(
+        (c) => Math.abs(c.x - (tx + 0.5) * TILE_SIZE) + Math.abs(c.y - (ty + 0.5) * TILE_SIZE) < 600,
+      );
+      if (tooClose) continue;
+      sites.push({ x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE });
+    }
+  }
+  map.cranes = sites;
+}
+
 export function placeRamps(map: CityMap): void {
   let n = 0;
   for (let ty = 2; ty < map.heightTiles - 2; ty++) {

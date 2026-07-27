@@ -11,6 +11,7 @@ import {
   placeBoatSpawns,
   placeLandmarks,
   placePickups,
+  placeCranes,
   placeRamps,
   placeShops,
   placeVehicleSpawns,
@@ -54,6 +55,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     landmarks: [],
     hospitals: [],
     policeStations: [],
+    cranes: [],
   };
 
   let seeds;
@@ -99,6 +101,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placePickups(map);
   placeBoatSpawns(map);
   placeRamps(map);
+  placeCranes(map);
 
   return map;
 }

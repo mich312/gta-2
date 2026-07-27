@@ -136,6 +136,10 @@ export class Minimap {
       dot(cx, cy, tint, 2);
     }
 
+    // Crushers: you have to be able to find one to use one. Green, because
+    // amber is already the respray garage and these are not the same errand.
+    for (const c of map.cranes) dot(c.x, c.y, '#7fd6a8', 2);
+
     // Shops are the reason this panel exists: six of them across the whole
     // city, otherwise findable only by driving into their doorway.
     for (const shop of map.shops) {

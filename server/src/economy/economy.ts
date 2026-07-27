@@ -14,6 +14,20 @@ import { Accounts } from './accounts.js';
 import { AwardTracker, type EconomyParams } from './awards.js';
 import { MemoryStore, type PersistenceStore } from './store.js';
 
+/**
+ * What the jaws hand back when they pay in kind. Ordered, not random: the
+ * cadence is a counter, so a session's prizes are reproducible and nobody
+ * has to reason about an rng living outside the sim.
+ */
+const CRUSH_PRIZES: Array<{ weaponId: string; ammo: number }> = [
+  { weaponId: 'pistol', ammo: 60 },
+  { weaponId: 'shotgun', ammo: 16 },
+  { weaponId: 'smg', ammo: 90 },
+  { weaponId: 'molotov', ammo: 4 },
+  { weaponId: 'grenade', ammo: 3 },
+  { weaponId: 'rocket', ammo: 2 },
+];
+
 const DOORWAY_RADIUS_PX = TILE_SIZE * 1.25;
 
 export interface BuyResult {
@@ -205,8 +219,99 @@ export class Economy {
     return { ok: true, message: `bought ${itemId}`, command, cash: ledger.balance(key) };
   }
 
+  /**
+   * The export list: three vehicle kinds the city is currently paying over
+   * the odds for, rotated on a timer. This is the "city has a shopping list"
+   * job — the thing that makes a player look at traffic as inventory rather
+   * than scenery, and the reason to drive past three cars to steal a fourth.
+   *
+   * Server-side and wall-clock, like every other cashier decision: it never
+   * enters step(), so it cannot desync anything.
+   */
+  private exportList: string[] = [];
+  private exportRotatedAtMs = 0;
+  /** Bumped on every rotation so callers can tell a stale list from a fresh one. */
+  exportListVersion = 0;
+
+  get exportBonus(): number {
+    return this.params.crush.exportBonus;
+  }
+
+  exports(nowMs: number): string[] {
+    const { listSize, refreshSec } = this.params.crush;
+    if (this.exportList.length === 0 || nowMs - this.exportRotatedAtMs >= refreshSec * 1000) {
+      const kinds = Object.keys(this.params.crush.byKind).filter((k) => k !== 'copcar');
+      // Rotate by a stepping offset rather than at random: the sequence is
+      // reproducible from the tick clock, and every kind gets its turn
+      // instead of one kind being wanted three lists running.
+      const start = (this.exportListVersion * listSize) % Math.max(1, kinds.length);
+      this.exportList = [];
+      for (let i = 0; i < listSize && i < kinds.length; i++) {
+        this.exportList.push(kinds[(start + i) % kinds.length] as string);
+      }
+      this.exportRotatedAtMs = nowMs;
+      this.exportListVersion++;
+    }
+    return this.exportList;
+  }
+
+  /**
+   * Crush whatever the player is driving, if they have driven it into the
+   * jaws. Returns the commands the session should queue, and pays out.
+   *
+   * The payout is sometimes equipment rather than cash, which is the whole
+   * point: it closes the loop between the theft verb and the combat verb, so
+   * a stolen car is not just money, it is ammunition.
+   */
+  private tryCrush(
+    playerId: number,
+    state: GameState,
+    map: CityMap,
+    nowMs: number,
+    out: SimCommand[],
+  ): boolean {
+    const p = state.players.byId[playerId];
+    if (!p || p.mode !== 'driving' || p.vehicleId === null) return false;
+    const v = state.vehicles.byId[p.vehicleId];
+    if (!v) return false;
+    // Has to be stopped in the jaws: driving through at speed is not
+    // delivering a car, it is passing one.
+    if (Math.abs(v.speed) > 30) return false;
+    const t = this.params.crush;
+    const inJaws = map.cranes.some(
+      (c) => Math.abs(c.x - v.pos.x) <= t.radius && Math.abs(c.y - v.pos.y) <= t.radius,
+    );
+    if (!inJaws) return false;
+
+    const wanted = this.exports(nowMs).includes(v.kind);
+    const base = t.byKind[v.kind] ?? t.base;
+    const amount = Math.floor(base * (wanted ? t.exportBonus : 1));
+    out.push({ type: 'crushVehicle', vehicleId: v.id });
+    this.credit(playerId, amount, `crush:${v.kind}`);
+
+    // Equipment instead of only cash, on a deterministic-enough cadence: the
+    // crusher hands back a weapon roughly a third of the time.
+    this.crushCount++;
+    if (this.crushCount % Math.max(1, Math.round(1 / t.equipmentChance)) === 0) {
+      const prize = CRUSH_PRIZES[this.crushCount % CRUSH_PRIZES.length] as {
+        weaponId: string;
+        ammo: number;
+      };
+      out.push({ type: 'grantWeapon', playerId, weaponId: prize.weaponId, ammo: prize.ammo });
+    }
+    return true;
+  }
+
+  private crushCount = 0;
+
   /** Consume sim events + state for cash awards. Returns players whose wallet changed. */
-  processTick(events: SimEvent[], state: GameState, nowMs: number): Set<number> {
+  processTick(
+    events: SimEvent[],
+    state: GameState,
+    nowMs: number,
+    map?: CityMap,
+    outCommands?: SimCommand[],
+  ): Set<number> {
     const changed = new Set<number>();
     for (const ev of events) {
       if (ev.type === 'kill' && ev.killerId >= 0) {
@@ -242,6 +347,10 @@ export class Economy {
       if (!p || p.mode !== 'driving' || p.vehicleId === null) continue;
       const v = state.vehicles.byId[p.vehicleId];
       if (!v) continue;
+      if (map && outCommands && this.tryCrush(id, state, map, nowMs, outCommands)) {
+        changed.add(id);
+        continue; // the car is gone; it does not also earn driving pay
+      }
       const amount = this.awards.drivingAward(id, v.pos.x, v.pos.y, v.speed, nowMs);
       if (amount > 0 && this.credit(id, amount, 'driving')) changed.add(id);
     }

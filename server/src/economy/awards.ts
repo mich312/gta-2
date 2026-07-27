@@ -19,6 +19,22 @@ export interface EconomyParams {
     /** Fraction of the multiplier kept when busted. 0.5 = halved. */
     bustPenalty: number;
   };
+  /**
+   * The car crusher: what the city pays for a stolen vehicle, and what it
+   * sometimes pays in instead of cash.
+   */
+  crush: {
+    base: number;
+    byKind: Record<string, number>;
+    /** Multiplier on a kind that is currently on the export list. */
+    exportBonus: number;
+    listSize: number;
+    refreshSec: number;
+    /** Odds a crush pays in equipment rather than only cash. */
+    equipmentChance: number;
+    /** How close the car has to be to the jaws, px. */
+    radius: number;
+  };
 }
 
 export function parseEconomyParams(raw: unknown): EconomyParams {
@@ -59,6 +75,33 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
       missionGain: m('missionGain', 0),
       bustPenalty: m('bustPenalty', 0),
     },
+    crush: parseCrush(r['crush']),
+  };
+}
+
+function parseCrush(raw: unknown): EconomyParams['crush'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string, min = 0): number => {
+    const v = r[k];
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < min) {
+      throw new Error(`economy: crush.${k} must be a number >= ${min}`);
+    }
+    return v;
+  };
+  const byKindRaw = (r['byKind'] ?? {}) as Record<string, unknown>;
+  const byKind: Record<string, number> = {};
+  for (const [k, v] of Object.entries(byKindRaw)) {
+    if (typeof v !== 'number' || v < 0) throw new Error(`economy: crush.byKind.${k}`);
+    byKind[k] = v;
+  }
+  return {
+    base: n('base'),
+    byKind,
+    exportBonus: n('exportBonus', 1),
+    listSize: n('listSize', 1),
+    refreshSec: n('refreshSec', 1),
+    equipmentChance: n('equipmentChance'),
+    radius: n('radius', 1),
   };
 }
 

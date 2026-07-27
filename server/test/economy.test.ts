@@ -10,6 +10,7 @@ import shopJson from '../../shared/data/shop.json';
 import economyJson from '../../shared/data/economy.json';
 import {
   type GameState,
+  type SimCommand,
   type SimEvent,
   TILE_SIZE,
   createGameState,
@@ -416,5 +417,117 @@ describe("Pay'n'Spray", () => {
     const after = step(state, {}, [res.command!], map);
     expect(after.players.byId[1]!.heat).toBe(0);
     expect(after.players.byId[1]!.wantedLevel).toBe(0);
+  });
+});
+
+describe('car crusher and the export list (G1)', () => {
+  const craneMap = generateCity(777, worldgen);
+
+  function setupCrane() {
+    const economy = new Economy(new MemoryStore(), catalog, params);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'thief' }], craneMap);
+    economy.bindGuest(1); // no wallet, no payout — the crusher still eats the car
+    const crane = craneMap.cranes[0];
+    if (!crane) throw new Error('no crane generated');
+    return { economy, state, crane };
+  }
+
+  /** Park `kind` in the jaws with the player at the wheel. */
+  function driveIn(
+    state: GameState,
+    crane: { x: number; y: number },
+    kind: string,
+  ): GameState {
+    const s = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 40, kind, x: crane.x, y: crane.y, heading: 0 }],
+      craneMap,
+    );
+    const p = s.players.byId[1]!;
+    p.pos = { x: crane.x, y: crane.y };
+    p.mode = 'driving';
+    p.vehicleId = 40;
+    s.vehicles.byId[40]!.driverId = 1;
+    s.vehicles.byId[40]!.speed = 0;
+    return s;
+  }
+
+  it('worldgen places crushers, spread out across the city', () => {
+    expect(craneMap.cranes.length).toBeGreaterThan(0);
+    for (let i = 0; i < craneMap.cranes.length; i++) {
+      for (let j = i + 1; j < craneMap.cranes.length; j++) {
+        const a = craneMap.cranes[i]!;
+        const b = craneMap.cranes[j]!;
+        expect(Math.abs(a.x - b.x) + Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(600);
+      }
+    }
+  });
+
+  it('a car driven into the jaws is crushed and paid for, exactly once', () => {
+    const { economy, state, crane } = setupCrane();
+    const s = driveIn(state, crane, 'car');
+    const before = economy.cashOf(1);
+    const cmds: SimCommand[] = [];
+    economy.processTick([], s, 1_000_000, craneMap, cmds);
+    expect(cmds.some((c) => c.type === 'crushVehicle' && c.vehicleId === 40)).toBe(true);
+    expect(economy.cashOf(1)).toBeGreaterThan(before);
+
+    // The command is what removes it, at a tick boundary like everything else.
+    const after = step(s, {}, cmds, craneMap);
+    expect(after.vehicles.byId[40]).toBeUndefined();
+    expect(after.players.byId[1]!.mode).toBe('foot'); // you walk out
+  });
+
+  it('driving through at speed is not delivering a car', () => {
+    const { economy, state, crane } = setupCrane();
+    const s = driveIn(state, crane, 'car');
+    s.vehicles.byId[40]!.speed = 180;
+    const cmds: SimCommand[] = [];
+    economy.processTick([], s, 1_000_000, craneMap, cmds);
+    expect(cmds.length).toBe(0);
+  });
+
+  it('bigger vehicles are worth more, and the export list is worth more again', () => {
+    const pay = (kind: string, exported: boolean): number => {
+      const { economy, state, crane } = setupCrane();
+      const s = driveIn(state, crane, kind);
+      let now = 1_000_000;
+      for (let i = 0; i < 24 && economy.exports(now).includes(kind) !== exported; i++) {
+        now += params.crush.refreshSec * 1000 + 1;
+      }
+      expect(economy.exports(now).includes(kind), `${kind} exported=${exported}`).toBe(exported);
+      const before = economy.cashOf(1);
+      economy.processTick([], s, now, craneMap, []);
+      return economy.cashOf(1) - before;
+    };
+    expect(pay('bus', false)).toBeGreaterThan(pay('car', false));
+    expect(pay('car', true)).toBe(pay('car', false) * params.crush.exportBonus);
+  });
+
+  it('the jaws sometimes pay in equipment, which is the point of them', () => {
+    const { economy, state, crane } = setupCrane();
+    let grants = 0;
+    for (let i = 0; i < 12; i++) {
+      const s = driveIn(state, crane, 'car');
+      const cmds: SimCommand[] = [];
+      economy.processTick([], s, 1_000_000 + i * 1000, craneMap, cmds);
+      grants += cmds.filter((c) => c.type === 'grantWeapon').length;
+    }
+    expect(grants).toBeGreaterThan(0);
+  });
+
+  it('the export list rotates and covers more than one set over time', () => {
+    const economy = new Economy(new MemoryStore(), catalog, params);
+    const seen = new Set<string>();
+    let now = 1_000_000;
+    for (let i = 0; i < 12; i++) {
+      for (const k of economy.exports(now)) seen.add(k);
+      now += params.crush.refreshSec * 1000 + 1;
+    }
+    expect(seen.size).toBeGreaterThan(params.crush.listSize);
+    // A police cruiser is never a legitimate export.
+    expect(seen.has('copcar')).toBe(false);
   });
 });

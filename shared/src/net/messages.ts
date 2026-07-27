@@ -48,6 +48,12 @@ export type ServerMessage =
   | { type: 'event'; tick: number; event: GameEvent }
   | { type: 'pong'; t: number; serverTick: number }
   | { type: 'wallet'; cash: number; multiplier: number; lifetime: number }
+  | {
+      /** Vehicle kinds the crushers are paying over the odds for right now. */
+      type: 'exports';
+      kinds: string[];
+      bonus: number;
+    }
   | { type: 'account'; ok: boolean; username: string | null; message: string }
   | { type: 'error'; code: string; message: string };
 

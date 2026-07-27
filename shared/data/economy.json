@@ -6,11 +6,33 @@
   "drivingCellAward": 5,
   "drivingCellSizePx": 512,
   "drivingMinSpeed": 120,
-  "perMinuteCaps": { "kill": 500, "driving": 150 },
+  "perMinuteCaps": {
+    "kill": 500,
+    "driving": 150
+  },
   "multiplier": {
     "max": 8,
     "frenzyGain": 1,
     "missionGain": 1,
     "bustPenalty": 0.5
+  },
+  "crush": {
+    "base": 120,
+    "byKind": {
+      "car": 120,
+      "taxi": 150,
+      "van": 200,
+      "ambulance": 260,
+      "truck": 320,
+      "bus": 380,
+      "firetruck": 420,
+      "copcar": 500,
+      "boat": 200
+    },
+    "exportBonus": 3,
+    "listSize": 3,
+    "refreshSec": 420,
+    "equipmentChance": 0.34,
+    "radius": 46
   }
 }

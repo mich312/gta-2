@@ -3,6 +3,8 @@ import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
 import { createStaticServer } from './staticServer.js';
 import {
+  type ServerMessage,
+  type SimCommand,
   RESUME_GRACE_MS,
   SNAPSHOT_HASH_INTERVAL,
   TICK_RATE,
@@ -76,10 +78,37 @@ export class GameServer {
     }
 
     // Cash awards from this tick's events + driving coverage.
-    const changed = this.economy.processTick(this.session.lastEvents, this.session.state, Date.now());
+    // The crusher issues commands, so it needs the map and somewhere to put
+    // them; they join the next tick's batch like every other economy write.
+    const crushCommands: SimCommand[] = [];
+    const changed = this.economy.processTick(
+      this.session.lastEvents,
+      this.session.state,
+      Date.now(),
+      this.session.map,
+      crushCommands,
+    );
+    for (const cmd of crushCommands) this.session.queueCommand(cmd);
+
+    // The list rotates on a timer; tell everyone the moment it does.
+    this.economy.exports(Date.now());
+    if (this.economy.exportListVersion !== this.sentExportVersion) {
+      this.sentExportVersion = this.economy.exportListVersion;
+      for (const conn of this.conns) conn.send(this.exportMessage());
+    }
     for (const playerId of changed) {
       this.byPlayer.get(playerId)?.send({ type: 'wallet', ...this.economy.walletOf(playerId) });
     }
+  }
+
+  private sentExportVersion = -1;
+
+  private exportMessage(): ServerMessage {
+    return {
+      type: 'exports',
+      kinds: this.economy.exports(Date.now()),
+      bonus: this.economy.exportBonus,
+    };
   }
 
   close(): void {
@@ -209,6 +238,7 @@ export class GameServer {
       catalog: this.economy.catalog,
     });
     conn.send({ type: 'wallet', ...this.economy.walletOf(slot.playerId) });
+    conn.send(this.exportMessage());
   }
 
   private onClose(conn: ClientConn): void {

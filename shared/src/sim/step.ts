@@ -235,6 +235,22 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       }
       break;
     }
+    case 'crushVehicle': {
+      const v = getEntity(state.vehicles, cmd.vehicleId);
+      if (!v) return;
+      // Whoever was inside is standing on the forecourt, not compacted with
+      // it — the crusher pays for the car, not for the driver.
+      if (v.driverId !== null) {
+        const driver = state.players.byId[v.driverId];
+        if (driver && driver.vehicleId === v.id) {
+          driver.vehicleId = null;
+          if (driver.mode === 'driving') driver.mode = 'foot';
+        }
+      }
+      delete state.trafficDrivers[v.id];
+      removeEntity(state.vehicles, cmd.vehicleId);
+      break;
+    }
   }
 }
 

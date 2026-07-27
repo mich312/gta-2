@@ -131,6 +131,8 @@ export interface CityMap {
   hospitals: Vec2[];
   /** Where the arrested are let out. Being busted is not being killed. */
   policeStations: Vec2[];
+  /** Car crushers: drive one in, leave on foot and better off. */
+  cranes: Vec2[];
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

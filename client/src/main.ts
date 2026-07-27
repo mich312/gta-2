@@ -357,6 +357,9 @@ function handleServerMessage(msg: ServerMessage): void {
       case 'wallet':
         hud.setWallet(msg.cash, msg.multiplier);
         break;
+      case 'exports':
+        hud.setExports(msg.kinds, msg.bonus);
+        break;
       case 'account':
         hud.accountName = msg.ok ? msg.username : hud.accountName;
         hud.notice(msg.message);
