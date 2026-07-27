@@ -18,7 +18,7 @@ import {
   step,
 } from 'shared';
 import { FileStore, MemoryStore, type PersistenceStore } from '../src/economy/store.js';
-import { SqliteStore } from '../src/economy/sqliteStore.js';
+import { SqliteStore, sqliteAvailable } from '../src/economy/sqliteStore.js';
 import { Ledger } from '../src/economy/ledger.js';
 import { Accounts } from '../src/economy/accounts.js';
 import { AwardTracker, parseEconomyParams } from '../src/economy/awards.js';
@@ -131,8 +131,13 @@ describe('purchases', () => {
 describe('persistence (the phase gate: a purchase survives a server restart)', () => {
   // Same scenario against both implementations: SQLite (node:sqlite, the
   // default) and the JSON FileStore. The economy cannot tell them apart.
+  // The sqlite rows drop out on Node builds without node:sqlite (see
+  // sqliteStore.ts) — the store cannot exist there, and createStore's fallback
+  // is what covers those runtimes instead.
   const backends: Array<[string, (dir: string) => PersistenceStore]> = [
-    ['sqlite', (dir) => new SqliteStore(join(dir, 'persist.db'))],
+    ...(sqliteAvailable()
+      ? ([['sqlite', (dir: string) => new SqliteStore(join(dir, 'persist.db'))]] as const)
+      : []),
     ['file', (dir) => new FileStore(join(dir, 'persist.json'))],
   ];
 
@@ -163,11 +168,14 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
     });
   }
 
-  it('sqlite: a raw duplicate ref throws at the store (backstop under the ledger)', () => {
-    const store = new SqliteStore(':memory:');
-    const tx = { ref: 'r1', accountKey: 'a', delta: 5, reason: 'x', at: 'now' };
-    store.appendTransaction(tx);
-    expect(() => store.appendTransaction(tx)).toThrow();
-    expect(store.hasRef('r1')).toBe(true);
-  });
+  it.skipIf(!sqliteAvailable())(
+    'sqlite: a raw duplicate ref throws at the store (backstop under the ledger)',
+    () => {
+      const store = new SqliteStore(':memory:');
+      const tx = { ref: 'r1', accountKey: 'a', delta: 5, reason: 'x', at: 'now' };
+      store.appendTransaction(tx);
+      expect(() => store.appendTransaction(tx)).toThrow();
+      expect(store.hasRef('r1')).toBe(true);
+    },
+  );
 });

@@ -42,6 +42,13 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |
 
+`node:sqlite` needs Node 22.5+ (22.5–22.12 also need `--experimental-sqlite`)
+from a build compiled with SQLite support. Where it is missing — the runtime
+reports `Unknown builtin module: node:sqlite` — the server no longer fails to
+start: it prints a warning and persists to the sibling `.json` file via the
+file store instead. Set `PERSIST_PATH=data/persist.json` to choose that
+deliberately and silence the warning.
+
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
 weapons, police, peds, props, economy, worldgen, palette) — restart the
 server to apply; clients receive tunables in the welcome message.
