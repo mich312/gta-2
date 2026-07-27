@@ -9,7 +9,7 @@ import type { PickupKind, WeaponSlot } from './state.js';
 
 export type SimCommand =
   | { type: 'spawnPlayer'; playerId: number; name: string; loadout?: WeaponSlot[] }
-  | { type: 'respawnPlayer'; playerId: number; loadout: WeaponSlot[] }
+  | { type: 'respawnPlayer'; playerId: number; loadout: WeaponSlot[]; atStation?: boolean }
   | { type: 'despawnPlayer'; playerId: number }
   | { type: 'grantWeapon'; playerId: number; weaponId: string; ammo: number }
   | { type: 'setCosmetic'; playerId: number; cosmeticId: number }

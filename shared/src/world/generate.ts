@@ -53,6 +53,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     boatSpawns: [],
     landmarks: [],
     hospitals: [],
+    policeStations: [],
   };
 
   let seeds;

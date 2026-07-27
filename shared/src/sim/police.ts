@@ -9,7 +9,7 @@ import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
 import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
-import { applyDamage, rayWallDistance } from './weapons.js';
+import { applyDamage, bustPlayer, rayWallDistance } from './weapons.js';
 import type { CityMap } from '../world/types.js';
 import { moveWithCollision } from '../world/collide.js';
 import { CARDINAL_ANGLE, dirIsOpen, nearestCardinal } from './roadgrid.js';
@@ -88,6 +88,28 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
     }
     return;
   }
+}
+
+/**
+ * Arrest instead of shoot, when the officer is close enough to put hands on
+ * a player who is on foot and not going anywhere fast.
+ *
+ * This is the risk calculus the whole mechanic rests on: standing still next
+ * to an officer is survivable and expensive, running is dangerous and keeps
+ * your multiplier. Only officers on foot make arrests — a cruiser at speed
+ * has nobody to get out and do it.
+ *
+ * Returns true when the arrest lands, in which case the caller must not also
+ * fire: one officer, one action per cadence.
+ */
+function tryBust(state: GameState, cop: CopState, target: PlayerState, events: SimEvent[]): boolean {
+  const t = getTuning().police;
+  if (target.mode !== 'foot') return false;
+  if (dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y) > t.bustRadius) return false;
+  const speed = Math.sqrt(target.vel.x * target.vel.x + target.vel.y * target.vel.y);
+  if (speed > t.bustSpeedMax) return false;
+  bustPlayer(state, target, cop.id, events);
+  return true;
 }
 
 function copFire(
@@ -487,6 +509,14 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     } else {
       cop.vel.x = 0;
       cop.vel.y = 0;
+    }
+
+    // Hands before bullets: an officer within reach of a stationary suspect
+    // arrests them. Checked before the fire test so a point-blank cop never
+    // shoots somebody they could have taken in.
+    if (cop.fireCooldown === 0 && tryBust(state, cop, target, events)) {
+      cop.fireCooldown = getWeaponTuning(t.weapon)?.cooldownTicks ?? 0;
+      continue;
     }
 
     if (

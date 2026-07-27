@@ -87,8 +87,12 @@ export class Session {
   private pedSpawnCursor = 0;
   /** Events emitted by the most recent tick (kills, shots, deaths). */
   lastEvents: SimEvent[] = [];
-  private pendingRespawns: Array<{ playerId: number; dueTick: number; loadout: WeaponSlot[] }> =
-    [];
+  private pendingRespawns: Array<{
+    playerId: number;
+    dueTick: number;
+    loadout: WeaponSlot[];
+    atStation: boolean;
+  }> = [];
   private readonly options: SessionOptions;
 
   constructor(
@@ -330,6 +334,7 @@ export class Session {
           type: 'respawnPlayer',
           playerId: r.playerId,
           loadout: r.loadout,
+          atStation: r.atStation,
         });
         this.pendingRespawns.splice(i, 1);
       }
@@ -352,21 +357,30 @@ export class Session {
     // Deaths schedule a respawn. The WEAPONS_LOST_ON_DEATH design flag lives
     // HERE, not in sim code: it only changes what loadout the respawn
     // command carries, so both settings replay deterministically.
+    // An arrest emits `busted` alongside its `death`; collect those first so
+    // the respawn below knows which front door to use.
+    const arrested = new Set<number>();
+    for (const ev of events) if (ev.type === 'busted') arrested.add(ev.playerId);
+
     for (const ev of events) {
       if (ev.type !== 'death') continue;
       if (!this.slots.has(ev.playerId)) continue; // despawned player
       const weaponsAtDeath = prev.players.byId[ev.playerId]?.weapons ?? [];
-      const loadout = this.options.weaponsLostOnDeath
-        ? DEFAULT_LOADOUT.map((w) => ({ ...w }))
-        : // Keeping your guns still means keeping exactly one pair of fists.
-          [
-            { weaponId: 'fists', ammo: 0 },
-            ...weaponsAtDeath.filter((w) => w.weaponId !== 'fists').map((w) => ({ ...w })),
-          ];
+      // Evidence is evidence: an arrest confiscates the guns whatever the
+      // death flag says. WEAPONS_LOST_ON_DEATH is a question about dying.
+      const loadout =
+        this.options.weaponsLostOnDeath || arrested.has(ev.playerId)
+          ? DEFAULT_LOADOUT.map((w) => ({ ...w }))
+          : // Keeping your guns still means keeping exactly one pair of fists.
+            [
+              { weaponId: 'fists', ammo: 0 },
+              ...weaponsAtDeath.filter((w) => w.weaponId !== 'fists').map((w) => ({ ...w })),
+            ];
       this.pendingRespawns.push({
         playerId: ev.playerId,
         dueTick: ev.tick + RESPAWN_DELAY_TICKS,
         loadout,
+        atStation: arrested.has(ev.playerId),
       });
     }
 

@@ -297,6 +297,39 @@ export function damageCop(
   events.push({ type: 'copDown', tick: state.tick, killerId: attackerId });
 }
 
+/**
+ * Arrest. Physically it does what dying does — you go down, you lose the
+ * guns, the same respawn timer runs — because reusing the death pipeline is
+ * what keeps one code path for "player is out of play".
+ *
+ * What differs is everything around it: the wanted level is wiped here and
+ * now (an arrest ends the chase, it does not merely pause it), the session
+ * sends you to a police station instead of a hospital, and the economy takes
+ * half your multiplier. Dying costs you a trip; being nicked costs you the
+ * run. That asymmetry is the entire point of having two failure modes.
+ */
+export function bustPlayer(
+  state: GameState,
+  victim: PlayerState,
+  copId: number,
+  events: SimEvent[],
+): void {
+  if (victim.mode === 'dead') return;
+  victim.health = 0;
+  victim.mode = 'dead';
+  victim.vel.x = 0;
+  victim.vel.y = 0;
+  victim.respawnAtTick = state.tick + RESPAWN_DELAY_TICKS;
+  victim.armour = 0;
+  victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
+  victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
+  // Booked, processed, released: the heat is gone, not decayed.
+  victim.heat = 0;
+  victim.wantedLevel = 0;
+  events.push({ type: 'busted', tick: state.tick, playerId: victim.id, copId });
+  events.push({ type: 'death', tick: state.tick, playerId: victim.id });
+}
+
 export function applyDamage(
   state: GameState,
   victim: PlayerState,

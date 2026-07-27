@@ -80,6 +80,10 @@ export interface PoliceTuning {
   dismountDist: number;
   /** Price of a respray, which clears heat outright. */
   sprayCost: number;
+  /** Reach of an arrest. An officer this close can put hands on you. */
+  bustRadius: number;
+  /** Move faster than this and you get shot instead of nicked. */
+  bustSpeedMax: number;
 }
 
 export interface PedTuning {
@@ -271,6 +275,8 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     roadblockAheadDist: n('roadblockAheadDist'),
     dismountDist: n('dismountDist'),
     sprayCost: n('sprayCost'),
+    bustRadius: n('bustRadius'),
+    bustSpeedMax: n('bustSpeedMax'),
   };
 }
 
@@ -473,6 +479,8 @@ const DEFAULT_POLICE: PoliceTuning = {
   roadblockAheadDist: 420,
   dismountDist: 150,
   sprayCost: 400,
+  bustRadius: 22,
+  bustSpeedMax: 40,
 };
 
 export interface InitTuningOptions {

@@ -23,5 +23,7 @@
   "roadblockCooldownTicks": 240,
   "roadblockAheadDist": 420,
   "sprayCost": 400,
+  "bustRadius": 22,
+  "bustSpeedMax": 40,
   "dismountDist": 150
 }

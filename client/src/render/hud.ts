@@ -34,6 +34,8 @@ export class Hud {
   /** Wall-clock ms the local player died at; drives the death fade. */
   private diedAtMs = 0;
   private wasDead = false;
+  /** True while the current down-state is an arrest rather than a death. */
+  private wasBusted = false;
 
   notice(text: string): void {
     this.feed.push({ text, expiresAtMs: performance.now() + 5000 });
@@ -94,6 +96,9 @@ export class Hud {
       });
       while (this.feed.length > 5) this.feed.shift();
     }
+    // Arrives one tick before the snapshot showing you down, which is why
+    // the flag is set here and read by the overlay rather than derived.
+    if (event.type === 'busted') this.wasBusted = true;
   }
 
   /**
@@ -255,12 +260,18 @@ export class Hud {
         this.wasDead = true;
       }
       const t = Math.min(1, (now - this.diedAtMs) / 500);
-      ctx.fillStyle = `rgba(18, 0, 0, ${(0.55 * t).toFixed(3)})`;
+      // Two ways down, two colours: red for the hospital, blue for the cells.
+      // They cost different things, so they must not look the same.
+      ctx.fillStyle = this.wasBusted
+        ? `rgba(0, 6, 20, ${(0.6 * t).toFixed(3)})`
+        : `rgba(18, 0, 0, ${(0.55 * t).toFixed(3)})`;
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
       ctx.textAlign = 'center';
-      ctx.fillStyle = `rgba(232, 196, 196, ${t.toFixed(3)})`;
+      ctx.fillStyle = this.wasBusted
+        ? `rgba(190, 212, 240, ${t.toFixed(3)})`
+        : `rgba(232, 196, 196, ${t.toFixed(3)})`;
       ctx.font = '16px monospace';
-      ctx.fillText('WASTED', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 - 4);
+      ctx.fillText(this.wasBusted ? 'BUSTED' : 'WASTED', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 - 4);
       if (snapshot) {
         const secs =
           me.respawnAtTick !== null
@@ -273,6 +284,7 @@ export class Hud {
       ctx.textAlign = 'left';
     } else {
       this.wasDead = false;
+      this.wasBusted = false;
     }
   }
 }

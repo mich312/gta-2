@@ -499,6 +499,7 @@ const LANDMARK_NAMES: Record<LandmarkKind, string[]> = {
   power: ['Kessler Power', 'Eastworks Plant', 'Grid Station'],
   tower: ['Vantage Tower', 'The Spire', 'Halloran Building'],
   hospital: ['Mercy General', 'St. Brannoch', 'Riverside Infirmary', 'Central Clinic'],
+  police: ['1st Precinct', 'Kelvin Road Station', 'Harbour Precinct', 'Central Station'],
 };
 
 /** Minimum footprint that reads as "big" for each kind, in tiles. */
@@ -507,6 +508,7 @@ const LANDMARK_SIZE: Record<LandmarkKind, [number, number]> = {
   power: [9, 8],
   tower: [6, 6],
   hospital: [6, 5],
+  police: [5, 5],
 };
 
 const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
@@ -514,6 +516,7 @@ const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
   power: ['industrial'],
   tower: ['downtown', 'commercial'],
   hospital: ['commercial', 'residential', 'downtown'],
+  police: ['downtown', 'commercial', 'residential'],
 };
 
 /**
@@ -527,6 +530,7 @@ const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
 export function placeLandmarks(map: CityMap, rng: number): number {
   const wanted: Array<[LandmarkKind, number]> = [
     ['hospital', 4],
+    ['police', 3],
     ['tower', 2],
     ['stadium', 1],
     ['power', 1],
@@ -603,6 +607,9 @@ export function placeLandmarks(map: CityMap, rng: number): number {
 
   map.hospitals = map.landmarks
     .filter((l) => l.kind === 'hospital')
+    .map((l) => ({ x: l.doorX, y: l.doorY }));
+  map.policeStations = map.landmarks
+    .filter((l) => l.kind === 'police')
     .map((l) => ({ x: l.doorX, y: l.doorY }));
   return rng;
 }

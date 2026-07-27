@@ -8,6 +8,7 @@ import propsJson from '../data/props.json';
 import pickupsJson from '../data/pickups.json';
 import worldgenJson from '../data/worldgen.json';
 import { getVehicleTuning, initTuning } from '../src/tuning.js';
+import { roadLane } from './helpers.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState } from '../src/sim/state.js';
@@ -193,17 +194,26 @@ describe('vehicle destruction', () => {
         ],
         map,
       );
+      // Ten cars in a tight row, well inside one blast radius of each other —
+      // down a real lane, not along +x from wherever the player happened to
+      // spawn. That assumption held by luck, and adding a landmark kind to
+      // worldgen moved every spawn point and parked the whole row inside a
+      // building, where the test measured nothing. See test/helpers.ts.
+      const lane = roadLane(map, 70 + 9 * 26 + 40);
       const p = state.players.byId[1]!;
-      // Ten cars in a tight row, well inside one blast radius of each other.
+      p.pos = { x: lane.x, y: lane.y };
+      const dirX = Math.cos(lane.heading);
+      const dirY = Math.sin(lane.heading);
       const cmds: SimCommand[] = [];
       for (let i = 0; i < 10; i++) {
+        const d = 70 + i * 26;
         cmds.push({
           type: 'spawnVehicle',
           vehicleId: 30 + i,
           kind: 'car',
-          x: p.pos.x + 70 + i * 26,
-          y: p.pos.y,
-          heading: 0,
+          x: lane.x + dirX * d,
+          y: lane.y + dirY * d,
+          heading: lane.heading,
         });
       }
       state = step(state, {}, cmds, map);
@@ -213,7 +223,7 @@ describe('vehicle destruction', () => {
       for (let i = 0; i < 1200; i++) {
         state = step(
           state,
-          { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: i < 300, aimAngle: 0 } },
+          { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: i < 300, aimAngle: lane.heading } },
           [],
           map,
           events,

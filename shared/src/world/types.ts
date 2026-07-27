@@ -37,7 +37,7 @@ export interface BlockRect {
   district: DistrictType;
 }
 
-export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital'] as const;
+export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital', 'police'] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 
 export interface Landmark {
@@ -118,6 +118,8 @@ export interface CityMap {
   landmarks: Landmark[];
   /** Where the dead wake up. */
   hospitals: Vec2[];
+  /** Where the arrested are let out. Being busted is not being killed. */
+  policeStations: Vec2[];
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

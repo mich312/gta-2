@@ -224,6 +224,11 @@ export class Economy {
         // finished is worth what it was worth, and the next one is worth more.
         this.raiseMultiplier(ev.playerId, this.params.multiplier.frenzyGain);
         changed.add(ev.playerId);
+      } else if (ev.type === 'busted') {
+        // The cost of an arrest is the run, not the trip. Death does not do
+        // this — that asymmetry is the whole reason both exist.
+        this.penaliseMultiplier(ev.playerId);
+        changed.add(ev.playerId);
       } else if (ev.type === 'stuntLanded') {
         const reward = stuntReward(ev.distance);
         if (reward > 0 && this.credit(ev.playerId, reward, `stunt:${ev.tick}`)) {

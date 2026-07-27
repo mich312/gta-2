@@ -129,7 +129,11 @@ export class Minimap {
     for (const l of map.landmarks) {
       const cx = (l.x + l.w / 2) * TILE_SIZE;
       const cy = (l.y + l.h / 2) * TILE_SIZE;
-      dot(cx, cy, l.kind === 'hospital' ? '#e06a6a' : '#c9cdd4', 2);
+      // Hospital red, station blue: the two places you get sent against your
+      // will, and the ones worth spotting before you need them.
+      const tint =
+        l.kind === 'hospital' ? '#e06a6a' : l.kind === 'police' ? '#6a9ce0' : '#c9cdd4';
+      dot(cx, cy, tint, 2);
     }
 
     // Shops are the reason this panel exists: six of them across the whole

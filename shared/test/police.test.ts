@@ -318,6 +318,12 @@ describe('escalation by kind', () => {
     for (let i = 0; i < ticks; i++) {
       const p = state.players.byId[1]!;
       p.heat = stars * 100 + 10; // hold the tier steady
+      // A fugitive is a MOVING target. Since F2 a suspect standing still
+      // beside an officer gets arrested, which ends the chase this test is
+      // trying to measure — so keep them running. Movement decays toward zero
+      // during the step, but stays above the bust threshold when the police
+      // step runs, which is exactly the state of somebody legging it.
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 };
       if (p.mode === 'dead') {
         p.health = 100;
         p.mode = 'foot';
@@ -455,5 +461,124 @@ describe('escalation by kind', () => {
   it('the whole motorised chase is deterministic', () => {
     const run = (): number => hashState(chaseAt(4, 900, 88).state);
     expect(run()).toBe(run());
+  });
+});
+
+describe('arrest (F2): busted is not wasted', () => {
+  /** A wanted player on foot with one officer standing on top of them. */
+  function grabbed(playerMoving: boolean, inCar = false): { state: GameState; events: SimEvent[] } {
+    let state = createGameState(99);
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnPlayer', playerId: 1, name: 'crook', loadout: PISTOL }],
+      map,
+    );
+    const p = state.players.byId[1]!;
+    p.heat = 250; // wanted 2: cops are interested
+    if (inCar) {
+      state = step(
+        state,
+        {},
+        [
+          {
+            type: 'spawnVehicle',
+            vehicleId: 7,
+            kind: 'car',
+            x: p.pos.x,
+            y: p.pos.y,
+            heading: 0,
+          },
+        ],
+        map,
+      );
+      const pp = state.players.byId[1]!;
+      pp.mode = 'driving';
+      pp.vehicleId = 7;
+      state.vehicles.byId[7]!.driverId = 1;
+      pp.heat = 250;
+    }
+    const me = state.players.byId[1]!;
+    const cop = createCop(500, { x: me.pos.x + 8, y: me.pos.y }, getTuning().police.copHealth);
+    insertEntity(state.cops, cop);
+    // Moving: already at walk speed, which is well over the bust threshold.
+    if (playerMoving) {
+      me.vel = { x: getTuning().player.walkSpeed, y: 0 };
+    }
+    const events: SimEvent[] = [];
+    const input = playerMoving ? { ...NULL_INPUT, seq: 1, tick: 1, up: true } : NULL_INPUT;
+    state = step(state, { 1: input }, [], map, events);
+    return { state, events };
+  }
+
+  it('an officer within reach of a stationary suspect arrests them', () => {
+    const { state, events } = grabbed(false);
+    const busted = events.find((e) => e.type === 'busted');
+    expect(busted).toBeDefined();
+    // The death pipeline still runs — one code path for "out of play".
+    expect(events.some((e) => e.type === 'death' && e.playerId === 1)).toBe(true);
+    const p = state.players.byId[1]!;
+    expect(p.mode).toBe('dead');
+    // An arrest ends the chase outright rather than letting it decay.
+    expect(p.heat).toBe(0);
+    expect(p.wantedLevel).toBe(0);
+    // Guns confiscated, hands kept.
+    expect(p.weapons.map((w) => w.weaponId)).toEqual([]);
+    expect(p.armour).toBe(0);
+  });
+
+  it('run and you get shot instead — the whole risk calculus', () => {
+    const { state, events } = grabbed(true);
+    expect(events.some((e) => e.type === 'busted')).toBe(false);
+    // Still wanted, still being shot at: the officer fired rather than grabbed.
+    expect(state.players.byId[1]!.heat).toBeGreaterThan(0);
+    expect(events.some((e) => e.type === 'shot')).toBe(true);
+  });
+
+  it('a driver is never arrested through the windscreen', () => {
+    const { events } = grabbed(false, true);
+    expect(events.some((e) => e.type === 'busted')).toBe(false);
+  });
+
+  it('one officer does one thing per cadence: no bust and shot on the same tick', () => {
+    const { events } = grabbed(false);
+    expect(events.some((e) => e.type === 'busted')).toBe(true);
+    expect(events.some((e) => e.type === 'shot')).toBe(false);
+  });
+
+  it('an arrest is deterministic', () => {
+    const run = (): number => hashState(grabbed(false).state);
+    expect(run()).toBe(run());
+  });
+
+  it('worldgen places police stations, and arrest respawns at one', () => {
+    expect(map.policeStations.length).toBeGreaterThan(0);
+    const { state } = grabbed(false);
+    const p = state.players.byId[1]!;
+    const after = step(
+      state,
+      {},
+      [{ type: 'respawnPlayer', playerId: 1, loadout: [], atStation: true }],
+      map,
+    );
+    const at = after.players.byId[1]!.pos;
+    const nearestStation = Math.min(
+      ...map.policeStations.map((s) => Math.hypot(s.x - at.x, s.y - at.y)),
+    );
+    const nearestHospital = Math.min(
+      ...map.hospitals.map((h) => Math.hypot(h.x - at.x, h.y - at.y)),
+    );
+    expect(nearestStation).toBe(0);
+    expect(nearestHospital).toBeGreaterThan(0);
+    expect(p.id).toBe(1);
+  });
+
+  it('dying still wakes you at a hospital', () => {
+    let state = createGameState(99);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'victim' }], map);
+    state.players.byId[1]!.mode = 'dead';
+    const after = step(state, {}, [{ type: 'respawnPlayer', playerId: 1, loadout: [] }], map);
+    const at = after.players.byId[1]!.pos;
+    expect(Math.min(...map.hospitals.map((h) => Math.hypot(h.x - at.x, h.y - at.y)))).toBe(0);
   });
 });

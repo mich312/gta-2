@@ -140,8 +140,13 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (!p || p.mode !== 'dead') return;
       // You wake up at the nearest hospital, not at a random kerb three
       // districts away. That is what makes dying a setback in a place you
-      // recognise rather than a teleport to nowhere.
-      const spawn = nearestHospital(map, p.pos) ?? pickSpawn(state, map);
+      // recognise rather than a teleport to nowhere. Arrest sends you to a
+      // station instead — same journey home, different front door, and one
+      // you can learn the locations of.
+      const spawn =
+        (cmd.atStation ? nearestOf(map.policeStations, map, p.pos) : null) ??
+        nearestOf(map.hospitals, map, p.pos) ??
+        pickSpawn(state, map);
       p.pos = { x: spawn.x, y: spawn.y };
       p.vel = { x: 0, y: 0 };
       p.mode = 'foot';
@@ -229,11 +234,15 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
   }
 }
 
-/** Closest hospital door to a point, or null if the map generated none. */
-function nearestHospital(map: CityMap, from: { x: number; y: number }): { x: number; y: number } | null {
+/** Closest door in a list to a point, or null if the map generated none. */
+function nearestOf(
+  doors: ReadonlyArray<{ x: number; y: number }>,
+  map: CityMap,
+  from: { x: number; y: number },
+): { x: number; y: number } | null {
   let best: { x: number; y: number } | null = null;
   let bestD = Infinity;
-  for (const h of map.hospitals) {
+  for (const h of doors) {
     const dx = h.x - from.x;
     const dy = h.y - from.y;
     const d = dx * dx + dy * dy;
