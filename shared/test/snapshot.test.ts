@@ -54,7 +54,7 @@ describe('snapshot delta', () => {
     expect(hashSnapshot(rebuilt)).toBe(hashSnapshot(snapB));
   });
 
-  it('no changes => empty delta', () => {
+  it('a motionless player produces no player-table delta', () => {
     let state = createGameState(7);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
     for (let i = 0; i < 90; i++) state = step(state, {}, [], map); // settles to rest
@@ -65,8 +65,22 @@ describe('snapshot delta', () => {
     expect(delta.players.added).toEqual([]);
     expect(delta.players.removed).toEqual([]);
     expect(delta.players.updated).toEqual([]);
-    expect(delta.vehicles.added).toEqual([]);
-    expect(delta.vehicles.updated).toEqual([]);
+  });
+
+  it('an empty world produces a wholly empty delta', () => {
+    // Vehicles are deliberately NOT asserted quiet in the test above any
+    // more: ambient traffic is maintained around players, so a world with a
+    // player in it never fully settles. With nobody to drive near, it does.
+    let state = createGameState(7);
+    for (let i = 0; i < 60; i++) state = step(state, {}, [], map);
+    const a = takeSnapshot(state);
+    state = step(state, {}, [], map);
+    const delta = diffSnapshots(a, takeSnapshot(state));
+    for (const table of [delta.players, delta.vehicles, delta.cops, delta.peds, delta.props]) {
+      expect(table.added).toEqual([]);
+      expect(table.updated).toEqual([]);
+      expect(table.removed).toEqual([]);
+    }
   });
 
   it('delta application is not a reference share (mutating rebuilt leaves base intact)', () => {

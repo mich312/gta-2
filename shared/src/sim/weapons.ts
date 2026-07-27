@@ -3,16 +3,27 @@ import { q8 } from '../math/vec.js';
 import { dCos, dSin } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
-import type { CopState, GameState, PedState, PlayerState, PropState } from './state.js';
+import type {
+  CopState,
+  GameState,
+  PedState,
+  PlayerState,
+  PropState,
+  VehicleState,
+} from './state.js';
 import { addHeat } from './state.js';
 import { removeEntity } from './entities.js';
 import { damagePed } from './peds.js';
+import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile } from '../world/collide.js';
 
 export const RESPAWN_DELAY_TICKS = TICK_RATE * 3;
+/** The one weapon everybody always has. */
+export const FISTS_ID = 'fists';
+export const FISTS_SLOT: { weaponId: string; ammo: number } = { weaponId: FISTS_ID, ammo: 0 };
 const RUNOVER_MIN_SPEED = 130;
 const RUNOVER_IMMUNITY_TICKS = 12;
 
@@ -93,6 +104,7 @@ function fireOnce(
   let hitCop: CopState | null = null;
   let hitPed: PedState | null = null;
   let hitProp: PropState | null = null;
+  let hitVehicle: VehicleState | null = null;
   let hitDist = wallDist;
   for (const id of state.players.ids) {
     if (id === shooter.id) continue;
@@ -172,6 +184,30 @@ function fireOnce(
     }
   }
 
+  // Vehicles are shootable — without this nothing in the game could destroy
+  // a car, which is the toy the whole genre is built around.
+  for (const id of state.vehicles.ids) {
+    const veh = state.vehicles.byId[id];
+    if (!veh || veh.condition !== 'ok') continue;
+    const d = rayCircleDistance(
+      shooter.pos.x,
+      shooter.pos.y,
+      dirX,
+      dirY,
+      veh.pos.x,
+      veh.pos.y,
+      vehicleHitRadius(veh),
+    );
+    if (d < hitDist) {
+      hitDist = d;
+      hitVehicle = veh;
+      hitProp = null;
+      hitPed = null;
+      hitCop = null;
+      hitPlayer = null;
+    }
+  }
+
   events.push({
     type: 'shot',
     tick: state.tick,
@@ -191,6 +227,8 @@ function fireOnce(
     damagePed(state, hitPed, damage, shooter.id, events);
   } else if (hitProp) {
     damageProp(state, hitProp, damage, events);
+  } else if (hitVehicle) {
+    damageVehicle(state, hitVehicle, damage, events);
   }
 }
 
@@ -206,6 +244,7 @@ export function damageProp(
   if (prop.hp > 0) return;
   prop.hp = 0;
   prop.intact = false;
+  prop.respawnAtTick = state.tick + Math.round(getTuning().props.respawnDelaySec * TICK_RATE);
   events.push({
     type: 'propDown',
     tick: state.tick,
@@ -241,6 +280,12 @@ export function applyDamage(
   events: SimEvent[],
 ): void {
   if (victim.mode === 'dead') return;
+  // Armour soaks first and is spent doing it; the remainder reaches health.
+  if (victim.armour > 0) {
+    const soaked = Math.min(victim.armour, damage);
+    victim.armour = q8(victim.armour - soaked);
+    damage -= soaked;
+  }
   victim.health -= damage;
   // Violence against players is a crime (cop shooters pass attackerId -1).
   const attacker = attackerId !== victim.id ? state.players.byId[attackerId] : undefined;
@@ -261,8 +306,10 @@ export function applyDamage(
   victim.vel.x = 0;
   victim.vel.y = 0;
   victim.respawnAtTick = state.tick + RESPAWN_DELAY_TICKS;
-  victim.weapons = [];
-  victim.activeWeapon = -1;
+  victim.armour = 0;
+  // Guns are lost, hands are not. An unarmed player must still have a verb.
+  victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
+  victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
   if (attackerId !== victim.id) {
     events.push({
@@ -295,11 +342,12 @@ export function stepWeapons(
     }
     if (!input.fire || p.fireCooldown > 0 || p.mode !== 'foot') continue;
     const slot = p.weapons[p.activeWeapon];
-    if (!slot || slot.ammo <= 0) continue;
+    if (!slot) continue;
     const weapon = getWeaponTuning(slot.weaponId);
     if (!weapon) continue;
+    if (slot.ammo <= 0 && !weapon.infiniteAmmo) continue;
 
-    slot.ammo--;
+    if (!weapon.infiniteAmmo) slot.ammo--;
     p.fireCooldown = weapon.cooldownTicks;
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
       let roll: number;
@@ -307,6 +355,44 @@ export function stepWeapons(
       const angle = p.aimAngle + (roll - 0.5) * 2 * weapon.spread;
       fireOnce(state, map, p, angle, weapon.range, weapon.damage, slot.weaponId, events);
     }
+  }
+}
+
+/**
+ * Street furniture comes back. Without this the city is consume-only: every
+ * session monotonically strips itself of lamps, bins and fences and never
+ * recovers. Repairs are held back until nobody is close enough to watch a
+ * lamp post reassemble itself.
+ */
+export function stepProps(state: GameState, events: SimEvent[]): void {
+  const t = getTuning().props;
+  const minDist2 = t.respawnMinDistFromPlayer * t.respawnMinDistFromPlayer;
+  for (const id of state.props.ids) {
+    const prop = state.props.byId[id];
+    if (!prop || prop.intact || prop.respawnAtTick === null) continue;
+    if (state.tick < prop.respawnAtTick) continue;
+    let watched = false;
+    for (const pid of state.players.ids) {
+      const p = state.players.byId[pid];
+      if (!p || p.mode === 'dead') continue;
+      const dx = p.pos.x - prop.pos.x;
+      const dy = p.pos.y - prop.pos.y;
+      if (dx * dx + dy * dy < minDist2) {
+        watched = true;
+        break;
+      }
+    }
+    if (watched) continue;
+    prop.intact = true;
+    prop.hp = t.kinds[prop.kind]?.hp ?? 10;
+    prop.respawnAtTick = null;
+    events.push({
+      type: 'propUp',
+      tick: state.tick,
+      kind: prop.kind,
+      x: Math.round(prop.pos.x),
+      y: Math.round(prop.pos.y),
+    });
   }
 }
 
@@ -323,6 +409,16 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         p.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         const damage = Math.abs(v.speed) * 0.12;
         applyDamage(state, p, damage, v.driverId ?? -1, 'vehicle', events);
+      }
+    }
+    // Fixed order: players, then cops, then peds. Never reorder — the damage
+    // each takes feeds heat, which feeds cop spawning, which draws rng.
+    for (const copId of [...state.cops.ids]) {
+      const cop = state.cops.byId[copId];
+      if (!cop || cop.carHitCooldown > 0) continue;
+      if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
+        cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
+        damageCop(state, cop, Math.abs(v.speed) * 0.12, v.driverId ?? -1, events);
       }
     }
     for (const pedId of [...state.peds.ids]) {

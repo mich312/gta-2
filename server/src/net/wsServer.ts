@@ -5,7 +5,7 @@ import {
   SNAPSHOT_HASH_INTERVAL,
   TICK_RATE,
   getTuning,
-  jsonCodec,
+  binaryCodec,
   parseClientMessage,
 } from 'shared';
 import type { ServerConfig } from '../config.js';
@@ -79,13 +79,15 @@ export class GameServer {
   }
 
   private onMessage(conn: ClientConn, data: RawData): void {
-    const text = rawToString(data);
-    conn.bytesIn += text.length;
+    // Binary frames arrive as Buffer/ArrayBuffer; a JSON-speaking peer may
+    // still send text, and the codec tolerates both.
+    const frame = rawToFrame(data);
+    conn.bytesIn += typeof frame === 'string' ? frame.length : frame.byteLength;
     let raw: unknown;
     try {
-      raw = jsonCodec.decode(text);
+      raw = binaryCodec.decode(frame);
     } catch {
-      return; // not JSON; drop silently
+      return; // undecodable; drop silently
     }
     const msg = parseClientMessage(raw);
     if (!msg) return;
@@ -187,8 +189,13 @@ export class GameServer {
   }
 }
 
-function rawToString(data: RawData): string {
+/**
+ * Normalise a ws RawData frame into what the codec accepts. Binary frames
+ * become a Uint8Array view over the same memory (no copy); text frames stay
+ * strings so a JSON-speaking peer keeps working.
+ */
+function rawToFrame(data: RawData): string | Uint8Array {
   if (typeof data === 'string') return data;
-  if (Array.isArray(data)) return Buffer.concat(data).toString('utf8');
-  return Buffer.from(data as ArrayBuffer).toString('utf8');
+  const buf = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as ArrayBuffer);
+  return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 }

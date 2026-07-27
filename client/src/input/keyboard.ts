@@ -19,6 +19,10 @@ export class InputSource {
   private pendingBuyRow: number | null = null;
   /** 'login' | 'register' requested via L / K. */
   private pendingAccountAction: 'login' | 'register' | null = null;
+  /** M pressed since the last check. */
+  private pendingMute = false;
+  /** Any input at all yet? Browsers gate AudioContext behind a gesture. */
+  private gestured = false;
 
   constructor(screen: Screen, onToggleOverlay: () => void) {
     window.addEventListener('keydown', (e) => {
@@ -31,6 +35,8 @@ export class InputSource {
       if (slotMatch) this.pendingSlot = Number.parseInt(slotMatch[1] as string, 10) - 1;
       const buyRows: Record<string, number> = { KeyY: 0, KeyU: 1, KeyI: 2, KeyO: 3 };
       if (e.code in buyRows) this.pendingBuyRow = buyRows[e.code] as number;
+      if (e.code === 'KeyM') this.pendingMute = true;
+      this.gestured = true;
       if (e.code === 'KeyL') this.pendingAccountAction = 'login';
       if (e.code === 'KeyK') this.pendingAccountAction = 'register';
       this.keys.add(e.code);
@@ -45,7 +51,10 @@ export class InputSource {
       this.mouseX = (e.clientX - rect.left) / screen.scale;
       this.mouseY = (e.clientY - rect.top) / screen.scale;
     });
-    screen.canvas.addEventListener('mousedown', () => (this.mouseDown = true));
+    screen.canvas.addEventListener('mousedown', () => {
+      this.mouseDown = true;
+      this.gestured = true;
+    });
     window.addEventListener('mouseup', () => (this.mouseDown = false));
     screen.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
@@ -54,6 +63,17 @@ export class InputSource {
     const row = this.pendingBuyRow;
     this.pendingBuyRow = null;
     return row;
+  }
+
+  consumeMute(): boolean {
+    const m = this.pendingMute;
+    this.pendingMute = false;
+    return m;
+  }
+
+  /** True once the user has pressed or clicked anything at all. */
+  get hasGestured(): boolean {
+    return this.gestured;
   }
 
   consumeAccountAction(): 'login' | 'register' | null {

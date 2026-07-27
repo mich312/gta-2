@@ -20,13 +20,22 @@ const INPUT_QUEUE_MAX = 60;
 /** How many parked cars a session starts with. */
 const MAX_VEHICLES = 48;
 
-/** What a fresh guest carries. Phase 5 replaces this with account loadouts. */
-export const DEFAULT_LOADOUT: WeaponSlot[] = [{ weaponId: 'pistol', ammo: 90 }];
+/**
+ * What a fresh guest carries. Fists come first and are never taken away —
+ * an unarmed player still needs a verb.
+ */
+export const DEFAULT_LOADOUT: WeaponSlot[] = [
+  { weaponId: 'fists', ammo: 0 },
+  { weaponId: 'pistol', ammo: 90 },
+];
 
 export interface SessionOptions {
   weaponsLostOnDeath: boolean;
   pedCount: number;
 }
+/** Ped top-ups per second, and how far from a player they may appear. */
+const PED_RESPAWN_PER_SEC = 2;
+const PED_RESPAWN_MIN_DIST = 700;
 /** Max consecutive ticks a missing client keeps "holding" their last keys. */
 const MAX_HELD_TICKS = 6;
 /** Max backlog of unapplied intents before we fast-forward through them. */
@@ -74,6 +83,8 @@ export class Session {
   private pendingCommands: SimCommand[] = [];
   /** One counter for every command-spawned entity (players, vehicles). */
   private nextId = 1;
+  /** Rolling position in the ped spawn list, so top-ups spread over the city. */
+  private pedSpawnCursor = 0;
   /** Events emitted by the most recent tick (kills, shots, deaths). */
   lastEvents: SimEvent[] = [];
   private pendingRespawns: Array<{ playerId: number; dueTick: number; loadout: WeaponSlot[] }> =
@@ -120,6 +131,30 @@ export class Session {
         x: spot.x,
         y: spot.y,
         orient: spot.orient,
+      });
+    }
+
+    // Boats at their moorings. The river is the only thing they can cross,
+    // and it is the only thing a car cannot.
+    for (const s of this.map.boatSpawns) {
+      this.pendingCommands.push({
+        type: 'spawnVehicle',
+        vehicleId: this.nextId++,
+        kind: 'boat',
+        x: s.x,
+        y: s.y,
+        heading: s.heading,
+      });
+    }
+
+    // Health, armour and ammo crates.
+    for (const spot of this.map.pickupSpawns) {
+      this.pendingCommands.push({
+        type: 'spawnPickup',
+        pickupId: this.nextId++,
+        kind: spot.kind,
+        x: spot.x,
+        y: spot.y,
       });
     }
 
@@ -210,8 +245,53 @@ export class Session {
     }
   }
 
+  /**
+   * Top the crowd back up to target. Peds are killed permanently by the sim,
+   * so without this the city empties out over a long session and never
+   * recovers. Spawn points are walked round-robin from a rolling cursor and
+   * rejected if any player is close enough to watch someone appear — which is
+   * why this lives here rather than in step(): it needs to know where clients
+   * are looking, and that is server knowledge.
+   */
+  private topUpPeds(): void {
+    const target = Math.min(this.options.pedCount, this.map.pedSpawns.length);
+    // Spawns already queued this tick have not reached the sim yet, so they
+    // must count against the deficit or the crowd overshoots its target.
+    const inFlight = this.pendingCommands.reduce(
+      (n, c) => (c.type === 'spawnPed' ? n + 1 : n),
+      0,
+    );
+    const deficit = target - this.state.peds.ids.length - inFlight;
+    if (deficit <= 0) return;
+    // One arrival per call; the caller's cadence sets the rate.
+    const budget = Math.min(deficit, 1);
+    const players = this.state.players.ids
+      .map((id) => this.state.players.byId[id])
+      .filter((p): p is NonNullable<typeof p> => !!p && p.mode !== 'dead');
+
+    let placed = 0;
+    for (let i = 0; i < this.map.pedSpawns.length && placed < budget; i++) {
+      this.pedSpawnCursor = (this.pedSpawnCursor + 1) % this.map.pedSpawns.length;
+      const spot = this.map.pedSpawns[this.pedSpawnCursor];
+      if (!spot) continue;
+      const tooClose = players.some(
+        (p) => Math.hypot(p.pos.x - spot.x, p.pos.y - spot.y) < PED_RESPAWN_MIN_DIST,
+      );
+      if (tooClose) continue;
+      this.pendingCommands.push({
+        type: 'spawnPed',
+        pedId: this.nextId++,
+        x: spot.x,
+        y: spot.y,
+      });
+      placed++;
+    }
+  }
+
   /** Advance one tick: drain inputs and commands, step, snapshot, record. */
   tick(): FullSnapshot {
+    // Rate-limited: at most PED_RESPAWN_PER_SEC arrivals a second.
+    if (this.state.tick % Math.round(30 / PED_RESPAWN_PER_SEC) === 0) this.topUpPeds();
     const inputs: Record<number, InputIntent> = {};
     for (const [id, slot] of this.slots) {
       let intent: InputIntent | null = null;
@@ -273,7 +353,11 @@ export class Session {
       const weaponsAtDeath = prev.players.byId[ev.playerId]?.weapons ?? [];
       const loadout = this.options.weaponsLostOnDeath
         ? DEFAULT_LOADOUT.map((w) => ({ ...w }))
-        : weaponsAtDeath.map((w) => ({ ...w }));
+        : // Keeping your guns still means keeping exactly one pair of fists.
+          [
+            { weaponId: 'fists', ammo: 0 },
+            ...weaponsAtDeath.filter((w) => w.weaponId !== 'fists').map((w) => ({ ...w })),
+          ];
       this.pendingRespawns.push({
         playerId: ev.playerId,
         dueTick: ev.tick + RESPAWN_DELAY_TICKS,

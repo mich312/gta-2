@@ -179,3 +179,52 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
     },
   );
 });
+
+describe("Pay'n'Spray", () => {
+  function setupGarage() {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, params);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    economy.bindGuest(1);
+    const garage = map.shops.find((s) => s.kind === 'spray');
+    if (!garage) throw new Error('no spray garage generated');
+    return { map, economy, state, garage };
+  }
+
+  it('worldgen places respray garages', () => {
+    const map = generateCity(777, worldgen);
+    expect(map.shops.filter((s) => s.kind === 'spray').length).toBeGreaterThan(0);
+  });
+
+  it('refuses a respray on foot — you drive the hot car in', () => {
+    const { map, economy, state, garage } = setupGarage();
+    const p = state.players.byId[1]!;
+    p.pos = { x: (garage.doorX + 0.5) * TILE_SIZE, y: (garage.doorY + 0.5) * TILE_SIZE };
+    p.heat = 350;
+    const res = economy.buy(1, 'respray', state, map);
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/drive/i);
+  });
+
+  it('clears heat outright, and the cops lose interest', () => {
+    const { map, economy, state, garage } = setupGarage();
+    const p = state.players.byId[1]!;
+    p.pos = { x: (garage.doorX + 0.5) * TILE_SIZE, y: (garage.doorY + 0.5) * TILE_SIZE };
+    p.heat = 450;
+    // In a car, parked in the garage doorway.
+    p.mode = 'driving';
+    p.vehicleId = 99;
+
+    const cashBefore = economy.cashOf(1);
+    const res = economy.buy(1, 'respray', state, map);
+    expect(res.ok).toBe(true);
+    expect(res.command).toEqual({ type: 'clearHeat', playerId: 1 });
+    expect(economy.cashOf(1)).toBeLessThan(cashBefore);
+
+    // The command is what actually does it, at a tick boundary like any other.
+    const after = step(state, {}, [res.command!], map);
+    expect(after.players.byId[1]!.heat).toBe(0);
+    expect(after.players.byId[1]!.wantedLevel).toBe(0);
+  });
+});

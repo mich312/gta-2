@@ -10,4 +10,33 @@ export type SimEvent =
   | { type: 'death'; tick: number; playerId: number }
   | { type: 'copDown'; tick: number; killerId: number }
   | { type: 'pedDown'; tick: number; killerId: number }
-  | { type: 'propDown'; tick: number; kind: string; x: number; y: number };
+  | { type: 'propDown'; tick: number; kind: string; x: number; y: number }
+  | { type: 'propUp'; tick: number; kind: string; x: number; y: number }
+  | {
+      type: 'pickupTaken';
+      tick: number;
+      kind: string;
+      playerId: number;
+      x: number;
+      y: number;
+    }
+  | { type: 'pickupUp'; tick: number; kind: string; id: number }
+  | { type: 'vehicleBurning'; tick: number; vehicleId: number; x: number; y: number }
+  | { type: 'explosion'; tick: number; x: number; y: number; radius: number }
+  | {
+      type: 'frenzyEnded';
+      tick: number;
+      playerId: number;
+      kills: number;
+      target: number;
+      completed: boolean;
+    }
+  | { type: 'stuntLaunched'; tick: number; playerId: number; x: number; y: number }
+  | {
+      type: 'stuntLanded';
+      tick: number;
+      playerId: number;
+      distance: number;
+      x: number;
+      y: number;
+    };

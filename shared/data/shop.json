@@ -1,12 +1,57 @@
 {
   "items": {
-    "pistol": { "kind": "weapon", "shop": "gun", "price": 250, "ammo": 60 },
-    "smg": { "kind": "weapon", "shop": "gun", "price": 800, "ammo": 120 },
-    "shotgun": { "kind": "weapon", "shop": "gun", "price": 600, "ammo": 24 },
-    "ammo": { "kind": "ammo", "shop": "gun", "price": 80, "ammo": 60 },
-    "jacket_red": { "kind": "cosmetic", "shop": "clothing", "price": 150, "cosmeticId": 1 },
-    "jacket_teal": { "kind": "cosmetic", "shop": "clothing", "price": 150, "cosmeticId": 2 },
-    "suit_black": { "kind": "cosmetic", "shop": "clothing", "price": 400, "cosmeticId": 3 },
-    "hivis_work": { "kind": "cosmetic", "shop": "clothing", "price": 90, "cosmeticId": 4 }
+    "pistol": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 250,
+      "ammo": 60
+    },
+    "smg": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 800,
+      "ammo": 120
+    },
+    "shotgun": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 600,
+      "ammo": 24
+    },
+    "ammo": {
+      "kind": "ammo",
+      "shop": "gun",
+      "price": 80,
+      "ammo": 60
+    },
+    "jacket_red": {
+      "kind": "cosmetic",
+      "shop": "clothing",
+      "price": 150,
+      "cosmeticId": 1
+    },
+    "jacket_teal": {
+      "kind": "cosmetic",
+      "shop": "clothing",
+      "price": 150,
+      "cosmeticId": 2
+    },
+    "suit_black": {
+      "kind": "cosmetic",
+      "shop": "clothing",
+      "price": 400,
+      "cosmeticId": 3
+    },
+    "hivis_work": {
+      "kind": "cosmetic",
+      "shop": "clothing",
+      "price": 90,
+      "cosmeticId": 4
+    },
+    "respray": {
+      "kind": "spray",
+      "shop": "spray",
+      "price": 400
+    }
   }
 }

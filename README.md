@@ -27,6 +27,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | E / Enter | enter/exit car, context action |
 | 1–8 | switch weapon slot |
 | Y / U / I / O | buy items while standing in a shop doorway |
+| M | mute / unmute sound |
 | L / K | log in / register (optional — guests always play) |
 | ` (backquote) | debug overlay: tick, RTT, bandwidth, hitboxes, prediction ghost |
 

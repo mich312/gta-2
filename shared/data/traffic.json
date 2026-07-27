@@ -1,5 +1,5 @@
 {
-  "count": 30,
+  "count": 14,
   "cruiseSpeed": 104,
   "turnSpeed": 56,
   "lookAhead": 44,
@@ -13,5 +13,10 @@
   "turnChance": 0.25,
   "boatCount": 8,
   "mooredBoatCount": 8,
-  "boatCruiseSpeed": 72
+  "boatCruiseSpeed": 72,
+  "spawnMinDist": 420,
+  "spawnMaxDist": 760,
+  "despawnDist": 1100,
+  "spawnCadenceTicks": 12,
+  "jackHeat": 45
 }

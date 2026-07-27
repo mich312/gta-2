@@ -25,6 +25,17 @@ export interface VehicleTuning {
   enterRadius: number;
   /** Collision box half-extent (cars are boxes for tile collision). */
   halfExtent: number;
+  health: number;
+  /** Seconds a vehicle burns before it detonates. */
+  burnSeconds: number;
+  /** Seconds a burnt-out wreck sits in the road before it is cleared. */
+  wreckSeconds: number;
+  explosionRadius: number;
+  explosionDamage: number;
+  /** What this vehicle travels through. Boats float; everything else drives. */
+  medium: 'land' | 'water';
+  /** Damage per px/s of closing speed in a collision. */
+  collisionDamagePerSpeed: number;
 }
 
 export interface WeaponTuning {
@@ -33,6 +44,10 @@ export interface WeaponTuning {
   range: number;
   spread: number;
   pellets: number;
+  /** Swung, not shot: no ammo, no tracer, very short reach. */
+  melee: boolean;
+  /** Never consumes ammo. Fists always work; that is the point of them. */
+  infiniteAmmo: boolean;
 }
 
 export interface PoliceTuning {
@@ -53,6 +68,18 @@ export interface PoliceTuning {
   heatPerCopKill: number;
   heatDecayPerSec: number;
   despawnTicks: number;
+  /** Wanted level from which cops arrive in cars. */
+  carsFromStar: number;
+  /** Wanted level from which roadblocks are thrown across your path. */
+  roadblocksFromStar: number;
+  copCarSpeed: number;
+  maxCopCars: number;
+  roadblockCooldownTicks: number;
+  roadblockAheadDist: number;
+  /** Officers leave the cruiser and finish on foot inside this range. */
+  dismountDist: number;
+  /** Price of a respray, which clears heat outright. */
+  sprayCost: number;
 }
 
 export interface PedTuning {
@@ -77,6 +104,47 @@ export interface PropsTuning {
   breakSpeed: number;
   /** Speed multiplier applied to the car per prop smashed. */
   crashSpeedLoss: number;
+  /** Seconds a smashed prop stays broken before it is repaired. */
+  respawnDelaySec: number;
+  /** No prop is repaired within this many px of a living player. */
+  respawnMinDistFromPlayer: number;
+}
+
+export interface PickupKindTuning {
+  value: number;
+  respawnSec: number;
+}
+
+export interface PickupsTuning {
+  /** Collection radius, px. */
+  radius: number;
+  maxHealth: number;
+  maxArmour: number;
+  kinds: Record<'health' | 'armour' | 'ammo' | 'frenzy', PickupKindTuning>;
+  /** Roughly one pickup per N eligible open tiles, at worldgen time. */
+  spacing: number;
+  /** How long a kill frenzy runs. */
+  frenzySeconds: number;
+  /** Payout for completing one. */
+  frenzyReward: number;
+}
+
+export interface TrafficTuning {
+  /** Target ambient cars near players, not across the whole map. */
+  count: number;
+  cruiseSpeed: number;
+  lookAhead: number;
+  turnProbe: number;
+  brakeDistancePerSpeed: number;
+  laneHalfWidth: number;
+  decisionCadenceTicks: number;
+  turnChance: number;
+  spawnMinDist: number;
+  spawnMaxDist: number;
+  despawnDist: number;
+  spawnCadenceTicks: number;
+  /** Heat for dragging a driver out of their car. */
+  jackHeat: number;
 }
 
 export interface Tuning {
@@ -86,6 +154,8 @@ export interface Tuning {
   police: PoliceTuning;
   peds: PedTuning;
   props: PropsTuning;
+  pickups: PickupsTuning;
+  traffic: TrafficTuning;
 }
 
 let current: Tuning | null = null;
@@ -120,6 +190,13 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     crashDamp: n('crashDamp'),
     enterRadius: n('enterRadius'),
     halfExtent: n('halfExtent'),
+    health: n('health'),
+    burnSeconds: n('burnSeconds'),
+    wreckSeconds: n('wreckSeconds'),
+    explosionRadius: n('explosionRadius'),
+    explosionDamage: n('explosionDamage'),
+    medium: r['medium'] === 'water' ? 'water' : 'land',
+    collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
   };
 }
 
@@ -132,6 +209,8 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
     range: n('range'),
     spread: n('spread'),
     pellets: n('pellets'),
+    melee: r['melee'] === true,
+    infiniteAmmo: r['infiniteAmmo'] === true,
   };
 }
 
@@ -158,6 +237,14 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerCopKill: n('heatPerCopKill'),
     heatDecayPerSec: n('heatDecayPerSec'),
     despawnTicks: n('despawnTicks'),
+    carsFromStar: n('carsFromStar'),
+    roadblocksFromStar: n('roadblocksFromStar'),
+    copCarSpeed: n('copCarSpeed'),
+    maxCopCars: n('maxCopCars'),
+    roadblockCooldownTicks: n('roadblockCooldownTicks'),
+    roadblockAheadDist: n('roadblockAheadDist'),
+    dismountDist: n('dismountDist'),
+    sprayCost: n('sprayCost'),
   };
 }
 
@@ -176,6 +263,14 @@ function parsePedTuning(raw: unknown): PedTuning {
   };
 }
 
+/** Top-level props.json keys that are settings, not prop kinds. */
+const PROP_SCALARS = new Set([
+  'breakSpeed',
+  'crashSpeedLoss',
+  'respawnDelaySec',
+  'respawnMinDistFromPlayer',
+]);
+
 function parsePropsTuning(raw: unknown): PropsTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   // Accept both the flat props.json file shape and the already-parsed
@@ -186,7 +281,7 @@ function parsePropsTuning(raw: unknown): PropsTuning {
       : r;
   const kinds: Record<string, PropKindTuning> = {};
   for (const [k, v] of Object.entries(kindsSrc)) {
-    if (k === 'breakSpeed' || k === 'crashSpeedLoss') continue;
+    if (PROP_SCALARS.has(k)) continue;
     const kv = (v ?? {}) as Record<string, unknown>;
     kinds[k] = { hp: num(kv['hp'], `props.${k}.hp`), radius: num(kv['radius'], `props.${k}.radius`) };
   }
@@ -194,8 +289,92 @@ function parsePropsTuning(raw: unknown): PropsTuning {
     kinds,
     breakSpeed: num(r['breakSpeed'], 'props.breakSpeed'),
     crashSpeedLoss: num(r['crashSpeedLoss'], 'props.crashSpeedLoss'),
+    respawnDelaySec: num(r['respawnDelaySec'], 'props.respawnDelaySec'),
+    respawnMinDistFromPlayer: num(
+      r['respawnMinDistFromPlayer'],
+      'props.respawnMinDistFromPlayer',
+    ),
   };
 }
+
+function parsePickupsTuning(raw: unknown): PickupsTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const kindsRaw = (r['kinds'] ?? {}) as Record<string, unknown>;
+  const kinds = {} as PickupsTuning['kinds'];
+  for (const k of ['health', 'armour', 'ammo', 'frenzy'] as const) {
+    const kv = (kindsRaw[k] ?? {}) as Record<string, unknown>;
+    kinds[k] = {
+      value: num(kv['value'], `pickups.${k}.value`),
+      respawnSec: num(kv['respawnSec'], `pickups.${k}.respawnSec`),
+    };
+  }
+  return {
+    radius: num(r['radius'], 'pickups.radius'),
+    maxHealth: num(r['maxHealth'], 'pickups.maxHealth'),
+    maxArmour: num(r['maxArmour'], 'pickups.maxArmour'),
+    kinds,
+    spacing: num(r['spacing'], 'pickups.spacing'),
+    frenzySeconds: num(r['frenzySeconds'], 'pickups.frenzySeconds'),
+    frenzyReward: num(r['frenzyReward'], 'pickups.frenzyReward'),
+  };
+}
+
+const DEFAULT_PICKUPS: PickupsTuning = {
+  radius: 11,
+  maxHealth: 100,
+  maxArmour: 100,
+  kinds: {
+    health: { value: 40, respawnSec: 30 },
+    armour: { value: 50, respawnSec: 50 },
+    ammo: { value: 45, respawnSec: 25 },
+    frenzy: { value: 12, respawnSec: 120 },
+  },
+  spacing: 34,
+  frenzySeconds: 45,
+  frenzyReward: 1200,
+};
+
+function parseTrafficTuning(raw: unknown): TrafficTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `traffic.${k}`);
+  // count may legitimately be zero: a server (or a test) can ask for a city
+  // with no ambient traffic at all, the same way PED_COUNT=0 is allowed.
+  const count = r['count'];
+  if (typeof count !== 'number' || !Number.isFinite(count) || count < 0) {
+    throw new Error('tuning: traffic.count must be a non-negative finite number');
+  }
+  return {
+    count,
+    cruiseSpeed: n('cruiseSpeed'),
+    lookAhead: n('lookAhead'),
+    turnProbe: n('turnProbe'),
+    brakeDistancePerSpeed: n('brakeDistancePerSpeed'),
+    laneHalfWidth: n('laneHalfWidth'),
+    decisionCadenceTicks: n('decisionCadenceTicks'),
+    turnChance: n('turnChance'),
+    spawnMinDist: n('spawnMinDist'),
+    spawnMaxDist: n('spawnMaxDist'),
+    despawnDist: n('despawnDist'),
+    spawnCadenceTicks: n('spawnCadenceTicks'),
+    jackHeat: n('jackHeat'),
+  };
+}
+
+const DEFAULT_TRAFFIC: TrafficTuning = {
+  count: 14,
+  cruiseSpeed: 104,
+  lookAhead: 44,
+  turnProbe: 80,
+  brakeDistancePerSpeed: 0.35,
+  laneHalfWidth: 14,
+  decisionCadenceTicks: 21,
+  turnChance: 0.25,
+  spawnMinDist: 420,
+  spawnMaxDist: 760,
+  despawnDist: 1100,
+  spawnCadenceTicks: 12,
+  jackHeat: 45,
+};
 
 const DEFAULT_PROPS: PropsTuning = {
   kinds: {
@@ -205,6 +384,8 @@ const DEFAULT_PROPS: PropsTuning = {
   },
   breakSpeed: 110,
   crashSpeedLoss: 0.92,
+  respawnDelaySec: 45,
+  respawnMinDistFromPlayer: 260,
 };
 
 const DEFAULT_PEDS: PedTuning = {
@@ -220,7 +401,10 @@ const DEFAULT_PEDS: PedTuning = {
 
 const DEFAULT_POLICE: PoliceTuning = {
   copsPerStar: 2,
-  maxCopsPerPlayer: 8,
+  // >= copsPerStar * 5, so the fifth star fields more cops than the fourth
+  // rather than clamping to the same number. Higher tiers change *kind* of
+  // response, not just count, once police vehicles land (roadmap C3).
+  maxCopsPerPlayer: 10,
   maxCopsTotal: 24,
   spawnCooldownTicks: 18,
   copHealth: 50,
@@ -236,6 +420,14 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerCopKill: 120,
   heatDecayPerSec: 5,
   despawnTicks: 150,
+  carsFromStar: 3,
+  roadblocksFromStar: 4,
+  copCarSpeed: 300,
+  maxCopCars: 6,
+  roadblockCooldownTicks: 240,
+  roadblockAheadDist: 420,
+  dismountDist: 150,
+  sprayCost: 400,
 };
 
 export function initTuning(raw: {
@@ -245,6 +437,8 @@ export function initTuning(raw: {
   police?: unknown;
   peds?: unknown;
   props?: unknown;
+  pickups?: unknown;
+  traffic?: unknown;
 }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
@@ -263,6 +457,8 @@ export function initTuning(raw: {
     police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
     peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
     props: raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS,
+    pickups: raw.pickups !== undefined ? parsePickupsTuning(raw.pickups) : DEFAULT_PICKUPS,
+    traffic: raw.traffic !== undefined ? parseTrafficTuning(raw.traffic) : DEFAULT_TRAFFIC,
   };
 }
 
@@ -277,6 +473,10 @@ export function getVehicleTuning(kind: string): VehicleTuning {
   const t = getTuning().vehicles[kind];
   if (!t) throw new Error(`no tuning for vehicle kind '${kind}'`);
   return t;
+}
+
+export function getTrafficTuning(): TrafficTuning {
+  return getTuning().traffic;
 }
 
 export function getWeaponTuning(id: string): WeaponTuning | null {

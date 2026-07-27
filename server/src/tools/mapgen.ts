@@ -6,6 +6,8 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_WATER,
+  T_BRIDGE,
   T_SIDEWALK,
   generateCity,
 } from 'shared';
@@ -26,6 +28,9 @@ interface PaletteFile {
   building: Record<string, string>;
   shopGun: string;
   shopClothing: string;
+  water: string;
+  kerb: string;
+  uiAccent: string;
 }
 
 function main(): void {
@@ -58,6 +63,8 @@ function main(): void {
     [T_SIDEWALK]: hexToRgb(palette.sidewalk),
     [T_PARK]: hexToRgb(palette.park),
     [T_LOT]: hexToRgb(palette.lot),
+    [T_WATER]: hexToRgb(palette.water),
+    [T_BRIDGE]: hexToRgb(palette.kerb),
   };
 
   const put = (x: number, y: number, c: [number, number, number]): void => {
@@ -88,7 +95,13 @@ function main(): void {
 
   // Overlay markers: shops (bright), player spawns (white dots).
   for (const s of map.shops) {
-    const c = hexToRgb(s.kind === 'gun' ? palette.shopGun : palette.shopClothing);
+    const c = hexToRgb(
+      s.kind === 'gun'
+        ? palette.shopGun
+        : s.kind === 'spray'
+          ? palette.uiAccent
+          : palette.shopClothing,
+    );
     for (let dy = -2; dy <= 2; dy++) {
       for (let dx = -2; dx <= 2; dx++) {
         const x = s.doorX * SCALE + dx;

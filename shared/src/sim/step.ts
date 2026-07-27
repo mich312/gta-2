@@ -1,14 +1,26 @@
 import { nextIntRange } from '../rng/prng.js';
+import { q256 } from '../math/vec.js';
 import type { GameState } from './state.js';
-import { cloneState, createPlayer, createProp, createVehicle } from './state.js';
+import {
+  addHeat,
+  cloneState,
+  createPickup,
+  createPlayer,
+  createProp,
+  createVehicle,
+} from './state.js';
 import { insertEntity, removeEntity, getEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
-import { stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
+import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
+import { stepPickups } from './pickups.js';
+import { creditFrenzyKill, stepFrenzy, stepStunts } from './frenzy.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
@@ -24,7 +36,8 @@ import { PLAYER_RADIUS } from '../constants.js';
  *
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
- *   driverless vehicles coast.
+ *   driverless vehicles coast → weapons → vehicle impacts → police → peds
+ *   → vehicle damage/explosions → police → peds → prop repair → pickups.
  */
 export function step(
   state: GameState,
@@ -49,8 +62,13 @@ export function step(
     const pressed = input.action && !p.actionHeld;
     p.actionHeld = input.action;
     if (!pressed || p.mode === 'dead') continue;
-    if (p.mode === 'foot') tryEnterVehicle(next, p, map);
-    else if (p.mode === 'driving') tryExitVehicle(next, p, map);
+    if (p.mode === 'foot') {
+      // Jacking an occupied car takes precedence over opening an empty one,
+      // and unlike lifting a parked car it is always a crime.
+      const jacked = tryCarjack(next, map, p.id);
+      if (jacked) addHeat(p, getTuning().traffic.jackHeat);
+      else tryEnterVehicle(next, p, map);
+    } else if (p.mode === 'driving') tryExitVehicle(next, p, map);
   }
 
   // Movement.
@@ -61,12 +79,12 @@ export function step(
     if (p.mode === 'driving' && p.vehicleId !== null) {
       const v = next.vehicles.byId[p.vehicleId];
       if (v) {
-        stepVehicleDriving(v, input, map, next);
+        stepVehicleDriving(v, input, map, next, events, p.z > 0);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
         if (input) {
           p.lastInputSeq = input.seq;
-          p.aimAngle = input.aimAngle;
+          p.aimAngle = q256(input.aimAngle); // same invariant as on foot
         }
       }
     } else {
@@ -74,17 +92,29 @@ export function step(
     }
   }
 
-  // Driverless vehicles coast to rest.
+  // Ambient traffic drives itself, then genuinely driverless vehicles coast.
+  stepTraffic(next, map, events);
   for (const id of next.vehicles.ids) {
     const v = next.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
-    stepVehicleCoasting(v, map, next);
+    stepVehicleCoasting(v, map, next, events);
   }
+  stepTrafficPopulation(next, map);
 
   stepWeapons(next, inputs, map, events);
   stepVehicleImpacts(next, events);
+  stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  stepProps(next, events);
+  stepPickups(next, events);
+  stepStunts(next, map, events);
+  stepFrenzy(next, events);
+  // Credit this tick's kills toward any running frenzy, after every system
+  // that can produce one has run.
+  for (const ev of events) {
+    if (ev.type === 'kill' && ev.tick === next.tick) creditFrenzyKill(next, ev.killerId, events);
+  }
 
   return next;
 }
@@ -108,7 +138,10 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
     case 'respawnPlayer': {
       const p = getEntity(state.players, cmd.playerId);
       if (!p || p.mode !== 'dead') return;
-      const spawn = pickSpawn(state, map);
+      // You wake up at the nearest hospital, not at a random kerb three
+      // districts away. That is what makes dying a setback in a place you
+      // recognise rather than a teleport to nowhere.
+      const spawn = nearestHospital(map, p.pos) ?? pickSpawn(state, map);
       p.pos = { x: spawn.x, y: spawn.y };
       p.vel = { x: 0, y: 0 };
       p.mode = 'foot';
@@ -137,6 +170,20 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (p) p.cosmeticId = cmd.cosmeticId;
       break;
     }
+    case 'clearHeat': {
+      // A respray. Heat, wanted level and the interest of every cop already
+      // on the street all go at once, which is what makes it an escape and
+      // not merely a discount.
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p) return;
+      p.heat = 0;
+      p.wantedLevel = 0;
+      for (const cid of state.cops.ids) {
+        const cop = state.cops.byId[cid];
+        if (cop && cop.targetId === cmd.playerId) cop.targetId = null;
+      }
+      break;
+    }
     case 'despawnPlayer': {
       const p = getEntity(state.players, cmd.playerId);
       if (p && p.vehicleId !== null) {
@@ -162,6 +209,12 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (cmd.propId >= state.nextEntityId) state.nextEntityId = cmd.propId + 1;
       break;
     }
+    case 'spawnPickup': {
+      if (getEntity(state.pickups, cmd.pickupId)) return;
+      insertEntity(state.pickups, createPickup(cmd.pickupId, cmd.kind, { x: cmd.x, y: cmd.y }));
+      if (cmd.pickupId >= state.nextEntityId) state.nextEntityId = cmd.pickupId + 1;
+      break;
+    }
     case 'spawnVehicle': {
       if (getEntity(state.vehicles, cmd.vehicleId)) return;
       insertEntity(
@@ -174,6 +227,22 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       break;
     }
   }
+}
+
+/** Closest hospital door to a point, or null if the map generated none. */
+function nearestHospital(map: CityMap, from: { x: number; y: number }): { x: number; y: number } | null {
+  let best: { x: number; y: number } | null = null;
+  let bestD = Infinity;
+  for (const h of map.hospitals) {
+    const dx = h.x - from.x;
+    const dy = h.y - from.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestD && !boxInSolid(map, h, PLAYER_RADIUS)) {
+      bestD = d;
+      best = h;
+    }
+  }
+  return best;
 }
 
 /** Random spread-apart spawn point; falls back to any non-solid spot. */

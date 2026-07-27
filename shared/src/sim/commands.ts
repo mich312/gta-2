@@ -5,7 +5,7 @@
  * inputs, and recorded in replay files — so replays reproduce exactly even
  * though the code emitting commands (joins, purchases) is not deterministic.
  */
-import type { WeaponSlot } from './state.js';
+import type { PickupKind, WeaponSlot } from './state.js';
 
 export type SimCommand =
   | { type: 'spawnPlayer'; playerId: number; name: string; loadout?: WeaponSlot[] }
@@ -13,6 +13,8 @@ export type SimCommand =
   | { type: 'despawnPlayer'; playerId: number }
   | { type: 'grantWeapon'; playerId: number; weaponId: string; ammo: number }
   | { type: 'setCosmetic'; playerId: number; cosmeticId: number }
+  | { type: 'clearHeat'; playerId: number }
   | { type: 'spawnVehicle'; vehicleId: number; kind: string; x: number; y: number; heading: number }
   | { type: 'spawnPed'; pedId: number; x: number; y: number }
-  | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number };
+  | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number }
+  | { type: 'spawnPickup'; pickupId: number; kind: PickupKind; x: number; y: number };

@@ -32,6 +32,7 @@ export function filterSnapshot(
       cops: [],
       peds: [],
       props: [],
+      pickups: [],
     };
   }
   const r2 = radius * radius;
@@ -47,6 +48,7 @@ export function filterSnapshot(
     cops: snap.cops.filter((c) => near(c.pos.x, c.pos.y)),
     peds: snap.peds.filter((p) => near(p.pos.x, p.pos.y)),
     props: snap.props.filter((p) => near(p.pos.x, p.pos.y)),
+    pickups: snap.pickups.filter((p) => near(p.pos.x, p.pos.y)),
   };
 }
 

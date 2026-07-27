@@ -126,3 +126,33 @@ describe('session', () => {
     expect(slot.queue.length).toBe(1);
   });
 });
+
+describe('the crowd replenishes', () => {
+  it('tops pedestrians back up to target after a massacre', () => {
+    const session = new Session(4242, worldgen, null, { pedCount: 40 });
+    // Drain the constructor's spawn commands into the sim.
+    for (let i = 0; i < 5; i++) session.tick();
+    const target = Math.min(40, session.map.pedSpawns.length);
+    expect(session.state.peds.ids.length).toBe(target);
+
+    // Wipe out half the city's population directly (server-side surgery).
+    const doomed = session.state.peds.ids.slice(0, Math.floor(target / 2));
+    for (const id of doomed) {
+      delete session.state.peds.byId[id];
+      session.state.peds.ids.splice(session.state.peds.ids.indexOf(id), 1);
+    }
+    const after = session.state.peds.ids.length;
+    expect(after).toBeLessThan(target);
+
+    // No players are connected, so nothing is close enough to watch: the
+    // crowd should refill within a reasonable window at the tuned rate.
+    for (let i = 0; i < 30 * 30; i++) session.tick();
+    expect(session.state.peds.ids.length).toBe(target);
+  });
+
+  it('does not overshoot the target once full', () => {
+    const session = new Session(4243, worldgen, null, { pedCount: 25 });
+    for (let i = 0; i < 30 * 10; i++) session.tick();
+    expect(session.state.peds.ids.length).toBe(Math.min(25, session.map.pedSpawns.length));
+  });
+});

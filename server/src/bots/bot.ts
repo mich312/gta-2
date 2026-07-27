@@ -7,7 +7,7 @@ import {
   TICK_MS,
   generateCity,
   initTuning,
-  jsonCodec,
+  binaryCodec,
   parseServerMessage,
 } from 'shared';
 import type { BotScript } from './scripts.js';
@@ -77,9 +77,15 @@ export class Bot {
         this.send({ type: 'join', protocol: PROTOCOL_VERSION, name: this.name });
       });
       ws.on('message', (data) => {
-        const text = typeof data === 'string' ? data : data.toString();
-        this.bytesIn += text.length;
-        this.onMessage(text, () => {
+        // Binary frames must be measured and decoded as bytes — stringifying
+        // them would both corrupt the payload and misreport bandwidth, which
+        // is the number the harness gates on.
+        const buf = Array.isArray(data)
+          ? Buffer.concat(data as Buffer[])
+          : Buffer.from(data as ArrayBuffer);
+        const frame = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+        this.bytesIn += frame.byteLength;
+        this.onMessage(frame, () => {
           clearTimeout(timeout);
           resolve();
         });
@@ -96,10 +102,10 @@ export class Bot {
     });
   }
 
-  private onMessage(text: string, onWelcome: () => void): void {
+  private onMessage(frame: string | Uint8Array, onWelcome: () => void): void {
     let msg;
     try {
-      msg = parseServerMessage(jsonCodec.decode(text));
+      msg = parseServerMessage(binaryCodec.decode(frame));
     } catch {
       this.errors.push('undecodable message');
       return;
@@ -156,9 +162,9 @@ export class Bot {
     }, TICK_MS);
   }
 
-  private send(msg: Parameters<typeof jsonCodec.encode>[0]): void {
+  private send(msg: Parameters<typeof binaryCodec.encode>[0]): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    const data = jsonCodec.encode(msg);
+    const data = binaryCodec.encode(msg);
     this.bytesOut += typeof data === 'string' ? data.length : data.byteLength;
     this.ws.send(data);
   }

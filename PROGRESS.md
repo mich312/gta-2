@@ -1,5 +1,181 @@
 # PROGRESS
 
+## Waves A2–E1 — the roadmap, delivered
+
+Everything in `ROADMAP.md` after the A1 fixes. Each wave was committed and
+gated separately; this is the combined log.
+
+**A2 — the world stops being consume-only.** Peds were removed permanently
+and props stayed broken for the session, so a long game monotonically
+stripped the city. Props now carry `respawnAtTick` and a `stepProps` stage
+repairs them once nobody is within `respawnMinDistFromPlayer`. Ped top-ups
+live in the session rather than `step()`, because the decision needs to know
+where clients are looking, which is server knowledge.
+
+**A3 — fists, armour, pickups.** The only way to raise health in the whole
+game was to die, which made fleeing pointless and turned the 3 s respawn into
+the cheapest medkit on the map. Fists are a melee weapon with `infiniteAmmo`
+that survives death, so an unarmed player always has a verb. Pickups are a new
+entity table with fixed worldgen positions, so only `active`/`respawnAtTick`
+ever move on the wire. Armour soaks damage before health.
+
+**A4 — minimap, camera lead, HUD.** The client already regenerates the
+identical `CityMap`, so a radar costs nothing on the wire: the city bakes once
+into an offscreen canvas and each frame blits a clamped window of it. The
+camera leads towards travel — at 330 px/s a car crossed the viewport in
+1.45 s, so the driver was permanently steering into the blind half of the
+screen.
+
+**A5 — procedural audio.** Synthesised at runtime from `shared/data/audio.json`;
+no binary assets, matching how the sprite sheet is already generated from a
+JSON shape description. Headless-safe by construction.
+
+**B — binary wire codec.** The enabler. Measured 42.6 → **9.2 KB/s** inbound
+(4.6×) and 5.4 → 0.34 KB/s outbound (16×). Only `snapshot`/`full`/`input` are
+binary; everything else stays JSON behind a tag byte.
+
+**C1 — vehicle damage and explosions.** `VehicleState` had no health field, so
+nothing in a game about driving could destroy a car, and car-vs-car reverted
+position and zeroed speed. Now: bullets, collisions and blasts damage cars;
+they burn on a fuse and detonate with radius damage; car-vs-car is momentum
+transfer.
+
+**C2 — ambient traffic and carjacking.** `traffic.json` had existed from the
+start as a complete spec with zero references anywhere. AI drivers are marked
+by a negative `driverId`, which makes occupied cars correctly un-enterable and
+turns the jack into an explicit action — the verb the genre is named after,
+previously impossible to express because no vehicle had an occupant.
+
+**C3 — police vehicles, roadblocks, Pay'n'Spray.** The review's top finding:
+cops at 122 px/s against a player car at 330, with no vehicles, so any car was
+a guaranteed escape. Escalation now changes kind — foot posse, then cruisers
+at three stars, then roadblocks at four — and a respray garage clears heat, so
+losing the cops is a play rather than a stopwatch.
+
+**D1 — water, bridges, boats.** Collision became medium-aware, which was the
+roadmap's flagged risk since it runs inside prediction; it went in alone with
+tests before any content. The river is carved before the roads, and only
+arterials bridge it, so it stays a chokepoint.
+
+**D2 — landmarks, hospitals, park interiors.** Named oversized structures to
+navigate by, and the dead now wake at the *nearest hospital* instead of a
+uniformly-random kerbside point three districts away.
+
+**E1 — frenzies, stunts, score.** Kill frenzies reuse the pickup table with a
+clock; stunt ramps add the vertical dimension (`z`/`vz`), with airborne
+vehicles ignoring tile collision entirely. Payouts and a session leaderboard
+run through the economy.
+
+**Verification.** 157 tests green (from 73). `pnpm bots --count=8
+--script=brawl --duration=60`: **PASS**, ticks 1811..1811, 0 desyncs, 0 stale,
+0 full resyncs, corrections ≤4.4 px, peak **~11 KB/s** per client against the
+50 KB/s gate. Replay re-simulates to identical hashes. `persistCheck` passes.
+Client typechecks and `vite build` succeeds (88 KB, 31 KB gzipped). Verified
+in a real browser throughout via Playwright: 14 AI cars all under way, police
+cruisers with light bars, pickups, river, parks and minimap all rendering at
+60 fps with no page errors.
+
+**RNG-order note.** Several waves shifted the worldgen and sim rng streams
+(cop spawn gating, the spray shop quota, river carving, landmark placement).
+**Replays recorded before this work will not re-simulate.** Expected per
+`ROADMAP.md` §5 and recorded here so a future desync hunt does not chase it.
+
+**Deliberately deferred.** Missions and a story campaign, gangs/territory/
+respect, building interiors, weapon drops on the ground, mobile controls — all
+still out of scope per `ROADMAP.md` §6. Also speed-based camera zoom: the tile
+layer bakes chunks at a fixed device-pixels-per-tile, so a variable zoom needs
+either constant re-baking or a non-integer blit, and camera lead addresses most
+of the same complaint.
+
+**Least confident about.** (1) Balance across the board. Wanted-level
+lethality, frenzy targets, stunt payouts, traffic density and explosion radius
+are all first-pass numbers chosen by reading the model, not by playing. (2)
+The police dismount rules (`dismountDist`, the accumulate-and-decay stuck
+counter) went through three wrong versions before settling; they are correct
+under test but the thresholds are guesses. (3) The bail-out interacts with
+vehicle damage in a way I like but did not design: a wedged cruiser rams the
+wall until it detonates, killing the officer. It is good emergent behaviour
+and it is also not a decision anyone made.
+
+## Wave A1 — correctness fixes from the review
+
+First slice of `ROADMAP.md`, which addresses `REVIEW.md`. Five defects, no
+new systems.
+
+**What changed.**
+
+1. **Cops can be run over.** `stepVehicleImpacts` iterated players and peds
+   but never cops, so an officer was immune to a car at any speed. Added the
+   missing loop in a fixed order (players → cops → peds; never reorder — the
+   damage feeds heat, heat feeds cop spawning, and spawning draws rng).
+   Run-over damage routes through `damageCop`, so it still raises heat on the
+   driver and still emits `copDown`. `CopState` gains `carHitCooldown`,
+   mirroring the player field of the same name — without it a car parked on
+   an officer lands 30 hits a second. New field is in `COP_FIELDS` and in the
+   hash, per the six-touch-point rule.
+2. **The fifth star does something.** `desired = min(copsPerStar × wanted,
+   maxCopsPerPlayer)` clamped 4 and 5 stars to the same 8 cops, so the top
+   tier was a HUD glyph and nothing else. `maxCopsPerPlayer` is now 10
+   (= `copsPerStar × 5`), which is the minimum change that makes the tiers
+   distinct. This is an interim: the real fix is escalation by *kind* rather
+   than count, which arrives with police vehicles (roadmap C3).
+3. **Lifting an empty parked car is no longer a crime.** `tryEnterVehicle`
+   added heat unconditionally — "witnessed or not" — so seven trips to your
+   own parked car earned a star. Heat now applies only when a cop has line of
+   sight. Taking an *occupied* car stays a crime, but no vehicle has an
+   occupant until NPC drivers land (roadmap C2), where the jack becomes an
+   explicit action; that branch is deliberately not written yet rather than
+   written unreachable.
+4. **Dead tunables.** `police.marineSpeed` had zero references anywhere and
+   is deleted. `police.spawnCooldownTicks` was parsed, defaulted and never
+   read; it is now wired as the real inter-arrival gate, taken straight off
+   the tick counter (`state.tick % spawnCooldownTicks`) so it needs no state
+   of its own, and checked before any rng draw so the stream stays fixed.
+   Also folded the duplicated line-of-sight scan in `stepPolice` into a
+   shared `anyCopSees`.
+5. **Skid marks reach the screen.** `Effects.skid()` was fully implemented
+   and called from nowhere. `drawVehicle` now lays rubber under both rear
+   wheels when a vehicle is above 170 px/s and yawing faster than 1.9 rad/s,
+   emitted on a 45 ms wall-clock cadence so a 240 Hz display does not lay
+   four times the rubber of a 60 Hz one.
+
+**Verification.** 77 tests green (up from 73). New coverage: empty-car theft
+unseen costs no heat; the same theft under a cop's nose does; a speeding car
+damages an officer, respects the immunity window, and eventually kills them
+with a `copDown` event; a second cop cannot reach the street sooner than
+`spawnCooldownTicks`; the five-star posse outnumbers the four-star one.
+`pnpm bots --count=8 --script=brawl --duration=60`: **PASS**, ticks
+1809..1809, 0 desyncs, 0 stale, 0 full resyncs, corrections ≤4.42 px, peak
+**38.0 KB/s** per client against the 50 KB/s gate. Recorded replay
+re-simulated twice to the identical final hash (`8e632cf`). Client
+typechecks.
+
+**RNG-order note.** Gating cop spawns on `spawnCooldownTicks` changes when
+`maybeSpawnCop` draws, so the rng stream diverges from pre-A1 builds:
+**replays recorded before this change will not re-simulate.** Expected and
+accepted per `ROADMAP.md` §5; recorded here so a future desync hunt does not
+chase it as a ghost.
+
+**Deliberately deferred.** Everything else in `ROADMAP.md`. Specifically not
+touched here: the binary codec (Wave B) that the traffic and police-vehicle
+work is blocked on, ped/prop respawn (A2), fists and pickups (A3), minimap
+and camera (A4), audio (A5). `traffic.json`, the `boat` tuning, the `copcar`
+sprite, `worldgen.waterWidth` and the `water`/`sand` palette entries are all
+still unreferenced — left in place deliberately, because C2/C3/D1 implement
+them; they are pending, not rotting.
+
+**Least confident about.** (1) The cop run-over damage multiplier reuses the
+player's 0.12 rather than the pedestrian's 0.2, so an officer survives one
+clip at top speed and dies to two. That is a guess, not a tuned number, and
+it interacts with the 5-star lethality below. (2) Raising `maxCopsPerPlayer`
+to 10 makes a five-star chase *more* lethal — 10 cops at 17.5 DPS is 175 DPS,
+so a full-health player dies in ~0.57 s, worse than the 0.71 s the review
+already flagged. That is the honest interim consequence of making the tier
+distinct, and it should not ship to players before A3's armour and pickups
+land. (3) The skid thresholds were picked by reading the steering model
+(peak authority is 2.8 rad/s), not by watching a car corner — they want a
+human eye before they are trusted.
+
 ## Fix — `Unknown builtin module: node:sqlite`
 
 **What changed.** The SQLite backend assumed `node:sqlite` is a guaranteed

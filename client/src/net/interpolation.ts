@@ -1,4 +1,12 @@
-import type { CopState, FullSnapshot, PedState, PlayerState, PropState, VehicleState } from 'shared';
+import type {
+  CopState,
+  FullSnapshot,
+  PedState,
+  PickupState,
+  PlayerState,
+  PropState,
+  VehicleState,
+} from 'shared';
 import { TICK_MS, TICK_RATE, clamp } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
@@ -38,6 +46,8 @@ export interface RenderWorld {
   peds: RenderPed[];
   /** Props don't move — passed through from the newest snapshot. */
   props: PropState[];
+  /** Nor do pickups; only their active flag changes. */
+  pickups: PickupState[];
 }
 
 /**
@@ -88,7 +98,14 @@ export class Interpolator {
 
   /** Interpolated remote entities; the local player + their car are excluded. */
   sample(excludePlayerId: number, excludeVehicleId: number | null): RenderWorld {
-    const empty: RenderWorld = { players: [], vehicles: [], cops: [], peds: [], props: [] };
+    const empty: RenderWorld = {
+      players: [],
+      vehicles: [],
+      cops: [],
+      peds: [],
+      props: [],
+      pickups: [],
+    };
     if (this.snapshots.length === 0) return empty;
     let a = this.snapshots[0] as FullSnapshot;
     let b = a;
@@ -148,7 +165,7 @@ export class Interpolator {
         y: pa ? pa.pos.y + (pb.pos.y - pa.pos.y) * t : pb.pos.y,
       });
     }
-    return { players, vehicles, cops, peds, props: b.props };
+    return { players, vehicles, cops, peds, props: b.props, pickups: b.pickups };
   }
 }
 

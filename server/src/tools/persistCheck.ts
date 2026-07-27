@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
-import { PROTOCOL_VERSION, jsonCodec, parseServerMessage, type ServerMessage } from 'shared';
+import { PROTOCOL_VERSION, binaryCodec, parseServerMessage, type ServerMessage } from 'shared';
 
 /**
  * Full-stack restart-survival check (phase 5 gate, over the real wire):
@@ -48,14 +48,17 @@ function connect(port: number): Promise<Client> {
     const ws = new WebSocket(`ws://127.0.0.1:${port}`);
     const waiting: Array<{ type: string; resolve: (m: ServerMessage) => void }> = [];
     ws.on('message', (data) => {
-      const msg = parseServerMessage(jsonCodec.decode(data.toString()));
+      const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+      const frame = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+      const msg = parseServerMessage(binaryCodec.decode(frame));
       if (!msg) return;
       const i = waiting.findIndex((w) => w.type === msg.type);
       if (i >= 0) (waiting.splice(i, 1)[0] as { resolve: (m: ServerMessage) => void }).resolve(msg);
     });
     ws.on('open', () =>
       resolve({
-        send: (msg) => ws.send(jsonCodec.encode(msg as Parameters<typeof jsonCodec.encode>[0])),
+        send: (msg) =>
+          ws.send(binaryCodec.encode(msg as Parameters<typeof binaryCodec.encode>[0])),
         next: (type, timeoutMs = 5000) =>
           new Promise((res, rej) => {
             waiting.push({ type, resolve: res });

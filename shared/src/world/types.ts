@@ -11,6 +11,12 @@ export const T_BUILDING = 3;
 export const T_PARK = 4;
 /** Industrial yard: concrete, walkable. */
 export const T_LOT = 5;
+/** River/harbour. Solid to anything on land, the only thing a boat can cross. */
+export const T_WATER = 6;
+/** Road carried over water. Passable on land AND by boats underneath. */
+export const T_BRIDGE = 7;
+/** Stunt ramp: drivable, and launches a fast car off the ground. */
+export const T_RAMP = 8;
 
 export const DISTRICT_TYPES = [
   'downtown',
@@ -29,6 +35,22 @@ export interface BlockRect {
   district: DistrictType;
 }
 
+export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital'] as const;
+export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
+
+export interface Landmark {
+  kind: LandmarkKind;
+  name: string;
+  /** Tile rect of the structure. */
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Door/approach point in world px. */
+  doorX: number;
+  doorY: number;
+}
+
 export interface Building {
   x: number;
   y: number;
@@ -37,7 +59,7 @@ export interface Building {
   district: DistrictType;
 }
 
-export type ShopKind = 'gun' | 'clothing';
+export type ShopKind = 'gun' | 'clothing' | 'spray';
 
 export interface Shop {
   kind: ShopKind;
@@ -78,6 +100,14 @@ export interface CityMap {
   pedSpawns: Vec2[];
   /** Street furniture: lamp posts, bins, fences (phase 8). */
   propSpawns: Array<{ kind: string; x: number; y: number; orient: number }>;
+  /** Health/armour/ammo crates (roadmap A3). */
+  pickupSpawns: Array<{ kind: 'health' | 'armour' | 'ammo'; x: number; y: number }>;
+  /** Moorings: open water within reach of the bank. */
+  boatSpawns: VehicleSpawn[];
+  /** Oversized, named buildings you can navigate by. */
+  landmarks: Landmark[];
+  /** Where the dead wake up. */
+  hospitals: Vec2[];
 }
 
 export function tileIndex(map: CityMap, tx: number, ty: number): number {

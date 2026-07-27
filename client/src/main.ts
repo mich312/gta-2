@@ -6,13 +6,15 @@ import {
   type Vec2,
   Predictor,
   SnapshotSync,
+  INTERNAL_HEIGHT,
+  INTERNAL_WIDTH,
   TICK_MS,
   TILE_SIZE,
   generateCity,
   initTuning,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
-import { computeCamera, render, type Scene } from './render/renderer.js';
+import { cameraLead, computeCamera, render, type Scene } from './render/renderer.js';
 import { SpriteSheet } from './render/sprites.js';
 import { TileLayer } from './render/tiles.js';
 import { Effects } from './render/effects.js';
@@ -24,6 +26,8 @@ import { InputSource } from './input/keyboard.js';
 import { NetStats } from './debug/stats.js';
 import { DebugOverlay } from './debug/overlay.js';
 import { Hud } from './render/hud.js';
+import { Minimap } from './render/minimap.js';
+import { Audio } from './audio/audio.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -54,6 +58,8 @@ const lights = new LightPass();
 const playerPose = new PoseSmoother();
 const vehiclePose = new PoseSmoother();
 const hud = new Hud();
+const minimap = new Minimap();
+const audio = new Audio();
 
 // The tile cache bakes sprites (trees, bushes, yard clutter) into its chunks,
 // so anything built before the sheet arrives has to be thrown away.
@@ -70,14 +76,39 @@ let localTick = 0;
 let map: CityMap | null = null;
 let catalog: Catalog | null = null;
 
+/** Landmark the local player is currently inside or beside, if any. */
+function currentLandmark(): string | null {
+  const me = predictor.predicted;
+  if (!me || !map) return null;
+  for (const l of map.landmarks) {
+    const x0 = l.x * TILE_SIZE - 24;
+    const y0 = l.y * TILE_SIZE - 24;
+    if (
+      me.pos.x >= x0 &&
+      me.pos.y >= y0 &&
+      me.pos.x <= (l.x + l.w) * TILE_SIZE + 24 &&
+      me.pos.y <= (l.y + l.h) * TILE_SIZE + 24
+    ) {
+      return l.name;
+    }
+  }
+  return null;
+}
+
 /** Shop whose doorway the (predicted) local player is standing in. */
 function currentShopKind(): ShopKind | null {
   const me = predictor.predicted;
-  if (!me || !map || me.mode !== 'foot') return null;
+  if (!me || !map) return null;
+  if (me.mode !== 'foot' && me.mode !== 'driving') return null;
   for (const s of map.shops) {
+    // A respray is a drive-through: you buy it from the seat, and the
+    // catchment is wider because you arrive at speed.
+    const driving = me.mode === 'driving';
+    if (driving !== (s.kind === 'spray')) continue;
+    const reach = TILE_SIZE * (s.kind === 'spray' ? 2.5 : 1.25);
     const cx = (s.doorX + 0.5) * TILE_SIZE;
     const cy = (s.doorY + 0.5) * TILE_SIZE;
-    if (Math.abs(me.pos.x - cx) < TILE_SIZE * 1.25 && Math.abs(me.pos.y - cy) < TILE_SIZE * 1.25) {
+    if (Math.abs(me.pos.x - cx) < reach && Math.abs(me.pos.y - cy) < reach) {
       return s.kind;
     }
   }
@@ -112,17 +143,72 @@ function onStateUpdated(ackSeq: number | null): void {
   }
 }
 
-/** Turn the sim's discrete events into muzzle flashes, sparks and stains. */
+/**
+ * Distance and stereo pan of a world point relative to the camera, for
+ * positional audio. The camera is the listener, not the player: what you can
+ * see is what you should be able to hear.
+ */
+function listen(x: number, y: number): { dist: number; pan: number } {
+  const cx = cam.x + VIEW_CENTER_X;
+  const cy = cam.y + VIEW_CENTER_Y;
+  const dx = x - cx;
+  const dy = y - cy;
+  return { dist: Math.hypot(dx, dy), pan: Math.max(-1, Math.min(1, dx / VIEW_CENTER_X)) };
+}
+
+/** Turn the sim's discrete events into muzzle flashes, sparks, stains and noise. */
 function onGameEvent(event: GameEvent): void {
   if (event.type === 'shot') {
     const angle = Math.atan2(event.y1 - event.y0, event.x1 - event.x0);
     effects.muzzleFlash(event.x0, event.y0, angle);
     effects.impact(event.x1, event.y1, angle);
+    // The event carries no weapon id, so the shooter's active weapon names
+    // the sound; a cop shot (negative id) is always the cop pistol.
+    const shooter =
+      event.playerId >= 0 ? sync.latest?.players.find((p) => p.id === event.playerId) : null;
+    const weapon =
+      event.playerId < 0
+        ? 'copPistol'
+        : (shooter?.weapons[shooter.activeWeapon]?.weaponId ?? 'pistol');
+    const at = listen(event.x0, event.y0);
+    audio.play(weapon, at.dist, at.pan);
+    const hit = listen(event.x1, event.y1);
+    audio.play('impact', hit.dist, hit.pan);
   } else if (event.type === 'propDown') {
     effects.debris(event.x, event.y);
+    const at = listen(event.x, event.y);
+    audio.play('propDown', at.dist, at.pan);
+  } else if (event.type === 'explosion') {
+    effects.explosion(event.x, event.y, event.radius);
+    const at = listen(event.x, event.y);
+    audio.play('explosion', at.dist, at.pan);
+  } else if (event.type === 'frenzyEnded') {
+    hud.notice(
+      event.completed
+        ? `frenzy complete — ${event.kills}/${event.target}`
+        : `frenzy failed — ${event.kills}/${event.target}`,
+    );
+    if (event.completed) audio.play('pickup', 0, 0);
+  } else if (event.type === 'stuntLaunched') {
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
+  } else if (event.type === 'stuntLanded') {
+    effects.debris(event.x, event.y);
+    const at = listen(event.x, event.y);
+    audio.play('impact', at.dist, at.pan);
+    if (event.playerId === playerId && event.distance > 40) {
+      hud.notice(`stunt jump — ${event.distance}px`);
+    }
+  } else if (event.type === 'pickupTaken') {
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
   } else if (event.type === 'kill') {
     const victim = sync.latest?.players.find((p) => p.id === event.victimId);
-    if (victim) effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+    if (victim) {
+      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+      const at = listen(victim.pos.x, victim.pos.y);
+      audio.play('death', at.dist, at.pan);
+    }
   }
 }
 
@@ -142,6 +228,7 @@ const conn = new Connection({
         initTuning(msg.tuning);
         map = generateCity(msg.seed, msg.worldgen);
         tiles.setMap(map);
+        minimap.setMap(map);
         catalog = msg.catalog;
         sync.applyServerMessage(msg);
         stats.onSnapshot();
@@ -197,6 +284,11 @@ const MAX_FRAME_MS = 250;
 let last = performance.now();
 let acc = 0;
 let cam: Vec2 = { x: 0, y: 0 };
+/** Half the viewport, in world px — the listener offset for positional audio. */
+const VIEW_CENTER_X = INTERNAL_WIDTH / 2;
+const VIEW_CENTER_Y = INTERNAL_HEIGHT / 2;
+/** Smoothed camera lead. Eased so a hard corner glides instead of snapping. */
+let lead: Vec2 = { x: 0, y: 0 };
 
 function frame(now: number): void {
   const rawMs = now - last;
@@ -228,6 +320,11 @@ function frame(now: number): void {
     const row = hud.shopRows(catalog, shopKind)[buyRow];
     if (row) conn.send({ type: 'buy', itemId: row[0] });
   }
+  // AudioContext cannot start before a user gesture, so it is created on the
+  // first key or click and never before.
+  if (input.hasGestured) audio.resume();
+  if (input.consumeMute()) hud.notice(audio.toggleMute() ? 'sound off' : 'sound on');
+
   const accountAction = input.consumeAccountAction();
   if (accountAction) {
     const username = window.prompt(`${accountAction}: username`) ?? '';
@@ -240,7 +337,18 @@ function frame(now: number): void {
   const smoothPlayer = playerPose.sample(alpha);
   const smoothVehicle = vehiclePose.sample(alpha);
   const driving = predictor.predicted?.mode === 'driving';
-  cam = computeCamera(map, (driving ? smoothVehicle : smoothPlayer) ?? smoothPlayer);
+
+  // Camera lead, eased towards its target at a rate independent of frame
+  // rate, so the view glides into a corner rather than snapping to it.
+  const target = cameraLead(
+    driving && smoothVehicle ? smoothVehicle.angle : null,
+    predictor.predictedVehicle?.speed ?? 0,
+    predictor.predicted?.vel.x ?? 0,
+    predictor.predicted?.vel.y ?? 0,
+  );
+  const ease = 1 - Math.pow(0.0025, frameMs / 1000);
+  lead = { x: lead.x + (target.x - lead.x) * ease, y: lead.y + (target.y - lead.y) * ease };
+  cam = computeCamera(map, (driving ? smoothVehicle : smoothPlayer) ?? smoothPlayer, lead);
 
   const scene: Scene | null = sync.latest
     ? {
@@ -252,6 +360,8 @@ function frame(now: number): void {
                 pos: smoothVehicle,
                 heading: smoothVehicle.angle,
                 speed: predictor.predictedVehicle?.speed ?? 0,
+                condition: predictor.predictedVehicle?.condition ?? 'ok',
+                z: predictor.predicted?.z ?? 0,
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
@@ -266,7 +376,25 @@ function frame(now: number): void {
   if (shopKind && catalog) {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
-  hud.draw(screen.ctx, predictor.predicted ?? null, sync.latest, cam);
+  hud.place = currentLandmark();
+  hud.draw(
+    screen.ctx,
+    predictor.predicted ?? null,
+    sync.latest,
+    cam,
+    predictor.predictedVehicle?.speed ?? 0,
+  );
+  minimap.draw(
+    screen.ctx,
+    predictor.predicted ?? null,
+    (driving ? smoothVehicle : smoothPlayer) ?? null,
+    sync.latest,
+  );
+
+  // Continuous audio: engine note tracks the predicted vehicle, sirens play
+  // while police are actually on screen.
+  audio.setEngine(driving ? (predictor.predictedVehicle?.speed ?? 0) : 0);
+  audio.setSiren((sync.latest?.cops.length ?? 0) > 0, now);
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {
@@ -292,6 +420,12 @@ function frame(now: number): void {
     tick: sync.latest?.tick ?? -1,
     cops: sync.latest?.cops.length ?? 0,
     vehicles: sync.latest?.vehicles.length ?? 0,
+    // Ambient traffic: how many streamed vehicles have an AI at the wheel,
+    // and how many of those are actually under way.
+    aiCars: sync.latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1).length ?? 0,
+    aiMoving:
+      sync.latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1 && Math.abs(v.speed) > 20)
+        .length ?? 0,
     peds: sync.latest?.peds.length ?? 0,
     props: sync.latest?.props.length ?? 0,
     fps: stats.fps,

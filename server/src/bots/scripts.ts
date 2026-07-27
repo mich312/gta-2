@@ -131,6 +131,10 @@ const scripts: Record<string, BotScript> = {
     }
     if (!target) return base;
     const aim = Math.atan2(target.y - me.pos.y, target.x - me.pos.x);
+    // Slot 0 is fists, which reach about 24 px. Select the first real gun so
+    // the harness keeps exercising ranged combat (and the damage, heat and
+    // police paths that hang off it) rather than shadow-boxing.
+    const gun = me.weapons.findIndex((w) => w.weaponId !== 'fists' && w.ammo > 0);
     const strafe = Math.floor(tick / 20 + botIndex) % 2 === 0;
     const keys =
       bestD > 90
@@ -141,7 +145,13 @@ const scripts: Record<string, BotScript> = {
             left: !strafe,
             right: strafe && tick % 3 === 0,
           };
-    return { ...base, ...keys, aimAngle: aim, fire: bestD < 210 };
+    return {
+      ...base,
+      ...keys,
+      slot: gun >= 0 ? gun : -1,
+      aimAngle: aim,
+      fire: bestD < (gun >= 0 ? 210 : 22),
+    };
   },
 
   /** Deterministic chaos: every key rolled from a per-tick PRNG. */

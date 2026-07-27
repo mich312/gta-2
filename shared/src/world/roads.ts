@@ -1,10 +1,12 @@
 import { nextIntRange, nextRange } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
-import { DISTRICT_TYPES, T_ROAD, type BlockRect, type DistrictType } from './types.js';
+import { DISTRICT_TYPES, T_ROAD, T_WATER, type BlockRect, type DistrictType } from './types.js';
 
 export interface RoadsResult {
   blocks: BlockRect[];
   rng: number;
+  /** Tiles carved by an ARTERIAL specifically — the only roads that bridge. */
+  arterialMask: Uint8Array;
 }
 
 function carveRect(
@@ -65,8 +67,24 @@ export function generateRoads(
     [jitter, rng] = nextRange(rng, -band * 0.25, band * 0.25);
     ys.push(Math.round(band * i + jitter));
   }
-  for (const x of xs) carveRect(tiles, W, H, x - Math.floor(aw / 2), 0, aw, H);
-  for (const y of ys) carveRect(tiles, W, H, 0, y - Math.floor(aw / 2), W, aw);
+  // Arterials are recorded as they are carved: they are the only roads
+  // permitted to bridge the river. If every secondary that clipped the bank
+  // became a crossing too, the river would stop being a chokepoint and go
+  // back to being decoration.
+  const arterialMask = new Uint8Array(W * H);
+  const markRect = (x: number, y: number, w: number, h: number): void => {
+    for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
+      for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) arterialMask[ty * W + tx] = 1;
+    }
+  };
+  for (const x of xs) {
+    carveRect(tiles, W, H, x - Math.floor(aw / 2), 0, aw, H);
+    markRect(x - Math.floor(aw / 2), 0, aw, H);
+  }
+  for (const y of ys) {
+    carveRect(tiles, W, H, 0, y - Math.floor(aw / 2), W, aw);
+    markRect(0, y - Math.floor(aw / 2), W, aw);
+  }
 
   // Initial regions between arterials (and the map edge).
   const xCuts = [0, ...xs.map((x) => x - Math.floor(aw / 2)), W];
@@ -122,5 +140,55 @@ export function generateRoads(
       queue.push({ x: r.x, y: cut + sw, w: r.w, h: r.y + r.h - cut - sw });
     }
   }
-  return { blocks, rng };
+  return { blocks, rng, arterialMask };
+}
+
+
+/**
+ * Carve a meandering river across the map BEFORE the roads are laid, so the
+ * road generator subdivides around it and the arterials that do cross it can
+ * be turned into bridges afterwards.
+ *
+ * This is the geography the city completely lacked: without it every part of
+ * the map connects to every other with no chokepoints, nothing to navigate
+ * by, and no reason for the boat that has had physics and a sprite since the
+ * beginning to exist.
+ */
+export function carveRiver(
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+  width: number,
+  rng: number,
+): { rng: number; mask: Uint8Array } {
+  const mask = new Uint8Array(W * H);
+  // Vertical or horizontal, decided from the seed stream.
+  let orient: number;
+  [orient, rng] = nextIntRange(rng, 0, 2);
+  const vertical = orient === 0;
+  const span = vertical ? H : W;
+  const across = vertical ? W : H;
+
+  let centre: number;
+  [centre, rng] = nextRange(rng, across * 0.35, across * 0.65);
+  let phase: number;
+  [phase, rng] = nextRange(rng, 0, 6.283);
+  let amp: number;
+  [amp, rng] = nextRange(rng, across * 0.04, across * 0.11);
+
+  for (let i = 0; i < span; i++) {
+    // A gentle sine meander: enough to stop it reading as a canal, not so
+    // much that the road grid cannot bridge it.
+    const c = centre + Math.sin(phase + (i / span) * 4.2) * amp;
+    const half = width / 2;
+    const lo = Math.max(0, Math.floor(c - half));
+    const hi = Math.min(across - 1, Math.ceil(c + half));
+    for (let j = lo; j <= hi; j++) {
+      const tx = vertical ? j : i;
+      const ty = vertical ? i : j;
+      tiles[ty * W + tx] = T_WATER;
+      mask[ty * W + tx] = 1;
+    }
+  }
+  return { rng, mask };
 }

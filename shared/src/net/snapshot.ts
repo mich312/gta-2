@@ -3,10 +3,18 @@ import type {
   GameState,
   PedState,
   PlayerState,
+  PickupState,
   PropState,
   VehicleState,
 } from '../sim/state.js';
-import { cloneCop, clonePed, clonePlayer, cloneProp, cloneVehicle } from '../sim/state.js';
+import {
+  cloneCop,
+  clonePed,
+  clonePickup,
+  clonePlayer,
+  cloneProp,
+  cloneVehicle,
+} from '../sim/state.js';
 
 export interface FullSnapshot {
   tick: number;
@@ -16,6 +24,7 @@ export interface FullSnapshot {
   cops: CopState[];
   peds: PedState[];
   props: PropState[];
+  pickups: PickupState[];
 }
 
 export type Patch<T> = { id: number } & Partial<Omit<T, 'id'>>;
@@ -32,6 +41,7 @@ export interface SnapshotDelta {
   cops: TableDelta<CopState>;
   peds: TableDelta<PedState>;
   props: TableDelta<PropState>;
+  pickups: TableDelta<PickupState>;
 }
 
 /** Explicit field lists so diffing stays deterministic and reviewable. */
@@ -42,6 +52,7 @@ const PLAYER_FIELDS = [
   'aimAngle',
   'mode',
   'health',
+  'armour',
   'vehicleId',
   'weapons',
   'activeWeapon',
@@ -54,12 +65,41 @@ const PLAYER_FIELDS = [
   'fireCooldown',
   'carHitCooldown',
   'heat',
+  'frenzyTarget',
+  'frenzyKills',
+  'frenzyEndsAtTick',
+  'z',
+  'vz',
+  // Hashed, therefore it MUST be diffed. Leaving it out made the client's
+  // copy go stale the moment anyone jumped, and every subsequent snapshot
+  // hash disagreed — 25 desyncs per bot, with a sim that replays perfectly.
+  'airDist',
 ] as const;
 
-const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
-const COP_FIELDS = ['pos', 'vel', 'targetId', 'health', 'fireCooldown', 'idleTicks'] as const;
+const VEHICLE_FIELDS = [
+  'kind',
+  'pos',
+  'heading',
+  'speed',
+  'driverId',
+  'health',
+  'condition',
+  'fuseAtTick',
+] as const;
+const COP_FIELDS = [
+  'pos',
+  'vel',
+  'targetId',
+  'health',
+  'fireCooldown',
+  'idleTicks',
+  'carHitCooldown',
+  'vehicleId',
+  'stuckTicks',
+] as const;
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
-const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp'] as const;
+const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
+const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {
@@ -71,6 +111,7 @@ export function takeSnapshot(state: GameState): FullSnapshot {
     cops: state.cops.ids.map((id) => cloneCop(state.cops.byId[id] as CopState)),
     peds: state.peds.ids.map((id) => clonePed(state.peds.byId[id] as PedState)),
     props: state.props.ids.map((id) => cloneProp(state.props.byId[id] as PropState)),
+    pickups: state.pickups.ids.map((id) => clonePickup(state.pickups.byId[id] as PickupState)),
   };
 }
 
@@ -172,6 +213,7 @@ export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDe
     cops: diffTable(base.cops, cur.cops, COP_FIELDS, cloneCop),
     peds: diffTable(base.peds, cur.peds, PED_FIELDS, clonePed),
     props: diffTable(base.props, cur.props, PROP_FIELDS, cloneProp),
+    pickups: diffTable(base.pickups, cur.pickups, PICKUP_FIELDS, clonePickup),
   };
 }
 
@@ -188,5 +230,6 @@ export function applyDelta(
     cops: applyTable(base.cops, delta.cops, cloneCop),
     peds: applyTable(base.peds, delta.peds, clonePed),
     props: applyTable(base.props, delta.props, cloneProp),
+    pickups: applyTable(base.pickups, delta.pickups, clonePickup),
   };
 }

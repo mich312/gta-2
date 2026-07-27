@@ -53,6 +53,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.aimAngle);
     h = hashString(h, p.mode);
     h = hashNumber(h, p.health);
+    h = hashNumber(h, p.armour);
     h = hashNumber(h, p.vehicleId ?? -1);
     h = hashNumber(h, p.weapons.length);
     for (const w of p.weapons) {
@@ -67,6 +68,12 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.fireCooldown);
     h = hashNumber(h, p.carHitCooldown);
     h = hashNumber(h, p.heat);
+    h = hashNumber(h, p.frenzyTarget);
+    h = hashNumber(h, p.frenzyKills);
+    h = hashNumber(h, p.frenzyEndsAtTick ?? -1);
+    h = hashNumber(h, p.z);
+    h = hashNumber(h, p.vz);
+    h = hashNumber(h, p.airDist);
   }
   for (const v of snap.vehicles) {
     h = hashNumber(h, v.id);
@@ -76,6 +83,9 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.heading);
     h = hashNumber(h, v.speed);
     h = hashNumber(h, v.driverId ?? -1);
+    h = hashNumber(h, v.health);
+    h = hashString(h, v.condition);
+    h = hashNumber(h, v.fuseAtTick ?? -1);
   }
   for (const c of snap.cops) {
     h = hashNumber(h, c.id);
@@ -87,6 +97,9 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, c.health);
     h = hashNumber(h, c.fireCooldown);
     h = hashNumber(h, c.idleTicks);
+    h = hashNumber(h, c.carHitCooldown);
+    h = hashNumber(h, c.vehicleId ?? -1);
+    h = hashNumber(h, c.stuckTicks);
   }
   for (const ped of snap.peds) {
     h = hashNumber(h, ped.id);
@@ -106,6 +119,15 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, prop.orient);
     h = hashBool(h, prop.intact);
     h = hashNumber(h, prop.hp);
+    h = hashNumber(h, prop.respawnAtTick ?? -1);
+  }
+  for (const pu of snap.pickups) {
+    h = hashNumber(h, pu.id);
+    h = hashString(h, pu.kind);
+    h = hashNumber(h, pu.pos.x);
+    h = hashNumber(h, pu.pos.y);
+    h = hashBool(h, pu.active);
+    h = hashNumber(h, pu.respawnAtTick ?? -1);
   }
   return h >>> 0;
 }

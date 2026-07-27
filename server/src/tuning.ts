@@ -17,6 +17,8 @@ export function loadSharedTuning(): void {
     police: read('police.json'),
     peds: read('peds.json'),
     props: read('props.json'),
+    pickups: read('pickups.json'),
+    traffic: read('traffic.json'),
   });
 }
 

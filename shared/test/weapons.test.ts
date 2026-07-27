@@ -38,6 +38,15 @@ function arena(wallAtTx: number | null): CityMap {
       { x: 10 * TILE_SIZE, y: 20 * TILE_SIZE },
       { x: 10 * TILE_SIZE, y: 20 * TILE_SIZE },
     ],
+    // A complete CityMap, not a partial one. Tests are transpiled without
+    // typechecking, so an incomplete literal here compiles fine and then
+    // fails at runtime the first time the sim reads a field it lacks.
+    pedSpawns: [],
+    propSpawns: [],
+    pickupSpawns: [],
+    boatSpawns: [],
+    landmarks: [],
+    hospitals: [],
   };
 }
 

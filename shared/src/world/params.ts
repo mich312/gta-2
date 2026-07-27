@@ -19,9 +19,11 @@ export interface WorldgenParams {
   districtSeeds: Record<DistrictType, number>;
   /** Roughly one parked car every N road-edge tiles (district-independent for now). */
   parkedCarSpacing: number;
-  shopQuota: { gun: number; clothing: number };
+  shopQuota: { gun: number; clothing: number; spray: number };
   playerSpawnCount: number;
   playerSpawnMinDist: number;
+  /** River width in tiles. */
+  waterWidth: number;
 }
 
 function num(v: unknown, name: string): number {
@@ -63,8 +65,10 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     shopQuota: {
       gun: num(quotaRaw['gun'], 'shopQuota.gun'),
       clothing: num(quotaRaw['clothing'], 'shopQuota.clothing'),
+      spray: num(quotaRaw['spray'], 'shopQuota.spray'),
     },
     playerSpawnCount: num(r['playerSpawnCount'], 'playerSpawnCount'),
     playerSpawnMinDist: num(r['playerSpawnMinDist'], 'playerSpawnMinDist'),
+    waterWidth: num(r['waterWidth'], 'waterWidth'),
   };
 }

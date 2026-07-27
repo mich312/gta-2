@@ -1,8 +1,9 @@
 import type { Vec2 } from '../math/vec.js';
-import { vec, cloneVec } from '../math/vec.js';
+import { vec, cloneVec, q256 } from '../math/vec.js';
 import type { EntityTable } from './entities.js';
 import { createTable, cloneTable } from './entities.js';
 import { seedRng } from '../rng/prng.js';
+import { getVehicleTuning } from '../tuning.js';
 
 export type PlayerMode = 'foot' | 'driving' | 'dead';
 
@@ -20,6 +21,13 @@ export interface CopState {
   fireCooldown: number;
   /** Ticks spent with no wanted target; despawns past the tuned limit. */
   idleTicks: number;
+  /** Ticks of run-over immunity, exactly as players have — a car sitting on
+   *  top of a cop must not land 30 hits a second. */
+  carHitCooldown: number;
+  /** Cruiser this officer is driving, or null if on foot. */
+  vehicleId: number | null;
+  /** Consecutive ticks a cruiser has been unable to move. */
+  stuckTicks: number;
 }
 
 export interface PropState {
@@ -30,6 +38,20 @@ export interface PropState {
   orient: number;
   intact: boolean;
   hp: number;
+  /** Tick this prop is repaired on, or null while intact. */
+  respawnAtTick: number | null;
+}
+
+export type PickupKind = 'health' | 'armour' | 'ammo' | 'frenzy';
+
+export interface PickupState {
+  id: number;
+  kind: PickupKind;
+  pos: Vec2;
+  /** False while on cooldown; the sprite is hidden and it cannot be taken. */
+  active: boolean;
+  /** Tick it returns on, or null while active. */
+  respawnAtTick: number | null;
 }
 
 export type PedMode = 'walk' | 'flee';
@@ -46,6 +68,8 @@ export interface PedState {
   timer: number;
 }
 
+export type VehicleCondition = 'ok' | 'burning' | 'wreck';
+
 export interface VehicleState {
   id: number;
   kind: string;
@@ -54,6 +78,10 @@ export interface VehicleState {
   /** Signed forward speed (px/s); negative while reversing. */
   speed: number;
   driverId: number | null;
+  health: number;
+  condition: VehicleCondition;
+  /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
+  fuseAtTick: number | null;
 }
 
 export interface PlayerState {
@@ -64,6 +92,8 @@ export interface PlayerState {
   aimAngle: number;
   mode: PlayerMode;
   health: number;
+  /** Soaks damage before health does. Bought or picked up; never regenerates. */
+  armour: number;
   vehicleId: number | null;
   /** Injected at spawn / via sim commands — never client-set. */
   weapons: WeaponSlot[];
@@ -81,6 +111,16 @@ export interface PlayerState {
   carHitCooldown: number;
   /** Police heat; wantedLevel = floor(heat/100) clamped to 5. */
   heat: number;
+  /** Kills still needed to complete a frenzy, or 0 when not running. */
+  frenzyTarget: number;
+  frenzyKills: number;
+  /** Tick the frenzy expires on, or null. */
+  frenzyEndsAtTick: number | null;
+  /** Vertical position and velocity — nonzero only mid-stunt. */
+  z: number;
+  vz: number;
+  /** Longest airborne distance of the current jump, px. */
+  airDist: number;
 }
 
 /**
@@ -100,6 +140,7 @@ export interface GameState {
   cops: EntityTable<CopState>;
   peds: EntityTable<PedState>;
   props: EntityTable<PropState>;
+  pickups: EntityTable<PickupState>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -113,7 +154,16 @@ export function createGameState(seed: number): GameState {
     cops: createTable(),
     peds: createTable(),
     props: createTable(),
+    pickups: createTable(),
   };
+}
+
+export function createPickup(id: number, kind: PickupKind, pos: Vec2): PickupState {
+  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null };
+}
+
+export function clonePickup(p: PickupState): PickupState {
+  return { ...p, pos: cloneVec(p.pos) };
 }
 
 export function createProp(
@@ -123,7 +173,7 @@ export function createProp(
   orient: number,
   hp: number,
 ): PropState {
-  return { id, kind, pos: cloneVec(pos), orient, intact: true, hp };
+  return { id, kind, pos: cloneVec(pos), orient, intact: true, hp, respawnAtTick: null };
 }
 
 export function cloneProp(p: PropState): PropState {
@@ -147,6 +197,9 @@ export function createCop(id: number, pos: Vec2, health: number): CopState {
     health,
     fireCooldown: 0,
     idleTicks: 0,
+    carHitCooldown: 0,
+    vehicleId: null,
+    stuckTicks: 0,
   };
 }
 
@@ -160,7 +213,20 @@ export function createVehicle(
   pos: Vec2,
   heading: number,
 ): VehicleState {
-  return { id, kind, pos: cloneVec(pos), heading, speed: 0, driverId: null };
+  // Quantised at birth. Steering already q256s the heading every tick, but a
+  // parked car that never turns would otherwise keep the raw HALF_PI it was
+  // spawned with — and the binary codec encodes headings on the q256 grid.
+  return {
+    id,
+    kind,
+    pos: cloneVec(pos),
+    heading: q256(heading),
+    speed: 0,
+    driverId: null,
+    health: getVehicleTuning(kind).health,
+    condition: 'ok',
+    fuseAtTick: null,
+  };
 }
 
 export function cloneVehicle(v: VehicleState): VehicleState {
@@ -176,6 +242,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     aimAngle: 0,
     mode: 'foot',
     health: 100,
+    armour: 0,
     vehicleId: null,
     weapons: [],
     activeWeapon: -1,
@@ -187,6 +254,12 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     fireCooldown: 0,
     carHitCooldown: 0,
     heat: 0,
+    frenzyTarget: 0,
+    frenzyKills: 0,
+    frenzyEndsAtTick: null,
+    z: 0,
+    vz: 0,
+    airDist: 0,
   };
 }
 
@@ -215,5 +288,6 @@ export function cloneState(s: GameState): GameState {
     cops: cloneTable(s.cops, cloneCop),
     peds: cloneTable(s.peds, clonePed),
     props: cloneTable(s.props, cloneProp),
+    pickups: cloneTable(s.pickups, clonePickup),
   };
 }

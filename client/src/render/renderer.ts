@@ -1,5 +1,6 @@
 import {
   type CityMap,
+  type PickupState,
   type PlayerState,
   type PropState,
   type Vec2,
@@ -34,7 +35,14 @@ export interface Scene {
   /** Its pose, smoothed across the tick boundary. */
   localPos: { x: number; y: number; angle: number } | null;
   /** Predicted vehicle when the local player is driving, smoothed. */
-  localVehicle: { pos: Vec2; heading: number; speed: number } | null;
+  localVehicle: {
+    pos: Vec2;
+    heading: number;
+    speed: number;
+    condition: string;
+    /** Height off the ground; nonzero only mid-stunt. */
+    z: number;
+  } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
   /** Seconds since the previous frame, for effects. */
@@ -43,16 +51,55 @@ export interface Scene {
   nowMs: number;
 }
 
-/** Camera top-left in world coords. Deliberately *not* rounded — see `render`. */
-export function computeCamera(map: CityMap | null, local: Vec2 | null): Vec2 {
+/** How far ahead of the player the camera leads, at full speed, in world px. */
+const LEAD_MAX = 54;
+/** Speed at which the lead reaches its maximum. */
+const LEAD_FULL_SPEED = 280;
+
+/**
+ * Camera top-left in world coords. Deliberately *not* rounded — see `render`.
+ *
+ * The camera leads towards where the player is going. Without it, a car at
+ * 330 px/s crosses the 480 px viewport in 1.45 s, so the driver only ever
+ * sees ~0.7 s of road ahead and is permanently steering into the blind half
+ * of the screen.
+ */
+export function computeCamera(
+  map: CityMap | null,
+  local: Vec2 | null,
+  lead: Vec2 | null = null,
+): Vec2 {
   const w = map?.widthPx ?? VIEW_W;
   const h = map?.heightPx ?? VIEW_H;
-  const cx = local ? local.x : w / 2;
-  const cy = local ? local.y : h / 2;
+  const cx = (local ? local.x : w / 2) + (lead?.x ?? 0);
+  const cy = (local ? local.y : h / 2) + (lead?.y ?? 0);
   return {
     x: clamp(cx - VIEW_W / 2, 0, Math.max(0, w - VIEW_W)),
     y: clamp(cy - VIEW_H / 2, 0, Math.max(0, h - VIEW_H)),
   };
+}
+
+/**
+ * Where the camera should lead, given the local player's motion. Returns a
+ * world-space offset; the caller smooths it so the view eases rather than
+ * snapping when a car changes direction.
+ */
+export function cameraLead(
+  heading: number | null,
+  speed: number,
+  velX: number,
+  velY: number,
+): Vec2 {
+  if (heading !== null) {
+    // Driving: lead along the car's nose, scaled by how fast it is going.
+    const f = Math.min(1, Math.abs(speed) / LEAD_FULL_SPEED);
+    const dir = speed >= 0 ? 1 : -1;
+    return { x: Math.cos(heading) * LEAD_MAX * f * dir, y: Math.sin(heading) * LEAD_MAX * f * dir };
+  }
+  const mag = Math.hypot(velX, velY);
+  if (mag < 1) return { x: 0, y: 0 };
+  const f = Math.min(1, mag / 130) * 0.35;
+  return { x: (velX / mag) * LEAD_MAX * f, y: (velY / mag) * LEAD_MAX * f };
 }
 
 /** Per-entity walk-cycle state, keyed by table and id. */
@@ -188,6 +235,7 @@ export function render(
   }
 
   drawProps(ctx, sprites, scene.remotes.props, dx, dy);
+  drawPickups(ctx, scene.remotes.pickups, dx, dy, lights, scene.nowMs);
 
   for (const pd of scene.remotes.peds) {
     const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
@@ -243,6 +291,7 @@ export function render(
       rv.heading,
       rv.vehicle.speed,
       rv.vehicle.driverId !== null,
+      rv.vehicle.condition,
       dx,
       dy,
       scene.nowMs,
@@ -261,9 +310,11 @@ export function render(
       scene.localVehicle.heading,
       scene.localVehicle.speed,
       true,
+      scene.localVehicle.condition,
       dx,
       dy,
       scene.nowMs,
+      scene.localVehicle.z,
     );
   }
 
@@ -306,6 +357,51 @@ function drawProps(
       ctx.fillStyle = prop.intact ? '#8a8f96' : '#4a4e53';
       ctx.fillRect(x - 3 * RENDER_SCALE, y - 3 * RENDER_SCALE, 6 * RENDER_SCALE, 6 * RENDER_SCALE);
     }
+  }
+}
+
+const PICKUP_COLORS: Record<string, string> = {
+  health: '#57c98a',
+  armour: '#5aa8e0',
+  ammo: '#e0b452',
+};
+
+/**
+ * Pickups are drawn rather than sprited: a small floating lozenge with a
+ * glow, bobbing on wall-clock time. They have to read instantly at a glance
+ * from across the street, and a flat colour-coded shape does that better
+ * than a 12-pixel crate would.
+ */
+function drawPickups(
+  ctx: CanvasRenderingContext2D,
+  pickups: PickupState[],
+  dx: (n: number) => number,
+  dy: (n: number) => number,
+  lights: LightPass,
+  nowMs: number,
+): void {
+  for (const pu of pickups) {
+    if (!pu.active) continue;
+    const color = PICKUP_COLORS[pu.kind] ?? '#c0c0c0';
+    const bob = Math.sin(nowMs * 0.004 + pu.id) * 1.5 * RENDER_SCALE;
+    const x = dx(pu.pos.x);
+    const y = dy(pu.pos.y) + bob;
+    const r = 4 * RENDER_SCALE;
+
+    drawShadow(ctx, dx(pu.pos.x), dy(pu.pos.y), r * 1.1, r * 0.8, 2);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = RENDER_SCALE;
+    ctx.stroke();
+    ctx.lineWidth = 1;
+    lights.point(x, y, 9 * RENDER_SCALE, 'head', 0.22);
   }
 }
 
@@ -364,15 +460,39 @@ function drawVehicle(
   heading: number,
   speed: number,
   occupied: boolean,
+  condition: string,
   dx: (n: number) => number,
   dy: (n: number) => number,
   nowMs: number,
+  z = 0,
 ): void {
+  // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
+  // the ground where it belongs. The gap between the two is what sells it.
+  const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
-  const y = dy(wy);
-  const name = kind === 'boat' ? 'boat' : `car_v${Math.abs(id) % CAR_VARIANTS}`;
+  const y = dy(wy) - lift;
+  const name =
+    kind === 'boat'
+      ? 'boat'
+      : kind === 'copcar'
+        ? 'copcar'
+        : `car_v${Math.abs(id) % CAR_VARIANTS}`;
   const fp = sprites.footprint(name);
-  drawShadow(ctx, x, y, fp.rx * 0.92, fp.ry * 1.05, 4);
+  const shrink = z > 0 ? 0.75 : 1;
+  drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);
+
+  // A wreck is drawn dark and never lit; a burning car throws its own light
+  // and sheds flame until it goes.
+  if (condition === 'wreck') {
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    sprites.draw(ctx, name, x, y, heading);
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = 'rgba(18, 16, 18, 0.72)';
+    ctx.fillRect(x - fp.rx, y - fp.ry, fp.rx * 2, fp.ry * 2);
+    ctx.restore();
+    return;
+  }
 
   if (!sprites.draw(ctx, name, x, y, heading)) {
     ctx.save();
@@ -381,6 +501,20 @@ function drawVehicle(
     ctx.fillStyle = palette.carBody;
     ctx.fillRect(-12 * RENDER_SCALE, -6 * RENDER_SCALE, 24 * RENDER_SCALE, 12 * RENDER_SCALE);
     ctx.restore();
+  }
+
+  // Strobing light bar on any cruiser with an officer aboard.
+  if (kind === 'copcar' && occupied) {
+    const phase = Math.sin(nowMs * 0.012 + id) > 0;
+    const bx = x + Math.cos(heading) * 2 * RENDER_SCALE;
+    const by = y + Math.sin(heading) * 2 * RENDER_SCALE;
+    lights.point(bx, by, 20 * RENDER_SCALE, phase ? 'red' : 'blue', 0.8);
+  }
+
+  if (condition === 'burning') {
+    effects.fire(wx, wy);
+    const flicker = 0.7 + 0.3 * Math.sin(nowMs * 0.02 + id);
+    lights.point(x, y, 30 * RENDER_SCALE, 'head', 0.75 * flicker);
   }
 
   // Only a car with someone in it has its lights on — a street of parked cars
@@ -419,4 +553,57 @@ function drawVehicle(
   if (Math.abs(speed) > 40 && (nowMs * 0.06 + id) % 3 < 1) {
     effects.exhaust(wx, wy, heading);
   }
+
+  layRubber(effects, id, wx, wy, heading, speed, nowMs);
+}
+
+/** Per-vehicle heading history, for spotting a hard corner. */
+const skidState = new Map<number, { heading: number; ms: number; nextAtMs: number }>();
+
+/** Below this there is not enough weight on the tyres to mark the road. */
+const SKID_MIN_SPEED = 170;
+/** Rad/s of yaw that counts as a slide. Peak steering authority is 2.8. */
+const SKID_MIN_YAW_RATE = 1.9;
+/** Rubber is laid at a wall-clock cadence, not per frame — a 240 Hz display
+ *  must not lay four times the rubber of a 60 Hz one. */
+const SKID_INTERVAL_MS = 45;
+
+function layRubber(
+  effects: Effects,
+  id: number,
+  wx: number,
+  wy: number,
+  heading: number,
+  speed: number,
+  nowMs: number,
+): void {
+  const prev = skidState.get(id);
+  skidState.set(id, {
+    heading,
+    ms: nowMs,
+    nextAtMs: prev?.nextAtMs ?? 0,
+  });
+  if (!prev) return;
+
+  const dtMs = nowMs - prev.ms;
+  if (dtMs <= 0 || dtMs > 250) return; // first frame back on screen: no history
+  // Shortest signed angle between the two headings, so wrapping past ±π
+  // doesn't read as a violent slide.
+  let delta = heading - prev.heading;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  const yawRate = Math.abs(delta) / (dtMs / 1000);
+
+  if (Math.abs(speed) < SKID_MIN_SPEED || yawRate < SKID_MIN_YAW_RATE) return;
+  if (nowMs < prev.nextAtMs) return;
+
+  // One mark under each rear wheel, laid along the car's axis.
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const back = 8;
+  const track = 5;
+  for (const s of [-1, 1]) {
+    effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
+  }
+  skidState.set(id, { heading, ms: nowMs, nextAtMs: nowMs + SKID_INTERVAL_MS });
 }

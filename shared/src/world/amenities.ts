@@ -3,14 +3,21 @@ import { HALF_PI, PI } from '../math/trig.js';
 import type { Vec2 } from '../math/vec.js';
 import type { WorldgenParams } from './params.js';
 import {
+  DISTRICT_TYPES,
   T_BUILDING,
+  T_LOT,
   T_PARK,
+  T_RAMP,
   T_ROAD,
+  T_WATER,
   T_SIDEWALK,
   TILE_SIZE,
+  type BlockRect,
   type Building,
   type CityMap,
   type DistrictType,
+  type Landmark,
+  type LandmarkKind,
   type Shop,
   type ShopKind,
   type VehicleSpawn,
@@ -19,6 +26,9 @@ import {
 const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   gun: ['industrial', 'commercial', 'downtown'],
   clothing: ['commercial', 'downtown', 'residential'],
+  // A respray garage belongs where the workshops are, and you have to be
+  // able to reach it in a car — so industrial and commercial first.
+  spray: ['industrial', 'commercial', 'residential'],
 };
 
 function t(map: CityMap, tx: number, ty: number): number {
@@ -54,7 +64,7 @@ function findDoorway(map: CityMap, b: Building): { x: number; y: number } | null
 }
 
 export function placeShops(map: CityMap, params: WorldgenParams, rng: number): number {
-  for (const kind of ['gun', 'clothing'] as const) {
+  for (const kind of ['gun', 'clothing', 'spray'] as const) {
     const quota = params.shopQuota[kind];
     const preferred = SHOP_DISTRICTS[kind];
     // Candidates in preference order, then by index (deterministic).
@@ -156,9 +166,14 @@ export function placeProps(map: CityMap): void {
       const bldUp = t(map, tx, ty - 1) === T_BUILDING;
       const parkLeft = t(map, tx - 1, ty) === T_PARK;
       const parkUp = t(map, tx, ty - 1) === T_PARK;
+      // Lamp spacing varies by district: downtown is brightly lit, industrial
+      // sparsely. Districts differed only by building colour before this.
+      const district = DISTRICT_TYPES[map.district[ty * map.widthTiles + tx] as number];
+      const lampEvery =
+        district === 'downtown' ? 6 : district === 'commercial' ? 8 : district === 'industrial' ? 14 : 10;
       if (roadRight || roadDown) {
         lampN++;
-        if (lampN % 9 === 0) {
+        if (lampN % lampEvery === 0) {
           props.push({ kind: 'lamp', x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE, orient: 0 });
           continue;
         }
@@ -218,4 +233,220 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
   }
   map.playerSpawns = spawns;
   return rng;
+}
+
+const PICKUP_CYCLE = ['health', 'armour', 'ammo', 'health', 'ammo'] as const;
+
+/**
+ * Health/armour/ammo crates. Placed on open ground away from the road —
+ * parks and industrial lots — so collecting one is a small detour rather
+ * than something you drive over by accident. Deterministic row-major
+ * sampling with a fixed kind cycle, exactly like the prop pass.
+ */
+export function placePickups(map: CityMap): void {
+  const spawns: CityMap['pickupSpawns'] = [];
+  const spacing = 34;
+  let n = 0;
+  for (let ty = 0; ty < map.heightTiles; ty++) {
+    for (let tx = 0; tx < map.widthTiles; tx++) {
+      const tile = t(map, tx, ty);
+      if (tile !== T_PARK && tile !== T_LOT) continue;
+      // Interior tiles only: a crate flush against a wall is a pain to reach.
+      if (t(map, tx - 1, ty) === T_BUILDING || t(map, tx + 1, ty) === T_BUILDING) continue;
+      if (t(map, tx, ty - 1) === T_BUILDING || t(map, tx, ty + 1) === T_BUILDING) continue;
+      n++;
+      if (n % spacing !== 0) continue;
+      spawns.push({
+        kind: PICKUP_CYCLE[spawns.length % PICKUP_CYCLE.length] as 'health' | 'armour' | 'ammo',
+        x: (tx + 0.5) * TILE_SIZE,
+        y: (ty + 0.5) * TILE_SIZE,
+      });
+    }
+  }
+  map.pickupSpawns = spawns;
+}
+
+
+/**
+ * Moorings: water tiles with a bank close by, so a boat is reachable on
+ * foot rather than stranded mid-river. Deterministic row-major sampling.
+ */
+export function placeBoatSpawns(map: CityMap): void {
+  const spawns: VehicleSpawn[] = [];
+  let n = 0;
+  for (let ty = 1; ty < map.heightTiles - 1; ty++) {
+    for (let tx = 1; tx < map.widthTiles - 1; tx++) {
+      if (t(map, tx, ty) !== T_WATER) continue;
+      // The whole 3x3 must be open water: a boat is 22 px across, so a
+      // mooring pressed against the bank leaves the hull overlapping land
+      // and the boat cannot move at all.
+      let roomy = true;
+      for (let dy = -1; dy <= 1 && roomy; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (t(map, tx + dx, ty + dy) !== T_WATER) {
+            roomy = false;
+            break;
+          }
+        }
+      }
+      if (!roomy) continue;
+      // ...and dry land within reach, or nobody can get aboard.
+      let bank = false;
+      for (let dy = -3; dy <= 3 && !bank; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const near = t(map, tx + dx, ty + dy);
+          if (near === T_SIDEWALK || near === T_ROAD || near === T_PARK || near === T_LOT) {
+            bank = true;
+            break;
+          }
+        }
+      }
+      if (!bank) continue;
+      n++;
+      if (n % 24 !== 0) continue;
+      // Point along the river: whichever axis has more open water.
+      const alongX = t(map, tx - 1, ty) === T_WATER && t(map, tx + 1, ty) === T_WATER;
+      spawns.push({
+        x: (tx + 0.5) * TILE_SIZE,
+        y: (ty + 0.5) * TILE_SIZE,
+        heading: alongX ? 0 : HALF_PI,
+        kind: 'boat',
+      });
+    }
+  }
+  map.boatSpawns = spawns;
+}
+
+const LANDMARK_NAMES: Record<LandmarkKind, string[]> = {
+  stadium: ['Ironside Stadium', 'The Bowl', 'Harbour Park'],
+  power: ['Kessler Power', 'Eastworks Plant', 'Grid Station'],
+  tower: ['Vantage Tower', 'The Spire', 'Halloran Building'],
+  hospital: ['Mercy General', 'St. Brannoch', 'Riverside Infirmary', 'Central Clinic'],
+};
+
+/** Minimum footprint that reads as "big" for each kind, in tiles. */
+const LANDMARK_SIZE: Record<LandmarkKind, [number, number]> = {
+  stadium: [11, 9],
+  power: [9, 8],
+  tower: [6, 6],
+  hospital: [6, 5],
+};
+
+const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
+  stadium: ['park', 'residential', 'commercial'],
+  power: ['industrial'],
+  tower: ['downtown', 'commercial'],
+  hospital: ['commercial', 'residential', 'downtown'],
+};
+
+/**
+ * Landmarks: a handful of oversized, distinctly-shaped, NAMED structures.
+ *
+ * Every building on this map was an anonymous coloured rectangle, so there
+ * was nothing to navigate by and nothing to arrange to meet at. Hospitals are
+ * landmarks too, because respawning somewhere you can recognise is the
+ * difference between a setback and a teleport.
+ */
+export function placeLandmarks(map: CityMap, rng: number): number {
+  const wanted: Array<[LandmarkKind, number]> = [
+    ['hospital', 4],
+    ['tower', 2],
+    ['stadium', 1],
+    ['power', 1],
+  ];
+  const taken: Landmark[] = [];
+
+  for (const [kind, count] of wanted) {
+    const [minW, minH] = LANDMARK_SIZE[kind];
+    // Candidate blocks: big enough, right district, far from the others.
+    const candidates: number[] = [];
+    for (const district of LANDMARK_DISTRICTS[kind]) {
+      for (let i = 0; i < map.blocks.length; i++) {
+        const b = map.blocks[i] as BlockRect;
+        if (b.district !== district) continue;
+        if (b.w < minW + 2 || b.h < minH + 2) continue;
+        candidates.push(i);
+      }
+    }
+    let placed = 0;
+    let guard = candidates.length;
+    while (placed < count && candidates.length > 0 && guard-- > 0) {
+      let pick: number;
+      [pick, rng] = nextIntRange(rng, 0, candidates.length);
+      const b = map.blocks[candidates.splice(pick, 1)[0] as number] as BlockRect;
+
+      const x = b.x + 1;
+      const y = b.y + 1;
+      const w = Math.min(minW, b.w - 2);
+      const h = Math.min(minH, b.h - 2);
+      if (w < 3 || h < 3) continue;
+      // Never on the river, and never on top of another landmark.
+      let clear = true;
+      for (let ty = y; ty < y + h && clear; ty++) {
+        for (let tx = x; tx < x + w; tx++) {
+          if (t(map, tx, ty) === T_WATER) {
+            clear = false;
+            break;
+          }
+        }
+      }
+      if (!clear) continue;
+      const tooClose = taken.some(
+        (l) => Math.abs(l.x - x) + Math.abs(l.y - y) < 40,
+      );
+      if (tooClose) continue;
+
+      // Stamp it as one solid structure and register it as a building so the
+      // renderer and collision treat it like any other.
+      for (let ty = y; ty < y + h; ty++) {
+        for (let tx = x; tx < x + w; tx++) {
+          map.tiles[ty * map.widthTiles + tx] = T_BUILDING;
+        }
+      }
+      map.buildings.push({ x, y, w, h, district: b.district });
+
+      const names = LANDMARK_NAMES[kind];
+      const name = names[(placed + taken.length) % names.length] as string;
+      const door = findDoorway(map, { x, y, w, h, district: b.district });
+      const landmark: Landmark = {
+        kind,
+        name,
+        x,
+        y,
+        w,
+        h,
+        doorX: door ? (door.x + 0.5) * TILE_SIZE : (x + w / 2) * TILE_SIZE,
+        doorY: door ? (door.y + 0.5) * TILE_SIZE : (y + h + 1) * TILE_SIZE,
+      };
+      taken.push(landmark);
+      map.landmarks.push(landmark);
+      placed++;
+    }
+  }
+
+  map.hospitals = map.landmarks
+    .filter((l) => l.kind === 'hospital')
+    .map((l) => ({ x: l.doorX, y: l.doorY }));
+  return rng;
+}
+
+
+/**
+ * Stunt ramps, dropped on industrial lots where there is room to build up
+ * speed. Replaces the jump the genre never had with the thing it did have.
+ */
+export function placeRamps(map: CityMap): void {
+  let n = 0;
+  for (let ty = 2; ty < map.heightTiles - 2; ty++) {
+    for (let tx = 2; tx < map.widthTiles - 2; tx++) {
+      if (t(map, tx, ty) !== T_LOT) continue;
+      // Needs a clear run-up along one axis.
+      const runX = t(map, tx - 2, ty) === T_LOT && t(map, tx - 1, ty) === T_LOT;
+      const runY = t(map, tx, ty - 2) === T_LOT && t(map, tx, ty - 1) === T_LOT;
+      if (!runX && !runY) continue;
+      n++;
+      if (n % 90 !== 0) continue;
+      map.tiles[ty * map.widthTiles + tx] = T_RAMP;
+    }
+  }
 }

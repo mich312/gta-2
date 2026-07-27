@@ -214,6 +214,60 @@ export class Effects {
     );
   }
 
+  /** A car going up: fireball, smoke column, and a scorch on the tarmac. */
+  explosion(x: number, y: number, radius: number): void {
+    this.addDecal(x, y, 0, radius * 1.5, radius * 1.5, 'rgba(12, 10, 10, 0.5)', 40);
+    for (let i = 0; i < 26; i++) {
+      const a = (i / 26) * Math.PI * 2 + Math.random() * 0.3;
+      const speed = 60 + Math.random() * radius * 2.2;
+      this.spawn(
+        x,
+        y,
+        Math.cos(a) * speed,
+        Math.sin(a) * speed,
+        0.3 + Math.random() * 0.45,
+        2 + Math.random() * 3,
+        i % 3 === 0 ? palette.spark : palette.muzzle,
+        true,
+        1.6,
+        i % 4 === 0 ? 1 : 0,
+      );
+    }
+    for (let i = 0; i < 14; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const speed = 10 + Math.random() * 40;
+      this.spawn(
+        x,
+        y,
+        Math.cos(a) * speed,
+        Math.sin(a) * speed,
+        0.9 + Math.random() * 0.8,
+        3 + Math.random() * 4,
+        palette.smoke,
+        false,
+        1.1,
+        0,
+      );
+    }
+  }
+
+  /** Lazy flame licking off a burning wreck-to-be. */
+  fire(x: number, y: number): void {
+    const a = Math.random() * Math.PI * 2;
+    this.spawn(
+      x + Math.cos(a) * 4,
+      y + Math.sin(a) * 4,
+      Math.cos(a) * 8,
+      Math.sin(a) * 8 - 14,
+      0.35 + Math.random() * 0.3,
+      1.6 + Math.random() * 1.6,
+      Math.random() < 0.5 ? palette.spark : palette.muzzle,
+      true,
+      1.4,
+      Math.random() < 0.4 ? 1 : 0,
+    );
+  }
+
   /** Rubber laid down under a hard-cornering car. */
   skid(x: number, y: number, angle: number): void {
     this.addDecal(x, y, angle, 7, 2, 'rgba(16, 18, 22, 0.4)', 30);
