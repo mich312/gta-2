@@ -110,6 +110,7 @@ const TAG_INPUT = 3;
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
 const PED_MODES = ['walk', 'flee'] as const;
 const PICKUP_KINDS = ['health', 'armour', 'ammo'] as const;
+const VEHICLE_CONDITIONS = ['ok', 'burning', 'wreck'] as const;
 
 // ---------------------------------------------------------------- writer
 
@@ -395,6 +396,13 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
   f('heading', (w, v) => w.q256(v.heading), (r, o) => (o['heading'] = r.q256())),
   f('speed', (w, v) => w.q8(v.speed), (r, o) => (o['speed'] = r.q8())),
   f('driverId', (w, v) => w.optInt(v.driverId), (r, o) => (o['driverId'] = r.optInt())),
+  f('health', (w, v) => w.f64(v.health), (r, o) => (o['health'] = r.f64())),
+  f(
+    'condition',
+    (w, v) => w.u8(VEHICLE_CONDITIONS.indexOf(v.condition)),
+    (r, o) => (o['condition'] = VEHICLE_CONDITIONS[r.u8()]),
+  ),
+  f('fuseAtTick', (w, v) => w.optInt(v.fuseAtTick), (r, o) => (o['fuseAtTick'] = r.optInt())),
 ];
 
 const COP_CODECS: Array<FieldCodec<CopState>> = [

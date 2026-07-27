@@ -3,6 +3,7 @@ import { vec, cloneVec, q256 } from '../math/vec.js';
 import type { EntityTable } from './entities.js';
 import { createTable, cloneTable } from './entities.js';
 import { seedRng } from '../rng/prng.js';
+import { getVehicleTuning } from '../tuning.js';
 
 export type PlayerMode = 'foot' | 'driving' | 'dead';
 
@@ -63,6 +64,8 @@ export interface PedState {
   timer: number;
 }
 
+export type VehicleCondition = 'ok' | 'burning' | 'wreck';
+
 export interface VehicleState {
   id: number;
   kind: string;
@@ -71,6 +74,10 @@ export interface VehicleState {
   /** Signed forward speed (px/s); negative while reversing. */
   speed: number;
   driverId: number | null;
+  health: number;
+  condition: VehicleCondition;
+  /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
+  fuseAtTick: number | null;
 }
 
 export interface PlayerState {
@@ -193,7 +200,17 @@ export function createVehicle(
   // Quantised at birth. Steering already q256s the heading every tick, but a
   // parked car that never turns would otherwise keep the raw HALF_PI it was
   // spawned with — and the binary codec encodes headings on the q256 grid.
-  return { id, kind, pos: cloneVec(pos), heading: q256(heading), speed: 0, driverId: null };
+  return {
+    id,
+    kind,
+    pos: cloneVec(pos),
+    heading: q256(heading),
+    speed: 0,
+    driverId: null,
+    health: getVehicleTuning(kind).health,
+    condition: 'ok',
+    fuseAtTick: null,
+  };
 }
 
 export function cloneVehicle(v: VehicleState): VehicleState {

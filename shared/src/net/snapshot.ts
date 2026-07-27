@@ -67,7 +67,16 @@ const PLAYER_FIELDS = [
   'heat',
 ] as const;
 
-const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
+const VEHICLE_FIELDS = [
+  'kind',
+  'pos',
+  'heading',
+  'speed',
+  'driverId',
+  'health',
+  'condition',
+  'fuseAtTick',
+] as const;
 const COP_FIELDS = [
   'pos',
   'vel',

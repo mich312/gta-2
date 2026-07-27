@@ -20,4 +20,6 @@ export type SimEvent =
       x: number;
       y: number;
     }
-  | { type: 'pickupUp'; tick: number; kind: string; id: number };
+  | { type: 'pickupUp'; tick: number; kind: string; id: number }
+  | { type: 'vehicleBurning'; tick: number; vehicleId: number; x: number; y: number }
+  | { type: 'explosion'; tick: number; x: number; y: number; radius: number };

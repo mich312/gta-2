@@ -8,6 +8,7 @@ import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
 import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
 import { stepPickups } from './pickups.js';
@@ -27,7 +28,7 @@ import { PLAYER_RADIUS } from '../constants.js';
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
  *   driverless vehicles coast → weapons → vehicle impacts → police → peds
- *   → prop repair → pickups.
+ *   → vehicle damage/explosions → police → peds → prop repair → pickups.
  */
 export function step(
   state: GameState,
@@ -64,7 +65,7 @@ export function step(
     if (p.mode === 'driving' && p.vehicleId !== null) {
       const v = next.vehicles.byId[p.vehicleId];
       if (v) {
-        stepVehicleDriving(v, input, map, next);
+        stepVehicleDriving(v, input, map, next, events);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
         if (input) {
@@ -81,11 +82,12 @@ export function step(
   for (const id of next.vehicles.ids) {
     const v = next.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
-    stepVehicleCoasting(v, map, next);
+    stepVehicleCoasting(v, map, next, events);
   }
 
   stepWeapons(next, inputs, map, events);
   stepVehicleImpacts(next, events);
+  stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
   stepProps(next, events);

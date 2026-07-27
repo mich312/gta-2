@@ -7,6 +7,8 @@ import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
+import type { SimEvent } from './events.js';
+import { collisionDamage, damageVehicle } from './vehicleDamage.js';
 import { anyCopSees } from './police.js';
 
 /**
@@ -15,12 +17,12 @@ import { anyCopSees } from './police.js';
  * not rigid-body anything. Deterministic trig only — this runs in prediction.
  */
 
-function overlapsOtherVehicle(
+function overlappingVehicle(
   state: GameState | null,
   self: VehicleState,
   half: number,
-): boolean {
-  if (!state) return false; // prediction ignores dynamic entities (plan §7)
+): VehicleState | null {
+  if (!state) return null; // prediction ignores dynamic entities (plan §7)
   for (const id of state.vehicles.ids) {
     if (id === self.id) continue;
     const other = state.vehicles.byId[id];
@@ -29,14 +31,19 @@ function overlapsOtherVehicle(
       Math.abs(other.pos.x - self.pos.x) < half * 2 &&
       Math.abs(other.pos.y - self.pos.y) < half * 2
     ) {
-      return true;
+      return other;
     }
   }
-  return false;
+  return null;
 }
 
 /** Move a vehicle by its speed/heading, colliding with tiles and (server-side) other cars. */
-function integrateVehicle(v: VehicleState, map: CityMap, state: GameState | null): void {
+function integrateVehicle(
+  v: VehicleState,
+  map: CityMap,
+  state: GameState | null,
+  events?: SimEvent[],
+): void {
   const t = getVehicleTuning(v.kind);
   if (v.speed === 0) return;
   const beforeX = v.pos.x;
@@ -47,13 +54,34 @@ function integrateVehicle(v: VehicleState, map: CityMap, state: GameState | null
   moveWithCollision(map, v.pos, tmpVel, t.halfExtent, dx, dy);
   const hitWall = (dx !== 0 && tmpVel.x === 0) || (dy !== 0 && tmpVel.y === 0);
   if (hitWall) {
+    const closing = Math.abs(v.speed);
     v.speed = -v.speed * t.crashDamp; // crunch + slight rebound
     if (Math.abs(v.speed) < 10) v.speed = 0;
+    if (state && closing > 90) {
+      damageVehicle(state, v, collisionDamage(v.kind, closing) * 0.7, events ?? []);
+    }
   }
-  if (overlapsOtherVehicle(state, v, t.halfExtent)) {
+  const hit = overlappingVehicle(state, v, t.halfExtent);
+  if (hit && state) {
+    // Momentum transfer, not a brick wall. The old behaviour reverted the
+    // position and zeroed the speed, so a parked car stopped a 330 px/s
+    // impact dead — you could not shunt, nudge or plough anything.
     v.pos.x = beforeX;
     v.pos.y = beforeY;
-    v.speed = 0;
+    const closing = Math.abs(v.speed);
+    const shove = v.speed * 0.55;
+    // The struck car is pushed along the striker's heading; the striker keeps
+    // a little of its momentum rather than stopping.
+    if (hit.condition !== 'wreck' && Math.abs(shove) > Math.abs(hit.speed)) {
+      hit.heading = v.heading;
+      hit.speed = q8(shove);
+    }
+    v.speed = q8(-v.speed * t.crashDamp);
+    if (Math.abs(v.speed) < 10) v.speed = 0;
+    if (closing > 60) {
+      damageVehicle(state, v, collisionDamage(v.kind, closing), events ?? []);
+      damageVehicle(state, hit, collisionDamage(hit.kind, closing), events ?? []);
+    }
   }
   v.pos.x = q8(v.pos.x);
   v.pos.y = q8(v.pos.y);
@@ -66,8 +94,14 @@ export function stepVehicleDriving(
   input: InputIntent | undefined,
   map: CityMap,
   state: GameState | null,
+  events?: SimEvent[],
 ): void {
   const t = getVehicleTuning(v.kind);
+  // A wreck is scenery: it does not respond to the pedals.
+  if (v.condition === 'wreck') {
+    v.speed = 0;
+    return;
+  }
   const throttle = input ? (input.up ? 1 : 0) - (input.down ? 1 : 0) : 0;
   const steer = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
 
@@ -88,14 +122,19 @@ export function stepVehicleDriving(
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
-  integrateVehicle(v, map, state);
+  integrateVehicle(v, map, state, events);
 }
 
 /** Driverless vehicles coast to a stop. */
-export function stepVehicleCoasting(v: VehicleState, map: CityMap, state: GameState | null): void {
+export function stepVehicleCoasting(
+  v: VehicleState,
+  map: CityMap,
+  state: GameState | null,
+  events?: SimEvent[],
+): void {
   const t = getVehicleTuning(v.kind);
   v.speed = approach(v.speed, 0, t.friction * DT);
-  integrateVehicle(v, map, state);
+  integrateVehicle(v, map, state, events);
 }
 
 const MAX_BOARDING_SPEED = 40;
@@ -107,6 +146,7 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   for (const id of state.vehicles.ids) {
     const v = state.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
+    if (v.condition === 'wreck') continue; // scenery, not transport
     if (Math.abs(v.speed) > MAX_BOARDING_SPEED) continue;
     const t = getVehicleTuning(v.kind);
     const dx = v.pos.x - p.pos.x;

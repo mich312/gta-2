@@ -25,6 +25,15 @@ export interface VehicleTuning {
   enterRadius: number;
   /** Collision box half-extent (cars are boxes for tile collision). */
   halfExtent: number;
+  health: number;
+  /** Seconds a vehicle burns before it detonates. */
+  burnSeconds: number;
+  /** Seconds a burnt-out wreck sits in the road before it is cleared. */
+  wreckSeconds: number;
+  explosionRadius: number;
+  explosionDamage: number;
+  /** Damage per px/s of closing speed in a collision. */
+  collisionDamagePerSpeed: number;
 }
 
 export interface WeaponTuning {
@@ -144,6 +153,12 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     crashDamp: n('crashDamp'),
     enterRadius: n('enterRadius'),
     halfExtent: n('halfExtent'),
+    health: n('health'),
+    burnSeconds: n('burnSeconds'),
+    wreckSeconds: n('wreckSeconds'),
+    explosionRadius: n('explosionRadius'),
+    explosionDamage: n('explosionDamage'),
+    collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
   };
 }
 

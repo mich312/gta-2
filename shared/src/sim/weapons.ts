@@ -3,10 +3,18 @@ import { q8 } from '../math/vec.js';
 import { dCos, dSin } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
-import type { CopState, GameState, PedState, PlayerState, PropState } from './state.js';
+import type {
+  CopState,
+  GameState,
+  PedState,
+  PlayerState,
+  PropState,
+  VehicleState,
+} from './state.js';
 import { addHeat } from './state.js';
 import { removeEntity } from './entities.js';
 import { damagePed } from './peds.js';
+import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -96,6 +104,7 @@ function fireOnce(
   let hitCop: CopState | null = null;
   let hitPed: PedState | null = null;
   let hitProp: PropState | null = null;
+  let hitVehicle: VehicleState | null = null;
   let hitDist = wallDist;
   for (const id of state.players.ids) {
     if (id === shooter.id) continue;
@@ -175,6 +184,30 @@ function fireOnce(
     }
   }
 
+  // Vehicles are shootable — without this nothing in the game could destroy
+  // a car, which is the toy the whole genre is built around.
+  for (const id of state.vehicles.ids) {
+    const veh = state.vehicles.byId[id];
+    if (!veh || veh.condition !== 'ok') continue;
+    const d = rayCircleDistance(
+      shooter.pos.x,
+      shooter.pos.y,
+      dirX,
+      dirY,
+      veh.pos.x,
+      veh.pos.y,
+      vehicleHitRadius(veh),
+    );
+    if (d < hitDist) {
+      hitDist = d;
+      hitVehicle = veh;
+      hitProp = null;
+      hitPed = null;
+      hitCop = null;
+      hitPlayer = null;
+    }
+  }
+
   events.push({
     type: 'shot',
     tick: state.tick,
@@ -194,6 +227,8 @@ function fireOnce(
     damagePed(state, hitPed, damage, shooter.id, events);
   } else if (hitProp) {
     damageProp(state, hitProp, damage, events);
+  } else if (hitVehicle) {
+    damageVehicle(state, hitVehicle, damage, events);
   }
 }
 

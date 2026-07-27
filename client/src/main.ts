@@ -153,6 +153,10 @@ function onGameEvent(event: GameEvent): void {
     effects.debris(event.x, event.y);
     const at = listen(event.x, event.y);
     audio.play('propDown', at.dist, at.pan);
+  } else if (event.type === 'explosion') {
+    effects.explosion(event.x, event.y, event.radius);
+    const at = listen(event.x, event.y);
+    audio.play('explosion', at.dist, at.pan);
   } else if (event.type === 'pickupTaken') {
     const at = listen(event.x, event.y);
     audio.play('pickup', at.dist, at.pan);
@@ -314,6 +318,7 @@ function frame(now: number): void {
                 pos: smoothVehicle,
                 heading: smoothVehicle.angle,
                 speed: predictor.predictedVehicle?.speed ?? 0,
+                condition: predictor.predictedVehicle?.condition ?? 'ok',
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),

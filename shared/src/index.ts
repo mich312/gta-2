@@ -10,6 +10,7 @@ export * from './sim/commands.js';
 export * from './sim/events.js';
 export * from './sim/player.js';
 export * from './sim/vehicle.js';
+export * from './sim/vehicleDamage.js';
 export * from './sim/weapons.js';
 export * from './sim/police.js';
 export * from './sim/peds.js';

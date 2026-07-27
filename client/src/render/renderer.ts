@@ -35,7 +35,7 @@ export interface Scene {
   /** Its pose, smoothed across the tick boundary. */
   localPos: { x: number; y: number; angle: number } | null;
   /** Predicted vehicle when the local player is driving, smoothed. */
-  localVehicle: { pos: Vec2; heading: number; speed: number } | null;
+  localVehicle: { pos: Vec2; heading: number; speed: number; condition: string } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
   /** Seconds since the previous frame, for effects. */
@@ -284,6 +284,7 @@ export function render(
       rv.heading,
       rv.vehicle.speed,
       rv.vehicle.driverId !== null,
+      rv.vehicle.condition,
       dx,
       dy,
       scene.nowMs,
@@ -302,6 +303,7 @@ export function render(
       scene.localVehicle.heading,
       scene.localVehicle.speed,
       true,
+      scene.localVehicle.condition,
       dx,
       dy,
       scene.nowMs,
@@ -450,6 +452,7 @@ function drawVehicle(
   heading: number,
   speed: number,
   occupied: boolean,
+  condition: string,
   dx: (n: number) => number,
   dy: (n: number) => number,
   nowMs: number,
@@ -460,6 +463,19 @@ function drawVehicle(
   const fp = sprites.footprint(name);
   drawShadow(ctx, x, y, fp.rx * 0.92, fp.ry * 1.05, 4);
 
+  // A wreck is drawn dark and never lit; a burning car throws its own light
+  // and sheds flame until it goes.
+  if (condition === 'wreck') {
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    sprites.draw(ctx, name, x, y, heading);
+    ctx.globalCompositeOperation = 'source-atop';
+    ctx.fillStyle = 'rgba(18, 16, 18, 0.72)';
+    ctx.fillRect(x - fp.rx, y - fp.ry, fp.rx * 2, fp.ry * 2);
+    ctx.restore();
+    return;
+  }
+
   if (!sprites.draw(ctx, name, x, y, heading)) {
     ctx.save();
     ctx.translate(x, y);
@@ -467,6 +483,12 @@ function drawVehicle(
     ctx.fillStyle = palette.carBody;
     ctx.fillRect(-12 * RENDER_SCALE, -6 * RENDER_SCALE, 24 * RENDER_SCALE, 12 * RENDER_SCALE);
     ctx.restore();
+  }
+
+  if (condition === 'burning') {
+    effects.fire(wx, wy);
+    const flicker = 0.7 + 0.3 * Math.sin(nowMs * 0.02 + id);
+    lights.point(x, y, 30 * RENDER_SCALE, 'head', 0.75 * flicker);
   }
 
   // Only a car with someone in it has its lights on — a street of parked cars
