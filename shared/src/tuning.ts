@@ -220,7 +220,10 @@ const DEFAULT_PEDS: PedTuning = {
 
 const DEFAULT_POLICE: PoliceTuning = {
   copsPerStar: 2,
-  maxCopsPerPlayer: 8,
+  // >= copsPerStar * 5, so the fifth star fields more cops than the fourth
+  // rather than clamping to the same number. Higher tiers change *kind* of
+  // response, not just count, once police vehicles land (roadmap C3).
+  maxCopsPerPlayer: 10,
   maxCopsTotal: 24,
   spawnCooldownTicks: 18,
   copHealth: 50,

@@ -419,4 +419,57 @@ function drawVehicle(
   if (Math.abs(speed) > 40 && (nowMs * 0.06 + id) % 3 < 1) {
     effects.exhaust(wx, wy, heading);
   }
+
+  layRubber(effects, id, wx, wy, heading, speed, nowMs);
+}
+
+/** Per-vehicle heading history, for spotting a hard corner. */
+const skidState = new Map<number, { heading: number; ms: number; nextAtMs: number }>();
+
+/** Below this there is not enough weight on the tyres to mark the road. */
+const SKID_MIN_SPEED = 170;
+/** Rad/s of yaw that counts as a slide. Peak steering authority is 2.8. */
+const SKID_MIN_YAW_RATE = 1.9;
+/** Rubber is laid at a wall-clock cadence, not per frame — a 240 Hz display
+ *  must not lay four times the rubber of a 60 Hz one. */
+const SKID_INTERVAL_MS = 45;
+
+function layRubber(
+  effects: Effects,
+  id: number,
+  wx: number,
+  wy: number,
+  heading: number,
+  speed: number,
+  nowMs: number,
+): void {
+  const prev = skidState.get(id);
+  skidState.set(id, {
+    heading,
+    ms: nowMs,
+    nextAtMs: prev?.nextAtMs ?? 0,
+  });
+  if (!prev) return;
+
+  const dtMs = nowMs - prev.ms;
+  if (dtMs <= 0 || dtMs > 250) return; // first frame back on screen: no history
+  // Shortest signed angle between the two headings, so wrapping past ±π
+  // doesn't read as a violent slide.
+  let delta = heading - prev.heading;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  const yawRate = Math.abs(delta) / (dtMs / 1000);
+
+  if (Math.abs(speed) < SKID_MIN_SPEED || yawRate < SKID_MIN_YAW_RATE) return;
+  if (nowMs < prev.nextAtMs) return;
+
+  // One mark under each rear wheel, laid along the car's axis.
+  const cos = Math.cos(heading);
+  const sin = Math.sin(heading);
+  const back = 8;
+  const track = 5;
+  for (const s of [-1, 1]) {
+    effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
+  }
+  skidState.set(id, { heading, ms: nowMs, nextAtMs: nowMs + SKID_INTERVAL_MS });
 }

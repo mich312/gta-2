@@ -33,9 +33,22 @@ function hasLineOfSight(map: CityMap, from: CopState, to: PlayerState, range: nu
   return rayWallDistance(map, from.pos.x, from.pos.y, dirX, dirY, d) >= d;
 }
 
+/** True if any cop currently has line of sight to this player. */
+export function anyCopSees(state: GameState, map: CityMap, p: PlayerState): boolean {
+  const range = getTuning().police.sightRange;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (cop && hasLineOfSight(map, cop, p, range)) return true;
+  }
+  return false;
+}
+
 function maybeSpawnCop(state: GameState, map: CityMap): void {
   const t = getTuning().police;
   if (state.cops.ids.length >= t.maxCopsTotal) return;
+  // Spacing between arrivals, straight off the tick counter so it needs no
+  // state of its own. Checked before any rng draw, so the stream stays fixed.
+  if (state.tick % t.spawnCooldownTicks !== 0) return;
 
   for (const pid of state.players.ids) {
     const p = state.players.byId[pid];
@@ -126,12 +139,8 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
   for (const pid of state.players.ids) {
     const p = state.players.byId[pid];
     if (!p) continue;
-    if (p.heat > 0) {
-      const seen = state.cops.ids.some((cid) => {
-        const cop = state.cops.byId[cid];
-        return cop ? hasLineOfSight(map, cop, p, t.sightRange) : false;
-      });
-      if (!seen) p.heat = Math.max(0, p.heat - (t.heatDecayPerSec * DT));
+    if (p.heat > 0 && !anyCopSees(state, map, p)) {
+      p.heat = Math.max(0, p.heat - (t.heatDecayPerSec * DT));
     }
     p.wantedLevel = wantedLevelOf(p);
   }
@@ -143,6 +152,7 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     const cop = state.cops.byId[cid];
     if (!cop) continue;
     if (cop.fireCooldown > 0) cop.fireCooldown--;
+    if (cop.carHitCooldown > 0) cop.carHitCooldown--;
 
     // Retarget: nearest living wanted player.
     let target: PlayerState | null = null;

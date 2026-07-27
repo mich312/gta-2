@@ -7,6 +7,7 @@ import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
+import { anyCopSees } from './police.js';
 
 /**
  * Arcade vehicle physics: signed forward speed along a heading, steering
@@ -101,7 +102,6 @@ const MAX_BOARDING_SPEED = 40;
 
 /** Try to put a player into the nearest free, near-stationary vehicle. */
 export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap): boolean {
-  void map;
   let best: VehicleState | null = null;
   let bestD = Infinity;
   for (const id of state.vehicles.ids) {
@@ -118,7 +118,12 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
     }
   }
   if (!best) return false;
-  addHeat(p, getTuning().police.heatPerTheft); // grand theft auto, witnessed or not
+  // Lifting an empty parked car is only a crime if someone official is
+  // watching. Taking an *occupied* one is always a crime — that path arrives
+  // with NPC drivers (roadmap C2), where the jack becomes an explicit action.
+  if (anyCopSees(state, map, p)) {
+    addHeat(p, getTuning().police.heatPerTheft);
+  }
   best.driverId = p.id;
   p.mode = 'driving';
   p.vehicleId = best.id;

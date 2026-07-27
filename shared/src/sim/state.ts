@@ -20,6 +20,9 @@ export interface CopState {
   fireCooldown: number;
   /** Ticks spent with no wanted target; despawns past the tuned limit. */
   idleTicks: number;
+  /** Ticks of run-over immunity, exactly as players have — a car sitting on
+   *  top of a cop must not land 30 hits a second. */
+  carHitCooldown: number;
 }
 
 export interface PropState {
@@ -147,6 +150,7 @@ export function createCop(id: number, pos: Vec2, health: number): CopState {
     health,
     fireCooldown: 0,
     idleTicks: 0,
+    carHitCooldown: 0,
   };
 }
 

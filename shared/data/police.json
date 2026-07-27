@@ -1,11 +1,10 @@
 {
   "copsPerStar": 2,
-  "maxCopsPerPlayer": 8,
+  "maxCopsPerPlayer": 10,
   "maxCopsTotal": 24,
   "spawnCooldownTicks": 18,
   "copHealth": 50,
   "moveSpeed": 122,
-  "marineSpeed": 205,
   "sightRange": 260,
   "fireRange": 190,
   "weapon": "copPistol",

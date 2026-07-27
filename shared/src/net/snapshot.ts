@@ -57,7 +57,15 @@ const PLAYER_FIELDS = [
 ] as const;
 
 const VEHICLE_FIELDS = ['kind', 'pos', 'heading', 'speed', 'driverId'] as const;
-const COP_FIELDS = ['pos', 'vel', 'targetId', 'health', 'fireCooldown', 'idleTicks'] as const;
+const COP_FIELDS = [
+  'pos',
+  'vel',
+  'targetId',
+  'health',
+  'fireCooldown',
+  'idleTicks',
+  'carHitCooldown',
+] as const;
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp'] as const;
 

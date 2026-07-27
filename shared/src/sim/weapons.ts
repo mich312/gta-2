@@ -325,6 +325,16 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         applyDamage(state, p, damage, v.driverId ?? -1, 'vehicle', events);
       }
     }
+    // Fixed order: players, then cops, then peds. Never reorder — the damage
+    // each takes feeds heat, which feeds cop spawning, which draws rng.
+    for (const copId of [...state.cops.ids]) {
+      const cop = state.cops.byId[copId];
+      if (!cop || cop.carHitCooldown > 0) continue;
+      if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
+        cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
+        damageCop(state, cop, Math.abs(v.speed) * 0.12, v.driverId ?? -1, events);
+      }
+    }
     for (const pedId of [...state.peds.ids]) {
       const ped = state.peds.byId[pedId];
       if (!ped) continue;
