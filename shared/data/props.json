@@ -1,16 +1,7 @@
 {
-  "lamp": {
-    "hp": 15,
-    "radius": 4
-  },
-  "bin": {
-    "hp": 10,
-    "radius": 5
-  },
-  "fence": {
-    "hp": 25,
-    "radius": 8
-  },
+  "lamp": { "hp": 15, "radius": 4 },
+  "bin": { "hp": 10, "radius": 5 },
+  "fence": { "hp": 25, "radius": 8 },
   "breakSpeed": 110,
   "crashSpeedLoss": 0.92
 }

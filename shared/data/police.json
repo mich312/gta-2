@@ -5,6 +5,7 @@
   "spawnCooldownTicks": 18,
   "copHealth": 50,
   "moveSpeed": 122,
+  "marineSpeed": 205,
   "sightRange": 260,
   "fireRange": 190,
   "weapon": "copPistol",
@@ -14,6 +15,6 @@
   "heatPerKill": 60,
   "heatPerTheft": 15,
   "heatPerCopKill": 120,
-  "heatDecayPerSec": 5.625,
-  "despawnTicks": 150
+  "heatDecayPerSec": 5,
+  "despawnTicks": 450
 }
