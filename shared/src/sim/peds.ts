@@ -1,9 +1,12 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { q8 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
-import { getTuning } from '../tuning.js';
-import type { GameState, PedState } from './state.js';
-import { addHeat } from './state.js';
+import { getTuning, getWeaponTuning } from '../tuning.js';
+import type { GameState, PedState, PlayerState } from './state.js';
+import { addHeat, POWER_INVISIBLE } from './state.js';
+import { creditGangKill, isHostile } from './respect.js';
+import { applyDamage, rayWallDistance } from './weapons.js';
+import { gangAt } from '../world/turf.js';
 import { removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import { T_SIDEWALK, TILE_SIZE, type CityMap } from '../world/types.js';
@@ -76,6 +79,11 @@ export function stepPeds(
     const ped = state.peds.byId[id];
     if (!ped) continue;
 
+    // Gang members with a grudge, on their own ground. Checked before the
+    // panic rules, and it overrides them: somebody who has decided to shoot
+    // at you does not also run away from the noise.
+    if (ped.gangId !== 0 && stepHostileGangMember(state, map, ped, tickEvents)) continue;
+
     // Panic check (nearest scare inside radius wins).
     for (const [sx, sy] of scares) {
       const dx = ped.pos.x - sx;
@@ -145,6 +153,89 @@ export function stepPeds(
   }
 }
 
+/**
+ * A gang member who wants you dead.
+ *
+ * Hostility is LOCAL by design — on their own turf they open fire, and
+ * anywhere else they are merely unfriendly. Without that the whole city
+ * turns into a shooting gallery the moment your standing dips, which is the
+ * failure mode this mechanic has to be designed away from rather than
+ * patched after.
+ *
+ * Reuses `timer` as the reload clock rather than adding a field: 200
+ * pedestrians pay for every byte, and in this mode nothing else needs it.
+ * Returns true when the ped acted, which skips the ordinary crowd rules.
+ */
+function stepHostileGangMember(
+  state: GameState,
+  map: CityMap,
+  ped: PedState,
+  events: SimEvent[],
+): boolean {
+  const rt = getTuning().respect;
+  if (gangAt(map, ped.pos.x, ped.pos.y) !== ped.gangId) {
+    // Off their patch: no ambush, whatever they think of you.
+    if (ped.mode === 'hostile') ped.mode = 'walk';
+    return false;
+  }
+
+  let target: PlayerState | null = null;
+  let bestD = rt.gangSightRange;
+  for (const pid of state.players.ids) {
+    const p = state.players.byId[pid];
+    if (!p || p.mode !== 'foot') continue;
+    if ((p.powerFlags & POWER_INVISIBLE) !== 0) continue;
+    if (!isHostile(p, ped.gangId)) continue;
+    const d = Math.hypot(p.pos.x - ped.pos.x, p.pos.y - ped.pos.y);
+    if (d < bestD) {
+      bestD = d;
+      target = p;
+    }
+  }
+  if (!target) {
+    if (ped.mode === 'hostile') ped.mode = 'walk';
+    return false;
+  }
+
+  ped.mode = 'hostile';
+  if (ped.timer > 0) ped.timer--;
+
+  const dx = target.pos.x - ped.pos.x;
+  const dy = target.pos.y - ped.pos.y;
+  const d = Math.max(1, Math.hypot(dx, dy));
+  ped.dirX = dx / d;
+  ped.dirY = dy / d;
+
+  // Close the gap unless already inside comfortable range.
+  if (d > rt.gangFireRange * 0.7 && (state.tick + ped.id) % 3 === 0) {
+    const vel = { x: ped.dirX * rt.gangChaseSpeed, y: ped.dirY * rt.gangChaseSpeed };
+    moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+    ped.pos.x = q8(ped.pos.x);
+    ped.pos.y = q8(ped.pos.y);
+  }
+
+  if (ped.timer === 0 && d <= rt.gangFireRange) {
+    const weapon = getWeaponTuning(rt.gangWeapon);
+    if (weapon) {
+      const wall = rayWallDistance(map, ped.pos.x, ped.pos.y, ped.dirX, ped.dirY, d);
+      events.push({
+        type: 'shot',
+        tick: state.tick,
+        // Negative ids mark a shot nobody can be blamed for by name, exactly
+        // as the police do.
+        playerId: -ped.id,
+        x0: Math.round(ped.pos.x),
+        y0: Math.round(ped.pos.y),
+        x1: Math.round(ped.pos.x + ped.dirX * Math.min(wall, d)),
+        y1: Math.round(ped.pos.y + ped.dirY * Math.min(wall, d)),
+      });
+      if (wall >= d) applyDamage(state, target, weapon.damage, -1, 'gang', events);
+      ped.timer = rt.gangFireCooldownTicks;
+    }
+  }
+  return true;
+}
+
 /** Shots and cars kill pedestrians; that's a crime with a heat price. */
 export function damagePed(
   state: GameState,
@@ -163,6 +254,9 @@ export function damagePed(
   removeEntity(state.peds, ped.id);
   const attacker = state.players.byId[attackerId];
   if (attacker) addHeat(attacker, getTuning().peds.heatPerPedKill);
+  // Killing somebody's people is the loudest thing you can say to a gang,
+  // and their rivals are listening.
+  if (ped.gangId !== 0) creditGangKill(state, attackerId, ped.gangId, events);
   events.push({ type: 'pedDown', tick: state.tick, killerId: attackerId });
 }
 

@@ -9,6 +9,14 @@ export type SimEvent =
   | { type: 'kill'; tick: number; killerId: number; victimId: number; weaponId: string }
   | { type: 'death'; tick: number; playerId: number }
   | {
+      /** A gang crossed into (or out of) shooting at you on sight. */
+      type: 'gangTurned';
+      tick: number;
+      playerId: number;
+      gangId: number;
+      hostile: boolean;
+    }
+  | {
       /** An arrest was walked away from. The card is gone; so is the heat. */
       type: 'jailCardUsed';
       tick: number;

@@ -79,6 +79,7 @@ const PLAYER_FIELDS = [
   // hash disagreed — 25 desyncs per bot, with a sim that replays perfectly.
   'airDist',
   'fittingCooldown',
+  'respect',
   'powerFlags',
   'powerUntilTick',
 ] as const;

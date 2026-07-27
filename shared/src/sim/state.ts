@@ -4,6 +4,7 @@ import type { EntityTable } from './entities.js';
 import { createTable, cloneTable } from './entities.js';
 import { seedRng } from '../rng/prng.js';
 import { getVehicleTuning } from '../tuning.js';
+import { newRespect } from './respect.js';
 
 export type PlayerMode = 'foot' | 'driving' | 'dead';
 
@@ -105,7 +106,7 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee';
+export type PedMode = 'walk' | 'flee' | 'hostile';
 
 export interface PedState {
   id: number;
@@ -206,6 +207,11 @@ export interface PlayerState {
   airDist: number;
   /** Ticks until the car's fitting may be used again. */
   fittingCooldown: number;
+  /**
+   * Where you stand with each gang, indexed by gang id - 1. Sim state,
+   * because gang AI reads it every tick — see sim/respect.ts.
+   */
+  respect: number[];
   /** Active power-ups; see the POWER_* bits. */
   powerFlags: number;
   /** Tick the timed powers lapse on. Meaningless when no timed bit is set. */
@@ -373,6 +379,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     vz: 0,
     airDist: 0,
     fittingCooldown: 0,
+    respect: newRespect(),
     powerFlags: 0,
     powerUntilTick: 0,
   };
@@ -384,6 +391,7 @@ export function clonePlayer(p: PlayerState): PlayerState {
     pos: cloneVec(p.pos),
     vel: cloneVec(p.vel),
     weapons: p.weapons.map((w) => ({ ...w })),
+    respect: p.respect.slice(),
   };
 }
 

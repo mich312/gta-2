@@ -243,6 +243,26 @@ export interface GangsTuning {
   gangs: GangDef[];
 }
 
+export interface RespectTuning {
+  /** Respect lost with a gang for killing one of their people. */
+  killPenalty: number;
+  /** Fraction of that which their rivals gain. Zero-sum, but not symmetric. */
+  rivalShare: number;
+  /** Respect earned for a job done for a gang. */
+  missionFavour: number;
+  hostileAt: number;
+  friendlyAt: number;
+  floor: number;
+  ceiling: number;
+  /** How often respect drifts one point back toward neutral. */
+  decayEveryTicks: number;
+  gangSightRange: number;
+  gangFireRange: number;
+  gangWeapon: string;
+  gangFireCooldownTicks: number;
+  gangChaseSpeed: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
@@ -254,6 +274,7 @@ export interface Tuning {
   traffic: TrafficTuning;
   fittings: FittingsTuning;
   gangs: GangsTuning;
+  respect: RespectTuning;
 }
 
 let current: Tuning | null = null;
@@ -505,6 +526,48 @@ const DEFAULT_GANGS: GangsTuning = {
   ],
 };
 
+function parseRespectTuning(raw: unknown): RespectTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => {
+    const v = r[k];
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`respect.${k}`);
+    return v;
+  };
+  const weapon = r['gangWeapon'];
+  if (typeof weapon !== 'string') throw new Error('respect.gangWeapon');
+  return {
+    killPenalty: n('killPenalty'),
+    rivalShare: n('rivalShare'),
+    missionFavour: n('missionFavour'),
+    hostileAt: n('hostileAt'),
+    friendlyAt: n('friendlyAt'),
+    floor: n('floor'),
+    ceiling: n('ceiling'),
+    decayEveryTicks: n('decayEveryTicks'),
+    gangSightRange: n('gangSightRange'),
+    gangFireRange: n('gangFireRange'),
+    gangWeapon: weapon,
+    gangFireCooldownTicks: n('gangFireCooldownTicks'),
+    gangChaseSpeed: n('gangChaseSpeed'),
+  };
+}
+
+const DEFAULT_RESPECT: RespectTuning = {
+  killPenalty: 8,
+  rivalShare: 0.5,
+  missionFavour: 20,
+  hostileAt: -20,
+  friendlyAt: 25,
+  floor: -60,
+  ceiling: 60,
+  decayEveryTicks: 600,
+  gangSightRange: 220,
+  gangFireRange: 190,
+  gangWeapon: 'gangPistol',
+  gangFireCooldownTicks: 26,
+  gangChaseSpeed: 96,
+};
+
 function parsePickupsTuning(raw: unknown): PickupsTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const kindsRaw = (r['kinds'] ?? {}) as Record<string, unknown>;
@@ -710,6 +773,7 @@ export function initTuning(
     traffic?: unknown;
     fittings?: unknown;
     gangs?: unknown;
+    respect?: unknown;
   },
   opts: InitTuningOptions = {},
 ): string[] {
@@ -774,6 +838,11 @@ export function initTuning(
       'gangs',
       () => (raw.gangs !== undefined ? parseGangsTuning(raw.gangs) : DEFAULT_GANGS),
       DEFAULT_GANGS,
+    ),
+    respect: section(
+      'respect',
+      () => (raw.respect !== undefined ? parseRespectTuning(raw.respect) : DEFAULT_RESPECT),
+      DEFAULT_RESPECT,
     ),
   };
   return fellBack;

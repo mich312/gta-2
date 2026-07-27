@@ -114,5 +114,12 @@
     "range": 260,
     "spread": 0.02,
     "pellets": 1
+  },
+  "gangPistol": {
+    "damage": 6,
+    "cooldownTicks": 26,
+    "range": 190,
+    "spread": 0.09,
+    "pellets": 1
   }
 }

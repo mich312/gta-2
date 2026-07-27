@@ -22,6 +22,7 @@ import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
 import { stepFittings } from './fittings.js';
+import { stepRespectDecay } from './respect.js';
 import { creditFrenzyKill, stepFrenzy, stepStunts } from './frenzy.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
@@ -118,6 +119,7 @@ export function step(
   stepPeds(next, map, events);
   stepProps(next, events);
   stepPickups(next, events);
+  stepRespectDecay(next);
   stepStunts(next, map, events);
   stepFrenzy(next, events);
   // Credit this tick's kills toward any running frenzy, after every system

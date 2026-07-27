@@ -1,0 +1,15 @@
+{
+  "killPenalty": 8,
+  "rivalShare": 0.5,
+  "missionFavour": 20,
+  "hostileAt": -20,
+  "friendlyAt": 25,
+  "floor": -60,
+  "ceiling": 60,
+  "decayEveryTicks": 600,
+  "gangSightRange": 220,
+  "gangFireRange": 190,
+  "gangWeapon": "gangPistol",
+  "gangFireCooldownTicks": 26,
+  "gangChaseSpeed": 96
+}

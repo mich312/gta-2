@@ -109,7 +109,7 @@ const TAG_FULL = 2;
 const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
-const PED_MODES = ['walk', 'flee'] as const;
+const PED_MODES = ['walk', 'flee', 'hostile'] as const;
 const PICKUP_KINDS = [
   'health',
   'armour',
@@ -397,6 +397,19 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
   // entity must, because `full`/`welcome` carry no ackSeq and the client
   // falls back to this field to reconcile against.
   f('airDist', (w, p) => w.f64(p.airDist), (r, o) => (o['airDist'] = r.f64())),
+  f(
+    'respect',
+    (w, p) => {
+      w.uint(p.respect.length);
+      for (const r of p.respect) w.int(r);
+    },
+    (r, o) => {
+      const n = r.uint();
+      const out: number[] = [];
+      for (let i = 0; i < n; i++) out.push(r.int());
+      o['respect'] = out;
+    },
+  ),
   f('fittingCooldown', (w, p) => w.int(p.fittingCooldown), (r, o) => (o['fittingCooldown'] = r.int())),
   f('powerFlags', (w, p) => w.u8(p.powerFlags), (r, o) => (o['powerFlags'] = r.u8())),
   f('powerUntilTick', (w, p) => w.big(p.powerUntilTick), (r, o) => (o['powerUntilTick'] = r.big())),

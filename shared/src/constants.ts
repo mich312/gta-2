@@ -29,3 +29,6 @@ export const RESUME_GRACE_MS = 120_000;
 
 /** Snapshot ring depth on the server; acks older than this get a full resync. */
 export const SNAPSHOT_RING_TICKS = 90;
+
+/** Hard ceiling on gangs, and therefore the width of a respect vector. */
+export const MAX_GANGS = 4;

@@ -9,7 +9,9 @@ import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
 import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
-import { applyDamage, bustPlayer, rayWallDistance } from './weapons.js';
+import { applyDamage, bustPlayer, damageCop, rayWallDistance } from './weapons.js';
+import { isFriendly } from './respect.js';
+import { gangAt } from '../world/turf.js';
 import type { CityMap } from '../world/types.js';
 import { moveWithCollision } from '../world/collide.js';
 import { CARDINAL_ANGLE, dirIsOpen, nearestCardinal } from './roadgrid.js';
@@ -480,6 +482,27 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
       if (d < bestD) {
         bestD = d;
         target = p;
+      }
+    }
+
+    // A gang that owes you does not stand by while you are chased across
+    // their ground: their people shoot at the officers instead. This is the
+    // originals' "gangs protect you from the police", and it costs nothing
+    // extra — the hostility machinery already exists, pointed the other way.
+    if (target && isFriendly(target, gangAt(map, cop.pos.x, cop.pos.y))) {
+      const rt = getTuning().respect;
+      const weapon = getWeaponTuning(rt.gangWeapon);
+      if (weapon && state.tick % rt.gangFireCooldownTicks === cop.id % rt.gangFireCooldownTicks) {
+        for (const pedId of state.peds.ids) {
+          const ped = state.peds.byId[pedId];
+          if (!ped || ped.gangId === 0) continue;
+          if (gangAt(map, ped.pos.x, ped.pos.y) !== ped.gangId) continue;
+          if (!isFriendly(target, ped.gangId)) continue;
+          const d = dist(ped.pos.x, ped.pos.y, cop.pos.x, cop.pos.y);
+          if (d > rt.gangFireRange) continue;
+          damageCop(state, cop, weapon.damage, target.id, events);
+          break; // one volley per officer per cadence
+        }
       }
     }
 

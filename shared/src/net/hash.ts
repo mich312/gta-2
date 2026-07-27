@@ -75,6 +75,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.vz);
     h = hashNumber(h, p.airDist);
     h = hashNumber(h, p.fittingCooldown);
+    for (const r of p.respect) h = hashNumber(h, r);
     h = hashNumber(h, p.powerFlags);
     h = hashNumber(h, p.powerUntilTick);
   }

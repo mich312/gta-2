@@ -2,6 +2,9 @@ import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } fr
 import { INTERNAL_HEIGHT, INTERNAL_WIDTH, TICK_RATE } from 'shared';
 
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
+/** Gang colours, in gang-id order. Mirrors shared/data/gangs.json. */
+const GANG_COLORS = ['#c8543c', '#4aa86a', '#4a7ac8', '#a86ac8'];
+const GANG_NAMES = ['Kessler Row', 'Sunnyside', 'The Quay', 'Halloran'];
 
 interface FeedLine {
   text: string;
@@ -113,6 +116,9 @@ export class Hud {
     // Arrives one tick before the snapshot showing you down, which is why
     // the flag is set here and read by the overlay rather than derived.
     if (event.type === 'busted') this.wasBusted = true;
+    if (event.type === 'gangTurned' && event.hostile) {
+      this.notice(`${GANG_NAMES[event.gangId - 1] ?? 'a gang'} wants you off their streets`);
+    }
     if (event.type === 'jailCardUsed') this.notice('you walk — card spent');
   }
 
@@ -212,6 +218,29 @@ export class Hud {
       const a = ((this.hurtUntilMs - now) / 220) * 0.3;
       ctx.fillStyle = `rgba(180, 20, 20, ${a.toFixed(3)})`;
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    }
+
+    // Respect, one bar per gang, always all of them. Showing only the gang
+    // whose ground you are on would hide the cost of what you just did:
+    // the point of the mechanic is that pleasing one displeases another.
+    if (me.respect.length > 0) {
+      const bw = 22;
+      const bx = INTERNAL_WIDTH / 2 - (me.respect.length * (bw + 3)) / 2;
+      me.respect.forEach((value, i) => {
+        const x = bx + i * (bw + 3);
+        const y = INTERNAL_HEIGHT - 30;
+        ctx.fillStyle = 'rgba(8, 12, 16, 0.6)';
+        ctx.fillRect(x, y, bw, 3);
+        // Centre is neutral; it fills right when they like you and left when
+        // they do not.
+        const frac = Math.max(-1, Math.min(1, value / 60));
+        const half = bw / 2;
+        ctx.fillStyle = GANG_COLORS[i] ?? '#8fa8c8';
+        if (frac >= 0) ctx.fillRect(x + half, y, half * frac, 3);
+        else ctx.fillRect(x + half + half * frac, y, -half * frac, 3);
+        ctx.fillStyle = 'rgba(220, 230, 240, 0.5)';
+        ctx.fillRect(x + half, y - 1, 1, 5);
+      });
     }
 
     // The export list, bottom right: the city's standing order, and the
