@@ -9,7 +9,10 @@ Same conventions as `ROADMAP.md`: every item states scope, files, determinism
 constraints, new tunables, bandwidth, effort, risk, dependencies, and a
 verification gate. Effort key: **S** ≤ 1 day · **M** 1–3 days · **L** ≥ 1 week.
 
-Nothing here is started. This is the map, not the territory.
+**Status: all twelve items are built.** Each landed as its own commit with
+its own gate; `PROGRESS.md` has the per-item log and the surprises. What
+follows is the plan as written, kept as the record of what was intended and
+why — where the build diverged, `PROGRESS.md` says so.
 
 ---
 

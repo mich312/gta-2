@@ -1,5 +1,62 @@
 # PROGRESS
 
+## Waves F–I: the whole of FEATURES.md, twelve items
+
+Score, arrest, escalation, the arsenal, vehicle classes, crushers, fittings,
+turf, respect, missions, jobs and the radio. Twelve commits, each with its own
+verification gate. 277 tests green across shared, server and client (up from
+180), every bot run lockstep with 0 desyncs, ~10.5 KB/s per client against
+the 50 KB/s gate — inside the ~2 KB/s the plan budgeted for the lot.
+
+**The line that decided the architecture.** Every feature was sorted by one
+question: does `step()` read it? Respect does — gang AI consults it every
+tick — so it is sim state, in the hash and on the wire. Cash, the multiplier,
+mission state, crusher payouts and fares do not, so they live server-side and
+reach the sim only through recorded `SimCommand`s. Getting that split right
+first is why none of this needed unpicking later.
+
+**What was actually hard, in order.**
+
+*Swept projectiles.* A rocket covers 14 px in a tick and a person is 8 px
+wide, so testing only where it lands flew it clean through the target. The
+fix reuses the two primitives the hitscan path already had. This was a real
+bug found by a test, not a precaution.
+
+*Worldgen passes feeding each other.* Registering hospital clinics before
+`placeShops` made them count toward the keep-shops-apart rule, which moved
+which buildings became shops, which moved their carved floor tiles, which
+moved player spawns — and a test that punches somebody to death stopped
+connecting. Twice now (police stations did the same to the chain-reaction
+test) the lesson has been the same: a worldgen pass must not quietly change
+the inputs of a later one, and `test/helpers.ts` exists because of it.
+
+*Tuning drift.* Two separate times — cop speeds, then vehicle classes — the
+first draft scaled from numbers that `main` had already deliberately changed,
+producing a bus faster than a car. Both were caught by tests asserting
+relative order rather than absolute values, which is the only kind of tuning
+assertion worth writing.
+
+**The mechanic this was all for.** Respect is zero-sum: helping one gang
+costs you with their rivals, and there is no move that pleases everybody.
+Its failure mode — a city that becomes unplayable through ordinary play — is
+designed against rather than patched: standing decays toward neutral, it is
+bounded at both ends, and hostility is *local*. A gang that hates you is
+dangerous on their own streets and merely unfriendly everywhere else. The
+test for that last one is the most important test in the wave.
+
+**Deliberately not built**, and said plainly in the source where it matters:
+AI ambulances that turn out to unclaimed casualties (needs an AI driver with
+a destination, which the traffic layer has no notion of), and the fire truck
+(extinguishing is the one job verb with no analogue here). Lives, level
+targets and pay-to-save stay out for the reason `FEATURES.md` §6 gives: this
+is a persistent shared city, not a level-based single-player run.
+
+**Least confident about.** Balance, everywhere. Every number here — mission
+payouts, respect thresholds, fitting prices, crusher rates — was chosen to be
+plausible and internally consistent, not playtested. The ratios are more
+likely to be right than the magnitudes.
+
+
 ## Slower, tougher cars, and a driver model out of the traffic literature
 
 **Everything was too fast.** A car did 330 px/s across a 480 px viewport: 1.45
