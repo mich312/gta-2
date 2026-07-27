@@ -48,6 +48,24 @@ export interface WeaponTuning {
   melee: boolean;
   /** Never consumes ammo. Fists always work; that is the point of them. */
   infiniteAmmo: boolean;
+  /**
+   * Present on weapons that throw or launch something with a flight time
+   * rather than resolving instantly along a ray. Absent = hitscan.
+   */
+  projectile: ProjectileTuning | null;
+}
+
+export interface ProjectileTuning {
+  /** Muzzle speed, px/s. */
+  speed: number;
+  /** Ticks before it goes off on its own. A grenade's cook time. */
+  fuseTicks: number;
+  blastRadius: number;
+  blastDamage: number;
+  /** Rockets burst on contact; grenades bounce and wait out the fuse. */
+  detonateOnImpact: boolean;
+  /** Per-tick speed retention for thrown weapons. 1 = no drag. */
+  drag: number;
 }
 
 export interface PoliceTuning {
@@ -248,6 +266,22 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
     pellets: n('pellets'),
     melee: r['melee'] === true,
     infiniteAmmo: r['infiniteAmmo'] === true,
+    projectile: parseProjectile(id, r['projectile']),
+  };
+}
+
+function parseProjectile(id: string, raw: unknown): ProjectileTuning | null {
+  if (raw === undefined || raw === null) return null;
+  const r = raw as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `weapons.${id}.projectile.${k}`);
+  const drag = r['drag'];
+  return {
+    speed: n('speed'),
+    fuseTicks: n('fuseTicks'),
+    blastRadius: n('blastRadius'),
+    blastDamage: n('blastDamage'),
+    detonateOnImpact: r['detonateOnImpact'] === true,
+    drag: typeof drag === 'number' ? drag : 1,
   };
 }
 

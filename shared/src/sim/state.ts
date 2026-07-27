@@ -60,6 +60,22 @@ export interface PickupState {
   respawnAtTick: number | null;
 }
 
+/**
+ * Something in flight: a rocket, a grenade, a molotov. Short-lived and few,
+ * which is what makes a whole entity table affordable for them.
+ */
+export interface ProjectileState {
+  id: number;
+  /** Weapon id that threw it — its tuning owns the blast. */
+  kind: string;
+  pos: Vec2;
+  vel: Vec2;
+  /** Who owns the deaths. */
+  ownerId: number;
+  /** Tick it goes off on regardless of what it has hit. */
+  fuseAtTick: number;
+}
+
 export type PedMode = 'walk' | 'flee';
 
 export interface PedState {
@@ -166,6 +182,7 @@ export interface GameState {
   peds: EntityTable<PedState>;
   props: EntityTable<PropState>;
   pickups: EntityTable<PickupState>;
+  projectiles: EntityTable<ProjectileState>;
   /** Ambient-AI bookkeeping, per vehicle id. Never leaves the server. */
   trafficDrivers: Record<number, TrafficDriver>;
 }
@@ -182,6 +199,7 @@ export function createGameState(seed: number): GameState {
     peds: createTable(),
     props: createTable(),
     pickups: createTable(),
+    projectiles: createTable(),
     trafficDrivers: {},
   };
 }
@@ -192,6 +210,21 @@ export function createPickup(id: number, kind: PickupKind, pos: Vec2): PickupSta
 
 export function clonePickup(p: PickupState): PickupState {
   return { ...p, pos: cloneVec(p.pos) };
+}
+
+export function createProjectile(
+  id: number,
+  kind: string,
+  pos: Vec2,
+  vel: Vec2,
+  ownerId: number,
+  fuseAtTick: number,
+): ProjectileState {
+  return { id, kind, pos: cloneVec(pos), vel: cloneVec(vel), ownerId, fuseAtTick };
+}
+
+export function cloneProjectile(p: ProjectileState): ProjectileState {
+  return { ...p, pos: cloneVec(p.pos), vel: cloneVec(p.vel) };
 }
 
 export function createProp(
@@ -322,6 +355,7 @@ export function cloneState(s: GameState): GameState {
     peds: cloneTable(s.peds, clonePed),
     props: cloneTable(s.props, cloneProp),
     pickups: cloneTable(s.pickups, clonePickup),
+    projectiles: cloneTable(s.projectiles, cloneProjectile),
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
   };
 }

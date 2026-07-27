@@ -52,6 +52,30 @@
       "kind": "spray",
       "shop": "spray",
       "price": 400
+    },
+    "flamethrower": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 1400,
+      "ammo": 200
+    },
+    "grenade": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 900,
+      "ammo": 8
+    },
+    "molotov": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 650,
+      "ammo": 8
+    },
+    "rocket": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 2600,
+      "ammo": 6
     }
   }
 }

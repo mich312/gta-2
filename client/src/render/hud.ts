@@ -1,7 +1,7 @@
 import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } from 'shared';
 import { INTERNAL_HEIGHT, INTERNAL_WIDTH, TICK_RATE } from 'shared';
 
-const BUY_KEYS = ['Y', 'U', 'I', 'O'];
+const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
 
 interface FeedLine {
   text: string;

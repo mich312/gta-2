@@ -4,6 +4,7 @@ import type {
   PedState,
   PlayerState,
   PickupState,
+  ProjectileState,
   PropState,
   VehicleState,
 } from '../sim/state.js';
@@ -13,6 +14,7 @@ import {
   clonePickup,
   clonePlayer,
   cloneProp,
+  cloneProjectile,
   cloneVehicle,
 } from '../sim/state.js';
 
@@ -25,6 +27,7 @@ export interface FullSnapshot {
   peds: PedState[];
   props: PropState[];
   pickups: PickupState[];
+  projectiles: ProjectileState[];
 }
 
 export type Patch<T> = { id: number } & Partial<Omit<T, 'id'>>;
@@ -42,6 +45,7 @@ export interface SnapshotDelta {
   peds: TableDelta<PedState>;
   props: TableDelta<PropState>;
   pickups: TableDelta<PickupState>;
+  projectiles: TableDelta<ProjectileState>;
 }
 
 /** Explicit field lists so diffing stays deterministic and reviewable. */
@@ -101,6 +105,9 @@ const COP_FIELDS = [
 const PED_FIELDS = ['pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
 const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick'] as const;
+// vel rides along so the client can extrapolate between snapshots; a rocket
+// moves 14 px per tick and would otherwise stutter across the screen.
+const PROJECTILE_FIELDS = ['kind', 'pos', 'vel', 'ownerId', 'fuseAtTick'] as const;
 
 export function takeSnapshot(state: GameState): FullSnapshot {
   return {
@@ -113,6 +120,9 @@ export function takeSnapshot(state: GameState): FullSnapshot {
     peds: state.peds.ids.map((id) => clonePed(state.peds.byId[id] as PedState)),
     props: state.props.ids.map((id) => cloneProp(state.props.byId[id] as PropState)),
     pickups: state.pickups.ids.map((id) => clonePickup(state.pickups.byId[id] as PickupState)),
+    projectiles: state.projectiles.ids.map((id) =>
+      cloneProjectile(state.projectiles.byId[id] as ProjectileState),
+    ),
   };
 }
 
@@ -215,6 +225,7 @@ export function diffSnapshots(base: FullSnapshot, cur: FullSnapshot): SnapshotDe
     peds: diffTable(base.peds, cur.peds, PED_FIELDS, clonePed),
     props: diffTable(base.props, cur.props, PROP_FIELDS, cloneProp),
     pickups: diffTable(base.pickups, cur.pickups, PICKUP_FIELDS, clonePickup),
+    projectiles: diffTable(base.projectiles, cur.projectiles, PROJECTILE_FIELDS, cloneProjectile),
   };
 }
 
@@ -232,5 +243,6 @@ export function applyDelta(
     peds: applyTable(base.peds, delta.peds, clonePed),
     props: applyTable(base.props, delta.props, cloneProp),
     pickups: applyTable(base.pickups, delta.pickups, clonePickup),
+    projectiles: applyTable(base.projectiles, delta.projectiles, cloneProjectile),
   };
 }

@@ -50,6 +50,57 @@
     "spread": 0.08,
     "pellets": 1
   },
+  "rocket": {
+    "damage": 1,
+    "cooldownTicks": 45,
+    "range": 900,
+    "spread": 0.012,
+    "pellets": 1,
+    "projectile": {
+      "speed": 430,
+      "fuseTicks": 90,
+      "blastRadius": 92,
+      "blastDamage": 115,
+      "detonateOnImpact": true
+    }
+  },
+  "grenade": {
+    "damage": 1,
+    "cooldownTicks": 30,
+    "range": 260,
+    "spread": 0.05,
+    "pellets": 1,
+    "projectile": {
+      "speed": 210,
+      "fuseTicks": 60,
+      "blastRadius": 78,
+      "blastDamage": 88,
+      "detonateOnImpact": false,
+      "drag": 0.94
+    }
+  },
+  "molotov": {
+    "damage": 1,
+    "cooldownTicks": 26,
+    "range": 240,
+    "spread": 0.06,
+    "pellets": 1,
+    "projectile": {
+      "speed": 195,
+      "fuseTicks": 45,
+      "blastRadius": 62,
+      "blastDamage": 55,
+      "detonateOnImpact": true,
+      "drag": 0.95
+    }
+  },
+  "flamethrower": {
+    "damage": 5,
+    "cooldownTicks": 2,
+    "range": 68,
+    "spread": 0.42,
+    "pellets": 2
+  },
   "copRifle": {
     "damage": 14,
     "cooldownTicks": 8,

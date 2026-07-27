@@ -130,6 +130,17 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashBool(h, pu.active);
     h = hashNumber(h, pu.respawnAtTick ?? -1);
   }
+
+  for (const pr of snap.projectiles) {
+    h = hashNumber(h, pr.id);
+    h = hashString(h, pr.kind);
+    h = hashNumber(h, pr.pos.x);
+    h = hashNumber(h, pr.pos.y);
+    h = hashNumber(h, pr.vel.x);
+    h = hashNumber(h, pr.vel.y);
+    h = hashNumber(h, pr.ownerId);
+    h = hashNumber(h, pr.fuseAtTick);
+  }
   return h >>> 0;
 }
 

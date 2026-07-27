@@ -288,6 +288,22 @@ export function render(
       '#7a7f6d',
     );
   }
+  // Projectiles: small, bright, and drawn over everything on the ground so a
+  // rocket coming at you is the most legible thing on screen.
+  for (const pr of scene.remotes.projectiles) {
+    const x = dx(pr.x);
+    const y = dy(pr.y);
+    const rocket = pr.projectile.kind === 'rocket';
+    ctx.fillStyle = rocket ? '#ffd27a' : '#c8d0a0';
+    ctx.beginPath();
+    ctx.arc(x, y, (rocket ? 2.2 : 1.8) * RENDER_SCALE, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = rocket ? 'rgba(255, 168, 64, 0.45)' : 'rgba(190, 200, 150, 0.3)';
+    ctx.beginPath();
+    ctx.arc(x, y, (rocket ? 4.5 : 3.2) * RENDER_SCALE, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   for (const c of scene.remotes.cops) {
     const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
     const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);

@@ -20,6 +20,7 @@ import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
 import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
+import { stepProjectiles } from './projectiles.js';
 import { creditFrenzyKill, stepFrenzy, stepStunts } from './frenzy.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
@@ -36,8 +37,9 @@ import { PLAYER_RADIUS } from '../constants.js';
  *
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
- *   driverless vehicles coast → weapons → vehicle impacts → police → peds
- *   → vehicle damage/explosions → police → peds → prop repair → pickups.
+ *   driverless vehicles coast → weapons → projectiles → vehicle impacts →
+ *   police → peds → vehicle damage/explosions → prop repair → pickups →
+ *   stunts → frenzy.
  */
 export function step(
   state: GameState,
@@ -102,6 +104,8 @@ export function step(
   stepTrafficPopulation(next, map);
 
   stepWeapons(next, inputs, map, events);
+  // Spawned by firing, resolved before the things they hit have moved.
+  stepProjectiles(next, map, events);
   stepVehicleImpacts(next, events);
   stepVehicleDamage(next, events);
   stepPolice(next, map, events);

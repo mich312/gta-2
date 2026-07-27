@@ -3,6 +3,7 @@ import type {
   FullSnapshot,
   PedState,
   PickupState,
+  ProjectileState,
   PlayerState,
   PropState,
   VehicleState,
@@ -48,6 +49,14 @@ export interface RenderWorld {
   props: PropState[];
   /** Nor do pickups; only their active flag changes. */
   pickups: PickupState[];
+  projectiles: RenderProjectile[];
+}
+
+/** A rocket in flight, interpolated like anything else that moves. */
+export interface RenderProjectile {
+  projectile: ProjectileState;
+  x: number;
+  y: number;
 }
 
 /**
@@ -105,6 +114,7 @@ export class Interpolator {
       peds: [],
       props: [],
       pickups: [],
+      projectiles: [],
     };
     if (this.snapshots.length === 0) return empty;
     let a = this.snapshots[0] as FullSnapshot;
@@ -165,7 +175,25 @@ export class Interpolator {
         y: pa ? pa.pos.y + (pb.pos.y - pa.pos.y) * t : pb.pos.y,
       });
     }
-    return { players, vehicles, cops, peds, props: b.props, pickups: b.pickups };
+    const projectiles: RenderProjectile[] = [];
+    const prById = new Map(a.projectiles.map((p) => [p.id, p]));
+    for (const pb of b.projectiles) {
+      const pa = prById.get(pb.id);
+      projectiles.push({
+        projectile: pb,
+        x: pa ? pa.pos.x + (pb.pos.x - pa.pos.x) * t : pb.pos.x,
+        y: pa ? pa.pos.y + (pb.pos.y - pa.pos.y) * t : pb.pos.y,
+      });
+    }
+    return {
+      players,
+      vehicles,
+      cops,
+      peds,
+      props: b.props,
+      pickups: b.pickups,
+      projectiles,
+    };
   }
 }
 

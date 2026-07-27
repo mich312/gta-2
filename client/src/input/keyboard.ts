@@ -33,7 +33,19 @@ export class InputSource {
       }
       const slotMatch = /^Digit([1-8])$/.exec(e.code);
       if (slotMatch) this.pendingSlot = Number.parseInt(slotMatch[1] as string, 10) - 1;
-      const buyRows: Record<string, number> = { KeyY: 0, KeyU: 1, KeyI: 2, KeyO: 3 };
+      // Eight, not four: the gun shop's shelf grew past the original row of
+      // keys when launchers and thrown weapons arrived, and a shop item you
+      // cannot press a key for is an item that does not exist.
+      const buyRows: Record<string, number> = {
+        KeyY: 0,
+        KeyU: 1,
+        KeyI: 2,
+        KeyO: 3,
+        KeyH: 4,
+        KeyJ: 5,
+        KeyN: 6,
+        KeyP: 7,
+      };
       if (e.code in buyRows) this.pendingBuyRow = buyRows[e.code] as number;
       if (e.code === 'KeyM') this.pendingMute = true;
       this.gestured = true;

@@ -11,8 +11,8 @@ import type {
   PropState,
   VehicleState,
 } from './state.js';
-import { addHeat } from './state.js';
-import { removeEntity } from './entities.js';
+import { addHeat, createProjectile } from './state.js';
+import { insertEntity, removeEntity } from './entities.js';
 import { damagePed } from './peds.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
@@ -46,6 +46,8 @@ const DRIVEBY_MUZZLE_CLEARANCE = 4;
 /** Extra spread per px/s of the car's speed, and its ceiling (radians). */
 const DRIVEBY_SPREAD_PER_SPEED = 0.00067;
 const DRIVEBY_MAX_EXTRA_SPREAD = 0.1;
+/** How far past the thrower a launched projectile starts, px. */
+const PROJECTILE_MUZZLE_CLEARANCE = 6;
 
 /** Distance along a ray until it enters a solid tile (DDA; exact ops). */
 export function rayWallDistance(
@@ -87,7 +89,7 @@ export function rayWallDistance(
 }
 
 /** Ray-circle intersection distance, or Infinity. Exact ops only. */
-function rayCircleDistance(
+export function rayCircleDistance(
   ox: number,
   oy: number,
   dx: number,
@@ -430,6 +432,27 @@ export function stepWeapons(
 
     if (!weapon.infiniteAmmo) slot.ammo--;
     p.fireCooldown = weapon.cooldownTicks;
+
+    // Launchers and thrown weapons put an object in the world instead of
+    // resolving along a ray. No rng draw here: a rocket has no spread worth
+    // the stream shift, and the aim already came off the wire quantised.
+    if (weapon.projectile) {
+      const pt = weapon.projectile;
+      const muzzle = PLAYER_RADIUS + PROJECTILE_MUZZLE_CLEARANCE;
+      insertEntity(
+        state.projectiles,
+        createProjectile(
+          state.nextEntityId++,
+          slot.weaponId,
+          { x: ox + dCos(p.aimAngle) * muzzle, y: oy + dSin(p.aimAngle) * muzzle },
+          { x: dCos(p.aimAngle) * pt.speed, y: dSin(p.aimAngle) * pt.speed },
+          p.id,
+          state.tick + pt.fuseTicks,
+        ),
+      );
+      continue;
+    }
+
     for (let pellet = 0; pellet < weapon.pellets; pellet++) {
       let roll: number;
       [roll, state.rng] = nextFloat01(state.rng);

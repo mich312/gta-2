@@ -35,6 +35,7 @@ import type {
   CopState,
   PedState,
   PickupState,
+  ProjectileState,
   PlayerState,
   PropState,
   VehicleState,
@@ -415,6 +416,28 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
   f('fuseAtTick', (w, v) => w.optInt(v.fuseAtTick), (r, o) => (o['fuseAtTick'] = r.optInt())),
 ];
 
+const PROJECTILE_CODECS: Array<FieldCodec<ProjectileState>> = [
+  f('kind', (w, p) => w.str(p.kind), (r, o) => (o['kind'] = r.str())),
+  f(
+    'pos',
+    (w, p) => {
+      w.q8(p.pos.x);
+      w.q8(p.pos.y);
+    },
+    (r, o) => (o['pos'] = { x: r.q8(), y: r.q8() }),
+  ),
+  f(
+    'vel',
+    (w, p) => {
+      w.q8(p.vel.x);
+      w.q8(p.vel.y);
+    },
+    (r, o) => (o['vel'] = { x: r.q8(), y: r.q8() }),
+  ),
+  f('ownerId', (w, p) => w.int(p.ownerId), (r, o) => (o['ownerId'] = r.int())),
+  f('fuseAtTick', (w, p) => w.int(p.fuseAtTick), (r, o) => (o['fuseAtTick'] = r.int())),
+];
+
 const COP_CODECS: Array<FieldCodec<CopState>> = [
   f('kind', (w, c) => w.str(c.kind), (r, o) => (o['kind'] = r.str())),
   f(
@@ -602,6 +625,7 @@ function writeSnapshot(w: Writer, s: FullSnapshot): void {
   writeList(w, s.peds, PED_CODECS);
   writeList(w, s.props, PROP_CODECS);
   writeList(w, s.pickups, PICKUP_CODECS);
+  writeList(w, s.projectiles, PROJECTILE_CODECS);
 }
 
 function readSnapshot(r: Reader): FullSnapshot {
@@ -613,6 +637,7 @@ function readSnapshot(r: Reader): FullSnapshot {
     peds: readList(r, PED_CODECS),
     props: readList(r, PROP_CODECS),
     pickups: readList(r, PICKUP_CODECS),
+    projectiles: readList(r, PROJECTILE_CODECS),
   };
 }
 
@@ -623,6 +648,7 @@ function writeDelta(w: Writer, d: SnapshotDelta): void {
   writeTable(w, d.peds, PED_CODECS);
   writeTable(w, d.props, PROP_CODECS);
   writeTable(w, d.pickups, PICKUP_CODECS);
+  writeTable(w, d.projectiles, PROJECTILE_CODECS);
 }
 
 function readDelta(r: Reader): SnapshotDelta {
@@ -633,6 +659,7 @@ function readDelta(r: Reader): SnapshotDelta {
     peds: readTable(r, PED_CODECS),
     props: readTable(r, PROP_CODECS),
     pickups: readTable(r, PICKUP_CODECS),
+    projectiles: readTable(r, PROJECTILE_CODECS),
   };
 }
 

@@ -48,19 +48,33 @@ export function damageVehicle(
   });
 }
 
-function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
-  const t = getVehicleTuning(v.kind);
-  const r = t.explosionRadius;
-  const r2 = r * r;
-  const cx = v.pos.x;
-  const cy = v.pos.y;
-  // The driver goes with it, and whoever was at the wheel owns the deaths.
-  const attackerId = v.driverId ?? -1;
-
+/**
+ * One explosion, anywhere, from anything.
+ *
+ * Extracted from `explode` so a rocket and a burning car detonate through
+ * exactly the same code — same victim order (players, cops, peds, props,
+ * then vehicles), same falloff, same one-event-then-damage sequence. Two
+ * implementations of a blast would be two chances to disagree between hosts.
+ *
+ * Neighbouring vehicles are only *ignited*, never detonated inline: that is
+ * what keeps a chain reaction a sequence of ticks instead of a recursion
+ * whose depth both hosts would have to agree on.
+ */
+export function blast(
+  state: GameState,
+  cx: number,
+  cy: number,
+  radius: number,
+  damage: number,
+  attackerId: number,
+  events: SimEvent[],
+  exceptVehicleId: number | null = null,
+): void {
+  const r2 = radius * radius;
   const falloff = (dx: number, dy: number): number => {
     const d2 = dx * dx + dy * dy;
     if (d2 > r2) return 0;
-    return t.explosionDamage * (1 - Math.sqrt(d2) / r);
+    return damage * (1 - Math.sqrt(d2) / radius);
   };
 
   events.push({
@@ -68,7 +82,7 @@ function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
     tick: state.tick,
     x: Math.round(cx),
     y: Math.round(cy),
-    radius: Math.round(r),
+    radius: Math.round(radius),
   });
 
   for (const pid of state.players.ids) {
@@ -95,16 +109,19 @@ function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
     const dmg = falloff(prop.pos.x - cx, prop.pos.y - cy);
     if (dmg > 0) damageProp(state, prop, dmg, events);
   }
-  // Neighbours are only *ignited*, never detonated inline — that is what
-  // keeps a chain reaction a sequence of ticks instead of a recursion whose
-  // depth both hosts would have to agree on.
   for (const vid of state.vehicles.ids) {
-    if (vid === v.id) continue;
+    if (vid === exceptVehicleId) continue;
     const other = state.vehicles.byId[vid];
     if (!other || other.condition !== 'ok') continue;
     const dmg = falloff(other.pos.x - cx, other.pos.y - cy);
     if (dmg > 0) damageVehicle(state, other, dmg, events);
   }
+}
+
+function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
+  const t = getVehicleTuning(v.kind);
+  // The driver goes with it, and whoever was at the wheel owns the deaths.
+  blast(state, v.pos.x, v.pos.y, t.explosionRadius, t.explosionDamage, v.driverId ?? -1, events, v.id);
 
   v.condition = 'wreck';
   v.speed = 0;
