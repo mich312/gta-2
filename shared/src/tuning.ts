@@ -133,10 +133,20 @@ export interface TrafficTuning {
   /** Target ambient cars near players, not across the whole map. */
   count: number;
   cruiseSpeed: number;
+  /** Speed a driver slows to for a corner. */
+  turnSpeed: number;
+  /** How far down the lane a driver aims. This sets the turn radius. */
   lookAhead: number;
-  turnProbe: number;
+  /** Standing gap kept behind whatever is in front, px. */
+  brakeDistance: number;
+  /** Extra gap per px/s of speed. */
   brakeDistancePerSpeed: number;
-  laneHalfWidth: number;
+  /** Wheel per radian of heading error, before clamping to full lock. */
+  steerGain: number;
+  /** Wedged decision-ticks a driver tolerates before backing out. */
+  blockedTimeoutTicks: number;
+  /** How long that reverse lasts, in decision ticks. Bounded on purpose. */
+  reverseTicks: number;
   decisionCadenceTicks: number;
   turnChance: number;
   spawnMinDist: number;
@@ -346,10 +356,13 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
   return {
     count,
     cruiseSpeed: n('cruiseSpeed'),
+    turnSpeed: n('turnSpeed'),
     lookAhead: n('lookAhead'),
-    turnProbe: n('turnProbe'),
+    brakeDistance: n('brakeDistance'),
     brakeDistancePerSpeed: n('brakeDistancePerSpeed'),
-    laneHalfWidth: n('laneHalfWidth'),
+    steerGain: n('steerGain'),
+    blockedTimeoutTicks: n('blockedTimeoutTicks'),
+    reverseTicks: n('reverseTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
     turnChance: n('turnChance'),
     spawnMinDist: n('spawnMinDist'),
@@ -363,10 +376,13 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
 const DEFAULT_TRAFFIC: TrafficTuning = {
   count: 14,
   cruiseSpeed: 104,
-  lookAhead: 44,
-  turnProbe: 80,
-  brakeDistancePerSpeed: 0.35,
-  laneHalfWidth: 14,
+  turnSpeed: 30,
+  lookAhead: 12,
+  brakeDistance: 8,
+  brakeDistancePerSpeed: 0.22,
+  steerGain: 4.5,
+  blockedTimeoutTicks: 30,
+  reverseTicks: 10,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
   spawnMinDist: 420,

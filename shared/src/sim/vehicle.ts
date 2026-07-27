@@ -1,6 +1,6 @@
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
-import { approach, q8, q256 } from '../math/vec.js';
+import { approach, clamp, q8, q256 } from '../math/vec.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat } from './state.js';
@@ -105,28 +105,63 @@ export function stepVehicleDriving(
   events?: SimEvent[],
   airborne = false,
 ): void {
+  const throttle = input ? (input.up ? 1 : 0) - (input.down ? 1 : 0) : 0;
+  const steer = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+  driveVehicle(v, throttle, steer, map, state, events, airborne);
+}
+
+/**
+ * One tick of vehicle under continuous controls.
+ *
+ * A human at a keyboard only ever supplies ±1 on each axis, but an AI driver
+ * wants a *proportion* of the wheel — bang-bang steering is what made ambient
+ * traffic saw back and forth across the road instead of tracking a lane. Both
+ * paths run the same physics, so a car handles identically whoever is at the
+ * wheel.
+ *
+ * `throttle` and `steer` are clamped to [-1, 1]. Multiplication by a fraction
+ * is exact under IEEE-754, so this stays prediction-safe.
+ *
+ * `authorityFloor` raises the minimum steering authority. The speed ramp exists
+ * so a player cannot pirouette a parked car; an AI driver never asks for more
+ * wheel than the lane it is tracking needs, and it has to be able to make a
+ * 90° turn into a two-tile street at walking pace.
+ */
+export function driveVehicle(
+  v: VehicleState,
+  throttleIn: number,
+  steerIn: number,
+  map: CityMap,
+  state: GameState | null,
+  events?: SimEvent[],
+  airborne = false,
+  authorityFloor = 0,
+): void {
   const t = getVehicleTuning(v.kind);
   // A wreck is scenery: it does not respond to the pedals.
   if (v.condition === 'wreck') {
     v.speed = 0;
     return;
   }
-  const throttle = input ? (input.up ? 1 : 0) - (input.down ? 1 : 0) : 0;
-  const steer = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+  const throttle = clamp(throttleIn, -1, 1);
+  const steer = clamp(steerIn, -1, 1);
 
   if (throttle > 0) {
-    v.speed = Math.min(t.maxSpeed, v.speed + t.accel * DT);
+    v.speed = Math.min(t.maxSpeed, v.speed + t.accel * throttle * DT);
   } else if (throttle < 0) {
     v.speed =
       v.speed > 0
-        ? Math.max(0, v.speed - t.brake * DT)
-        : Math.max(-t.maxReverseSpeed, v.speed - t.reverseAccel * DT);
+        ? Math.max(0, v.speed + t.brake * throttle * DT)
+        : Math.max(-t.maxReverseSpeed, v.speed + t.reverseAccel * throttle * DT);
   } else {
     v.speed = approach(v.speed, 0, t.friction * DT);
   }
 
   if (steer !== 0 && v.speed !== 0) {
-    const authority = Math.min(1, Math.abs(v.speed) / (t.maxSpeed * t.minSteerSpeedFrac));
+    const authority = Math.max(
+      authorityFloor,
+      Math.min(1, Math.abs(v.speed) / (t.maxSpeed * t.minSteerSpeedFrac)),
+    );
     const dir = v.speed >= 0 ? 1 : -1; // reversing inverts steering, like a car
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }

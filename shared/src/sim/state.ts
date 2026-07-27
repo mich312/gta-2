@@ -84,6 +84,25 @@ export interface VehicleState {
   fuseAtTick: number | null;
 }
 
+/**
+ * What an ambient driver remembers between ticks, keyed by vehicle id.
+ *
+ * Deliberately NOT part of VehicleState: no client ever simulates ambient
+ * traffic, so this is the one kind of sim state that has no business on the
+ * wire, in the snapshot diff, or in the desync hash. It still lives in
+ * GameState — it is an input to step(), so replays and lockstep need it.
+ */
+export interface TrafficDriver {
+  /** Cardinal direction this driver means to follow (see sim/traffic.ts). */
+  dir: number;
+  /**
+   * Wedged-tick counter. Counts UP while the car cannot move, then runs down
+   * from a negative value while it reverses out. Bounded either way, which is
+   * what stops a blocked car from reversing across the city.
+   */
+  stuck: number;
+}
+
 export interface PlayerState {
   id: number;
   name: string;
@@ -141,6 +160,8 @@ export interface GameState {
   peds: EntityTable<PedState>;
   props: EntityTable<PropState>;
   pickups: EntityTable<PickupState>;
+  /** Ambient-AI bookkeeping, per vehicle id. Never leaves the server. */
+  trafficDrivers: Record<number, TrafficDriver>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -155,6 +176,7 @@ export function createGameState(seed: number): GameState {
     peds: createTable(),
     props: createTable(),
     pickups: createTable(),
+    trafficDrivers: {},
   };
 }
 
@@ -289,5 +311,19 @@ export function cloneState(s: GameState): GameState {
     peds: cloneTable(s.peds, clonePed),
     props: cloneTable(s.props, cloneProp),
     pickups: cloneTable(s.pickups, clonePickup),
+    trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
   };
+}
+
+function cloneTrafficDrivers(
+  src: Record<number, TrafficDriver>,
+): Record<number, TrafficDriver> {
+  const out: Record<number, TrafficDriver> = {};
+  // Integer-like keys iterate in ascending numeric order, so this is stable.
+  for (const key of Object.keys(src)) {
+    const id = Number(key);
+    const d = src[id];
+    if (d) out[id] = { dir: d.dir, stuck: d.stuck };
+  }
+  return out;
 }
