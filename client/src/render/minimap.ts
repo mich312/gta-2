@@ -12,6 +12,7 @@ import {
   T_SIDEWALK,
   T_WATER,
   T_BRIDGE,
+  T_FLOOR,
 } from 'shared';
 
 /** On-screen size of the map panel, in world (HUD) pixels. */
@@ -29,6 +30,9 @@ const TILE_COLORS: Record<number, string> = {
   [T_LOT]: '#45463f',
   [T_WATER]: '#22384a',
   [T_BRIDGE]: '#5a606a',
+  // Shop interiors read as a lit room inside the block, so the radar shows
+  // where a shop is without needing its own marker.
+  [T_FLOOR]: '#7b6a55',
 };
 const FIELD_COLOR = '#232a26';
 

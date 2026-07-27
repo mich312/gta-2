@@ -17,6 +17,8 @@ export const T_WATER = 6;
 export const T_BRIDGE = 7;
 /** Stunt ramp: drivable, and launches a fast car off the ground. */
 export const T_RAMP = 8;
+/** Shop interior floor: inside a building, walkable, open to the sky. */
+export const T_FLOOR = 9;
 
 export const DISTRICT_TYPES = [
   'downtown',
@@ -67,6 +69,11 @@ export interface Shop {
   doorX: number;
   doorY: number;
   buildingIndex: number;
+  /** The room behind the door, in tiles: walkable floor, open to the sky. */
+  interior: { x: number; y: number; w: number; h: number };
+  /** Tile where the doorway is punched through the shopfront wall. */
+  entryX: number;
+  entryY: number;
 }
 
 export interface VehicleSpawn {

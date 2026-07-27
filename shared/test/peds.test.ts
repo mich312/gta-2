@@ -10,6 +10,7 @@ import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
+import { clearSpot } from './helpers.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import { hashState } from '../src/net/hash.js';
@@ -92,7 +93,9 @@ describe('pedestrians', () => {
       map,
     );
     const p1 = state.players.byId[1]!;
-    state = step(state, {}, [{ type: 'spawnPed', pedId: 900, x: p1.pos.x + 30, y: p1.pos.y }], map);
+    // Along a clear line, not a fixed +x offset — see test/helpers.ts.
+    const spot = clearSpot(map, p1.pos, 30);
+    state = step(state, {}, [{ type: 'spawnPed', pedId: 900, x: spot.x, y: spot.y }], map);
     let seq = 1;
     for (let i = 0; i < 120 && state.peds.ids.length > 0; i++) {
       const ped = state.peds.ids[0] !== undefined ? state.peds.byId[state.peds.ids[0]]! : null;

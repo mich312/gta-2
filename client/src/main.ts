@@ -112,6 +112,17 @@ function currentShopKind(): ShopKind | null {
     if (Math.abs(me.pos.x - cx) < reach && Math.abs(me.pos.y - cy) < reach) {
       return s.kind;
     }
+    // Shops have an inside now, so the whole room counts as being in the shop
+    // — standing at the counter is the obvious place to expect the menu.
+    const r = s.interior;
+    if (
+      me.pos.x >= r.x * TILE_SIZE &&
+      me.pos.y >= r.y * TILE_SIZE &&
+      me.pos.x <= (r.x + r.w) * TILE_SIZE &&
+      me.pos.y <= (r.y + r.h) * TILE_SIZE
+    ) {
+      return s.kind;
+    }
   }
   return null;
 }

@@ -15,11 +15,39 @@
     "park": "#456045"
   },
   "buildingVariants": {
-    "downtown": ["#5a6a86", "#54687a", "#68688e", "#4e5f79", "#616f8b"],
-    "residential": ["#7a5f4e", "#8a6a52", "#6e5a49", "#84705c", "#75604f", "#8d6f5a"],
-    "industrial": ["#6d6a58", "#75695a", "#60655c", "#7a7260", "#686253"],
-    "commercial": ["#835f74", "#8a6a62", "#6f6480", "#96707c", "#7d5a68"],
-    "park": ["#456045", "#4d684a"]
+    "downtown": [
+      "#5a6a86",
+      "#54687a",
+      "#68688e",
+      "#4e5f79",
+      "#616f8b"
+    ],
+    "residential": [
+      "#7a5f4e",
+      "#8a6a52",
+      "#6e5a49",
+      "#84705c",
+      "#75604f",
+      "#8d6f5a"
+    ],
+    "industrial": [
+      "#6d6a58",
+      "#75695a",
+      "#60655c",
+      "#7a7260",
+      "#686253"
+    ],
+    "commercial": [
+      "#835f74",
+      "#8a6a62",
+      "#6f6480",
+      "#96707c",
+      "#7d5a68"
+    ],
+    "park": [
+      "#456045",
+      "#4d684a"
+    ]
   },
   "sidewalkTint": {
     "downtown": "#5b6678",
@@ -75,6 +103,12 @@
   "glassShard": "#bfe0ef",
   "shopGun": "#c8583c",
   "shopClothing": "#3ca0c8",
+  "shopSpray": "#c8a13c",
+  "shopFloor": "#6a6259",
+  "shopFloorAlt": "#7a7168",
+  "shopCounter": "#4a3a2a",
+  "shopCounterTop": "#8a6a44",
+  "shopShelf": "#3d444d",
   "outline": "#0b0e13",
   "playerSkin": "#d8a577",
   "playerSkinDark": "#a87a52",

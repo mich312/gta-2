@@ -109,15 +109,24 @@ export class Economy {
     if (!drivethrough && player.mode !== 'foot') return fail('step out of the car first');
     if (drivethrough && player.mode !== 'driving') return fail('drive a car into the garage');
 
-    // Must be standing (or parked) in a doorway of the right shop kind.
+    // Must be standing (or parked) in the doorway of the right shop kind, or
+    // inside the shop itself — the buildings are hollow now, and the counter
+    // is the obvious place to expect to be served.
     const inShop = map.shops.some((s) => {
       if (s.kind !== item.shop) return false;
       const cx = (s.doorX + 0.5) * TILE_SIZE;
       const cy = (s.doorY + 0.5) * TILE_SIZE;
       const reach = drivethrough ? DOORWAY_RADIUS_PX * 2 : DOORWAY_RADIUS_PX;
-      return Math.abs(player.pos.x - cx) < reach && Math.abs(player.pos.y - cy) < reach;
+      if (Math.abs(player.pos.x - cx) < reach && Math.abs(player.pos.y - cy) < reach) return true;
+      const r = s.interior;
+      return (
+        player.pos.x >= r.x * TILE_SIZE &&
+        player.pos.y >= r.y * TILE_SIZE &&
+        player.pos.x <= (r.x + r.w) * TILE_SIZE &&
+        player.pos.y <= (r.y + r.h) * TILE_SIZE
+      );
     });
-    if (!inShop) return fail(`find a ${item.shop} shop doorway`);
+    if (!inShop) return fail(`find a ${item.shop} shop`);
 
     const ledger = this.ledgerFor(key);
     const ref = `buy:${randomUUID()}`;

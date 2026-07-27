@@ -9,6 +9,7 @@ import {
   T_WATER,
   T_BRIDGE,
   T_SIDEWALK,
+  T_FLOOR,
   generateCity,
 } from 'shared';
 import { loadWorldgenParams } from '../tuning.js';
@@ -28,6 +29,7 @@ interface PaletteFile {
   building: Record<string, string>;
   shopGun: string;
   shopClothing: string;
+  shopFloor: string;
   water: string;
   kerb: string;
   uiAccent: string;
@@ -65,6 +67,7 @@ function main(): void {
     [T_LOT]: hexToRgb(palette.lot),
     [T_WATER]: hexToRgb(palette.water),
     [T_BRIDGE]: hexToRgb(palette.kerb),
+    [T_FLOOR]: hexToRgb(palette.shopFloor),
   };
 
   const put = (x: number, y: number, c: [number, number, number]): void => {

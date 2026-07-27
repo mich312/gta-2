@@ -5,6 +5,7 @@ import type { WorldgenParams } from './params.js';
 import {
   DISTRICT_TYPES,
   T_BUILDING,
+  T_FLOOR,
   T_LOT,
   T_PARK,
   T_RAMP,
@@ -63,33 +64,139 @@ function findDoorway(map: CityMap, b: Building): { x: number; y: number } | null
   return null;
 }
 
+/**
+ * Hollow out a shop: the building keeps a one-tile wall ring and everything
+ * inside it becomes walkable floor, with a doorway punched through the wall
+ * beside the door tile. Returns null when the geometry does not work — too
+ * small to have an inside, or a doorway that would open into a corner rather
+ * than into the room.
+ *
+ * The roof is simply absent over the floor tiles, so the room reads as a
+ * cutaway from above: exactly how the genre has always shown an interior, and
+ * it needs no second render pass or per-building height.
+ */
+function carveInterior(
+  map: CityMap,
+  b: Building,
+  door: { x: number; y: number },
+  wide: boolean,
+): { interior: { x: number; y: number; w: number; h: number }; entryX: number; entryY: number } | null {
+  const interior = { x: b.x + 1, y: b.y + 1, w: b.w - 2, h: b.h - 2 };
+  if (interior.w < 1 || interior.h < 1) return null;
+
+  // Which wall the doorway goes through follows from where the door tile sits,
+  // as does which way is "outside" from it.
+  let entryX: number;
+  let entryY: number;
+  let alongX: boolean;
+  let outX = 0;
+  let outY = 0;
+  if (door.y === b.y - 1) {
+    entryX = door.x;
+    entryY = b.y;
+    alongX = true;
+    outY = -1;
+  } else if (door.y === b.y + b.h) {
+    entryX = door.x;
+    entryY = b.y + b.h - 1;
+    alongX = true;
+    outY = 1;
+  } else if (door.x === b.x - 1) {
+    entryX = b.x;
+    entryY = door.y;
+    alongX = false;
+    outX = -1;
+  } else if (door.x === b.x + b.w) {
+    entryX = b.x + b.w - 1;
+    entryY = door.y;
+    alongX = false;
+    outX = 1;
+  } else {
+    return null;
+  }
+  // The doorway has to open onto the room, not into the corner of the ring.
+  if (alongX && (entryX < interior.x || entryX >= interior.x + interior.w)) return null;
+  if (!alongX && (entryY < interior.y || entryY >= interior.y + interior.h)) return null;
+
+  const set = (tx: number, ty: number): void => {
+    map.tiles[ty * map.widthTiles + tx] = T_FLOOR;
+  };
+  for (let ty = interior.y; ty < interior.y + interior.h; ty++) {
+    for (let tx = interior.x; tx < interior.x + interior.w; tx++) set(tx, ty);
+  }
+  set(entryX, entryY);
+
+  // A garage door is two tiles wide, because a car is wider than one tile and
+  // a respray you cannot drive into is not a respray.
+  if (wide) {
+    const nx = alongX ? entryX + 1 : entryX;
+    const ny = alongX ? entryY : entryY + 1;
+    const inRoom = alongX ? nx < interior.x + interior.w : ny < interior.y + interior.h;
+    // ...and only where the approach to that half is open ground rather than
+    // the next building along.
+    const outside = t(map, nx + outX, ny + outY);
+    if (inRoom && outside !== T_BUILDING && outside !== T_WATER && outside !== -1) set(nx, ny);
+  }
+  return { interior, entryX, entryY };
+}
+
 export function placeShops(map: CityMap, params: WorldgenParams, rng: number): number {
   for (const kind of ['gun', 'clothing', 'spray'] as const) {
     const quota = params.shopQuota[kind];
     const preferred = SHOP_DISTRICTS[kind];
-    // Candidates in preference order, then by index (deterministic).
+    // Candidates in preference order, then by index (deterministic). Roomy
+    // buildings first — a shop is a place you walk into now, and a 3x3
+    // footprint leaves a single tile of floor behind the counter. The small
+    // ones stay eligible so the quota is still met on a cramped map.
     const candidates: number[] = [];
-    for (const d of preferred) {
-      for (let i = 0; i < map.buildings.length; i++) {
-        const b = map.buildings[i] as Building;
-        if (b.district === d && b.w >= 3 && b.h >= 3) candidates.push(i);
+    for (const minSize of [5, 3]) {
+      for (const d of preferred) {
+        for (let i = 0; i < map.buildings.length; i++) {
+          const b = map.buildings[i] as Building;
+          const size = Math.min(b.w, b.h);
+          if (b.district !== d || size < minSize) continue;
+          if (minSize === 3 && size >= 5) continue; // already in the first pass
+          candidates.push(i);
+        }
       }
     }
     let placed = 0;
     const used = new Set(map.shops.map((s) => s.buildingIndex));
+    // Pick from the roomy prefix while there is one, so the random draw cannot
+    // reach past it into the cramped tail while good sites remain.
+    let head = candidates.length;
+    for (let i = 0; i < candidates.length; i++) {
+      const b = map.buildings[candidates[i] as number] as Building;
+      if (Math.min(b.w, b.h) < 5) {
+        head = i;
+        break;
+      }
+    }
     while (placed < quota && candidates.length > 0) {
       let pick: number;
-      [pick, rng] = nextIntRange(rng, 0, candidates.length);
+      [pick, rng] = nextIntRange(rng, 0, head > 0 ? head : candidates.length);
       const bi = candidates.splice(pick, 1)[0] as number;
+      if (head > 0) head--;
       if (used.has(bi)) continue;
-      const door = findDoorway(map, map.buildings[bi] as Building);
+      const building = map.buildings[bi] as Building;
+      const door = findDoorway(map, building);
       if (!door) continue;
       // Keep shops apart so districts share the wealth.
       const tooClose = map.shops.some(
         (s) => Math.abs(s.doorX - door.x) + Math.abs(s.doorY - door.y) < 20,
       );
       if (tooClose) continue;
-      map.shops.push({ kind, doorX: door.x, doorY: door.y, buildingIndex: bi });
+      const room = carveInterior(map, building, door, kind === 'spray');
+      if (!room) continue;
+      map.shops.push({
+        kind,
+        doorX: door.x,
+        doorY: door.y,
+        buildingIndex: bi,
+        interior: room.interior,
+        entryX: room.entryX,
+        entryY: room.entryY,
+      });
       used.add(bi);
       placed++;
     }

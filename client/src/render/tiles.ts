@@ -11,6 +11,7 @@ import {
   T_WATER,
   T_BRIDGE,
   T_RAMP,
+  T_FLOOR,
   TILE_SIZE,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -79,6 +80,8 @@ export class TileLayer {
   private frameCounter = 0;
   /** Building index per tile (1-based; 0 = not a building). */
   private buildingOf: Int32Array = new Int32Array(0);
+  /** Shop index per tile of its building footprint (1-based; 0 = none). */
+  private shopOf: Int32Array = new Int32Array(0);
   /** Contiguous road-run length and index within it, per axis. */
   private runH: Uint8Array = new Uint8Array(0);
   private runV: Uint8Array = new Uint8Array(0);
@@ -91,6 +94,7 @@ export class TileLayer {
     this.map = map;
     this.chunks.clear();
     this.indexBuildings(map);
+    this.indexShops(map);
     this.indexRoadRuns(map);
   }
 
@@ -180,6 +184,23 @@ export class TileLayer {
         for (let tx = b.x; tx < b.x + b.w; tx++) {
           if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) continue;
           this.buildingOf[ty * map.widthTiles + tx] = i + 1;
+        }
+      }
+    });
+  }
+
+  /**
+   * Which shop each interior tile belongs to, so a floor tile knows whose
+   * shop it is standing in without searching the whole shop list per tile.
+   */
+  private indexShops(map: CityMap): void {
+    this.shopOf = new Int32Array(map.widthTiles * map.heightTiles);
+    map.shops.forEach((shop, i) => {
+      const r = shop.interior;
+      for (let ty = r.y - 1; ty <= r.y + r.h; ty++) {
+        for (let tx = r.x - 1; tx <= r.x + r.w; tx++) {
+          if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) continue;
+          this.shopOf[ty * map.widthTiles + tx] = i + 1;
         }
       }
     });
@@ -338,6 +359,9 @@ export class TileLayer {
       case T_RAMP:
         this.paintRamp(ctx, tx, ty, x, y);
         break;
+      case T_FLOOR:
+        this.paintShopFloor(ctx, tx, ty, x, y);
+        break;
       default:
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
@@ -411,6 +435,121 @@ export class TileLayer {
     const band = Math.max(1, (TD / 8) | 0);
     for (let i = 0; i < 3; i++) {
       ctx.fillRect(x + 2, y + 2 + i * band * 2, TD - 4, band);
+    }
+  }
+
+  /**
+   * The inside of a shop.
+   *
+   * Buying used to happen through a closed wall: the shop was a coloured
+   * awning on the pavement and a menu that opened when you stood near it. The
+   * generator now hollows the building out, so there is a room to walk into —
+   * and because the roof simply is not drawn over floor tiles, it reads as a
+   * cutaway from above without a second render pass.
+   *
+   * Fittings are derived per tile from the room rect and where its door is:
+   * threshold on the doorway, counter along the back wall, shelves down the
+   * sides, and a marked-out bay instead for a respray you drive into.
+   */
+  private paintShopFloor(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    const map = this.map as CityMap;
+    const shop = map.shops[(this.shopOf[ty * map.widthTiles + tx] as number) - 1];
+    const s = RENDER_SCALE;
+
+    // Chequered floor with a grout line along the north and west edges.
+    const base = ((tx + ty) & 1) === 0 ? palette.shopFloor : palette.shopFloorAlt;
+    ctx.fillStyle = base;
+    ctx.fillRect(x, y, TD, TD);
+    this.speckle(ctx, tx, ty, x, y, shade(base, 0.12), 5, 1, 77);
+    ctx.fillStyle = shade(base, 0.3);
+    ctx.fillRect(x, y, TD, s);
+    ctx.fillRect(x, y, s, TD);
+    if (!shop) return;
+
+    const accent =
+      shop.kind === 'gun'
+        ? palette.shopGun
+        : shop.kind === 'clothing'
+          ? palette.shopClothing
+          : palette.shopSpray;
+    const r = shop.interior;
+    const inRoom = tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h;
+    if (!inRoom) {
+      // The doorway itself: a threshold strip in the shop's colour.
+      ctx.fillStyle = shade(accent, 0.35);
+      ctx.fillRect(x + 2 * s, y + 2 * s, TD - 4 * s, TD - 4 * s);
+      ctx.fillStyle = accent;
+      ctx.fillRect(x + 4 * s, y + 4 * s, TD - 8 * s, TD - 8 * s);
+      return;
+    }
+
+    // A respray is a garage: keep the floor clear so a car can be driven in,
+    // and mark the bay out instead of furnishing it.
+    if (shop.kind === 'spray') {
+      ctx.fillStyle = shade(accent, 0.55);
+      const stripe = Math.max(1, s);
+      if (ty === r.y) ctx.fillRect(x, y + 3 * s, TD, stripe);
+      if (ty === r.y + r.h - 1) ctx.fillRect(x, y + TD - 4 * s, TD, stripe);
+      if (tx === r.x) ctx.fillRect(x + 3 * s, y, stripe, TD);
+      if (tx === r.x + r.w - 1) ctx.fillRect(x + TD - 4 * s, y, stripe, TD);
+      if (hash2(tx, ty, 78) > 0.55) {
+        ctx.fillStyle = 'rgba(12, 14, 18, 0.35)';
+        ctx.beginPath();
+        ctx.arc(x + TD / 2, y + TD / 2, 4 * s, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      return;
+    }
+
+    // Which wall the door is in tells us where the back of the shop is.
+    const doorTop = shop.entryY < r.y;
+    const doorBottom = shop.entryY >= r.y + r.h;
+    const doorLeft = shop.entryX < r.x;
+    const vertical = doorTop || doorBottom;
+    const depth = vertical ? r.h : r.w;
+    const backRow = doorTop ? r.y + r.h - 1 : r.y;
+    const backCol = doorLeft ? r.x + r.w - 1 : r.x;
+    const atBack = vertical ? ty === backRow : tx === backCol;
+
+    // A counter needs a shop deep enough to stand behind it.
+    if (depth >= 2 && atBack) {
+      ctx.fillStyle = palette.shopCounter;
+      ctx.fillRect(x, y, TD, TD);
+      ctx.fillStyle = palette.shopCounterTop;
+      // Lip on the customer side.
+      if (vertical) {
+        ctx.fillRect(x, doorTop ? y : y + TD - 3 * s, TD, 3 * s);
+      } else {
+        ctx.fillRect(doorLeft ? x : x + TD - 3 * s, y, 3 * s, TD);
+      }
+      ctx.fillStyle = accent;
+      ctx.fillRect(x + 3 * s, y + 3 * s, TD - 6 * s, 2 * s);
+      return;
+    }
+
+    // Shelves against the side walls, stocked in the shop's colour.
+    const sideWall = vertical
+      ? tx === r.x || tx === r.x + r.w - 1
+      : ty === r.y || ty === r.y + r.h - 1;
+    if (sideWall && depth >= 3 && hash2(tx, ty, 79) > 0.35) {
+      ctx.fillStyle = palette.shopShelf;
+      const west = vertical ? tx === r.x : ty === r.y;
+      if (vertical) ctx.fillRect(west ? x : x + TD - 5 * s, y + 2 * s, 5 * s, TD - 4 * s);
+      else ctx.fillRect(x + 2 * s, west ? y : y + TD - 5 * s, TD - 4 * s, 5 * s);
+      ctx.fillStyle = accent;
+      for (let i = 0; i < 3; i++) {
+        if (vertical) {
+          ctx.fillRect(west ? x + s : x + TD - 4 * s, y + (3 + i * 4) * s, 2 * s, 2 * s);
+        } else {
+          ctx.fillRect(x + (3 + i * 4) * s, west ? y + s : y + TD - 4 * s, 2 * s, 2 * s);
+        }
+      }
     }
   }
 

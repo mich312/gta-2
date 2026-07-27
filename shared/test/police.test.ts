@@ -207,6 +207,13 @@ describe('wanted + police', () => {
     expect(wantedLevelOf(state.players.byId[1]!)).toBeGreaterThanOrEqual(3);
     const t = getTuning().police;
 
+    // Stand the fugitive in the open, on a road, rather than wherever the
+    // spree left them: this test is about whether pursuit converges and gets
+    // a shot away, not about whether the seed happened to leave them cornered
+    // somewhere with no line of sight.
+    const lane = roadLane(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+
     // Cops arrive on a ramp (one per spawnCooldownTicks), not as a wall, so
     // the posse is measured at its peak over the window rather than at a
     // single instant — the fugitive may be shot dead partway through, which

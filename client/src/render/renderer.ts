@@ -284,6 +284,13 @@ export function render(
       continue;
     }
     lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45);
+    // The room behind the door is lit too, or walking in is walking into a
+    // dark hole in the middle of a lit street.
+    const r = shop.interior;
+    const cx = (r.x + r.w / 2) * TILE_SIZE;
+    const cy = (r.y + r.h / 2) * TILE_SIZE;
+    const reach = Math.max(r.w, r.h) * TILE_SIZE * 0.8;
+    lights.point(dx(cx), dy(cy), reach * RENDER_SCALE, 'shop', 0.5);
   }
 
   drawProps(ctx, sprites, scene.remotes.props, dx, dy);

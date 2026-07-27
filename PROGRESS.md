@@ -1,5 +1,60 @@
 # PROGRESS
 
+## Play-test fixes — facing, traffic, impacts, fists, shop interiors
+
+Five things reported from actually playing it.
+
+**The avatar did not face the way it ran.** The sim only knows `aimAngle` —
+the mouse — and the sprite was drawn at it, so running north with the pointer
+east read as a crab walk. On foot the body now turns to the direction of
+travel, eased at a fixed rate per second; aim wins while standing still and
+while shooting, and the aim tick still shows the firing line. Presentation
+only: the sim still shoots along `aimAngle`.
+
+**Ambient traffic was broken three separate ways.** (1) Lane keeping aimed at
+the centre of the *tile* a car stood on rather than at a side of the
+carriageway, so on any road wider than one tile — all of them — oncoming cars
+shared a lane; its deadband (`laneHalfWidth`, 14 px) was also nearly a tile
+wide, so it never engaged at all. Drivers now measure the road across their
+direction of travel and pure-pursue the centre of its right-hand half with a
+proportional wheel. (2) A junction turn assigned `heading += ±90°` outright,
+teleporting the car sideways; turns are steered now, slowing to `turnSpeed`
+for the corner — a key that had sat in the tuning file with nothing reading
+it. (3) "Blocked" held the brake down, and past a standstill the brake is
+reverse, so anything stuck behind a parked car reversed away down the street;
+blocked now brakes and holds, and reverse is a bounded recovery shunt. Falling
+out of the measurement work: the obstacle probe treated kerbs and grass as
+walls (only buildings, water and cars are solid), overtaking so a parked car
+is not a permanent roadblock, bridges counting as road, and a car that has
+wandered off the carriageway steering back onto it. Over 5 seeds: 84% of cars
+under way (was 23%), 91% on the correct side (was a coin toss), 2.3% off the
+road (was 45%). Driver intent lives in `state.trafficDrivers` — no client
+simulates traffic, so it stays off the wire and out of the desync hash.
+
+**Cars could not hit anybody.** The run-over threshold was 130 px/s and
+ambient traffic cruises at 104, so every NPC car in the city drove through
+players, pedestrians and officers untouched; the only vehicle that could run
+anyone over was one a player was flooring. 40 px/s now, damage scaling with
+speed, and a hit throws you along the car's line instead of only denting your
+health.
+
+**Fists fired bullets.** A melee swing is reported as a `shot` event and the
+client drew every `shot` the same way: muzzle flash, spark cone, ricochet and
+a bullet hole in the tarmac. The avatar also held a pistol whatever was
+selected. Two new sprite families (`playerFist`, `playerPunch`) and a melee
+effect keyed off `weapons.*.melee`, so any future melee weapon behaves the
+same way.
+
+**Shops had no inside.** Buying happened through a closed wall — the shop was
+an awning on the pavement and a menu that opened when you stood near it. The
+generator now hollows the building out: a one-tile wall ring, a room of
+walkable `T_FLOOR` behind it, and a doorway punched through the shopfront
+(two tiles wide for a respray, because a car is wider than one tile). The roof
+simply is not drawn over floor tiles, so the room reads as a cutaway from
+above with no second render pass and no per-building height. Counter along the
+back wall, shelves down the sides, a marked-out bay for a garage; the server
+serves you anywhere inside the room, not only in the doorway.
+
 ## Waves A2–E1 — the roadmap, delivered
 
 Everything in `ROADMAP.md` after the A1 fixes. Each wave was committed and

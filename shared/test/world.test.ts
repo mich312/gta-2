@@ -6,7 +6,14 @@ import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { boxInSolid, isSolidTile, moveWithCollision } from '../src/world/collide.js';
-import { T_BUILDING, T_ROAD, T_SIDEWALK, TILE_SIZE, type CityMap } from '../src/world/types.js';
+import {
+  T_BUILDING,
+  T_FLOOR,
+  T_ROAD,
+  T_SIDEWALK,
+  TILE_SIZE,
+  type CityMap,
+} from '../src/world/types.js';
 import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
@@ -60,6 +67,70 @@ describe('world generation', () => {
     for (const s of map.shops) {
       expect(isSolidTile(map, s.doorX, s.doorY)).toBe(false);
     }
+  });
+
+  it('every shop has a room you can walk into from its door', () => {
+    for (const seed of [31337, 808, 4, 99]) {
+      const map = generateCity(seed, params);
+      expect(map.shops.length).toBeGreaterThan(0);
+      for (const s of map.shops) {
+        const r = s.interior;
+        expect(r.w).toBeGreaterThan(0);
+        expect(r.h).toBeGreaterThan(0);
+
+        // The room is floor, and floor is walkable.
+        for (let ty = r.y; ty < r.y + r.h; ty++) {
+          for (let tx = r.x; tx < r.x + r.w; tx++) {
+            expect(map.tiles[ty * map.widthTiles + tx]).toBe(T_FLOOR);
+            expect(isSolidTile(map, tx, ty)).toBe(false);
+          }
+        }
+        // The doorway is punched through the wall ring, not left as wall...
+        expect(map.tiles[s.entryY * map.widthTiles + s.entryX]).toBe(T_FLOOR);
+        // ...and it is genuinely a way in: the door tile outside, the doorway
+        // and the room are one connected walkable region.
+        const seen = new Set<number>();
+        const queue = [[s.doorX, s.doorY] as [number, number]];
+        let reachedRoom = false;
+        while (queue.length > 0 && !reachedRoom) {
+          const [tx, ty] = queue.shift() as [number, number];
+          const key = ty * map.widthTiles + tx;
+          if (seen.has(key) || isSolidTile(map, tx, ty)) continue;
+          seen.add(key);
+          if (tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h) {
+            reachedRoom = true;
+            break;
+          }
+          // Stay inside the footprint plus its doorstep, so this is a test of
+          // the doorway rather than of the pavement network.
+          if (Math.abs(tx - s.doorX) > r.w + 2 || Math.abs(ty - s.doorY) > r.h + 2) continue;
+          queue.push([tx + 1, ty], [tx - 1, ty], [tx, ty + 1], [tx, ty - 1]);
+        }
+        expect(reachedRoom).toBe(true);
+      }
+    }
+  });
+
+  it('a respray garage is wide enough to drive into', () => {
+    // A car's collision box is 18 px across and a tile is 16, so a one-tile
+    // doorway is not a doorway for a vehicle.
+    const map = generateCity(808, params);
+    const sprays = map.shops.filter((s) => s.kind === 'spray');
+    expect(sprays.length).toBeGreaterThan(0);
+    const drivable = sprays.filter((s) => {
+      const along: Array<[number, number]> =
+        s.entryY < s.interior.y || s.entryY >= s.interior.y + s.interior.h
+          ? [
+              [s.entryX - 1, s.entryY],
+              [s.entryX + 1, s.entryY],
+            ]
+          : [
+              [s.entryX, s.entryY - 1],
+              [s.entryX, s.entryY + 1],
+            ];
+      return along.some(([tx, ty]) => map.tiles[ty * map.widthTiles + tx] === T_FLOOR);
+    });
+    expect(drivable.length).toBeGreaterThan(0);
   });
 
   it('player spawns are walkable, inside the map, and spread apart', () => {
