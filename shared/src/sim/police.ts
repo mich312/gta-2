@@ -163,9 +163,9 @@ const PURSUIT_STEER_GAIN = 3;
 /** Heading error past which a cruiser needs a U-turn rather than a corner. */
 const PURSUIT_UTURN_ERROR = 2;
 /** Speed it takes that U-turn at, so the radius fits inside a street. */
-const PURSUIT_UTURN_SPEED = 40;
+const PURSUIT_UTURN_SPEED = 24;
 /** Below this speed a cruiser that ought to be moving is wedged. */
-const PURSUIT_WEDGED_SPEED = 20;
+const PURSUIT_WEDGED_SPEED = 12;
 /** How far ahead the direct line to the target is checked for a wall. */
 const PURSUIT_CLEAR_LOOK = 96;
 /** Multiple of `dismountDist` within which a walled-off target is walked to. */

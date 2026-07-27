@@ -4,7 +4,7 @@ import vehiclesJson from '../data/vehicles.json';
 import weaponsJson from '../data/weapons.json';
 import policeJson from '../data/police.json';
 import worldgenJson from '../data/worldgen.json';
-import { initTuning, getTuning } from '../src/tuning.js';
+import { initTuning, getTuning, getVehicleTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import {
@@ -144,7 +144,7 @@ describe('wanted + police', () => {
     let state = boardParkedCar(11);
     const t = getTuning().police;
     const v = state.vehicles.byId[2]!;
-    v.speed = 300;
+    v.speed = getVehicleTuning('car').maxSpeed; // flat out, whatever that is
     insertEntity(state.cops, createCop(90, { x: v.pos.x, y: v.pos.y }, t.copHealth));
 
     const events: SimEvent[] = [];

@@ -65,7 +65,7 @@ function integrateVehicle(
     const closing = Math.abs(v.speed);
     v.speed = -v.speed * t.crashDamp; // crunch + slight rebound
     if (Math.abs(v.speed) < 10) v.speed = 0;
-    if (state && closing > 90) {
+    if (state && closing > 54) {
       damageVehicle(state, v, collisionDamage(v.kind, closing) * 0.7, events ?? []);
     }
   }
@@ -86,7 +86,7 @@ function integrateVehicle(
     }
     v.speed = q8(-v.speed * t.crashDamp);
     if (Math.abs(v.speed) < 10) v.speed = 0;
-    if (closing > 60) {
+    if (closing > 36) {
       damageVehicle(state, v, collisionDamage(v.kind, closing), events ?? []);
       damageVehicle(state, hit, collisionDamage(hit.kind, closing), events ?? []);
     }
@@ -95,6 +95,34 @@ function integrateVehicle(
   v.pos.y = q8(v.pos.y);
   v.speed = q8(v.speed);
 }
+
+/**
+ * How wrecked a car is, 0 (showroom) to 1 (one more shunt and it burns).
+ *
+ * Derived from health rather than stored, so it costs nothing on the wire and
+ * cannot disagree between hosts. Division is exactly rounded under IEEE-754,
+ * so this is prediction-safe like everything else here.
+ */
+export function vehicleWear(v: VehicleState): number {
+  const max = getVehicleTuning(v.kind).health;
+  if (max <= 0) return 0;
+  const wear = (max - v.health) / max;
+  return wear < 0 ? 0 : wear > 1 ? 1 : wear;
+}
+
+/**
+ * Which way a bent car pulls. Taken from the id so it needs no state and never
+ * changes for a given car: a wreck that wandered left and then right would read
+ * as ice, not as damage.
+ */
+function pullSign(id: number): number {
+  return id % 2 === 0 ? 1 : -1;
+}
+
+/** Power a battered engine loses at full wear, as a fraction. */
+const WEAR_POWER_LOSS = 0.45;
+/** Steering a bent car applies on its own at full wear, as a fraction of lock. */
+const WEAR_PULL = 0.3;
 
 /** One tick of driver-controlled vehicle. */
 export function stepVehicleDriving(
@@ -144,10 +172,24 @@ export function driveVehicle(
     return;
   }
   const throttle = clamp(throttleIn, -1, 1);
-  const steer = clamp(steerIn, -1, 1);
+  // A damaged car does not drive straight. The pull is added BEFORE the clamp
+  // so a badly bent one cannot be held perfectly straight at full lock — you
+  // fight it, and at walking pace you win, because steering authority scales
+  // with speed and the pull does not.
+  const wear = vehicleWear(v);
+  const steer = clamp(steerIn + pullSign(v.id) * wear * WEAR_PULL, -1, 1);
+  // ...and it does not pull like it used to, either.
+  const power = 1 - wear * WEAR_POWER_LOSS;
 
   if (throttle > 0) {
-    v.speed = Math.min(t.maxSpeed, v.speed + t.accel * throttle * DT);
+    // Over the reduced ceiling — shot while flat out, say — it bleeds off at
+    // engine-braking rate rather than snapping down, which would read as
+    // hitting an invisible wall.
+    const cap = t.maxSpeed * power;
+    v.speed =
+      v.speed > cap
+        ? approach(v.speed, cap, t.friction * DT)
+        : Math.min(cap, v.speed + t.accel * power * throttle * DT);
   } else if (throttle < 0) {
     v.speed =
       v.speed > 0
@@ -181,7 +223,7 @@ export function stepVehicleCoasting(
   integrateVehicle(v, map, state, events);
 }
 
-const MAX_BOARDING_SPEED = 40;
+const MAX_BOARDING_SPEED = 24;
 
 /** Try to put a player into the nearest free, near-stationary vehicle. */
 export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap): boolean {

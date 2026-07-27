@@ -14,6 +14,7 @@ import {
   generateCity,
   getWeaponTuning,
   initTuning,
+  vehicleWear,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
 import { cameraLead, computeCamera, render, type Scene } from './render/renderer.js';
@@ -461,6 +462,7 @@ function frame(now: number): void {
                 heading: smoothVehicle.angle,
                 speed: predictor.predictedVehicle?.speed ?? 0,
                 condition: predictor.predictedVehicle?.condition ?? 'ok',
+                wear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : 0,
                 z: predictor.predicted?.z ?? 0,
               }
             : null,
@@ -529,6 +531,12 @@ function frame(now: number): void {
         .length ?? 0,
     peds: sync.latest?.peds.length ?? 0,
     props: sync.latest?.props.length ?? 0,
+    // Condition of the car being driven: what the dents and the handling
+    // penalty are drawn from, and the only way a test can tell a battered car
+    // from a fresh one without reading pixels.
+    carHealth: predictor.predictedVehicle?.health ?? null,
+    carWear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : null,
+    carCondition: predictor.predictedVehicle?.condition ?? null,
     fps: stats.fps,
     frameMs: stats.frameMs,
     frameMsPeak: stats.frameMsPeak,

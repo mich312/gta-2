@@ -143,6 +143,22 @@ export interface TrafficTuning {
   brakeDistancePerSpeed: number;
   /** Wheel per radian of heading error, before clamping to full lock. */
   steerGain: number;
+  /**
+   * Intelligent Driver Model parameters — see `sim/traffic.ts`. Together these
+   * replace the old "is anything in the way? then brake" rule with a
+   * continuous acceleration, which is what makes a queue a queue rather than a
+   * row of cars taking turns to stamp on the pedals.
+   */
+  /** s0: gap a driver keeps from the car in front at a standstill, px. */
+  minGap: number;
+  /** T: gap a driver keeps in TIME when moving, seconds. */
+  timeHeadway: number;
+  /** a: acceleration a driver is comfortable with, px/s^2. */
+  comfortAccel: number;
+  /** b: deceleration a driver is comfortable with, px/s^2. Not a panic stop. */
+  comfortBrake: number;
+  /** How far ahead a driver looks for whatever it is following, px. */
+  scanHorizon: number;
   /** Wedged sim ticks a driver tolerates before backing out (30 = 1 s). */
   blockedTimeoutTicks: number;
   /** How long that reverse lasts, in sim ticks. Bounded on purpose. */
@@ -361,6 +377,11 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     brakeDistance: n('brakeDistance'),
     brakeDistancePerSpeed: n('brakeDistancePerSpeed'),
     steerGain: n('steerGain'),
+    minGap: n('minGap'),
+    timeHeadway: n('timeHeadway'),
+    comfortAccel: n('comfortAccel'),
+    comfortBrake: n('comfortBrake'),
+    scanHorizon: n('scanHorizon'),
     blockedTimeoutTicks: n('blockedTimeoutTicks'),
     reverseTicks: n('reverseTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
@@ -374,7 +395,7 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
 }
 
 /** Movement fallback, matching `shared/data/player.json`. */
-const DEFAULT_PLAYER: PlayerTuning = { walkSpeed: 130, accel: 900 };
+const DEFAULT_PLAYER: PlayerTuning = { walkSpeed: 78, accel: 540 };
 
 const DEFAULT_TRAFFIC: TrafficTuning = {
   count: 14,
@@ -384,6 +405,11 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   brakeDistance: 8,
   brakeDistancePerSpeed: 0.22,
   steerGain: 4.5,
+  minGap: 6,
+  timeHeadway: 1.1,
+  comfortAccel: 90,
+  comfortBrake: 130,
+  scanHorizon: 120,
   blockedTimeoutTicks: 90,
   reverseTicks: 30,
   decisionCadenceTicks: 21,

@@ -17,7 +17,7 @@ import { T_RAMP, TILE_SIZE, type CityMap } from '../world/types.js';
 /** Gravity for airborne vehicles, px/s². */
 const GRAVITY = 900;
 /** Below this you are not going fast enough to leave the ground. */
-const RAMP_MIN_SPEED = 210;
+const RAMP_MIN_SPEED = 128;
 /** Vertical kick a ramp imparts, scaled by how fast you hit it. */
 const RAMP_LAUNCH = 0.62;
 

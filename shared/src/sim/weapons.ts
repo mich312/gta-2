@@ -33,18 +33,18 @@ export const FISTS_SLOT: { weaponId: string; ammo: number } = { weaponId: FISTS_
  * in the game that could run anybody over was one a player was flooring. A
  * car rolling off a kerb is enough; the damage scales with speed from there.
  */
-const RUNOVER_MIN_SPEED = 40;
+const RUNOVER_MIN_SPEED = 24;
 const RUNOVER_IMMUNITY_TICKS = 12;
 /** Damage per px/s of the car's speed. */
-const RUNOVER_DAMAGE_PER_SPEED = 0.13;
+const RUNOVER_DAMAGE_PER_SPEED = 0.22;
 /** Ditto for pedestrians, who are rather less robust. */
-const RUNOVER_PED_DAMAGE_PER_SPEED = 0.2;
+const RUNOVER_PED_DAMAGE_PER_SPEED = 0.33;
 /** How much of the car's speed is transferred to whoever it hits, as px/s. */
 const RUNOVER_KNOCKBACK = 0.7;
 /** How far past the car's own body a drive-by round starts, px. */
 const DRIVEBY_MUZZLE_CLEARANCE = 4;
 /** Extra spread per px/s of the car's speed, and its ceiling (radians). */
-const DRIVEBY_SPREAD_PER_SPEED = 0.0004;
+const DRIVEBY_SPREAD_PER_SPEED = 0.00067;
 const DRIVEBY_MAX_EXTRA_SPREAD = 0.1;
 
 /** Distance along a ray until it enters a solid tile (DDA; exact ops). */

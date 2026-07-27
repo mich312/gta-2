@@ -9,6 +9,7 @@ import {
   TILE_SIZE,
   clamp,
   getWeaponTuning,
+  vehicleWear,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import type { Screen } from './canvas.js';
@@ -42,6 +43,8 @@ export interface Scene {
     heading: number;
     speed: number;
     condition: string;
+    /** 0 = undamaged, 1 = about to catch fire. */
+    wear: number;
     /** Height off the ground; nonzero only mid-stunt. */
     z: number;
   } | null;
@@ -56,14 +59,14 @@ export interface Scene {
 /** How far ahead of the player the camera leads, at full speed, in world px. */
 const LEAD_MAX = 54;
 /** Speed at which the lead reaches its maximum. */
-const LEAD_FULL_SPEED = 280;
+const LEAD_FULL_SPEED = 168;
 
 /**
  * Camera top-left in world coords. Deliberately *not* rounded — see `render`.
  *
- * The camera leads towards where the player is going. Without it, a car at
- * 330 px/s crosses the 480 px viewport in 1.45 s, so the driver only ever
- * sees ~0.7 s of road ahead and is permanently steering into the blind half
+ * The camera leads towards where the player is going. Without it, a car
+ * crosses the 480 px viewport in a couple of seconds, so the driver only ever
+ * sees a second of road ahead and is permanently steering into the blind half
  * of the screen.
  */
 export function computeCamera(
@@ -100,7 +103,7 @@ export function cameraLead(
   }
   const mag = Math.hypot(velX, velY);
   if (mag < 1) return { x: 0, y: 0 };
-  const f = Math.min(1, mag / 130) * 0.35;
+  const f = Math.min(1, mag / 78) * 0.35;
   return { x: (velX / mag) * LEAD_MAX * f, y: (velY / mag) * LEAD_MAX * f };
 }
 
@@ -321,6 +324,7 @@ export function render(
       rv.vehicle.speed,
       rv.vehicle.driverId !== null,
       rv.vehicle.condition,
+      vehicleWear(rv.vehicle),
       dx,
       dy,
       scene.nowMs,
@@ -340,6 +344,7 @@ export function render(
       scene.localVehicle.speed,
       true,
       scene.localVehicle.condition,
+      scene.localVehicle.wear,
       dx,
       dy,
       scene.nowMs,
@@ -489,6 +494,58 @@ function drawPlayer(
   ctx.lineWidth = 1;
 }
 
+/** Most dents a car can show, at the point where it is about to catch fire. */
+const MAX_DENTS = 7;
+
+/**
+ * Crumpled panels, drawn straight onto the car's own sprite.
+ *
+ * A car's condition was invisible until the instant it burst into flame: you
+ * could shunt one down a street and it looked showroom-fresh right up to the
+ * fireball. The dents are keyed off the vehicle id, so a given car's damage
+ * appears in the same places every frame and grows outward as it takes more —
+ * dents that danced around the bodywork would read as static, not as damage.
+ *
+ * `source-atop` clips the patches to the sprite's own alpha, so they land on
+ * the bodywork and never square off over the road underneath.
+ */
+function drawDents(
+  ctx: CanvasRenderingContext2D,
+  id: number,
+  x: number,
+  y: number,
+  heading: number,
+  fp: { rx: number; ry: number },
+  wear: number,
+): void {
+  const count = Math.floor(wear * MAX_DENTS);
+  if (count <= 0) return;
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.translate(x, y);
+  ctx.rotate(heading);
+  for (let i = 0; i < count; i++) {
+    // A cheap deterministic hash of (id, i): no rng, no per-frame state, and
+    // stable across the client restarting mid-session.
+    const h = Math.abs(Math.sin(id * 12.9898 + i * 78.233) * 43758.5453);
+    const u = h % 1;
+    const w = (h * 7) % 1;
+    const px = (u * 2 - 1) * fp.rx * 0.8;
+    const py = (w * 2 - 1) * fp.ry * 0.75;
+    const r = (0.7 + ((h * 13) % 1) * 0.9) * RENDER_SCALE;
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(20, 18, 20, 0.55)' : 'rgba(38, 34, 34, 0.42)';
+    ctx.beginPath();
+    ctx.ellipse(px, py, r * 1.6, r, ((h * 31) % 1) * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Past half-wrecked the paint is scorched as well as bent.
+  if (wear > 0.5) {
+    ctx.fillStyle = `rgba(26, 22, 22, ${((wear - 0.5) * 0.5).toFixed(3)})`;
+    ctx.fillRect(-fp.rx, -fp.ry, fp.rx * 2, fp.ry * 2);
+  }
+  ctx.restore();
+}
+
 function drawVehicle(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
@@ -502,6 +559,8 @@ function drawVehicle(
   speed: number,
   occupied: boolean,
   condition: string,
+  /** 0 = undamaged, 1 = about to catch fire. See `vehicleWear`. */
+  wear: number,
   dx: (n: number) => number,
   dy: (n: number) => number,
   nowMs: number,
@@ -544,6 +603,8 @@ function drawVehicle(
     ctx.restore();
   }
 
+  drawDents(ctx, id, x, y, heading, fp, wear);
+
   // Strobing light bar on any cruiser with an officer aboard.
   if (kind === 'copcar' && occupied) {
     const phase = Math.sin(nowMs * 0.012 + id) > 0;
@@ -582,7 +643,7 @@ function drawVehicle(
     );
   }
   lights.cone(x + cos * front, y + sin * front, heading, 66 * RENDER_SCALE, 'head', 0.42);
-  const braking = speed < 0 || Math.abs(speed) < 12;
+  const braking = speed < 0 || Math.abs(speed) < 7;
   for (const s of [-1, 1]) {
     lights.point(
       x - cos * front + nx * side * s,
@@ -617,9 +678,9 @@ const SKID_MIN_YAW_RATE = 1.9;
  * 520 and coasts down at 180 (`vehicles.json`), so this catches the pedal and
  * ignores lifting off.
  */
-const SKID_MIN_DECEL = 300;
+const SKID_MIN_DECEL = 180;
 /** ...and the speed it has to be doing for the marks to show. */
-const SKID_MIN_BRAKE_SPEED = 90;
+const SKID_MIN_BRAKE_SPEED = 54;
 /** Rubber is laid at a wall-clock cadence, not per frame — a 240 Hz display
  *  must not lay four times the rubber of a 60 Hz one. */
 const SKID_INTERVAL_MS = 45;

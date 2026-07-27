@@ -1,7 +1,7 @@
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { clamp, q8 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
-import { getTrafficTuning, getVehicleTuning } from '../tuning.js';
+import { getTrafficTuning, getVehicleTuning, type TrafficTuning } from '../tuning.js';
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
 import { createVehicle } from './state.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -13,7 +13,8 @@ import {
   drivableTile,
   nearestCardinal,
 } from './roadgrid.js';
-import { isSolidAtWorld } from '../world/collide.js';
+import { PLAYER_RADIUS } from '../constants.js';
+import { rayWallDistance } from './weapons.js';
 import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
 
@@ -73,13 +74,17 @@ const RIGHT_SIGN = [1, -1, -1, 1] as const;
  * its heading and picks lane keeping back up on the far side.
  */
 const MAX_LANE_TILES = 4;
+/** How far past a junction a driver will look for the lane it comes out into. */
+const MAX_JUNCTION_TILES = 6;
 /** Heading error past which a driver lifts off and takes the corner slowly. */
 const TURN_ERROR = 0.35;
 /** Speed below which a car that ought to be moving counts as wedged. */
 const WEDGED_SPEED = 12;
-/** Standing distance a driver keeps from somebody on foot, px, plus per px/s. */
-const PERSON_GAP = 6;
-const PERSON_GAP_PER_SPEED = 0.13;
+/**
+ * Gap inside which a person in the road counts as the reason a driver is
+ * stationary, so it gets a pedestrian's patience rather than a wall's.
+ */
+const STOP_GAP = 30;
 
 /** AI drivers are negative ids; -1 is reserved for "the streets". */
 export function isAiDriver(driverId: number | null): boolean {
@@ -145,30 +150,6 @@ function laneOptions(map: CityMap, x: number, y: number, dirIdx: number): number
 }
 
 /**
- * Is somebody on foot standing on this point — a pedestrian, or a player out
- * of their car? Cops on foot count too; an officer directing traffic he is
- * about to be flattened by is not the look.
- */
-function personAt(state: GameState, x: number, y: number, reach: number): boolean {
-  for (const id of state.peds.ids) {
-    const ped = state.peds.byId[id];
-    if (!ped) continue;
-    if (Math.abs(ped.pos.x - x) < reach && Math.abs(ped.pos.y - y) < reach) return true;
-  }
-  for (const id of state.players.ids) {
-    const p = state.players.byId[id];
-    if (!p || p.mode !== 'foot') continue;
-    if (Math.abs(p.pos.x - x) < reach && Math.abs(p.pos.y - y) < reach) return true;
-  }
-  for (const id of state.cops.ids) {
-    const cop = state.cops.byId[id];
-    if (!cop || cop.vehicleId !== null) continue;
-    if (Math.abs(cop.pos.x - x) < reach && Math.abs(cop.pos.y - y) < reach) return true;
-  }
-  return false;
-}
-
-/**
  * Is another vehicle sitting on this point? The reach has to stay under the
  * lane spacing (16 px on an arterial), or a car in the next lane along reads
  * as blocking this one and nobody ever changes lane.
@@ -182,6 +163,188 @@ function vehicleAt(state: GameState, self: VehicleState, x: number, y: number): 
     if (Math.abs(other.pos.x - x) < reach && Math.abs(other.pos.y - y) < reach) return true;
   }
   return false;
+}
+
+/**
+ * Where the lane we are heading for picks up again on the far side of a
+ * junction, or null if there is no road that way.
+ *
+ * A junction is a hole in the lane model: the carriageway measured across the
+ * direction of travel is the width of the CROSSING road, so `laneOptions`
+ * correctly refuses to answer and the driver has nothing to aim at. Walking
+ * forward tile by tile until the lane model works again is the same thing a
+ * path-node driver does when it reaches the end of a lane — take the next lane
+ * on the route and drive at it — and it is what turns a corner into an arc
+ * instead of a rotation about the junction centre.
+ */
+function junctionExit(
+  map: CityMap,
+  x: number,
+  y: number,
+  dirIdx: number,
+): { x: number; y: number } | null {
+  const [dx, dy] = CARDINALS[dirIdx] as readonly [number, number];
+  const alongX = dirIdx === 0 || dirIdx === 2;
+  for (let step = 1; step <= MAX_JUNCTION_TILES; step++) {
+    const px = x + dx * step * TILE_SIZE;
+    const py = y + dy * step * TILE_SIZE;
+    if (!drivableAt(map, px, py)) return null;
+    const lanes = laneOptions(map, px, py, dirIdx);
+    if (!lanes) continue;
+    const lane = lanes[0] as number;
+    return { x: alongX ? px : lane, y: alongX ? lane : py };
+  }
+  return null;
+}
+
+/*
+ * Junction right-of-way was built here and measured out again.
+ *
+ * The literature's third ingredient, after car-following and lane traversal,
+ * is gap acceptance: yield before entering a junction somebody is already
+ * crossing. It was implemented as the one rule that cannot deadlock — yield
+ * only to traffic ALREADY in the box, never to traffic merely approaching it,
+ * and never yield once committed yourself — and over twelve seeds it is worse
+ * on four metrics out of five: lane discipline 98.4% -> 97.9%, traffic under
+ * way 90.6% -> 88.4%, head-on encounters 1.00% -> 1.36%, off the carriageway
+ * 0.74% -> 1.2%, against a single marginal gain in collision damage.
+ *
+ * Why: with the Intelligent Driver Model already braking for anything that
+ * enters the car's path, a car crossing a junction gets braked for on its own
+ * merits. The extra rule mostly stops cars that had no conflict, and a car
+ * stopped at a junction mouth is a car other drivers then have to negotiate.
+ * Cheap politeness, expensive traffic.
+ */
+
+/** What a driver has found in front of it, and how fast that thing is going. */
+interface Ahead {
+  /** Bumper-to-bumper distance, px. Infinity when the road is clear. */
+  gap: number;
+  /** The obstacle's speed along OUR heading. Negative for oncoming traffic. */
+  leadSpeed: number;
+  /** True when the nearest thing in the way is a person rather than a car. */
+  person: boolean;
+}
+
+/**
+ * The nearest thing in this car's path, whatever it is: a car, a person on
+ * foot, or a wall.
+ *
+ * This replaces a set of yes/no probes at fixed points ahead of the bumper.
+ * A probe can only answer "is something there?", which is the entire reason
+ * the old driver could only stamp or lift: to follow a car properly you have
+ * to know how far away it is AND how fast it is going, so you can close the
+ * distance when it pulls away and ease off before you reach it. Everything is
+ * projected onto the car's own heading, which is what makes an oncoming car
+ * report a NEGATIVE lead speed and get braked for twice as hard as a slow one.
+ */
+function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: number): Ahead {
+  const half = getVehicleTuning(v.kind).halfExtent;
+  const cos = dCos(v.heading);
+  const sin = dSin(v.heading);
+  let gap = Infinity;
+  let leadSpeed = 0;
+  let person = false;
+
+  // Buildings and water. Started at the bumper, not the centre, or a car is
+  // permanently "half a car length" closer to every wall than it really is.
+  const wall = rayWallDistance(map, v.pos.x + cos * half, v.pos.y + sin * half, cos, sin, horizon);
+  if (wall < horizon) gap = wall;
+
+  /** Fold one obstacle in, if it is genuinely in our path and closer. */
+  const consider = (ox: number, oy: number, radius: number, speed: number, isPerson: boolean) => {
+    const rx = ox - v.pos.x;
+    const ry = oy - v.pos.y;
+    const fwd = rx * cos + ry * sin;
+    if (fwd <= 0) return; // behind us
+    const lat = -rx * sin + ry * cos;
+    // Our own width plus theirs: anything outside that is in another lane and
+    // is not ours to worry about.
+    if (lat > half + radius || lat < -(half + radius)) return;
+    const g = fwd - half - radius;
+    if (g >= gap) return;
+    gap = g;
+    leadSpeed = speed;
+    person = isPerson;
+  };
+
+  for (const id of state.vehicles.ids) {
+    if (id === v.id) continue;
+    const other = state.vehicles.byId[id];
+    if (!other) continue;
+    const oHalf = getVehicleTuning(other.kind).halfExtent;
+    if (Math.abs(other.pos.x - v.pos.x) > horizon || Math.abs(other.pos.y - v.pos.y) > horizon) {
+      continue;
+    }
+    // Their speed resolved onto our heading. A car crossing us contributes
+    // almost nothing; one coming the other way contributes its full speed as a
+    // closing rate, which is exactly how it should read.
+    const along = other.speed * dCos(wrapAngle(other.heading - v.heading));
+    consider(other.pos.x, other.pos.y, oHalf, along, false);
+  }
+  for (const id of state.peds.ids) {
+    const ped = state.peds.byId[id];
+    if (!ped) continue;
+    consider(ped.pos.x, ped.pos.y, PLAYER_RADIUS, 0, true);
+  }
+  for (const id of state.players.ids) {
+    const p = state.players.byId[id];
+    if (!p || p.mode !== 'foot') continue;
+    consider(p.pos.x, p.pos.y, PLAYER_RADIUS, 0, true);
+  }
+  for (const id of state.cops.ids) {
+    const cop = state.cops.byId[id];
+    if (!cop || cop.vehicleId !== null) continue;
+    consider(cop.pos.x, cop.pos.y, PLAYER_RADIUS, 0, true);
+  }
+  // A fresh object every time, deliberately. This used to return a shared
+  // module-level CLEAR constant for the open-road case, and the caller folds
+  // the junction-yield gap in by assigning to the result — so the first driver
+  // ever to yield wrote a finite gap into the singleton and every "clear road"
+  // reading in the process from then on reported a phantom obstacle. The whole
+  // city stopped: 13% of traffic under way against 90%.
+  return { gap, leadSpeed, person };
+}
+
+/**
+ * The Intelligent Driver Model: how hard to press which pedal, as one number.
+ *
+ *   accel = A * [ 1 - (v/v0)^4 - (wanted/gap)^2 ]
+ *   wanted = s0 + max(0, v*T + v*dv / (2*sqrt(A*B)))
+ *
+ * The first bracket term is the free road — ease off smoothly as you approach
+ * your desired speed. The second is the car in front: `wanted` (s-star in the
+ * literature) is the gap you WANT given your speed and how fast you are
+ * closing, and the further inside it you are the harder you brake. dv is the
+ * closing rate, so a leader pulling away shrinks the desired gap and you
+ * accelerate after it.
+ *
+ * This is the standard model from traffic engineering (Treiber, Hennecke &
+ * Helbing 2000) and it is what the driver here was missing. The previous rule
+ * was "something within the braking distance? full reverse-thrust braking;
+ * otherwise full throttle", which is a bang-bang controller: it cannot follow
+ * anything, so traffic could only alternate between charging and stamping, and
+ * a queue behaved as a row of independent cars each rediscovering the one in
+ * front.
+ *
+ * Exact ops only, so it stays in lockstep: `Math.pow` is not IEEE-pinned, hence
+ * the written-out fourth power, and `Math.sqrt` is exactly rounded so it is
+ * allowed.
+ */
+function idmAccel(speed: number, desired: number, ahead: Ahead, t: TrafficTuning): number {
+  const r = desired > 0 ? speed / desired : 1;
+  const free = 1 - r * r * r * r;
+  if (ahead.gap === Infinity) return t.comfortAccel * free;
+
+  const dv = speed - ahead.leadSpeed; // closing rate; negative when it pulls away
+  const wanted =
+    t.minGap +
+    Math.max(0, speed * t.timeHeadway + (speed * dv) / (2 * Math.sqrt(t.comfortAccel * t.comfortBrake)));
+  // Never divide by a gap of zero: overlapping means "brake as hard as you can",
+  // not "produce an infinity and poison the state hash".
+  const s = ahead.gap > 0.5 ? ahead.gap : 0.5;
+  const ratio = wanted / s;
+  return t.comfortAccel * (free - ratio * ratio);
 }
 
 /**
@@ -276,7 +439,19 @@ function laneControl(
       targetX = back.x;
       targetY = back.y;
     }
-  } else if (lanes) {
+  } else if (!lanes) {
+    // Standing INSIDE a junction, where the carriageway has no sides to keep
+    // to. Aim at the lane we will be in when we come out the far side, which
+    // is how a path-node driver traverses a junction: pick the next lane on
+    // the route and drive at it. Holding the current heading instead — which
+    // is what happened before — means every turn is taken by rotating on the
+    // spot at the junction centre and then cutting the corner.
+    const exit = junctionExit(map, v.pos.x, v.pos.y, dirIdx);
+    if (exit) {
+      targetX = exit.x;
+      targetY = exit.y;
+    }
+  } else {
     // Take the first lane that is actually free, in preference order. A parked
     // car is 18 px wide in a 16 px lane, so without this every one of them is a
     // permanent roadblock.
@@ -302,43 +477,24 @@ function laneControl(
   const err = wrapAngle(dAtan2(targetY - v.pos.y, targetX - v.pos.x) - v.heading);
   const steer = clamp(err * t.steerGain, -1, 1);
 
-  // What is in the way, measured along the nose rather than along the lane:
-  // this part is about not hitting things, not about where we want to be. Only
-  // buildings, water and other cars stop a car — kerbs and grass do not, and
-  // braking for them is what left the old traffic parked at every junction it
-  // clipped a corner of.
-  const half = getVehicleTuning(v.kind).halfExtent;
-  const cos = dCos(v.heading);
-  const sin = dSin(v.heading);
-  const gap = half + t.brakeDistance + Math.abs(v.speed) * t.brakeDistancePerSpeed;
-  const solid = isSolidAtWorld(map, v.pos.x + cos * (half + 5), v.pos.y + sin * (half + 5));
-  // People get braked for at the distance a car can actually stop in, and no
-  // further: traffic that halts for anybody within five car lengths never
-  // moves in a city with two hundred pedestrians in it, and stepping off the
-  // kerb in front of a moving car should still be a bad idea.
-  const stopGap = half + PERSON_GAP + Math.abs(v.speed) * PERSON_GAP_PER_SPEED;
-  const personBlocked = personAt(
-    state,
-    v.pos.x + cos * stopGap,
-    v.pos.y + sin * stopGap,
-    half,
-  );
-  const blocked =
-    personBlocked || solid || vehicleAt(state, v, v.pos.x + cos * gap, v.pos.y + sin * gap);
+  // Corner speed: `turnSpeed` through a bend, cruise on the straight.
+  const desired = Math.abs(err) > TURN_ERROR ? t.turnSpeed : t.cruiseSpeed;
 
-  // Corner speed. `turnSpeed` has sat in the tuning file since the beginning
-  // with nothing reading it; this is what it was for.
-  const cruise = Math.abs(err) > TURN_ERROR ? t.turnSpeed : t.cruiseSpeed;
+  // How hard to press which pedal, from one continuous model of what is in
+  // front. Requested as an ACCELERATION and converted to a pedal position at
+  // the end, so the same request means the same thing whatever the car's
+  // engine and brakes happen to be worth.
+  const ahead = scanAhead(state, map, v, t.scanHorizon);
+  const accel = idmAccel(v.speed, desired, ahead, t);
+  const veh = getVehicleTuning(v.kind);
+  const throttle =
+    accel >= 0 ? Math.min(1, accel / veh.accel) : Math.max(-1, accel / veh.brake);
 
-  let throttle = 1;
-  if (blocked) {
-    // Brake — and once stopped, hold the car still rather than leaning on the
-    // pedal, because past a standstill "brake" means "reverse".
-    throttle = v.speed > WEDGED_SPEED ? -1 : 0;
-  } else if (v.speed >= cruise) {
-    throttle = v.speed > cruise * 1.25 ? -0.6 : 0;
-  }
-  return { throttle, steer, personBlocked };
+  // Coasting is not braking: below walking pace, asking for negative
+  // acceleration means asking for reverse, and a queue of ambient cars slowly
+  // reversing into each other is worse than any jam.
+  const held = throttle < 0 && v.speed <= 0 ? 0 : throttle;
+  return { throttle: held, steer, personBlocked: ahead.person && ahead.gap < STOP_GAP };
 }
 
 /**

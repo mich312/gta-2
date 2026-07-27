@@ -98,7 +98,7 @@ export function stepPeds(
       for (const vid of state.vehicles.ids) {
         const v = state.vehicles.byId[vid];
         if (!v) continue;
-        const loud = Math.abs(v.speed) >= 140;
+        const loud = Math.abs(v.speed) >= 84;
         const dx = ped.pos.x - v.pos.x;
         const dy = ped.pos.y - v.pos.y;
         const d2 = dx * dx + dy * dy;

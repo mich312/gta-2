@@ -8,7 +8,7 @@ import propsJson from '../data/props.json';
 import pickupsJson from '../data/pickups.json';
 import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
-import { getTrafficTuning, initTuning } from '../src/tuning.js';
+import { getTrafficTuning, getVehicleTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState, type VehicleState } from '../src/sim/state.js';
@@ -297,6 +297,56 @@ describe('ambient traffic', () => {
     // Not "less than a third": zero, give or take a car pinned against a wall
     // at speed for a tick. It was 66.7%.
     expect(stalled / steps).toBeLessThan(0.02);
+  });
+
+  it('follows the car in front instead of charging it and stamping', () => {
+    // The Intelligent Driver Model's whole job. The old controller was
+    // bang-bang — full throttle until something entered the braking distance,
+    // then full brake — so a driver could not follow anything: it charged,
+    // stamped, rolled forward, charged again. Approaching a stopped car it
+    // must now settle at a sensible gap without hitting it and without
+    // sawing at the pedals.
+    const lane = eastboundLane();
+    let state = createGameState(303);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    // Stand the player near the street. Ambient drivers are culled once no
+    // player is within `despawnDist`, and a culled car coasts to a halt — which
+    // looks exactly like braking if you only check that it stopped.
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 240 };
+    // A stationary obstacle four car-lengths down the lane...
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 910, kind: 'car', x: lane.x + 120, y: lane.y, heading: 0 }],
+      map,
+    );
+    state.vehicles.byId[910]!.speed = 0;
+    // ...and an ambient driver coming up behind it at cruise.
+    state = ambientCar(state, 911, lane);
+
+    let hardest = 0;
+    let last = state.vehicles.byId[911]!.speed;
+    for (let i = 0; i < 150; i++) {
+      state = step(state, {}, [], map);
+      const car = state.vehicles.byId[911];
+      if (!car) break;
+      hardest = Math.max(hardest, Math.abs(car.speed - last));
+      last = car.speed;
+    }
+    const follower = state.vehicles.byId[911]!;
+    const leader = state.vehicles.byId[910]!;
+    const gap = follower.pos.x - leader.pos.x;
+
+    // Stopped (or crawling) behind it, not through it and not miles back.
+    expect(follower.speed).toBeLessThan(20);
+    expect(gap).toBeLessThan(0); // still behind
+    expect(Math.abs(gap)).toBeGreaterThan(getVehicleTuning('car').halfExtent * 2);
+    expect(Math.abs(gap)).toBeLessThan(90);
+    // The leader was never rammed.
+    expect(leader.health).toBe(getVehicleTuning('car').health);
+    // And it was eased down, not stamped: a full-brake tick scrubs
+    // brake/TICK_RATE = 10 px/s, which is what the old controller did.
+    expect(hardest).toBeLessThan(9);
   });
 
   it('drives on the right-hand side of the road', () => {
