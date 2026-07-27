@@ -1,5 +1,181 @@
 # PROGRESS
 
+## Slower, tougher cars, and a driver model out of the traffic literature
+
+**Everything was too fast.** A car did 330 px/s across a 480 px viewport: 1.45
+seconds from one edge to the other, so a driver saw about 0.7 s of road ahead
+and was permanently steering into the half of the screen they could not see.
+The whole speed domain is scaled by 0.6 — every accel, brake, friction and top
+speed in the tuning, and the twenty-odd speed thresholds in code that have to
+move with them (run-over, ramp launch, boarding, prop smashing, skid marks,
+camera lead, pursuit U-turns). Scaling accel alongside top speed keeps
+time-to-top-speed unchanged, so the cars feel the same, just not teleport-fast.
+Two test fixtures had literal speeds baked in and now read them from the
+tuning, so the next rebalance cannot quietly turn "it really drove" into an
+assertion top speed cannot meet.
+
+**Cars exploded almost immediately.** 100 health against 0.16 damage per px/s
+of impact meant two hard shunts lit a car up and four seconds later it was
+gone. Panel damage is a third of what it was, the shell is twice as tough and
+the fuse is seven seconds: a car now takes a real beating, and you can run from
+one that is alight.
+
+**Damage you can see and feel.** A car one shunt from bursting into flames used
+to drive exactly like a showroom one and look like it too. `vehicleWear` — a
+pure function of health, so it costs nothing on the wire and cannot disagree
+between hosts — now drives both. A battered car loses up to 45% of its power
+and pulls to one side (which way is taken from its id, so it is the same pull
+every tick rather than reading as ice), and the renderer crumples its panels
+with dents keyed off the same id, clipped to the sprite with `source-atop` and
+scorching the paint past half-wrecked.
+
+**The blast radius was rectangular.** The damage falloff has always been a
+circle; the scorch mark on the ground was a 111 px axis-aligned *square*,
+because every decal in the game was a `fillRect`. Decals now have a shape:
+tyre marks stay rectangles (they are one), blood and bullet holes are ellipses,
+and the explosion scorch is a cached radial gradient drawn at the true blast
+diameter — so the mark left behind is the area that actually hurt.
+
+### The car AI, done the way the literature says
+
+Three things separate real traffic simulation from what was here. Researched
+first, then implemented and measured one at a time over twelve seeds.
+
+**1. Car-following: the Intelligent Driver Model.** The driver was a bang-bang
+controller — full throttle until something entered its braking distance, then
+full brake — so it could not *follow* anything: it charged, stamped, rolled,
+charged again. IDM asks for a continuous acceleration from the gap and the
+closing rate:
+
+    accel  = A * [ 1 - (v/v0)^4 - (wanted/gap)^2 ]
+    wanted = s0 + max(0, v*T + v*dv / (2*sqrt(A*B)))
+
+and that needed a real forward scan (nearest obstacle, its distance, and its
+speed resolved onto our heading) in place of yes/no probes at fixed points.
+Oncoming traffic falls out for free: its speed projects negative, so it is
+braked for twice as hard as something slow going the same way.
+
+**2. Junction traversal.** The lane model has a hole in it: measured across the
+direction of travel, a junction is the width of the *crossing* road, so
+`laneOptions` correctly refuses to answer and the driver had nothing to aim at
+— it held its heading and cut every corner. It now walks forward to where its
+lane picks up on the far side and drives at that, which is what a path-node
+driver does when it reaches the end of a lane.
+
+Together, over twelve seeds:
+
+| | before | after |
+|---|---|---|
+| on the correct side | 94.5% | **98.4%** |
+| worst seed | 92.9% | **96.8%** |
+| head-on encounters | 6.3% | **1.0%** |
+| traffic under way | 86.5% | **90.6%** |
+| stopped | 9.6% | **4.1%** |
+| reversing | 3.7% | **1.9%** |
+| mean speed change per tick | 4.19 | **0.92** |
+| self-inflicted collision damage | 0.022 | **0.0072** |
+
+**3. Right-of-way — built, measured, and taken out again.** Gap acceptance at
+junctions was implemented as the one rule that cannot deadlock: yield only to
+traffic already *in* the box, never to traffic approaching it, and never once
+committed yourself. It is worse on four metrics out of five (lane discipline
+98.4% → 97.9%, traffic under way 90.6% → 88.4%, head-on 1.00% → 1.36%, off-road
+0.74% → 1.2%). With IDM already braking for anything that enters the car's
+path, the extra rule mostly stops cars that had no conflict — and a car stopped
+at a junction mouth is one everybody else then has to negotiate. The finding is
+recorded in the code so it is not re-derived.
+
+It also found a real bug on the way in: `scanAhead` returned a shared
+module-level `CLEAR` constant for the open-road case, and the yield rule folded
+its gap into the result by assignment — so the first driver ever to yield wrote
+a finite gap into the singleton and every "clear road" reading afterwards
+reported a phantom obstacle. The city seized up, 13% of traffic under way
+against 90%. It returns a fresh object now.
+
+A sweep confirmed the rest rather than changing it: the IDM headway and comfort
+brake are at the balanced point (a longer headway corners better but drops
+traffic under way to 87%), and the pure-pursuit look-ahead and steer gain are
+still best where they were — a shorter look-ahead won on six seeds and the win
+did not survive twelve.
+
+## Running where you point, and traffic that moves every tick
+
+**Movement follows the mouse.** On foot the keys are now read in the frame the
+player is aiming in: `up` runs towards the pointer, `down` backs away from it,
+`left`/`right` sidestep across it. Screen-relative keys meant the two halves of
+the control scheme disagreed — you pointed at a doorway, held a key that knew
+nothing about the pointer, and the avatar left at whatever angle the two
+happened to make. The body sprite is drawn at the aim angle for the same
+reason: the facing IS the frame the controls are expressed in, so anything else
+would leave the avatar pointing one way while `up` sent it another. Verified in
+the browser: mouse north/east/south/north-west, hold `W`, travel direction
+matches the pointer to 0°.
+
+**Traffic stuttered because it only moved ten times a second.** Ambient drivers
+thought *and drove* on a staggered 3-tick cadence: `stepTraffic` ran three
+`driveVehicle` calls on one tick and skipped the next two. The average speed
+came out right and the city still looked broken — a car under way did not move
+at all on 66.7% of ticks and then jumped nine pixels, and those jumps land
+exactly on the tick boundaries the client interpolates between, so no amount of
+smoothing on the client could hide it. Routing still runs at 10 Hz (it decides
+which way a car is going, not where it is); the wheel, the pedals and the
+physics now run every tick. Stalled ticks 66.7% -> 0%, and the spread of
+per-tick displacement drops from 1.47 to 0.20 of its mean. `blockedTimeoutTicks`
+and `reverseTicks` are rescaled x3 because they now count real ticks, which is
+what their names always claimed. On-foot officers had the same defect at
+122 px/s and are fixed the same way; the 200-strong crowd keeps its 10 Hz,
+which is where the delta-traffic argument for the cadence actually bites.
+
+Lane discipline is unchanged at 90.4% over twelve seeds — the remaining 10% is
+junctions and overtaking parked cars. Two attempts to improve it were measured
+and thrown away: a longer or gentler pure-pursuit look-ahead is worse at every
+setting tried, and so is forbidding a driver to cross the centreline for
+anything that is still moving (lane discipline 90.8% -> 89.5%, head-on
+encounters 4.2% -> 4.8%, traffic under way 81% -> 79% — cars that cannot flow
+round each other queue, queues wedge, and the recovery manoeuvre costs more
+position than the overtake did). Both findings are recorded in the code so the
+next person does not re-derive them.
+
+**Punching drew a bullet tracer.** The melee fix went into the effects layer but
+not into the HUD, which drew a tracer for every `shot` event — and the sim
+reports a punch as a `shot`. So a swing put a yellow bullet line and a puff of
+smoke on the end of the player's fist, which is exactly what it looks like when
+you shoot. The HUD no longer decides for itself: `Hud.tracer()` is called by the
+event handler, which is the only place that knows which weapon threw the event.
+Counted in the browser by instrumenting `stroke()`: 48 tracer strokes over four
+seconds of punching before, 0 after.
+
+## Wider side streets
+
+A two-tile secondary road is 32 px and a car's collision box is 18, so two
+cars could not pass each other on any side street in the city: every parked
+car plugged its road, every meeting was a standoff, and about half of all
+ambient traffic was stationary in a busy neighbourhood however the parking was
+arranged. `secondaryWidth` is 3. Over six seeds with a crowd and 48 parked
+cars, traffic under way goes 57.5% -> 66.8%, and the worst neighbourhood 44%
+-> 54% — the point being not the average but that a bad draw is no longer a
+car park. Block sizes grow to match, so the asphalt comes out of the road grid
+rather than the buildings.
+
+Two knock-on fixes: a cruiser now gets out and walks when the fugitive is
+close but behind a wall (wider roads gave pursuit cars room to circle a block
+for ever, never near enough to dismount and never blocked enough to give up),
+and `openWater` joins `roadLane`/`clearSpot` in the test helpers, because the
+boat test assumed the first mooring on the map pointed down the river.
+
+## Deployment: reaching the right server, and not serving stale sprites
+
+Found by running the container path locally — built client, served by the game
+server, WebSocket on the same port. The static server sent no cache headers at
+all, so a browser could hold the old `sprites.png` against the new
+`sprites.meta.json` and draw every sprite from the wrong coordinates — the game
+comes up corrupt for one person after a deploy that was otherwise fine. Fixed
+names are `no-cache`; only the content-hashed bundles are immutable.
+
+(`serverUrl()` picking `:8080` on a plain-http page is deliberate, not a bug:
+that is the port the container publishes and the port local dev runs on. A
+build served from anywhere else uses `?server=`.)
+
 ## Drive-bys, kerbside parking, impacts you can see, and rubber on the road
 
 **Drive-by shooting.** `stepWeapons` gated firing on `mode !== 'foot'`, which

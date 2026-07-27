@@ -1,10 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import type { Server as HttpServer } from 'node:http';
 import { WebSocketServer, type WebSocket, type RawData } from 'ws';
+import { createStaticServer } from './staticServer.js';
 import {
   RESUME_GRACE_MS,
   SNAPSHOT_HASH_INTERVAL,
   TICK_RATE,
   getTuning,
+  PROTOCOL_VERSION,
   binaryCodec,
   parseClientMessage,
 } from 'shared';
@@ -16,6 +19,7 @@ import { ClientConn } from './client.js';
 
 export class GameServer {
   private wss: WebSocketServer | null = null;
+  private httpServer: HttpServer | null = null;
   private readonly conns = new Set<ClientConn>();
   private readonly byPlayer = new Map<number, ClientConn>();
 
@@ -27,11 +31,24 @@ export class GameServer {
 
   listen(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const wss = new WebSocketServer({ host: this.config.host, port: this.config.port });
+      let wss: WebSocketServer;
+      if (this.config.clientDir) {
+        // Production: one HTTP server serves the built client AND carries the
+        // WebSocket upgrade, so a single TLS origin (the edge proxy) fronts
+        // both. The client connects to wss://<host> (same origin).
+        const http = createStaticServer(this.config.clientDir);
+        this.httpServer = http;
+        wss = new WebSocketServer({ server: http });
+        http.once('error', reject);
+        http.listen(this.config.port, this.config.host, () => resolve());
+      } else {
+        // Local dev: standalone WS; the client runs on Vite (:5173) over ws://.
+        wss = new WebSocketServer({ host: this.config.host, port: this.config.port });
+        wss.once('listening', () => resolve());
+        wss.once('error', reject);
+      }
       this.wss = wss;
       wss.on('connection', (ws) => this.onConnection(ws));
-      wss.once('listening', () => resolve());
-      wss.once('error', reject);
     });
   }
 
@@ -68,6 +85,7 @@ export class GameServer {
   close(): void {
     for (const conn of this.conns) conn.ws.close();
     this.wss?.close();
+    this.httpServer?.close();
   }
 
   private onConnection(ws: WebSocket): void {
@@ -94,6 +112,22 @@ export class GameServer {
 
     switch (msg.type) {
       case 'join':
+        // The protocol field has been sent since the first commit and never
+        // read. A client on a different build than the server produces
+        // baffling symptoms — a city generated from different worldgen code,
+        // or tuning the client cannot parse — so say so plainly instead.
+        if (msg.protocol !== PROTOCOL_VERSION) {
+          conn.send({
+            type: 'error',
+            code: 'protocol',
+            message:
+              `server speaks protocol ${PROTOCOL_VERSION}, client speaks ${msg.protocol} — ` +
+              'one of them is an older build: reload the page, or rebuild the server ' +
+              '(pnpm build)',
+          });
+          conn.ws.close();
+          return;
+        }
         this.handleJoin(conn, msg.name, msg.resumeToken);
         break;
       case 'input':

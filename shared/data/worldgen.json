@@ -4,27 +4,27 @@
   "arterialsX": 3,
   "arterialsY": 3,
   "arterialWidth": 4,
-  "secondaryWidth": 2,
+  "secondaryWidth": 3,
   "blockSize": {
     "downtown": [
-      9,
-      14
-    ],
-    "residential": [
-      12,
-      20
-    ],
-    "industrial": [
-      18,
-      30
-    ],
-    "commercial": [
       10,
       16
     ],
+    "residential": [
+      14,
+      22
+    ],
+    "industrial": [
+      20,
+      32
+    ],
+    "commercial": [
+      12,
+      18
+    ],
     "park": [
-      16,
-      28
+      18,
+      30
     ]
   },
   "districtSeeds": {

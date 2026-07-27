@@ -1,4 +1,5 @@
 import { rayWallDistance } from '../src/sim/weapons.js';
+import { isSolidAtWorld } from '../src/world/collide.js';
 import type { CityMap, VehicleSpawn } from '../src/world/types.js';
 
 /**
@@ -55,4 +56,41 @@ export function roadLane(map: CityMap, need = 120, marginPx = 64): VehicleSpawn 
     if (d >= need) return s;
   }
   throw new Error('no clear lane on this map');
+}
+
+/**
+ * A mooring with `need` px of open water ahead of its heading, for boat tests.
+ *
+ * Same trap as `roadLane`: taking `boatSpawns[0]` and opening the throttle
+ * assumes the first mooring on the map happens to point down the river rather
+ * than at the bank three metres away, and any change to worldgen quietly turns
+ * a navigation test into a test of how fast a boat hits a wall.
+ */
+export function openWater(map: CityMap, need = 60, marginPx = 64): VehicleSpawn {
+  for (const s of map.boatSpawns) {
+    if (
+      s.x < marginPx ||
+      s.y < marginPx ||
+      s.x > map.widthPx - marginPx ||
+      s.y > map.heightPx - marginPx
+    ) {
+      continue;
+    }
+    const dx = Math.cos(s.heading);
+    const dy = Math.sin(s.heading);
+    let clear = true;
+    // A boat is a box, so the hull's sides have to clear the bank too.
+    for (let d = 0; d <= need && clear; d += 4) {
+      for (const off of [-11, 0, 11]) {
+        const x = s.x + dx * d - dy * off;
+        const y = s.y + dy * d + dx * off;
+        if (isSolidAtWorld(map, x, y, 'water')) {
+          clear = false;
+          break;
+        }
+      }
+    }
+    if (clear) return s;
+  }
+  throw new Error('no navigable mooring on this map');
 }

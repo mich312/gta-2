@@ -1,6 +1,6 @@
 {
-  "walkSpeed": 48,
-  "fleeSpeed": 116,
+  "walkSpeed": 29,
+  "fleeSpeed": 70,
   "health": 30,
   "turnMinTicks": 40,
   "turnMaxTicks": 140,

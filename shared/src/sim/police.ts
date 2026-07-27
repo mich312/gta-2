@@ -163,11 +163,13 @@ const PURSUIT_STEER_GAIN = 3;
 /** Heading error past which a cruiser needs a U-turn rather than a corner. */
 const PURSUIT_UTURN_ERROR = 2;
 /** Speed it takes that U-turn at, so the radius fits inside a street. */
-const PURSUIT_UTURN_SPEED = 40;
+const PURSUIT_UTURN_SPEED = 24;
 /** Below this speed a cruiser that ought to be moving is wedged. */
-const PURSUIT_WEDGED_SPEED = 20;
+const PURSUIT_WEDGED_SPEED = 12;
 /** How far ahead the direct line to the target is checked for a wall. */
 const PURSUIT_CLEAR_LOOK = 96;
+/** Multiple of `dismountDist` within which a walled-off target is walked to. */
+const PURSUIT_FOOT_DIST_FACTOR = 2;
 
 /** Cop cruisers are AI-driven like traffic, but with a distinct id band. */
 function copDriverId(copId: number): number {
@@ -281,6 +283,17 @@ function drivePursuit(
   // road grid around it rather than driving into it.
   const look = Math.min(d, PURSUIT_CLEAR_LOOK);
   const blocked = rayWallDistance(map, v.pos.x, v.pos.y, dCos(want), dSin(want), look) < look;
+
+  // Close, but with a wall in between: the fugitive is inside a building, a
+  // plaza or a park interior, and no amount of driving will help. Park it and
+  // go in on foot. Without this an officer circles the block indefinitely —
+  // never near enough to dismount, never blocked enough to give up on the car.
+  if (blocked && d <= t.dismountDist * PURSUIT_FOOT_DIST_FACTOR) {
+    v.driverId = null;
+    cop.vehicleId = null;
+    cop.stuckTicks = 0;
+    return;
+  }
   let aim = want;
   if (blocked) {
     const dir = detourDir(map, v, want);
@@ -443,14 +456,19 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     }
 
     // Chase: greedy steering; axis-separated collision gives wall-slide.
-    // Staggered 3-tick cadence like peds: NPC motion at 10 Hz, 3x step —
-    // interpolation smooths it and delta traffic drops to a third.
-    if (bestD > 24 && (state.tick + cid) % 3 === 0) {
+    //
+    // Every tick, not the staggered 10 Hz the crowd uses. An officer runs at
+    // 122 px/s, so stepping three ticks at once and standing still for the
+    // other two moved him in twelve-pixel jumps — and a pursuer is the one NPC
+    // the player is watching most closely. There are only ever a handful of
+    // them on foot, so the delta traffic this costs is nothing; the 200-strong
+    // crowd is where that argument still bites, and it keeps its 10 Hz.
+    if (bestD > 24) {
       const dirX = (target.pos.x - cop.pos.x) / bestD;
       const dirY = (target.pos.y - cop.pos.y) / bestD;
       cop.vel.x = dirX * t.moveSpeed;
       cop.vel.y = dirY * t.moveSpeed;
-      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT * 3, cop.vel.y * DT * 3);
+      moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT, cop.vel.y * DT);
       if (cop.vel.x === 0 && cop.vel.y === 0) {
         // Fully wedged in a corner: deterministic sidestep along a wall.
         let flip: number;
@@ -460,13 +478,13 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
         const sy = dirX * side * t.moveSpeed;
         cop.vel.x = sx;
         cop.vel.y = sy;
-        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT * 3, sy * DT * 3);
+        moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT, sy * DT);
       }
       cop.pos.x = q8(cop.pos.x);
       cop.pos.y = q8(cop.pos.y);
       cop.vel.x = q8(cop.vel.x);
       cop.vel.y = q8(cop.vel.y);
-    } else if (bestD <= 24) {
+    } else {
       cop.vel.x = 0;
       cop.vel.y = 0;
     }

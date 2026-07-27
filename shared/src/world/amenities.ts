@@ -31,6 +31,9 @@ import {
  */
 const PARKED_HALF_EXTENT = 9;
 
+/** Street furniture the wire can afford, across the whole city. */
+const MAX_PROPS = 400;
+
 const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   gun: ['industrial', 'commercial', 'downtown'],
   clothing: ['commercial', 'downtown', 'residential'],
@@ -367,7 +370,12 @@ export function placeProps(map: CityMap): void {
       }
     }
   }
-  map.propSpawns = props.slice(0, 400);
+  // Sampled across the whole list, not the first 400 of a row-major sweep:
+  // that put every lamp post, bin and fence in the city into its top few
+  // blocks and left the other 80% of the map with no street furniture and no
+  // street lighting at all.
+  const stride = Math.max(1, Math.floor(props.length / MAX_PROPS));
+  map.propSpawns = props.filter((_, i) => i % stride === 0).slice(0, MAX_PROPS);
 }
 
 export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: number): number {

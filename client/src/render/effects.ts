@@ -24,6 +24,19 @@ interface Particle {
   glow: number;
 }
 
+/**
+ * How a decal is painted.
+ *
+ * Every decal used to be a `fillRect`, which is fine for a tyre mark — that IS
+ * a rectangle — and wrong for everything else. It was most wrong for the
+ * explosion scorch, a 111-pixel axis-aligned square of flat grey that made the
+ * blast radius look rectangular even though the damage falloff has always been
+ * a circle. `scorch` is a cached radial gradient so the mark fades out at its
+ * edge the way burnt asphalt does, and is drawn at exactly the blast radius, so
+ * what you see is the area that actually hurt.
+ */
+type DecalShape = 'rect' | 'ellipse' | 'scorch';
+
 interface Decal {
   x: number;
   y: number;
@@ -31,9 +44,31 @@ interface Decal {
   w: number;
   h: number;
   color: string;
+  shape: DecalShape;
   /** Seconds remaining; skid marks outlive blood. */
   life: number;
   maxLife: number;
+}
+
+let scorchTexture: HTMLCanvasElement | null = null;
+
+/** Soft round burn mark, rasterised once and tinted by alpha at draw time. */
+function getScorchTexture(): HTMLCanvasElement {
+  if (scorchTexture) return scorchTexture;
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, 'rgba(10, 8, 8, 0.72)');
+  g.addColorStop(0.45, 'rgba(14, 11, 11, 0.55)');
+  g.addColorStop(0.8, 'rgba(20, 16, 16, 0.22)');
+  g.addColorStop(1, 'rgba(20, 16, 16, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  scorchTexture = canvas;
+  return canvas;
 }
 
 /**
@@ -146,7 +181,7 @@ export class Effects {
         7,
       );
     }
-    this.addDecal(x, y, Math.random() * Math.PI, 3, 3, 'rgba(10, 12, 16, 0.55)', 14);
+    this.addDecal(x, y, Math.random() * Math.PI, 3, 3, 'rgba(10, 12, 16, 0.55)', 14, 'ellipse');
   }
 
   /**
@@ -203,6 +238,7 @@ export class Effects {
         3 + Math.random() * 5,
         'rgba(96, 16, 26, 0.62)',
         24,
+        'ellipse',
       );
     }
   }
@@ -244,7 +280,9 @@ export class Effects {
 
   /** A car going up: fireball, smoke column, and a scorch on the tarmac. */
   explosion(x: number, y: number, radius: number): void {
-    this.addDecal(x, y, 0, radius * 1.5, radius * 1.5, 'rgba(12, 10, 10, 0.5)', 40);
+    // Drawn at the true blast diameter: the mark left behind is the area the
+    // falloff actually reached, not a square 1.5x guess at it.
+    this.addDecal(x, y, 0, radius * 2, radius * 2, 'rgba(12, 10, 10, 0.5)', 40, 'scorch');
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2 + Math.random() * 0.3;
       const speed = 60 + Math.random() * radius * 2.2;
@@ -309,8 +347,9 @@ export class Effects {
     h: number,
     color: string,
     life: number,
+    shape: DecalShape = 'rect',
   ): void {
-    const decal: Decal = { x, y, angle, w, h, color, life, maxLife: life };
+    const decal: Decal = { x, y, angle, w, h, color, shape, life, maxLife: life };
     if (this.decals.length < MAX_DECALS) {
       this.decals.push(decal);
       return;
@@ -361,7 +400,15 @@ export class Effects {
       ctx.rotate(d.angle);
       const w = d.w * RENDER_SCALE;
       const h = d.h * RENDER_SCALE;
-      ctx.fillRect(-w / 2, -h / 2, w, h);
+      if (d.shape === 'scorch') {
+        ctx.drawImage(getScorchTexture(), -w / 2, -h / 2, w, h);
+      } else if (d.shape === 'ellipse') {
+        ctx.beginPath();
+        ctx.ellipse(0, 0, w / 2, h / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(-w / 2, -h / 2, w, h);
+      }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
     ctx.restore();

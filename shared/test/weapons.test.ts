@@ -65,8 +65,9 @@ function duel(map: CityMap): GameState {
     map,
   );
   // Walk p2 east until 100px separation (both spawn at the same point).
+  // Movement is aim-relative, and NULL_INPUT aims east, so "east" is `up`.
   for (let i = 0; i < 40; i++) {
-    state = step(state, { 2: { ...NULL_INPUT, seq: i + 1, tick: i, right: true } }, [], map);
+    state = step(state, { 2: { ...NULL_INPUT, seq: i + 1, tick: i, up: true } }, [], map);
   }
   return state;
 }

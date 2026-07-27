@@ -2,6 +2,7 @@ import {
   type Catalog,
   type CityMap,
   type GameEvent,
+  type ServerMessage,
   type ShopKind,
   type Vec2,
   Predictor,
@@ -13,6 +14,7 @@ import {
   generateCity,
   getWeaponTuning,
   initTuning,
+  vehicleWear,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
 import { cameraLead, computeCamera, render, type Scene } from './render/renderer.js';
@@ -32,7 +34,43 @@ import { Audio } from './audio/audio.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
-  return override ?? `ws://${location.hostname}:8080`;
+  if (override) return override;
+  // Behind a TLS proxy (e.g. https://gta.mich312.com) the server shares the
+  // page's origin and speaks wss on the standard port — a browser on an https
+  // page refuses to open an insecure ws://. Local dev (http) keeps :8080,
+  // which is also the port the container publishes, so a plain-http page and
+  // the game server are on it either way. Use `?server=` for anything else.
+  if (location.protocol === 'https:') return `wss://${location.host}`;
+  return `ws://${location.hostname}:8080`;
+}
+
+/**
+ * The one thing the player must always be told: the game cannot start, and
+ * why. Drawn over the top of everything, in HUD (world-pixel) units.
+ */
+function drawFatal(ctx: CanvasRenderingContext2D, text: string): void {
+  ctx.save();
+  ctx.fillStyle = 'rgba(10, 6, 8, 0.82)';
+  ctx.fillRect(0, INTERNAL_HEIGHT / 2 - 22, INTERNAL_WIDTH, 44);
+  ctx.fillStyle = '#ff8a7a';
+  ctx.font = '8px monospace';
+  ctx.textAlign = 'center';
+  // Wrapped by hand: the canvas has no text layout and the message is long.
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  for (const w of words) {
+    if ((line + ' ' + w).trim().length > 68) {
+      lines.push(line.trim());
+      line = w;
+    } else line += ' ' + w;
+  }
+  lines.push(line.trim());
+  lines.slice(0, 4).forEach((l, i) => {
+    ctx.fillText(l, INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 - 8 + i * 10);
+  });
+  ctx.textAlign = 'left';
+  ctx.restore();
 }
 
 function playerName(): string {
@@ -71,6 +109,8 @@ function nameOf(id: number): string {
   return sync.latest?.players.find((p) => p.id === id)?.name ?? `#${id}`;
 }
 
+/** Set when something has gone wrong badly enough that the game cannot start. */
+let fatal: string | null = null;
 let playerId = -1;
 let seq = 1;
 let localTick = 0;
@@ -192,6 +232,7 @@ function onGameEvent(event: GameEvent): void {
       audio.play(weapon, at.dist, at.pan);
       return;
     }
+    hud.tracer(event.x0, event.y0, event.x1, event.y1);
     effects.muzzleFlash(event.x0, event.y0, angle);
     effects.impact(event.x1, event.y1, angle);
     audio.play(weapon, at.dist, at.pan);
@@ -246,15 +287,45 @@ const conn = new Connection({
   name: playerName(),
   stats,
   getResumeToken: () => sessionStorage.getItem('resumeToken'),
+  onDisconnected: (attempts) => {
+    // A server that is not running looked exactly like one that is: the canvas
+    // said "connecting…" for ever and the only clue was in the console.
+    if (attempts >= 2 && playerId < 0) {
+      fatal = `cannot reach the server at ${serverUrl()} — is it running? (node server/dist/index.js)`;
+    }
+  },
   onMessage: (msg) => {
-    switch (msg.type) {
+    try {
+      handleServerMessage(msg);
+    } catch (err) {
+      // Never let one bad message stop the game loop dead.
+      fatal = `client error: ${err instanceof Error ? err.message : String(err)}`;
+      console.error(err);
+    }
+  },
+});
+conn.connect();
+
+function handleServerMessage(msg: ServerMessage): void {
+  switch (msg.type) {
       case 'welcome':
         playerId = msg.playerId;
         localTick = msg.tick;
         sessionStorage.setItem('resumeToken', msg.resumeToken);
         // Tunables + worldgen come from the server (single source of truth);
         // the whole city regenerates locally from the seed.
-        initTuning(msg.tuning);
+        {
+          // Lenient: the server owns these files and the client cannot fix
+          // them. One unparseable number used to throw right here, killing
+          // the frame loop and leaving the game on "connecting…" for ever,
+          // with the reason only in a console nobody has open.
+          const fellBack = initTuning(msg.tuning, { lenient: true });
+          if (fellBack.length > 0) {
+            const why = `server tuning not understood (${fellBack.join(', ')}) — using defaults`;
+            console.warn(why);
+            hud.notice(why);
+          }
+        }
         map = generateCity(msg.seed, msg.worldgen);
         tiles.setMap(map);
         minimap.setMap(map);
@@ -291,12 +362,13 @@ const conn = new Connection({
         hud.notice(msg.message);
         break;
       case 'error':
-        console.log(msg);
+        // Shown, not just logged: a rejected join used to leave the canvas
+        // saying "connecting…" with the reason invisible.
+        console.error(msg);
+        fatal = `${msg.code}: ${msg.message}`;
         break;
-    }
-  },
-});
-conn.connect();
+  }
+}
 
 setInterval(() => conn.ping(performance.now()), 1000);
 
@@ -390,6 +462,7 @@ function frame(now: number): void {
                 heading: smoothVehicle.angle,
                 speed: predictor.predictedVehicle?.speed ?? 0,
                 condition: predictor.predictedVehicle?.condition ?? 'ok',
+                wear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : 0,
                 z: predictor.predicted?.z ?? 0,
               }
             : null,
@@ -402,6 +475,7 @@ function frame(now: number): void {
 
   // HUD and overlay draw in world-pixel units, whatever the backing store is.
   hudTransform(screen.ctx);
+  if (fatal) drawFatal(screen.ctx, fatal);
   if (shopKind && catalog) {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
@@ -457,6 +531,12 @@ function frame(now: number): void {
         .length ?? 0,
     peds: sync.latest?.peds.length ?? 0,
     props: sync.latest?.props.length ?? 0,
+    // Condition of the car being driven: what the dents and the handling
+    // penalty are drawn from, and the only way a test can tell a battered car
+    // from a fresh one without reading pixels.
+    carHealth: predictor.predictedVehicle?.health ?? null,
+    carWear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : null,
+    carCondition: predictor.predictedVehicle?.condition ?? null,
     fps: stats.fps,
     frameMs: stats.frameMs,
     frameMsPeak: stats.frameMsPeak,

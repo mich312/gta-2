@@ -1,0 +1,23 @@
+# topdown-city — standalone stack. `docker compose up` and open
+# http://localhost:8080. Behind the shared edge proxy, add the edge overlay
+# (docker-compose.edge.yml). The server serves the client AND the WebSocket on
+# one port, so the browser connects same-origin (ws:// locally, wss:// via TLS).
+services:
+  gta:
+    build: .
+    image: gta-2
+    container_name: gta
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      CLIENT_DIR: /app/client/dist
+      PERSIST_PATH: /app/data/persist.db
+      REPLAY: "0"
+      # SEED: pin to a fixed value for a stable city, or leave unset = random.
+    volumes:
+      # Accounts + persistence (SQLite) survive rebuilds.
+      - ./data:/app/data
+    ports:
+      # Loopback only — public access is via the edge proxy, not this port.
+      - "127.0.0.1:8080:8080"

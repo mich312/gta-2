@@ -51,7 +51,11 @@ describe('world generation', () => {
       const total = map.widthTiles * map.heightTiles;
       expect((counts.get(T_ROAD) ?? 0) / total).toBeGreaterThan(0.08);
       expect((counts.get(T_SIDEWALK) ?? 0) / total).toBeGreaterThan(0.03);
-      expect((counts.get(T_BUILDING) ?? 0) / total).toBeGreaterThan(0.12);
+      // 0.10, not 0.12: three-tile side streets spend a couple of points of
+      // the map on asphalt that used to be building. That is the trade the
+      // width buys — two cars cannot pass on a two-tile street, so every
+      // parked car plugged its road and every meeting was a standoff.
+      expect((counts.get(T_BUILDING) ?? 0) / total).toBeGreaterThan(0.1);
       expect(map.buildings.length).toBeGreaterThan(100);
       const districtsUsed = new Set(map.blocks.map((b) => b.district));
       expect(districtsUsed.size).toBeGreaterThanOrEqual(4);

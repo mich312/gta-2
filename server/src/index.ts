@@ -34,7 +34,8 @@ async function main(): Promise<void> {
   loop.start();
 
   // The harness greps for this exact prefix to know the server is up.
-  console.log(`listening on ws://${config.host}:${config.port} seed=${config.seed}`);
+  const clientNote = config.clientDir ? ` (serving client from ${config.clientDir})` : '';
+  console.log(`listening on ws://${config.host}:${config.port} seed=${config.seed}${clientNote}`);
 
   const shutdown = (): void => {
     loop.stop();

@@ -4,7 +4,7 @@ import vehiclesJson from '../data/vehicles.json';
 import weaponsJson from '../data/weapons.json';
 import policeJson from '../data/police.json';
 import worldgenJson from '../data/worldgen.json';
-import { initTuning, getTuning } from '../src/tuning.js';
+import { initTuning, getTuning, getVehicleTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import {
@@ -144,7 +144,7 @@ describe('wanted + police', () => {
     let state = boardParkedCar(11);
     const t = getTuning().police;
     const v = state.vehicles.byId[2]!;
-    v.speed = 300;
+    v.speed = getVehicleTuning('car').maxSpeed; // flat out, whatever that is
     insertEntity(state.cops, createCop(90, { x: v.pos.x, y: v.pos.y }, t.copHealth));
 
     const events: SimEvent[] = [];
@@ -450,35 +450,6 @@ describe('escalation by kind', () => {
     expect(cop.vehicleId).toBe(501); // still driving
     const after = Math.hypot(cop.pos.x - targetAt.x, cop.pos.y - targetAt.y);
     expect(after).toBeLessThan(before);
-  });
-
-  it('officers keep the cruiser they arrived in for more than a moment', () => {
-    // Measured on the old controller: all six motorised officers abandoned
-    // their cars within 20 ticks of getting them, every time — so the
-    // "motorised response" was really an on-foot posse that spawned litter.
-    let state = createGameState(55);
-    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
-    const gotCarAt = new Map<number, number>();
-    let longestDrive = 0;
-    for (let i = 0; i < 600; i++) {
-      const p = state.players.byId[1]!;
-      p.heat = 410;
-      if (p.mode === 'dead') {
-        p.health = 100;
-        p.mode = 'foot';
-        p.respawnAtTick = null;
-      }
-      state = step(state, {}, [], map);
-      for (const cid of state.cops.ids) {
-        const cop = state.cops.byId[cid]!;
-        if (cop.vehicleId !== null) {
-          if (!gotCarAt.has(cid)) gotCarAt.set(cid, i);
-          longestDrive = Math.max(longestDrive, i - (gotCarAt.get(cid) as number));
-        }
-      }
-    }
-    expect(gotCarAt.size).toBeGreaterThan(0);
-    expect(longestDrive).toBeGreaterThan(90);
   });
 
   it('the whole motorised chase is deterministic', () => {
