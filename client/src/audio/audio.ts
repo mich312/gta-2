@@ -19,7 +19,31 @@ const SPEC = audioSpec as unknown as {
   sounds: Record<string, SoundSpec>;
   engine: { baseHz: number; hzPerSpeed: number; gain: number; filter: number };
   siren: { lowHz: number; highHz: number; periodSec: number; gain: number };
+  radio: {
+    gain: number;
+    filter: number;
+    beatSec: number;
+    stations: Array<{ name: string; root: number; scale: number[]; wave: string; swing: number }>;
+    emergencyStation: number;
+  };
 };
+
+/**
+ * Which station a given car is tuned to.
+ *
+ * Hashed from the vehicle id, so it is stable for the life of that car and
+ * IDENTICAL for every player who gets into it — two people in the same car
+ * hear the same thing without a byte crossing the wire. Emergency vehicles
+ * get the dispatch band instead, exactly as the 1997 game did.
+ */
+export function stationFor(vehicleId: number, kind: string): number {
+  const radio = SPEC.radio;
+  if (kind === 'copcar' || kind === 'ambulance' || kind === 'firetruck') {
+    return radio.emergencyStation;
+  }
+  const music = Math.max(1, radio.stations.length - 1);
+  return Math.abs(Math.imul(vehicleId, 2654435761)) % music;
+}
 
 /**
  * Everything you hear is synthesised at runtime from `shared/data/audio.json`.
@@ -43,6 +67,12 @@ export class Audio {
   /** Engine and siren are continuous, so they are held rather than triggered. */
   private engine: { osc: OscillatorNode; gain: GainNode; filter: BiquadFilterNode } | null = null;
   private siren: { osc: OscillatorNode; gain: GainNode } | null = null;
+  private radio: {
+    osc: OscillatorNode;
+    gain: GainNode;
+    filter: BiquadFilterNode;
+    station: number;
+  } | null = null;
 
   /** Call from a user-gesture handler. Safe to call repeatedly. */
   resume(): void {
@@ -203,6 +233,85 @@ export class Audio {
     const hz = SPEC.engine.baseHz + mag * SPEC.engine.hzPerSpeed;
     this.engine.osc.frequency.setTargetAtTime(hz, ctx.currentTime, 0.05);
     this.engine.gain.gain.setTargetAtTime(SPEC.engine.gain, ctx.currentTime, 0.08);
+  }
+
+  /**
+   * The radio in whatever you are driving.
+   *
+   * Not a soundtrack: it belongs to the CAR. Steal a different one and you
+   * get different music, which makes the station part of what you stole —
+   * the property of the theft that the original understood and that no
+   * background music can reproduce.
+   *
+   * Synthesised like everything else here: a station is a root note, a
+   * five-note scale and a waveform, and the tune is a deterministic walk
+   * through that scale driven by wall-clock time.
+   */
+  setRadio(station: number | null, nowMs: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return;
+    const spec = SPEC.radio;
+
+    if (station === null || this.muted) {
+      if (this.radio) {
+        this.radio.gain.gain.setTargetAtTime(0, ctx.currentTime, 0.12);
+        const dying = this.radio;
+        this.radio = null;
+        setTimeout(() => {
+          try {
+            dying.osc.stop();
+            dying.osc.disconnect();
+            dying.gain.disconnect();
+            dying.filter.disconnect();
+          } catch {
+            // already torn down
+          }
+        }, 400);
+      }
+      return;
+    }
+
+    const def = spec.stations[station] ?? spec.stations[0];
+    if (!def) return;
+
+    if (!this.radio || this.radio.station !== station) {
+      if (this.radio) {
+        try {
+          this.radio.osc.stop();
+          this.radio.osc.disconnect();
+        } catch {
+          // already gone
+        }
+      }
+      const osc = ctx.createOscillator();
+      osc.type = def.wave as OscillatorType;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = spec.filter;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      osc.connect(filter).connect(gain).connect(master);
+      osc.start();
+      this.radio = { osc, gain, filter, station };
+    }
+
+    // Step through the scale on the beat. The station's swing shifts every
+    // other beat late, which is the whole difference between two stations
+    // playing the same five notes.
+    const beat = Math.floor(nowMs / (spec.beatSec * 1000));
+    const swung = beat % 2 === 1 ? def.swing : 0;
+    const degree = Math.abs(Math.imul(beat + station * 17, 1103515245) >> 8) % def.scale.length;
+    const semis = def.scale[degree] ?? 0;
+    const octave = (Math.abs(Math.imul(beat, 22695477)) >> 12) % 2;
+    const hz = def.root * Math.pow(2, (semis + octave * 12) / 12);
+    this.radio.osc.frequency.setTargetAtTime(hz, ctx.currentTime + swung * 0.1, 0.03);
+    this.radio.gain.gain.setTargetAtTime(spec.gain, ctx.currentTime, 0.1);
+  }
+
+  /** Name of a station, for the HUD. */
+  stationName(station: number): string {
+    return SPEC.radio.stations[station]?.name ?? '';
   }
 
   /**

@@ -30,7 +30,7 @@ import { NetStats } from './debug/stats.js';
 import { DebugOverlay } from './debug/overlay.js';
 import { Hud } from './render/hud.js';
 import { Minimap } from './render/minimap.js';
-import { Audio } from './audio/audio.js';
+import { Audio, stationFor } from './audio/audio.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -116,6 +116,8 @@ let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
 let catalog: Catalog | null = null;
+/** Station currently playing, so a change can be announced once. */
+let lastStation: number | null = null;
 
 /** Landmark the local player is currently inside or beside, if any. */
 function currentLandmark(): string | null {
@@ -513,6 +515,17 @@ function frame(now: number): void {
   // while police are actually on screen.
   audio.setEngine(driving ? (predictor.predictedVehicle?.speed ?? 0) : 0);
   audio.setSiren((sync.latest?.cops.length ?? 0) > 0, now);
+
+  // The radio belongs to the car, not to the session: get out and it stops,
+  // steal a different one and the station changes with it.
+  const myCarId = predictor.predicted?.vehicleId ?? null;
+  const myCarKind = predictor.predictedVehicle?.kind ?? '';
+  const station = driving && myCarId !== null ? stationFor(myCarId, myCarKind) : null;
+  if (station !== lastStation) {
+    if (station !== null) hud.notice(`radio: ${audio.stationName(station)}`);
+    lastStation = station;
+  }
+  audio.setRadio(station, now);
 
   const authoritative = sync.latest?.players.find((p) => p.id === playerId) ?? null;
   overlay.draw(screen.ctx, {

@@ -129,5 +129,91 @@
     "highHz": 940,
     "periodSec": 0.7,
     "gain": 0.07
+  },
+  "radio": {
+    "gain": 0.055,
+    "filter": 1600,
+    "beatSec": 0.5,
+    "stations": [
+      {
+        "name": "KERB FM",
+        "root": 110,
+        "scale": [
+          0,
+          3,
+          5,
+          7,
+          10
+        ],
+        "wave": "sawtooth",
+        "swing": 0.0
+      },
+      {
+        "name": "Hydrant",
+        "root": 146,
+        "scale": [
+          0,
+          2,
+          4,
+          7,
+          9
+        ],
+        "wave": "square",
+        "swing": 0.15
+      },
+      {
+        "name": "Nightline",
+        "root": 98,
+        "scale": [
+          0,
+          2,
+          3,
+          7,
+          8
+        ],
+        "wave": "triangle",
+        "swing": 0.0
+      },
+      {
+        "name": "Lot 14",
+        "root": 130,
+        "scale": [
+          0,
+          5,
+          7,
+          10,
+          12
+        ],
+        "wave": "sawtooth",
+        "swing": 0.25
+      },
+      {
+        "name": "The Overpass",
+        "root": 87,
+        "scale": [
+          0,
+          3,
+          7,
+          10,
+          14
+        ],
+        "wave": "square",
+        "swing": 0.1
+      },
+      {
+        "name": "Dispatch",
+        "root": 220,
+        "scale": [
+          0,
+          0,
+          7,
+          0,
+          5
+        ],
+        "wave": "square",
+        "swing": 0.0
+      }
+    ],
+    "emergencyStation": 5
   }
 }
