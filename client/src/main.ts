@@ -33,7 +33,12 @@ import { Audio } from './audio/audio.js';
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
-  return override ?? `ws://${location.hostname}:8080`;
+  if (override) return override;
+  // Behind a TLS proxy (e.g. https://gta.mich312.dev) the server shares the
+  // page's origin and speaks wss on the standard port — a browser on an https
+  // page refuses to open an insecure ws://. Local dev (http) keeps :8080.
+  if (location.protocol === 'https:') return `wss://${location.host}`;
+  return `ws://${location.hostname}:8080`;
 }
 
 /**

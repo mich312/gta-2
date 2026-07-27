@@ -1,0 +1,14 @@
+# Reinstalled/rebuilt in the image — never ship the host's copies.
+node_modules
+**/node_modules
+dist
+**/dist
+*.tsbuildinfo
+.vite
+coverage
+replays
+# Runtime state + secrets
+/data
+server/data
+.git
+.github

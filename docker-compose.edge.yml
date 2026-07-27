@@ -1,0 +1,18 @@
+# Run the game behind the shared external reverse proxy (edge stack), which
+# terminates TLS at https://gta.mich312.dev and passes the WebSocket upgrade
+# through transparently. Layer on top of the base compose:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.edge.yml up -d --build
+#
+# Joins the `gta` service to the external `edge` network so the proxy can reach
+# it by name (port 8080). The base compose stays standalone for local dev. The
+# `edge` network is owned by the edge stack; create it (or start edge) first.
+services:
+  gta:
+    networks:
+      - default
+      - edge
+
+networks:
+  edge:
+    external: true

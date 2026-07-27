@@ -20,6 +20,13 @@ export interface ServerConfig {
   pedCount: number;
   /** Interest-management radius (px): entities beyond it aren't sent. */
   interestRadius: number;
+  /**
+   * When set, the server also serves the built client from this directory over
+   * HTTP and carries the WebSocket on the same port — one origin behind a TLS
+   * proxy. When null (local dev), it's a standalone WS server and the client is
+   * served separately by Vite.
+   */
+  clientDir: string | null;
 }
 
 function envInt(v: string | undefined, fallback: number): number {
@@ -39,5 +46,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     persistPath: env['PERSIST_PATH'] ?? 'data/persist.db',
     pedCount: envInt(env['PED_COUNT'], 200),
     interestRadius: envInt(env['INTEREST_RADIUS'], 600),
+    clientDir: env['CLIENT_DIR'] ?? null,
   };
 }
