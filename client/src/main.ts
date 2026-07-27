@@ -182,6 +182,23 @@ function onGameEvent(event: GameEvent): void {
     effects.explosion(event.x, event.y, event.radius);
     const at = listen(event.x, event.y);
     audio.play('explosion', at.dist, at.pan);
+  } else if (event.type === 'frenzyEnded') {
+    hud.notice(
+      event.completed
+        ? `frenzy complete — ${event.kills}/${event.target}`
+        : `frenzy failed — ${event.kills}/${event.target}`,
+    );
+    if (event.completed) audio.play('pickup', 0, 0);
+  } else if (event.type === 'stuntLaunched') {
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
+  } else if (event.type === 'stuntLanded') {
+    effects.debris(event.x, event.y);
+    const at = listen(event.x, event.y);
+    audio.play('impact', at.dist, at.pan);
+    if (event.playerId === playerId && event.distance > 40) {
+      hud.notice(`stunt jump — ${event.distance}px`);
+    }
   } else if (event.type === 'pickupTaken') {
     const at = listen(event.x, event.y);
     audio.play('pickup', at.dist, at.pan);
@@ -344,6 +361,7 @@ function frame(now: number): void {
                 heading: smoothVehicle.angle,
                 speed: predictor.predictedVehicle?.speed ?? 0,
                 condition: predictor.predictedVehicle?.condition ?? 'ok',
+                z: predictor.predicted?.z ?? 0,
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),

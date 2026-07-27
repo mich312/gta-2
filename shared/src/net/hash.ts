@@ -68,6 +68,12 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.fireCooldown);
     h = hashNumber(h, p.carHitCooldown);
     h = hashNumber(h, p.heat);
+    h = hashNumber(h, p.frenzyTarget);
+    h = hashNumber(h, p.frenzyKills);
+    h = hashNumber(h, p.frenzyEndsAtTick ?? -1);
+    h = hashNumber(h, p.z);
+    h = hashNumber(h, p.vz);
+    h = hashNumber(h, p.airDist);
   }
   for (const v of snap.vehicles) {
     h = hashNumber(h, v.id);

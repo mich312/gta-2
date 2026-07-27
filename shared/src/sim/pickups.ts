@@ -39,7 +39,7 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
       const dx = p.pos.x - pu.pos.x;
       const dy = p.pos.y - pu.pos.y;
       if (dx * dx + dy * dy > r2) continue;
-      if (!consume(pu, p)) continue;
+      if (!consume(pu, p, state.tick)) continue;
       pu.active = false;
       pu.respawnAtTick = state.tick + Math.round(t.kinds[pu.kind].respawnSec * TICK_RATE);
       events.push({
@@ -56,7 +56,7 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
 }
 
 /** Apply a pickup's effect. False if the player has no room for it. */
-function consume(pu: PickupState, p: PlayerState): boolean {
+function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
   const t = getTuning().pickups;
   const value = t.kinds[pu.kind].value;
   switch (pu.kind) {
@@ -68,6 +68,14 @@ function consume(pu: PickupState, p: PlayerState): boolean {
     case 'armour': {
       if (p.armour >= t.maxArmour) return false;
       p.armour = q8(Math.min(t.maxArmour, p.armour + value));
+      return true;
+    }
+    case 'frenzy': {
+      // One at a time: a second crate mid-frenzy would just reset the clock.
+      if (p.frenzyTarget > 0) return false;
+      p.frenzyTarget = Math.round(value);
+      p.frenzyKills = 0;
+      p.frenzyEndsAtTick = tick + Math.round(t.frenzySeconds * TICK_RATE);
       return true;
     }
     case 'ammo': {

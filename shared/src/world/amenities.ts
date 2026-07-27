@@ -7,6 +7,7 @@ import {
   T_BUILDING,
   T_LOT,
   T_PARK,
+  T_RAMP,
   T_ROAD,
   T_WATER,
   T_SIDEWALK,
@@ -427,4 +428,25 @@ export function placeLandmarks(map: CityMap, rng: number): number {
     .filter((l) => l.kind === 'hospital')
     .map((l) => ({ x: l.doorX, y: l.doorY }));
   return rng;
+}
+
+
+/**
+ * Stunt ramps, dropped on industrial lots where there is room to build up
+ * speed. Replaces the jump the genre never had with the thing it did have.
+ */
+export function placeRamps(map: CityMap): void {
+  let n = 0;
+  for (let ty = 2; ty < map.heightTiles - 2; ty++) {
+    for (let tx = 2; tx < map.widthTiles - 2; tx++) {
+      if (t(map, tx, ty) !== T_LOT) continue;
+      // Needs a clear run-up along one axis.
+      const runX = t(map, tx - 2, ty) === T_LOT && t(map, tx - 1, ty) === T_LOT;
+      const runY = t(map, tx, ty - 2) === T_LOT && t(map, tx, ty - 1) === T_LOT;
+      if (!runX && !runY) continue;
+      n++;
+      if (n % 90 !== 0) continue;
+      map.tiles[ty * map.widthTiles + tx] = T_RAMP;
+    }
+  }
 }

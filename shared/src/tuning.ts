@@ -120,9 +120,13 @@ export interface PickupsTuning {
   radius: number;
   maxHealth: number;
   maxArmour: number;
-  kinds: Record<'health' | 'armour' | 'ammo', PickupKindTuning>;
+  kinds: Record<'health' | 'armour' | 'ammo' | 'frenzy', PickupKindTuning>;
   /** Roughly one pickup per N eligible open tiles, at worldgen time. */
   spacing: number;
+  /** How long a kill frenzy runs. */
+  frenzySeconds: number;
+  /** Payout for completing one. */
+  frenzyReward: number;
 }
 
 export interface TrafficTuning {
@@ -297,7 +301,7 @@ function parsePickupsTuning(raw: unknown): PickupsTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const kindsRaw = (r['kinds'] ?? {}) as Record<string, unknown>;
   const kinds = {} as PickupsTuning['kinds'];
-  for (const k of ['health', 'armour', 'ammo'] as const) {
+  for (const k of ['health', 'armour', 'ammo', 'frenzy'] as const) {
     const kv = (kindsRaw[k] ?? {}) as Record<string, unknown>;
     kinds[k] = {
       value: num(kv['value'], `pickups.${k}.value`),
@@ -310,6 +314,8 @@ function parsePickupsTuning(raw: unknown): PickupsTuning {
     maxArmour: num(r['maxArmour'], 'pickups.maxArmour'),
     kinds,
     spacing: num(r['spacing'], 'pickups.spacing'),
+    frenzySeconds: num(r['frenzySeconds'], 'pickups.frenzySeconds'),
+    frenzyReward: num(r['frenzyReward'], 'pickups.frenzyReward'),
   };
 }
 
@@ -321,8 +327,11 @@ const DEFAULT_PICKUPS: PickupsTuning = {
     health: { value: 40, respawnSec: 30 },
     armour: { value: 50, respawnSec: 50 },
     ammo: { value: 45, respawnSec: 25 },
+    frenzy: { value: 12, respawnSec: 120 },
   },
   spacing: 34,
+  frenzySeconds: 45,
+  frenzyReward: 1200,
 };
 
 function parseTrafficTuning(raw: unknown): TrafficTuning {

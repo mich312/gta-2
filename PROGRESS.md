@@ -1,5 +1,102 @@
 # PROGRESS
 
+## Waves A2–E1 — the roadmap, delivered
+
+Everything in `ROADMAP.md` after the A1 fixes. Each wave was committed and
+gated separately; this is the combined log.
+
+**A2 — the world stops being consume-only.** Peds were removed permanently
+and props stayed broken for the session, so a long game monotonically
+stripped the city. Props now carry `respawnAtTick` and a `stepProps` stage
+repairs them once nobody is within `respawnMinDistFromPlayer`. Ped top-ups
+live in the session rather than `step()`, because the decision needs to know
+where clients are looking, which is server knowledge.
+
+**A3 — fists, armour, pickups.** The only way to raise health in the whole
+game was to die, which made fleeing pointless and turned the 3 s respawn into
+the cheapest medkit on the map. Fists are a melee weapon with `infiniteAmmo`
+that survives death, so an unarmed player always has a verb. Pickups are a new
+entity table with fixed worldgen positions, so only `active`/`respawnAtTick`
+ever move on the wire. Armour soaks damage before health.
+
+**A4 — minimap, camera lead, HUD.** The client already regenerates the
+identical `CityMap`, so a radar costs nothing on the wire: the city bakes once
+into an offscreen canvas and each frame blits a clamped window of it. The
+camera leads towards travel — at 330 px/s a car crossed the viewport in
+1.45 s, so the driver was permanently steering into the blind half of the
+screen.
+
+**A5 — procedural audio.** Synthesised at runtime from `shared/data/audio.json`;
+no binary assets, matching how the sprite sheet is already generated from a
+JSON shape description. Headless-safe by construction.
+
+**B — binary wire codec.** The enabler. Measured 42.6 → **9.2 KB/s** inbound
+(4.6×) and 5.4 → 0.34 KB/s outbound (16×). Only `snapshot`/`full`/`input` are
+binary; everything else stays JSON behind a tag byte.
+
+**C1 — vehicle damage and explosions.** `VehicleState` had no health field, so
+nothing in a game about driving could destroy a car, and car-vs-car reverted
+position and zeroed speed. Now: bullets, collisions and blasts damage cars;
+they burn on a fuse and detonate with radius damage; car-vs-car is momentum
+transfer.
+
+**C2 — ambient traffic and carjacking.** `traffic.json` had existed from the
+start as a complete spec with zero references anywhere. AI drivers are marked
+by a negative `driverId`, which makes occupied cars correctly un-enterable and
+turns the jack into an explicit action — the verb the genre is named after,
+previously impossible to express because no vehicle had an occupant.
+
+**C3 — police vehicles, roadblocks, Pay'n'Spray.** The review's top finding:
+cops at 122 px/s against a player car at 330, with no vehicles, so any car was
+a guaranteed escape. Escalation now changes kind — foot posse, then cruisers
+at three stars, then roadblocks at four — and a respray garage clears heat, so
+losing the cops is a play rather than a stopwatch.
+
+**D1 — water, bridges, boats.** Collision became medium-aware, which was the
+roadmap's flagged risk since it runs inside prediction; it went in alone with
+tests before any content. The river is carved before the roads, and only
+arterials bridge it, so it stays a chokepoint.
+
+**D2 — landmarks, hospitals, park interiors.** Named oversized structures to
+navigate by, and the dead now wake at the *nearest hospital* instead of a
+uniformly-random kerbside point three districts away.
+
+**E1 — frenzies, stunts, score.** Kill frenzies reuse the pickup table with a
+clock; stunt ramps add the vertical dimension (`z`/`vz`), with airborne
+vehicles ignoring tile collision entirely. Payouts and a session leaderboard
+run through the economy.
+
+**Verification.** 157 tests green (from 73). `pnpm bots --count=8
+--script=brawl --duration=60`: **PASS**, ticks 1811..1811, 0 desyncs, 0 stale,
+0 full resyncs, corrections ≤4.4 px, peak **~11 KB/s** per client against the
+50 KB/s gate. Replay re-simulates to identical hashes. `persistCheck` passes.
+Client typechecks and `vite build` succeeds (88 KB, 31 KB gzipped). Verified
+in a real browser throughout via Playwright: 14 AI cars all under way, police
+cruisers with light bars, pickups, river, parks and minimap all rendering at
+60 fps with no page errors.
+
+**RNG-order note.** Several waves shifted the worldgen and sim rng streams
+(cop spawn gating, the spray shop quota, river carving, landmark placement).
+**Replays recorded before this work will not re-simulate.** Expected per
+`ROADMAP.md` §5 and recorded here so a future desync hunt does not chase it.
+
+**Deliberately deferred.** Missions and a story campaign, gangs/territory/
+respect, building interiors, weapon drops on the ground, mobile controls — all
+still out of scope per `ROADMAP.md` §6. Also speed-based camera zoom: the tile
+layer bakes chunks at a fixed device-pixels-per-tile, so a variable zoom needs
+either constant re-baking or a non-integer blit, and camera lead addresses most
+of the same complaint.
+
+**Least confident about.** (1) Balance across the board. Wanted-level
+lethality, frenzy targets, stunt payouts, traffic density and explosion radius
+are all first-pass numbers chosen by reading the model, not by playing. (2)
+The police dismount rules (`dismountDist`, the accumulate-and-decay stuck
+counter) went through three wrong versions before settling; they are correct
+under test but the thresholds are guesses. (3) The bail-out interacts with
+vehicle damage in a way I like but did not design: a wedged cruiser rams the
+wall until it detonates, killing the officer. It is good emergent behaviour
+and it is also not a decision anyone made.
+
 ## Wave A1 — correctness fixes from the review
 
 First slice of `ROADMAP.md`, which addresses `REVIEW.md`. Five defects, no

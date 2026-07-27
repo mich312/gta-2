@@ -42,7 +42,7 @@ export interface PropState {
   respawnAtTick: number | null;
 }
 
-export type PickupKind = 'health' | 'armour' | 'ammo';
+export type PickupKind = 'health' | 'armour' | 'ammo' | 'frenzy';
 
 export interface PickupState {
   id: number;
@@ -111,6 +111,16 @@ export interface PlayerState {
   carHitCooldown: number;
   /** Police heat; wantedLevel = floor(heat/100) clamped to 5. */
   heat: number;
+  /** Kills still needed to complete a frenzy, or 0 when not running. */
+  frenzyTarget: number;
+  frenzyKills: number;
+  /** Tick the frenzy expires on, or null. */
+  frenzyEndsAtTick: number | null;
+  /** Vertical position and velocity — nonzero only mid-stunt. */
+  z: number;
+  vz: number;
+  /** Longest airborne distance of the current jump, px. */
+  airDist: number;
 }
 
 /**
@@ -244,6 +254,12 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     fireCooldown: 0,
     carHitCooldown: 0,
     heat: 0,
+    frenzyTarget: 0,
+    frenzyKills: 0,
+    frenzyEndsAtTick: null,
+    z: 0,
+    vz: 0,
+    airDist: 0,
   };
 }
 

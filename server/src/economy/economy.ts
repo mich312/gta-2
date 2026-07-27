@@ -6,6 +6,8 @@ import {
   type SimCommand,
   type SimEvent,
   TILE_SIZE,
+  getTuning,
+  stuntReward,
 } from 'shared';
 import { Ledger } from './ledger.js';
 import { Accounts } from './accounts.js';
@@ -147,10 +149,23 @@ export class Economy {
   processTick(events: SimEvent[], state: GameState, nowMs: number): Set<number> {
     const changed = new Set<number>();
     for (const ev of events) {
-      if (ev.type !== 'kill' || ev.killerId < 0) continue;
-      const amount = this.awards.killAward(ev.killerId, ev.victimId, nowMs);
-      if (amount > 0 && this.credit(ev.killerId, amount, `kill:${ev.victimId}`)) {
-        changed.add(ev.killerId);
+      if (ev.type === 'kill' && ev.killerId >= 0) {
+        const amount = this.awards.killAward(ev.killerId, ev.victimId, nowMs);
+        if (amount > 0 && this.credit(ev.killerId, amount, `kill:${ev.victimId}`)) {
+          changed.add(ev.killerId);
+        }
+        this.bumpScore(ev.killerId, 1);
+      } else if (ev.type === 'frenzyEnded' && ev.completed) {
+        // Paid only on completion — the timer is what makes it a frenzy.
+        const reward = getTuning().pickups.frenzyReward;
+        if (this.credit(ev.playerId, reward, `frenzy:${ev.tick}`)) changed.add(ev.playerId);
+        this.bumpScore(ev.playerId, 0, 1);
+      } else if (ev.type === 'stuntLanded') {
+        const reward = stuntReward(ev.distance);
+        if (reward > 0 && this.credit(ev.playerId, reward, `stunt:${ev.tick}`)) {
+          changed.add(ev.playerId);
+        }
+        this.bumpScore(ev.playerId, 0, 0, ev.distance);
       }
     }
     for (const id of state.players.ids) {
@@ -162,6 +177,27 @@ export class Economy {
       if (amount > 0 && this.credit(id, amount, 'driving')) changed.add(id);
     }
     return changed;
+  }
+
+  /** Running per-session tally, surfaced to the client and the leaderboard. */
+  readonly scores = new Map<number, { kills: number; frenzies: number; bestStunt: number }>();
+
+  private bumpScore(playerId: number, kills = 0, frenzies = 0, stuntDistance = 0): void {
+    let sc = this.scores.get(playerId);
+    if (!sc) {
+      sc = { kills: 0, frenzies: 0, bestStunt: 0 };
+      this.scores.set(playerId, sc);
+    }
+    sc.kills += kills;
+    sc.frenzies += frenzies;
+    sc.bestStunt = Math.max(sc.bestStunt, stuntDistance);
+  }
+
+  /** Session leaderboard, best first. */
+  leaderboard(): Array<{ playerId: number; kills: number; frenzies: number; bestStunt: number }> {
+    return [...this.scores.entries()]
+      .map(([playerId, s]) => ({ playerId, ...s }))
+      .sort((a, b) => b.frenzies - a.frenzies || b.kills - a.kills || b.bestStunt - a.bestStunt);
   }
 
   private credit(playerId: number, amount: number, reason: string): boolean {

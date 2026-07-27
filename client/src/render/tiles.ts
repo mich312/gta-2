@@ -10,6 +10,7 @@ import {
   T_SIDEWALK,
   T_WATER,
   T_BRIDGE,
+  T_RAMP,
   TILE_SIZE,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -334,6 +335,9 @@ export class TileLayer {
       case T_BRIDGE:
         this.paintBridge(ctx, tx, ty, x, y);
         break;
+      case T_RAMP:
+        this.paintRamp(ctx, tx, ty, x, y);
+        break;
       default:
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
@@ -391,6 +395,22 @@ export class TileLayer {
     } else {
       ctx.fillRect(x, y, rail, TD);
       ctx.fillRect(x + TD - rail, y, rail, TD);
+    }
+  }
+
+  /** Stunt ramp: chevrons on concrete, so it reads as "hit this fast". */
+  private paintRamp(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    this.paintLot(ctx, tx, ty, x, y);
+    ctx.fillStyle = palette.uiAccent;
+    const band = Math.max(1, (TD / 8) | 0);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillRect(x + 2, y + 2 + i * band * 2, TD - 4, band);
     }
   }
 

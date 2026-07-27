@@ -22,4 +22,21 @@ export type SimEvent =
     }
   | { type: 'pickupUp'; tick: number; kind: string; id: number }
   | { type: 'vehicleBurning'; tick: number; vehicleId: number; x: number; y: number }
-  | { type: 'explosion'; tick: number; x: number; y: number; radius: number };
+  | { type: 'explosion'; tick: number; x: number; y: number; radius: number }
+  | {
+      type: 'frenzyEnded';
+      tick: number;
+      playerId: number;
+      kills: number;
+      target: number;
+      completed: boolean;
+    }
+  | { type: 'stuntLaunched'; tick: number; playerId: number; x: number; y: number }
+  | {
+      type: 'stuntLanded';
+      tick: number;
+      playerId: number;
+      distance: number;
+      x: number;
+      y: number;
+    };

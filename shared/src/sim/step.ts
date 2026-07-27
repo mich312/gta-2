@@ -20,6 +20,7 @@ import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
 import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
+import { creditFrenzyKill, stepFrenzy, stepStunts } from './frenzy.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
@@ -78,7 +79,7 @@ export function step(
     if (p.mode === 'driving' && p.vehicleId !== null) {
       const v = next.vehicles.byId[p.vehicleId];
       if (v) {
-        stepVehicleDriving(v, input, map, next, events);
+        stepVehicleDriving(v, input, map, next, events, p.z > 0);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
         if (input) {
@@ -107,6 +108,13 @@ export function step(
   stepPeds(next, map, events);
   stepProps(next, events);
   stepPickups(next, events);
+  stepStunts(next, map, events);
+  stepFrenzy(next, events);
+  // Credit this tick's kills toward any running frenzy, after every system
+  // that can produce one has run.
+  for (const ev of events) {
+    if (ev.type === 'kill' && ev.tick === next.tick) creditFrenzyKill(next, ev.killerId, events);
+  }
 
   return next;
 }

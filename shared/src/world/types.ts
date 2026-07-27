@@ -15,6 +15,8 @@ export const T_LOT = 5;
 export const T_WATER = 6;
 /** Road carried over water. Passable on land AND by boats underneath. */
 export const T_BRIDGE = 7;
+/** Stunt ramp: drivable, and launches a fast car off the ground. */
+export const T_RAMP = 8;
 
 export const DISTRICT_TYPES = [
   'downtown',

@@ -35,7 +35,14 @@ export interface Scene {
   /** Its pose, smoothed across the tick boundary. */
   localPos: { x: number; y: number; angle: number } | null;
   /** Predicted vehicle when the local player is driving, smoothed. */
-  localVehicle: { pos: Vec2; heading: number; speed: number; condition: string } | null;
+  localVehicle: {
+    pos: Vec2;
+    heading: number;
+    speed: number;
+    condition: string;
+    /** Height off the ground; nonzero only mid-stunt. */
+    z: number;
+  } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
   /** Seconds since the previous frame, for effects. */
@@ -307,6 +314,7 @@ export function render(
       dx,
       dy,
       scene.nowMs,
+      scene.localVehicle.z,
     );
   }
 
@@ -456,9 +464,13 @@ function drawVehicle(
   dx: (n: number) => number,
   dy: (n: number) => number,
   nowMs: number,
+  z = 0,
 ): void {
+  // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
+  // the ground where it belongs. The gap between the two is what sells it.
+  const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
-  const y = dy(wy);
+  const y = dy(wy) - lift;
   const name =
     kind === 'boat'
       ? 'boat'
@@ -466,7 +478,8 @@ function drawVehicle(
         ? 'copcar'
         : `car_v${Math.abs(id) % CAR_VARIANTS}`;
   const fp = sprites.footprint(name);
-  drawShadow(ctx, x, y, fp.rx * 0.92, fp.ry * 1.05, 4);
+  const shrink = z > 0 ? 0.75 : 1;
+  drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);
 
   // A wreck is drawn dark and never lit; a burning car throws its own light
   // and sheds flame until it goes.

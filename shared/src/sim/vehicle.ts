@@ -43,9 +43,17 @@ function integrateVehicle(
   map: CityMap,
   state: GameState | null,
   events?: SimEvent[],
+  airborne = false,
 ): void {
   const t = getVehicleTuning(v.kind);
   if (v.speed === 0) return;
+  if (airborne) {
+    // Off the ground: no tiles, no other cars, no kerbs. Clearing things is
+    // the entire point of a jump.
+    v.pos.x = q8(v.pos.x + dCos(v.heading) * v.speed * DT);
+    v.pos.y = q8(v.pos.y + dSin(v.heading) * v.speed * DT);
+    return;
+  }
   const beforeX = v.pos.x;
   const beforeY = v.pos.y;
   const dx = dCos(v.heading) * v.speed * DT;
@@ -95,6 +103,7 @@ export function stepVehicleDriving(
   map: CityMap,
   state: GameState | null,
   events?: SimEvent[],
+  airborne = false,
 ): void {
   const t = getVehicleTuning(v.kind);
   // A wreck is scenery: it does not respond to the pedals.
@@ -122,7 +131,7 @@ export function stepVehicleDriving(
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
-  integrateVehicle(v, map, state, events);
+  integrateVehicle(v, map, state, events, airborne);
 }
 
 /** Driverless vehicles coast to a stop. */

@@ -173,6 +173,36 @@ export class Hud {
       ctx.textAlign = 'left';
     }
 
+    // Kill frenzy: the only thing on screen with a clock on it.
+    if (me.frenzyTarget > 0 && snapshot) {
+      const left = me.frenzyEndsAtTick
+        ? Math.max(0, Math.ceil((me.frenzyEndsAtTick - snapshot.tick) / TICK_RATE))
+        : 0;
+      const w = 96;
+      const x = INTERNAL_WIDTH / 2 - w / 2;
+      ctx.fillStyle = 'rgba(8, 12, 16, 0.8)';
+      ctx.fillRect(x, 20, w, 20);
+      ctx.strokeStyle = left <= 5 ? '#e05555' : '#f0c040';
+      ctx.strokeRect(x + 0.5, 20.5, w - 1, 19);
+      ctx.fillStyle = '#f0c040';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('KILL FRENZY', INTERNAL_WIDTH / 2, 30);
+      ctx.fillStyle = '#e8f0e8';
+      ctx.fillText(`${me.frenzyKills} / ${me.frenzyTarget}    ${left}s`, INTERNAL_WIDTH / 2, 38);
+      ctx.textAlign = 'left';
+    }
+
+    // Airborne: a shadow gap under the car is not readable on its own, so
+    // say it.
+    if (me.z > 0) {
+      ctx.fillStyle = '#f0e0a0';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('AIRBORNE', INTERNAL_WIDTH / 2, INTERNAL_HEIGHT - 40);
+      ctx.textAlign = 'left';
+    }
+
     // Wanted stars.
     if (me.wantedLevel > 0) {
       ctx.fillStyle = '#f0c040';

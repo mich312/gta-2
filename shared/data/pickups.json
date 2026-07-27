@@ -3,9 +3,24 @@
   "maxHealth": 100,
   "maxArmour": 100,
   "kinds": {
-    "health": { "value": 40, "respawnSec": 30 },
-    "armour": { "value": 50, "respawnSec": 50 },
-    "ammo": { "value": 45, "respawnSec": 25 }
+    "health": {
+      "value": 40,
+      "respawnSec": 30
+    },
+    "armour": {
+      "value": 50,
+      "respawnSec": 50
+    },
+    "ammo": {
+      "value": 45,
+      "respawnSec": 25
+    },
+    "frenzy": {
+      "value": 12,
+      "respawnSec": 120
+    }
   },
-  "spacing": 34
+  "spacing": 34,
+  "frenzySeconds": 45,
+  "frenzyReward": 1200
 }

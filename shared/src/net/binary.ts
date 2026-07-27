@@ -109,7 +109,7 @@ const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
 const PED_MODES = ['walk', 'flee'] as const;
-const PICKUP_KINDS = ['health', 'armour', 'ammo'] as const;
+const PICKUP_KINDS = ['health', 'armour', 'ammo', 'frenzy'] as const;
 const VEHICLE_CONDITIONS = ['ok', 'burning', 'wreck'] as const;
 
 // ---------------------------------------------------------------- writer
@@ -371,11 +371,21 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
     (r, o) => (o['carHitCooldown'] = r.int()),
   ),
   f('heat', (w, p) => w.f64(p.heat), (r, o) => (o['heat'] = r.f64())),
+  f('frenzyTarget', (w, p) => w.int(p.frenzyTarget), (r, o) => (o['frenzyTarget'] = r.int())),
+  f('frenzyKills', (w, p) => w.int(p.frenzyKills), (r, o) => (o['frenzyKills'] = r.int())),
+  f(
+    'frenzyEndsAtTick',
+    (w, p) => w.optInt(p.frenzyEndsAtTick),
+    (r, o) => (o['frenzyEndsAtTick'] = r.optInt()),
+  ),
+  f('z', (w, p) => w.q8(p.z), (r, o) => (o['z'] = r.q8())),
+  f('vz', (w, p) => w.q8(p.vz), (r, o) => (o['vz'] = r.q8())),
   // Appended last, so no existing mask bit shifts. Deliberately absent from
   // PLAYER_FIELDS (it changes every tick and remote clients ignore it), so
   // the diff never sets this bit and patches never carry it — but a whole
   // entity must, because `full`/`welcome` carry no ackSeq and the client
   // falls back to this field to reconcile against.
+  f('airDist', (w, p) => w.f64(p.airDist), (r, o) => (o['airDist'] = r.f64())),
   f(
     'lastInputSeq',
     (w, p) => w.big(p.lastInputSeq),
