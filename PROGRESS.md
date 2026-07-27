@@ -1,5 +1,35 @@
 # PROGRESS
 
+## Wider side streets
+
+A two-tile secondary road is 32 px and a car's collision box is 18, so two
+cars could not pass each other on any side street in the city: every parked
+car plugged its road, every meeting was a standoff, and about half of all
+ambient traffic was stationary in a busy neighbourhood however the parking was
+arranged. `secondaryWidth` is 3. Over six seeds with a crowd and 48 parked
+cars, traffic under way goes 57.5% -> 66.8%, and the worst neighbourhood 44%
+-> 54% — the point being not the average but that a bad draw is no longer a
+car park. Block sizes grow to match, so the asphalt comes out of the road grid
+rather than the buildings.
+
+Two knock-on fixes: a cruiser now gets out and walks when the fugitive is
+close but behind a wall (wider roads gave pursuit cars room to circle a block
+for ever, never near enough to dismount and never blocked enough to give up),
+and `openWater` joins `roadLane`/`clearSpot` in the test helpers, because the
+boat test assumed the first mooring on the map pointed down the river.
+
+## Deployment: reaching the right server, and not serving stale sprites
+
+Found by running the container path locally — built client, served by the game
+server, WebSocket on the same port. `serverUrl()` used the page's origin only
+on https, so a built client served over plain http fell back to
+`ws://<host>:8080`: wrong for every `docker compose up` on any other port. It
+keys off `import.meta.env.DEV` now. And the static server sent no cache headers
+at all, so a browser could hold the old `sprites.png` against the new
+`sprites.meta.json` and draw every sprite from the wrong coordinates — the game
+comes up corrupt for one person after a deploy that was otherwise fine. Fixed
+names are `no-cache`; only the content-hashed bundles are immutable.
+
 ## Drive-bys, kerbside parking, impacts you can see, and rubber on the road
 
 **Drive-by shooting.** `stepWeapons` gated firing on `mode !== 'foot'`, which
