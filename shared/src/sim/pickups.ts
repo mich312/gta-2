@@ -2,6 +2,13 @@ import { TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
 import { getTuning } from '../tuning.js';
 import type { GameState, PickupState, PlayerState } from './state.js';
+import {
+  POWER_DOUBLE_DAMAGE,
+  POWER_FAST_RELOAD,
+  POWER_INVISIBLE,
+  POWER_JAIL_CARD,
+  POWER_TIMED,
+} from './state.js';
 import type { SimEvent } from './events.js';
 import { FISTS_ID } from './weapons.js';
 
@@ -17,6 +24,15 @@ import { FISTS_ID } from './weapons.js';
 export function stepPickups(state: GameState, events: SimEvent[]): void {
   const t = getTuning().pickups;
   const r2 = t.radius * t.radius;
+
+  // Timed powers lapse before anything can be collected this tick, so a
+  // crate taken on the expiry tick starts a clean window rather than
+  // inheriting one that was already over.
+  for (const pid of state.players.ids) {
+    const p = state.players.byId[pid];
+    if (!p || (p.powerFlags & POWER_TIMED) === 0) continue;
+    if (state.tick >= p.powerUntilTick) p.powerFlags &= ~POWER_TIMED;
+  }
 
   for (const id of state.pickups.ids) {
     const pu = state.pickups.byId[id];
@@ -41,7 +57,8 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
       if (dx * dx + dy * dy > r2) continue;
       if (!consume(pu, p, state.tick)) continue;
       pu.active = false;
-      pu.respawnAtTick = state.tick + Math.round(t.kinds[pu.kind].respawnSec * TICK_RATE);
+      pu.respawnAtTick =
+        state.tick + Math.round((t.kinds[pu.kind]?.respawnSec ?? 30) * TICK_RATE);
       events.push({
         type: 'pickupTaken',
         tick: state.tick,
@@ -55,10 +72,20 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
   }
 }
 
+/**
+ * Light a timed power, replacing whatever was running. Exclusivity is what
+ * lets one clock be exactly right instead of roughly right — see the POWER_*
+ * comment in state.ts.
+ */
+function lightTimed(p: PlayerState, bit: number, seconds: number, tick: number): void {
+  p.powerFlags = (p.powerFlags & ~POWER_TIMED) | bit;
+  p.powerUntilTick = tick + Math.round(seconds * TICK_RATE);
+}
+
 /** Apply a pickup's effect. False if the player has no room for it. */
 function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
   const t = getTuning().pickups;
-  const value = t.kinds[pu.kind].value;
+  const value = t.kinds[pu.kind]?.value ?? 0;
   switch (pu.kind) {
     case 'health': {
       if (p.health >= t.maxHealth) return false;
@@ -76,6 +103,30 @@ function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
       p.frenzyTarget = Math.round(value);
       p.frenzyKills = 0;
       p.frenzyEndsAtTick = tick + Math.round(t.frenzySeconds * TICK_RATE);
+      return true;
+    }
+    case 'bribe': {
+      // The located exit from heat: no waiting it out, you go and get it.
+      if (p.heat <= 0) return false;
+      p.heat = 0;
+      p.wantedLevel = 0;
+      return true;
+    }
+    case 'jailcard': {
+      if ((p.powerFlags & POWER_JAIL_CARD) !== 0) return false;
+      p.powerFlags |= POWER_JAIL_CARD;
+      return true;
+    }
+    case 'damage': {
+      lightTimed(p, POWER_DOUBLE_DAMAGE, value, tick);
+      return true;
+    }
+    case 'invis': {
+      lightTimed(p, POWER_INVISIBLE, value, tick);
+      return true;
+    }
+    case 'reload': {
+      lightTimed(p, POWER_FAST_RELOAD, value, tick);
       return true;
     }
     case 'ammo': {

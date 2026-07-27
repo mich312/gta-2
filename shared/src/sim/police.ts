@@ -4,7 +4,7 @@ import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
 import type { CopState, GameState, PlayerState, VehicleState } from './state.js';
-import { addHeat, createCop, wantedLevelOf } from './state.js';
+import { addHeat, createCop, wantedLevelOf, POWER_INVISIBLE, POWER_JAIL_CARD } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
 import { driveVehicle } from './vehicle.js';
@@ -130,6 +130,15 @@ function tryBust(state: GameState, cop: CopState, target: PlayerState, events: S
   if (dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y) > t.bustRadius) return false;
   const speed = Math.sqrt(target.vel.x * target.vel.x + target.vel.y * target.vel.y);
   if (speed > t.bustSpeedMax) return false;
+  // The card is spent here, not at the station: it buys you the walk away,
+  // and the heat goes with it.
+  if ((target.powerFlags & POWER_JAIL_CARD) !== 0) {
+    target.powerFlags &= ~POWER_JAIL_CARD;
+    target.heat = 0;
+    target.wantedLevel = 0;
+    events.push({ type: 'jailCardUsed', tick: state.tick, playerId: target.id });
+    return true;
+  }
   bustPlayer(state, target, cop.id, events);
   return true;
 }
@@ -464,6 +473,9 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     for (const pid of state.players.ids) {
       const p = state.players.byId[pid];
       if (!p || p.mode === 'dead' || wantedLevelOf(p) === 0) continue;
+      // Invisible suspects are not acquired. Officers already chasing lose
+      // the target too — that is the point of the power-up.
+      if ((p.powerFlags & POWER_INVISIBLE) !== 0) continue;
       const d = dist(cop.pos.x, cop.pos.y, p.pos.x, p.pos.y);
       if (d < bestD) {
         bestD = d;

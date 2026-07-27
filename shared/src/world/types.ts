@@ -37,6 +37,17 @@ export interface BlockRect {
   district: DistrictType;
 }
 
+/** Crate kinds worldgen scatters. Frenzies are placed by their own pass. */
+export type PickupSpawnKind =
+  | 'health'
+  | 'armour'
+  | 'ammo'
+  | 'bribe'
+  | 'jailcard'
+  | 'damage'
+  | 'invis'
+  | 'reload';
+
 export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital', 'police'] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 
@@ -111,7 +122,7 @@ export interface CityMap {
   /** Street furniture: lamp posts, bins, fences (phase 8). */
   propSpawns: Array<{ kind: string; x: number; y: number; orient: number }>;
   /** Health/armour/ammo crates (roadmap A3). */
-  pickupSpawns: Array<{ kind: 'health' | 'armour' | 'ammo'; x: number; y: number }>;
+  pickupSpawns: Array<{ kind: PickupSpawnKind; x: number; y: number }>;
   /** Moorings: open water within reach of the bank. */
   boatSpawns: VehicleSpawn[];
   /** Oversized, named buildings you can navigate by. */

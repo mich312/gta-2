@@ -9,6 +9,12 @@ export type SimEvent =
   | { type: 'kill'; tick: number; killerId: number; victimId: number; weaponId: string }
   | { type: 'death'; tick: number; playerId: number }
   | {
+      /** An arrest was walked away from. The card is gone; so is the heat. */
+      type: 'jailCardUsed';
+      tick: number;
+      playerId: number;
+    }
+  | {
       /** Arrested rather than killed. Always accompanied by a `death` (the
        *  respawn pipeline is the same); the difference is where you wake up
        *  and what it costs — see FEATURES.md F2. */

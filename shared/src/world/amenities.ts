@@ -22,6 +22,7 @@ import {
   type Shop,
   type ShopKind,
   type VehicleSpawn,
+  type PickupSpawnKind,
 } from './types.js';
 
 /**
@@ -412,7 +413,32 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
   return rng;
 }
 
-const PICKUP_CYCLE = ['health', 'armour', 'ammo', 'health', 'ammo'] as const;
+/**
+ * Staples common, powers rare. The cycle length is coprime-ish with nothing
+ * in particular — it just has to be long enough that a power-up is a find
+ * rather than street furniture. Two thirds of the map is still health, ammo
+ * and armour.
+ */
+const PICKUP_CYCLE = [
+  'health',
+  'armour',
+  'ammo',
+  'health',
+  'ammo',
+  'bribe',
+  'health',
+  'damage',
+  'ammo',
+  'armour',
+  'invis',
+  'health',
+  'ammo',
+  'reload',
+  'armour',
+  'health',
+  'jailcard',
+  'ammo',
+] as const;
 
 /**
  * Health/armour/ammo crates. Placed on open ground away from the road —
@@ -434,7 +460,7 @@ export function placePickups(map: CityMap): void {
       n++;
       if (n % spacing !== 0) continue;
       spawns.push({
-        kind: PICKUP_CYCLE[spawns.length % PICKUP_CYCLE.length] as 'health' | 'armour' | 'ammo',
+        kind: PICKUP_CYCLE[spawns.length % PICKUP_CYCLE.length] as PickupSpawnKind,
         x: (tx + 0.5) * TILE_SIZE,
         y: (ty + 0.5) * TILE_SIZE,
       });

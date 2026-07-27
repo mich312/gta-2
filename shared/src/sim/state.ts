@@ -48,7 +48,36 @@ export interface PropState {
   respawnAtTick: number | null;
 }
 
-export type PickupKind = 'health' | 'armour' | 'ammo' | 'frenzy';
+export type PickupKind =
+  | 'health'
+  | 'armour'
+  | 'ammo'
+  | 'frenzy'
+  | 'bribe'
+  | 'jailcard'
+  | 'damage'
+  | 'invis'
+  | 'reload';
+
+/**
+ * Behaviour-altering power-ups, as bits rather than a field each.
+ *
+ * Five separate `somethingUntilTick: number` fields would be five slots in
+ * every player diff for a state that is empty almost all the time. One
+ * bitfield plus one clock is two, and it stays two however many power-ups
+ * get added later.
+ *
+ * The timed powers are mutually exclusive on purpose: taking one replaces
+ * whatever you were running. That is what lets a single clock be correct
+ * rather than approximately correct. JAIL_CARD is untimed — it sits in the
+ * same field and is spent by the next arrest, whenever that comes.
+ */
+export const POWER_DOUBLE_DAMAGE = 1;
+export const POWER_INVISIBLE = 2;
+export const POWER_FAST_RELOAD = 4;
+export const POWER_JAIL_CARD = 8;
+/** Everything the clock governs. */
+export const POWER_TIMED = POWER_DOUBLE_DAMAGE | POWER_INVISIBLE | POWER_FAST_RELOAD;
 
 export interface PickupState {
   id: number;
@@ -162,6 +191,10 @@ export interface PlayerState {
   vz: number;
   /** Longest airborne distance of the current jump, px. */
   airDist: number;
+  /** Active power-ups; see the POWER_* bits. */
+  powerFlags: number;
+  /** Tick the timed powers lapse on. Meaningless when no timed bit is set. */
+  powerUntilTick: number;
 }
 
 /**
@@ -322,6 +355,8 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     z: 0,
     vz: 0,
     airDist: 0,
+    powerFlags: 0,
+    powerUntilTick: 0,
   };
 }
 

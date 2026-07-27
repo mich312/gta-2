@@ -11,7 +11,7 @@ import type {
   PropState,
   VehicleState,
 } from './state.js';
-import { addHeat, createProjectile } from './state.js';
+import { addHeat, createProjectile, POWER_DOUBLE_DAMAGE, POWER_FAST_RELOAD, POWER_JAIL_CARD } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { damagePed } from './peds.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
@@ -431,7 +431,12 @@ export function stepWeapons(
     }
 
     if (!weapon.infiniteAmmo) slot.ammo--;
-    p.fireCooldown = weapon.cooldownTicks;
+    p.fireCooldown =
+      (p.powerFlags & POWER_FAST_RELOAD) !== 0
+        ? Math.max(1, Math.round(weapon.cooldownTicks / 2))
+        : weapon.cooldownTicks;
+    const damage =
+      (p.powerFlags & POWER_DOUBLE_DAMAGE) !== 0 ? weapon.damage * 2 : weapon.damage;
 
     // Launchers and thrown weapons put an object in the world instead of
     // resolving along a ray. No rng draw here: a rocket has no spread worth
@@ -465,7 +470,7 @@ export function stepWeapons(
         oy,
         angle,
         weapon.range,
-        weapon.damage,
+        damage,
         slot.weaponId,
         car ? car.id : null,
         events,

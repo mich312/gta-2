@@ -18,6 +18,26 @@
     "frenzy": {
       "value": 12,
       "respawnSec": 120
+    },
+    "bribe": {
+      "value": 1,
+      "respawnSec": 90
+    },
+    "jailcard": {
+      "value": 1,
+      "respawnSec": 120
+    },
+    "damage": {
+      "value": 20,
+      "respawnSec": 100
+    },
+    "invis": {
+      "value": 15,
+      "respawnSec": 110
+    },
+    "reload": {
+      "value": 25,
+      "respawnSec": 80
     }
   },
   "spacing": 34,

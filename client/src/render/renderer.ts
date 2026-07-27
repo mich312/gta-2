@@ -425,6 +425,13 @@ const PICKUP_COLORS: Record<string, string> = {
   health: '#57c98a',
   armour: '#5aa8e0',
   ammo: '#e0b452',
+  // Power-ups read as a distinct family: hotter, and none of them green.
+  frenzy: '#e0543c',
+  bribe: '#f0c040',
+  jailcard: '#e8e0c0',
+  damage: '#ff7a4a',
+  invis: '#9fd8e8',
+  reload: '#c39ce0',
 };
 
 /**

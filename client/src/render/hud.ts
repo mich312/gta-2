@@ -99,6 +99,7 @@ export class Hud {
     // Arrives one tick before the snapshot showing you down, which is why
     // the flag is set here and read by the overlay rather than derived.
     if (event.type === 'busted') this.wasBusted = true;
+    if (event.type === 'jailCardUsed') this.notice('you walk — card spent');
   }
 
   /**
@@ -195,6 +196,24 @@ export class Hud {
       ctx.font = '8px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(this.place, INTERNAL_WIDTH - 6, 90);
+      ctx.textAlign = 'left';
+    }
+
+    // Active power-ups, under the wanted stars. Named, because a coloured
+    // pip tells you something is on but not what, and these change how the
+    // game plays rather than topping up a bar.
+    if (me.powerFlags !== 0 && snapshot) {
+      const secs = Math.max(0, Math.ceil((me.powerUntilTick - snapshot.tick) / TICK_RATE));
+      const lit: string[] = [];
+      if ((me.powerFlags & 1) !== 0) lit.push(`DOUBLE DAMAGE ${secs}`);
+      if ((me.powerFlags & 2) !== 0) lit.push(`INVISIBLE ${secs}`);
+      if ((me.powerFlags & 4) !== 0) lit.push(`FAST RELOAD ${secs}`);
+      if ((me.powerFlags & 8) !== 0) lit.push('GET OUT OF JAIL FREE');
+      ctx.textAlign = 'center';
+      lit.forEach((text, i) => {
+        ctx.fillStyle = i === lit.length - 1 && (me.powerFlags & 8) !== 0 ? '#e8e0c0' : '#ff9a5a';
+        ctx.fillText(text, INTERNAL_WIDTH / 2, 22 + i * 10);
+      });
       ctx.textAlign = 'left';
     }
 

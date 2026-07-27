@@ -110,7 +110,17 @@ const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
 const PED_MODES = ['walk', 'flee'] as const;
-const PICKUP_KINDS = ['health', 'armour', 'ammo', 'frenzy'] as const;
+const PICKUP_KINDS = [
+  'health',
+  'armour',
+  'ammo',
+  'frenzy',
+  'bribe',
+  'jailcard',
+  'damage',
+  'invis',
+  'reload',
+] as const;
 const VEHICLE_CONDITIONS = ['ok', 'burning', 'wreck'] as const;
 
 // ---------------------------------------------------------------- writer
@@ -387,6 +397,8 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
   // entity must, because `full`/`welcome` carry no ackSeq and the client
   // falls back to this field to reconcile against.
   f('airDist', (w, p) => w.f64(p.airDist), (r, o) => (o['airDist'] = r.f64())),
+  f('powerFlags', (w, p) => w.u8(p.powerFlags), (r, o) => (o['powerFlags'] = r.u8())),
+  f('powerUntilTick', (w, p) => w.big(p.powerUntilTick), (r, o) => (o['powerUntilTick'] = r.big())),
   f(
     'lastInputSeq',
     (w, p) => w.big(p.lastInputSeq),

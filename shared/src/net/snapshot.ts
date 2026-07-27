@@ -78,6 +78,8 @@ const PLAYER_FIELDS = [
   // copy go stale the moment anyone jumped, and every subsequent snapshot
   // hash disagreed — 25 desyncs per bot, with a sim that replays perfectly.
   'airDist',
+  'powerFlags',
+  'powerUntilTick',
 ] as const;
 
 const VEHICLE_FIELDS = [
