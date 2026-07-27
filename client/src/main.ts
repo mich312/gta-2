@@ -376,6 +376,12 @@ function frame(now: number): void {
     tick: sync.latest?.tick ?? -1,
     cops: sync.latest?.cops.length ?? 0,
     vehicles: sync.latest?.vehicles.length ?? 0,
+    // Ambient traffic: how many streamed vehicles have an AI at the wheel,
+    // and how many of those are actually under way.
+    aiCars: sync.latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1).length ?? 0,
+    aiMoving:
+      sync.latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1 && Math.abs(v.speed) > 20)
+        .length ?? 0,
     peds: sync.latest?.peds.length ?? 0,
     props: sync.latest?.props.length ?? 0,
     fps: stats.fps,

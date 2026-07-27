@@ -111,6 +111,24 @@ export interface PickupsTuning {
   spacing: number;
 }
 
+export interface TrafficTuning {
+  /** Target ambient cars near players, not across the whole map. */
+  count: number;
+  cruiseSpeed: number;
+  lookAhead: number;
+  turnProbe: number;
+  brakeDistancePerSpeed: number;
+  laneHalfWidth: number;
+  decisionCadenceTicks: number;
+  turnChance: number;
+  spawnMinDist: number;
+  spawnMaxDist: number;
+  despawnDist: number;
+  spawnCadenceTicks: number;
+  /** Heat for dragging a driver out of their car. */
+  jackHeat: number;
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
@@ -119,6 +137,7 @@ export interface Tuning {
   peds: PedTuning;
   props: PropsTuning;
   pickups: PickupsTuning;
+  traffic: TrafficTuning;
 }
 
 let current: Tuning | null = null;
@@ -283,6 +302,42 @@ const DEFAULT_PICKUPS: PickupsTuning = {
   spacing: 34,
 };
 
+function parseTrafficTuning(raw: unknown): TrafficTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `traffic.${k}`);
+  return {
+    count: n('count'),
+    cruiseSpeed: n('cruiseSpeed'),
+    lookAhead: n('lookAhead'),
+    turnProbe: n('turnProbe'),
+    brakeDistancePerSpeed: n('brakeDistancePerSpeed'),
+    laneHalfWidth: n('laneHalfWidth'),
+    decisionCadenceTicks: n('decisionCadenceTicks'),
+    turnChance: n('turnChance'),
+    spawnMinDist: n('spawnMinDist'),
+    spawnMaxDist: n('spawnMaxDist'),
+    despawnDist: n('despawnDist'),
+    spawnCadenceTicks: n('spawnCadenceTicks'),
+    jackHeat: n('jackHeat'),
+  };
+}
+
+const DEFAULT_TRAFFIC: TrafficTuning = {
+  count: 14,
+  cruiseSpeed: 104,
+  lookAhead: 44,
+  turnProbe: 80,
+  brakeDistancePerSpeed: 0.35,
+  laneHalfWidth: 14,
+  decisionCadenceTicks: 21,
+  turnChance: 0.25,
+  spawnMinDist: 420,
+  spawnMaxDist: 760,
+  despawnDist: 1100,
+  spawnCadenceTicks: 12,
+  jackHeat: 45,
+};
+
 const DEFAULT_PROPS: PropsTuning = {
   kinds: {
     lamp: { hp: 15, radius: 4 },
@@ -337,6 +392,7 @@ export function initTuning(raw: {
   peds?: unknown;
   props?: unknown;
   pickups?: unknown;
+  traffic?: unknown;
 }): void {
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
@@ -356,6 +412,7 @@ export function initTuning(raw: {
     peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
     props: raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS,
     pickups: raw.pickups !== undefined ? parsePickupsTuning(raw.pickups) : DEFAULT_PICKUPS,
+    traffic: raw.traffic !== undefined ? parseTrafficTuning(raw.traffic) : DEFAULT_TRAFFIC,
   };
 }
 
@@ -370,6 +427,10 @@ export function getVehicleTuning(kind: string): VehicleTuning {
   const t = getTuning().vehicles[kind];
   if (!t) throw new Error(`no tuning for vehicle kind '${kind}'`);
   return t;
+}
+
+export function getTrafficTuning(): TrafficTuning {
+  return getTuning().traffic;
 }
 
 export function getWeaponTuning(id: string): WeaponTuning | null {

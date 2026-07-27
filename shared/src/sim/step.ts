@@ -1,7 +1,14 @@
 import { nextIntRange } from '../rng/prng.js';
 import { q256 } from '../math/vec.js';
 import type { GameState } from './state.js';
-import { cloneState, createPickup, createPlayer, createProp, createVehicle } from './state.js';
+import {
+  addHeat,
+  cloneState,
+  createPickup,
+  createPlayer,
+  createProp,
+  createVehicle,
+} from './state.js';
 import { insertEntity, removeEntity, getEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
@@ -11,6 +18,7 @@ import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
+import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { createPed } from './state.js';
 import { getTuning } from '../tuning.js';
@@ -53,8 +61,13 @@ export function step(
     const pressed = input.action && !p.actionHeld;
     p.actionHeld = input.action;
     if (!pressed || p.mode === 'dead') continue;
-    if (p.mode === 'foot') tryEnterVehicle(next, p, map);
-    else if (p.mode === 'driving') tryExitVehicle(next, p, map);
+    if (p.mode === 'foot') {
+      // Jacking an occupied car takes precedence over opening an empty one,
+      // and unlike lifting a parked car it is always a crime.
+      const jacked = tryCarjack(next, map, p.id);
+      if (jacked) addHeat(p, getTuning().traffic.jackHeat);
+      else tryEnterVehicle(next, p, map);
+    } else if (p.mode === 'driving') tryExitVehicle(next, p, map);
   }
 
   // Movement.
@@ -78,12 +91,14 @@ export function step(
     }
   }
 
-  // Driverless vehicles coast to rest.
+  // Ambient traffic drives itself, then genuinely driverless vehicles coast.
+  stepTraffic(next, map, events);
   for (const id of next.vehicles.ids) {
     const v = next.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
     stepVehicleCoasting(v, map, next, events);
   }
+  stepTrafficPopulation(next, map);
 
   stepWeapons(next, inputs, map, events);
   stepVehicleImpacts(next, events);
