@@ -360,6 +360,9 @@ function handleServerMessage(msg: ServerMessage): void {
       case 'exports':
         hud.setExports(msg.kinds, msg.bonus);
         break;
+      case 'missionState':
+        hud.setMission(msg);
+        break;
       case 'account':
         hud.accountName = msg.ok ? msg.username : hud.accountName;
         hud.notice(msg.message);
@@ -429,6 +432,9 @@ function frame(now: number): void {
   if (input.hasGestured) audio.resume();
   if (input.consumeMute()) hud.notice(audio.toggleMute() ? 'sound off' : 'sound on');
 
+  const missionAction = input.consumeMissionAction();
+  if (missionAction) conn.send({ type: 'mission', action: missionAction });
+
   const accountAction = input.consumeAccountAction();
   if (accountAction) {
     const username = window.prompt(`${accountAction}: username`) ?? '';
@@ -488,6 +494,7 @@ function frame(now: number): void {
   const myCar = predictor.predictedVehicle;
   hud.fitting = myCar?.fitting ?? '';
   hud.fittingAmmo = myCar?.fittingAmmo ?? 0;
+  minimap.marker = hud.missionMarker;
   hud.draw(
     screen.ctx,
     predictor.predicted ?? null,

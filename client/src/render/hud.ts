@@ -1,6 +1,18 @@
 import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } from 'shared';
 import { INTERNAL_HEIGHT, INTERNAL_WIDTH, TICK_RATE } from 'shared';
 
+/** What the server tells us about the job in hand. */
+export interface MissionView {
+  active: boolean;
+  text: string;
+  tier: string;
+  employer: string;
+  progress: number;
+  target: number;
+  secondsLeft: number;
+  marker: { x: number; y: number } | null;
+}
+
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
 /** Gang colours, in gang-id order. Mirrors shared/data/gangs.json. */
 const GANG_COLORS = ['#c8543c', '#4aa86a', '#4a7ac8', '#a86ac8'];
@@ -31,6 +43,8 @@ export class Hud {
   /** What the garage bolted to the car the player is currently in. */
   fitting = '';
   fittingAmmo = 0;
+  /** The job in hand, straight off the wire. */
+  private mission: MissionView | null = null;
   /** Vehicle kinds the crushers are paying over the odds for. */
   private exportKinds: string[] = [];
   private exportBonus = 1;
@@ -63,6 +77,18 @@ export class Hud {
       this.multiplier = multiplier;
       this.multiplierChangedAtMs = performance.now();
     }
+  }
+
+  /** A `missionState` message landed. */
+  setMission(m: MissionView): void {
+    const had = this.mission?.active === true;
+    this.mission = m;
+    if (m.active && !had) this.notice(`${m.employer}: ${m.text}`);
+  }
+
+  /** Marker the renderer should point at, if any. */
+  get missionMarker(): { x: number; y: number } | null {
+    return this.mission?.active ? this.mission.marker : null;
   }
 
   /** The crushers' shopping list changed. */
@@ -218,6 +244,25 @@ export class Hud {
       const a = ((this.hurtUntilMs - now) / 220) * 0.3;
       ctx.fillStyle = `rgba(180, 20, 20, ${a.toFixed(3)})`;
       ctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+    }
+
+    // The job in hand, top centre under the stars: employer, what they want,
+    // how far along you are and how long you have. A mission you have to
+    // remember is a mission you will fail for the wrong reason.
+    if (this.mission?.active) {
+      const m = this.mission;
+      ctx.textAlign = 'center';
+      ctx.font = '8px monospace';
+      ctx.fillStyle =
+        m.tier === 'red' ? '#e07a6a' : m.tier === 'yellow' ? '#e0c86a' : '#8fd6a0';
+      ctx.fillText(`${m.employer.toUpperCase()} — ${m.text}`, INTERNAL_WIDTH / 2, 34);
+      ctx.fillStyle = m.secondsLeft <= 15 ? '#e05555' : '#c0cad0';
+      ctx.fillText(
+        `${m.progress}/${m.target}   ${m.secondsLeft}s`,
+        INTERNAL_WIDTH / 2,
+        44,
+      );
+      ctx.textAlign = 'left';
     }
 
     // Respect, one bar per gang, always all of them. Showing only the gang

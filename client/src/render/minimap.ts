@@ -57,6 +57,8 @@ const TURF_TINT: Record<number, string> = {
 export class Minimap {
   private texture: HTMLCanvasElement | null = null;
   private map: CityMap | null = null;
+  /** Objective marker, set by the HUD's mission state. */
+  marker: { x: number; y: number } | null = null;
 
   setMap(map: CityMap): void {
     this.map = map;
@@ -165,6 +167,9 @@ export class Minimap {
       dot(cx, cy, tint, 2);
     }
 
+    // Payphones: the city's job board, and useless if you cannot find one.
+    for (const q of map.payphones) dot(q.x, q.y, '#d8d0a0', 1.5);
+
     // Crushers: you have to be able to find one to use one. Green, because
     // amber is already the respray garage and these are not the same errand.
     for (const c of map.cranes) dot(c.x, c.y, '#7fd6a8', 2);
@@ -190,6 +195,9 @@ export class Minimap {
         dot(p.pos.x, p.pos.y, '#e05555', 1.5);
       }
     }
+    // Where the job wants you, over everything except yourself.
+    if (this.marker) dot(this.marker.x, this.marker.y, '#ffd27a', 2.5);
+
     // Own marker last, so nothing can cover it.
     dot(center.x, center.y, '#ffffff', 1.5);
 

@@ -21,6 +21,7 @@ export class InputSource {
   private pendingAccountAction: 'login' | 'register' | null = null;
   /** M pressed since the last check. */
   private pendingMute = false;
+  private pendingMission: 'take' | 'abandon' | null = null;
   /** Any input at all yet? Browsers gate AudioContext behind a gesture. */
   private gestured = false;
 
@@ -48,6 +49,9 @@ export class InputSource {
       };
       if (e.code in buyRows) this.pendingBuyRow = buyRows[e.code] as number;
       if (e.code === 'KeyM') this.pendingMute = true;
+      // R answers the phone. The action key is spoken for by car doors.
+      if (e.code === 'KeyR') this.pendingMission = 'take';
+      if (e.code === 'KeyG') this.pendingMission = 'abandon';
       this.gestured = true;
       if (e.code === 'KeyL') this.pendingAccountAction = 'login';
       if (e.code === 'KeyK') this.pendingAccountAction = 'register';
@@ -81,6 +85,13 @@ export class InputSource {
     const m = this.pendingMute;
     this.pendingMute = false;
     return m;
+  }
+
+  /** Answering the phone (R) or walking away from the job (G). */
+  consumeMissionAction(): 'take' | 'abandon' | null {
+    const a = this.pendingMission;
+    this.pendingMission = null;
+    return a;
   }
 
   /** True once the user has pressed or clicked anything at all. */

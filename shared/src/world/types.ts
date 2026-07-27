@@ -133,6 +133,8 @@ export interface CityMap {
   policeStations: Vec2[];
   /** Car crushers: drive one in, leave on foot and better off. */
   cranes: Vec2[];
+  /** Ringing phones: the city's way of offering you work. */
+  payphones: Vec2[];
   /** Gang id per turf cell, row-major. 0 = nobody's. */
   turfCells: Uint8Array;
   turfCellsWide: number;

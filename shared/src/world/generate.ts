@@ -13,6 +13,7 @@ import {
   placeLandmarks,
   placePickups,
   placeCranes,
+  placePayphones,
   placeRamps,
   placeShops,
   placeVehicleSpawns,
@@ -57,6 +58,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     hospitals: [],
     policeStations: [],
     cranes: [],
+    payphones: [],
     turfCells: new Uint8Array(0),
     turfCellsWide: 0,
     turfCellTiles: 1,
@@ -107,6 +109,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeBoatSpawns(map);
   placeRamps(map);
   placeCranes(map);
+  placePayphones(map);
   assignTurf(map, params);
 
   return map;

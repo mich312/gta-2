@@ -707,6 +707,37 @@ export function placeCranes(map: CityMap): void {
   map.cranes = sites;
 }
 
+/**
+ * Payphones: on the pavement, at junctions, spread across the city.
+ *
+ * The genre's mission-giver is a ringing phone rather than a marker you drive
+ * into — the city calls you and you choose whether to pick up. Placed by a
+ * deterministic scan with no rng draw, like the cranes.
+ */
+export function placePayphones(map: CityMap): void {
+  const spots: Vec2[] = [];
+  let n = 0;
+  for (let ty = 2; ty < map.heightTiles - 2; ty++) {
+    for (let tx = 2; tx < map.widthTiles - 2; tx++) {
+      if (t(map, tx, ty) !== T_SIDEWALK) continue;
+      // A corner: pavement with road on two adjacent sides. That is where a
+      // phone box goes, and it is somewhere you can stop a car near.
+      const roadE = t(map, tx + 1, ty) === T_ROAD;
+      const roadW = t(map, tx - 1, ty) === T_ROAD;
+      const roadS = t(map, tx, ty + 1) === T_ROAD;
+      const roadN = t(map, tx, ty - 1) === T_ROAD;
+      if (!((roadE || roadW) && (roadS || roadN))) continue;
+      n++;
+      if (n % 7 !== 0) continue;
+      const x = (tx + 0.5) * TILE_SIZE;
+      const y = (ty + 0.5) * TILE_SIZE;
+      if (spots.some((p) => Math.abs(p.x - x) + Math.abs(p.y - y) < 420)) continue;
+      spots.push({ x, y });
+    }
+  }
+  map.payphones = spots;
+}
+
 export function placeRamps(map: CityMap): void {
   let n = 0;
   for (let ty = 2; ty < map.heightTiles - 2; ty++) {

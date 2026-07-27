@@ -18,6 +18,7 @@ export type ClientMessage =
   | { type: 'ping'; t: number }
   /** Requests, not state: the server validates everything about them. */
   | { type: 'buy'; itemId: string }
+  | { type: 'mission'; action: 'take' | 'abandon' }
   | { type: 'register'; username: string; password: string }
   | { type: 'login'; username: string; password: string };
 
@@ -53,6 +54,18 @@ export type ServerMessage =
       type: 'exports';
       kinds: string[];
       bonus: number;
+    }
+  | {
+      /** The job you are on, or `active: false` when you are not on one. */
+      type: 'missionState';
+      active: boolean;
+      text: string;
+      tier: string;
+      employer: string;
+      progress: number;
+      target: number;
+      secondsLeft: number;
+      marker: { x: number; y: number } | null;
     }
   | { type: 'account'; ok: boolean; username: string | null; message: string }
   | { type: 'error'; code: string; message: string };
@@ -97,6 +110,11 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (typeof itemId !== 'string' || itemId.length === 0 || itemId.length > 40) return null;
       return { type: 'buy', itemId };
     }
+    case 'mission': {
+      const action = r['action'];
+      if (action !== 'take' && action !== 'abandon') return null;
+      return { type: 'mission', action };
+    }
     case 'register':
     case 'login': {
       const username = r['username'];
@@ -121,6 +139,8 @@ const SERVER_MESSAGE_TYPES = new Set([
   'wallet',
   'account',
   'error',
+  'exports',
+  'missionState',
 ]);
 
 /** Client-side parse. The server is trusted; this is a shape check, not a validator. */

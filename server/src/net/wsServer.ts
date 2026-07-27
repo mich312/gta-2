@@ -16,6 +16,7 @@ import {
 import type { ServerConfig } from '../config.js';
 import type { Session } from '../session.js';
 import type { Economy } from '../economy/economy.js';
+import { Missions } from '../missions/missions.js';
 import { buildStateMessage, filterSnapshot } from './broadcast.js';
 import { ClientConn } from './client.js';
 
@@ -90,6 +91,24 @@ export class GameServer {
     );
     for (const cmd of crushCommands) this.session.queueCommand(cmd);
 
+    // Missions advance on the same tick as everything else they read.
+    const outcome = this.missions.step(this.session.lastEvents, this.session.state, this.session.map);
+    for (const cmd of outcome.commands) this.session.queueCommand(cmd);
+    for (const n of outcome.notices) {
+      this.byPlayer.get(n.playerId)?.send({
+        type: 'event',
+        tick: this.session.state.tick,
+        event: { type: 'notice', text: n.text },
+      });
+    }
+    for (const done of outcome.completed) {
+      this.economy.payMission(done.playerId, done.pay);
+      changed.add(done.playerId);
+    }
+    for (const playerId of outcome.changed) {
+      this.byPlayer.get(playerId)?.send(this.missionMessage(playerId));
+    }
+
     // The list rotates on a timer; tell everyone the moment it does.
     this.economy.exports(Date.now());
     if (this.economy.exportListVersion !== this.sentExportVersion) {
@@ -101,7 +120,13 @@ export class GameServer {
     }
   }
 
+  private readonly missions = new Missions();
   private sentExportVersion = -1;
+
+  private missionMessage(playerId: number): ServerMessage {
+    const v = this.missions.view(playerId, this.session.state.tick);
+    return { type: 'missionState', ...v };
+  }
 
   private exportMessage(): ServerMessage {
     return {
@@ -167,6 +192,23 @@ export class GameServer {
       case 'ping':
         conn.send({ type: 'pong', t: msg.t, serverTick: this.session.state.tick });
         break;
+      case 'mission': {
+        if (conn.playerId === null) break;
+        if (msg.action === 'abandon') {
+          this.missions.abandon(conn.playerId);
+        } else {
+          const why = this.missions.take(conn.playerId, this.session.state, this.session.map);
+          if (why) {
+            conn.send({
+              type: 'event',
+              tick: this.session.state.tick,
+              event: { type: 'notice', text: why },
+            });
+          }
+        }
+        conn.send(this.missionMessage(conn.playerId));
+        break;
+      }
       case 'buy': {
         if (conn.playerId === null) break;
         const result = this.economy.buy(conn.playerId, msg.itemId, this.session.state, this.session.map);
@@ -239,6 +281,7 @@ export class GameServer {
     });
     conn.send({ type: 'wallet', ...this.economy.walletOf(slot.playerId) });
     conn.send(this.exportMessage());
+    conn.send(this.missionMessage(slot.playerId));
   }
 
   private onClose(conn: ClientConn): void {

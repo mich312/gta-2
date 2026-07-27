@@ -125,6 +125,16 @@ export class Economy {
     };
   }
 
+  /**
+   * A job done. Pays through the same chokepoint as everything else, then
+   * raises the multiplier — the big one, and what finally makes it climb the
+   * way the original's did.
+   */
+  payMission(playerId: number, pay: number): void {
+    this.credit(playerId, pay, 'mission');
+    this.raiseMultiplier(playerId, this.params.multiplier.missionGain);
+  }
+
   /** Success raises the multiplier, capped. Returns the new value. */
   raiseMultiplier(playerId: number, gain: number): number {
     const next = Math.min(this.params.multiplier.max, this.multiplierOf(playerId) + gain);
