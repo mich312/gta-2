@@ -122,7 +122,8 @@ export class GameServer {
             code: 'protocol',
             message:
               `server speaks protocol ${PROTOCOL_VERSION}, client speaks ${msg.protocol} — ` +
-              'one of them is running an older build (rebuild the server: pnpm build)',
+              'one of them is an older build: reload the page, or rebuild the server ' +
+              '(pnpm build)',
           });
           conn.ws.close();
           return;

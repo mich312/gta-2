@@ -22,6 +22,21 @@ const MIME: Record<string, string> = {
 };
 
 /**
+ * How long the browser may keep a file.
+ *
+ * Only the bundles under `assets/` carry a content hash in their name, so only
+ * those can be cached for ever. Everything else — index.html, and the sprite
+ * sheet and its frame map, which live in `public/` under fixed names — must be
+ * revalidated. A deploy that changes the sheet while a browser holds the old
+ * PNG and the new metadata draws every sprite from the wrong coordinates, and
+ * the game comes up looking corrupt for exactly one person.
+ */
+function cacheControl(filePath: string, root: string): string {
+  const rel = filePath.slice(root.length + 1);
+  return rel.startsWith(`assets${sep}`) ? 'public, max-age=31536000, immutable' : 'no-cache';
+}
+
+/**
  * Minimal static file server for the built client (client/dist). Unknown paths
  * fall back to index.html (single-page app). WebSocket upgrades are handled by
  * the WebSocketServer attached to this http.Server via its `upgrade` event, so
@@ -50,7 +65,10 @@ export function createStaticServer(rootDir: string): Server {
       if (!info?.isFile()) filePath = index; // SPA fallback
 
       const body = await readFile(filePath);
-      res.writeHead(200, { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' });
+      res.writeHead(200, {
+        'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
+        'cache-control': cacheControl(filePath, root),
+      });
       res.end(body);
     } catch {
       res.writeHead(500).end('server error');
