@@ -5,6 +5,7 @@ import {
   SNAPSHOT_HASH_INTERVAL,
   TICK_RATE,
   getTuning,
+  PROTOCOL_VERSION,
   binaryCodec,
   parseClientMessage,
 } from 'shared';
@@ -94,6 +95,21 @@ export class GameServer {
 
     switch (msg.type) {
       case 'join':
+        // The protocol field has been sent since the first commit and never
+        // read. A client on a different build than the server produces
+        // baffling symptoms — a city generated from different worldgen code,
+        // or tuning the client cannot parse — so say so plainly instead.
+        if (msg.protocol !== PROTOCOL_VERSION) {
+          conn.send({
+            type: 'error',
+            code: 'protocol',
+            message:
+              `server speaks protocol ${PROTOCOL_VERSION}, client speaks ${msg.protocol} — ` +
+              'one of them is running an older build (rebuild the server: pnpm build)',
+          });
+          conn.ws.close();
+          return;
+        }
         this.handleJoin(conn, msg.name, msg.resumeToken);
         break;
       case 'input':

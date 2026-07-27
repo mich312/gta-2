@@ -14,6 +14,8 @@ export interface ConnectionOptions {
   stats: NetStats;
   getResumeToken: () => string | null;
   onMessage: (msg: ServerMessage) => void;
+  /** Called with a human-readable reason whenever the socket cannot stay up. */
+  onDisconnected?: (attempts: number) => void;
 }
 
 const RECONNECT_DELAY_MS = 2000;
@@ -27,6 +29,8 @@ export class Connection {
 
   private ws: WebSocket | null = null;
   private closedByUs = false;
+  /** Consecutive failed connection attempts, for the "is it even up?" message. */
+  private attempts = 0;
 
   constructor(private readonly opts: ConnectionOptions) {}
 
@@ -39,6 +43,7 @@ export class Connection {
     this.ws = ws;
     ws.onopen = () => {
       this.connected = true;
+      this.attempts = 0;
       const token = this.opts.getResumeToken();
       const join: ClientMessage = {
         type: 'join',
@@ -70,9 +75,10 @@ export class Connection {
     ws.onclose = () => {
       this.connected = false;
       this.ws = null;
-      if (!this.closedByUs) {
-        setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
-      }
+      if (this.closedByUs) return;
+      this.attempts++;
+      this.opts.onDisconnected?.(this.attempts);
+      setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
     };
   }
 

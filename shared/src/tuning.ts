@@ -373,6 +373,9 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
   };
 }
 
+/** Movement fallback, matching `shared/data/player.json`. */
+const DEFAULT_PLAYER: PlayerTuning = { walkSpeed: 130, accel: 900 };
+
 const DEFAULT_TRAFFIC: TrafficTuning = {
   count: 14,
   cruiseSpeed: 104,
@@ -446,36 +449,88 @@ const DEFAULT_POLICE: PoliceTuning = {
   sprayCost: 400,
 };
 
-export function initTuning(raw: {
-  player: unknown;
-  vehicles?: unknown;
-  weapons?: unknown;
-  police?: unknown;
-  peds?: unknown;
-  props?: unknown;
-  pickups?: unknown;
-  traffic?: unknown;
-}): void {
+export interface InitTuningOptions {
+  /**
+   * Fall back to the built-in defaults for any section that will not parse,
+   * and report which, instead of throwing.
+   *
+   * The server loads these files off its own disk and should refuse to start
+   * on a malformed one. The CLIENT is handed them over the wire by a server it
+   * does not control, and there a single unparseable number used to throw
+   * inside the welcome handler — killing the whole frame loop and leaving the
+   * game sitting on "connecting…" with the reason only in the console.
+   */
+  lenient?: boolean;
+}
+
+/** Sections that fell back to defaults, if any. Empty when all was well. */
+export function initTuning(
+  raw: {
+    player: unknown;
+    vehicles?: unknown;
+    weapons?: unknown;
+    police?: unknown;
+    peds?: unknown;
+    props?: unknown;
+    pickups?: unknown;
+    traffic?: unknown;
+  },
+  opts: InitTuningOptions = {},
+): string[] {
+  const fellBack: string[] = [];
+  const section = <T>(name: string, parse: () => T, fallback: T): T => {
+    try {
+      return parse();
+    } catch (err) {
+      if (!opts.lenient) throw err;
+      fellBack.push(name);
+      return fallback;
+    }
+  };
+
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
   for (const [kind, v] of Object.entries(vehiclesRaw)) {
-    vehicles[kind] = parseVehicleTuning(kind, v);
+    const parsed = section(`vehicles.${kind}`, () => parseVehicleTuning(kind, v), null);
+    if (parsed) vehicles[kind] = parsed;
   }
   const weaponsRaw = (raw.weapons ?? {}) as Record<string, unknown>;
   const weapons: Record<string, WeaponTuning> = {};
   for (const [id, w] of Object.entries(weaponsRaw)) {
-    weapons[id] = parseWeaponTuning(id, w);
+    const parsed = section(`weapons.${id}`, () => parseWeaponTuning(id, w), null);
+    if (parsed) weapons[id] = parsed;
   }
   current = {
-    player: parsePlayerTuning(raw.player),
+    player: section('player', () => parsePlayerTuning(raw.player), DEFAULT_PLAYER),
     vehicles,
     weapons,
-    police: raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE,
-    peds: raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS,
-    props: raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS,
-    pickups: raw.pickups !== undefined ? parsePickupsTuning(raw.pickups) : DEFAULT_PICKUPS,
-    traffic: raw.traffic !== undefined ? parseTrafficTuning(raw.traffic) : DEFAULT_TRAFFIC,
+    police: section(
+      'police',
+      () => (raw.police !== undefined ? parsePoliceTuning(raw.police) : DEFAULT_POLICE),
+      DEFAULT_POLICE,
+    ),
+    peds: section(
+      'peds',
+      () => (raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS),
+      DEFAULT_PEDS,
+    ),
+    props: section(
+      'props',
+      () => (raw.props !== undefined ? parsePropsTuning(raw.props) : DEFAULT_PROPS),
+      DEFAULT_PROPS,
+    ),
+    pickups: section(
+      'pickups',
+      () => (raw.pickups !== undefined ? parsePickupsTuning(raw.pickups) : DEFAULT_PICKUPS),
+      DEFAULT_PICKUPS,
+    ),
+    traffic: section(
+      'traffic',
+      () => (raw.traffic !== undefined ? parseTrafficTuning(raw.traffic) : DEFAULT_TRAFFIC),
+      DEFAULT_TRAFFIC,
+    ),
   };
+  return fellBack;
 }
 
 export function getTuning(): Tuning {

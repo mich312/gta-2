@@ -1,4 +1,11 @@
-export const PROTOCOL_VERSION = 1;
+/**
+ * Bumped whenever the wire contract changes shape — including the tuning
+ * payload in `welcome`, because the client parses it and a missing key used to
+ * throw inside the message handler and leave the game on "connecting…"
+ * for ever. 2: traffic tuning gained steerGain/turnSpeed/brakeDistance/
+ * reverseTicks and lost turnProbe/laneHalfWidth.
+ */
+export const PROTOCOL_VERSION = 2;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;
