@@ -1,4 +1,4 @@
-# GTA — the seven things still missing
+# GTA — the things still missing
 
 `AUDIT.md` walked the original feature list; `GAPS.md` turned what it found
 into systems, and all sixteen of its items are built. This document is a
@@ -7,12 +7,14 @@ it is a complaint rather than an omission:
 
 1. You cannot lose the police.
 2. It is too hard.
-3. Maybe the map should rotate instead of the player, while walking and
-   driving — with a settings toggle.
+3. ~~Maybe the map should rotate instead of the player, while walking and
+   driving — with a settings toggle.~~ **Declined after costing — see §10.**
 4. The "person lying on the floor" sprite is not good enough.
 5. More car variation; bicycles; motorcycles.
 6. Police should come in waves, with various equipment.
 7. Plane / helicopter / airstrip, and the military at five stars.
+8. *(added in review)* Every type of vehicle can be found somewhere in the
+   world.
 
 Complaints are better input than audits, because a missing feature is a
 guess about what would be fun and a complaint is a measurement of what is
@@ -24,10 +26,11 @@ states scope, files, determinism constraints, prediction impact, new
 tunables, bandwidth, effort, risk, dependencies, and a verification gate.
 Effort key: **S** ≤ 1 day · **M** 1–3 days · **L** ≥ 1 week.
 
-**Status: planned, nothing built.** Baseline at the time of writing: 50 test
-files, 580 tests, all green (`pnpm build && pnpm test` — the client tests
-need the build first, because they resolve `shared` through its built
-entry).
+**Status: in build.** Items are landing in the recommended order of §2, each
+as its own commit with its own gate; `PROGRESS.md` carries the per-item log.
+Baseline before the first: 50 test files, 580 tests, all green
+(`pnpm build && pnpm test` — the client tests need the build first, because
+they resolve `shared` through its built entry).
 
 ---
 
@@ -89,7 +92,7 @@ badly is a three-star crime you commit without a shot fired. Combine that
 with §1's finding that heat cannot come down, and "too hard" is exactly what
 falls out. The two complaints are the same complaint.
 
-### The camera
+### The camera (background for the declined item — §10)
 
 - The frame is axis-aligned throughout. One rounded origin per frame, and
   every world position is `originX + round(wx × RENDER_SCALE)` — two
@@ -135,8 +138,7 @@ un-rotated screen.
 
 ```
 Wave P  (the chase becomes a game)   P1 losing them ── P2 the difficulty pass ── P3 waves and equipment
-Wave Q  (the camera)                 Q1 the map turns, not you
-Wave R  (the street)                 R1 bodies          R2 two wheels and more bodywork
+Wave R  (the street)                 R1 bodies          R2 two wheels and more bodywork ── R3 every vehicle has a home
 Wave S  (the sky)                    S1 the helicopter ── S2 airstrip + aircraft ── S3 the military at five
 ```
 
@@ -147,23 +149,31 @@ Wave S  (the sky)                    S1 the helicopter ── S2 airstrip + airc
   cannot end. P1 first, always.
 - **P3 needs P1.** Waves are a rhythm — pressure, then a lull. Without an
   escape the lull is just a slower loss, and waves make the game *harder*.
+- **R3 needs R2**, and only in the sense that a home has to exist for every
+  kind R2 adds — its machinery is independent, and it is the item that stops
+  R2's six new bodies from being six new lottery tickets.
 - **S1 needs P1.** A helicopter is only interesting as a thing that holds the
   cool-down clock open. Built before P1 there is no clock for it to hold.
 - **S3 needs P3 and S1.** "The military at five stars" is a wave composition
   plus air support; both are other items' machinery.
-- **S2 needs nothing in this document**, and unblocks only S3's gunship
-  variant. It can go anywhere, and it is the largest single item here.
-- **Q1 and R1/R2 need nothing and unblock nothing.** They can land in any
-  gap.
+- **S2 needs R3** to give the aircraft it adds somewhere to sit, and unblocks
+  S3's gunship variant. It is the largest single item here.
+- **R1 needs nothing and unblocks nothing.** It can land in any gap.
 
-**Recommended order:** P1 → P2 → R1 → P3 → R2 → S1 → Q1 → S2 → S3.
+**Recommended order:** P1 → P2 → R1 → P3 → R2 → R3 → S1 → S2 → S3.
 
 P1 rides first because it is the actual bug and because every other item in
 Wave P and Wave S is tuned against it. R1 rides third because it is the
 cheapest visible improvement in the document — a day of sprite data — and
 because a run of three systems items in a row is how a plan loses its nerve.
-Q1 rides late because it is the item most likely to be judged worse once it
-exists, and it should not be in the way of anything that isn't.
+
+**The camera is out.** An earlier draft of this document carried a Wave Q —
+rotate the map rather than the player, behind a settings toggle. It was
+costed at **L**, at the highest risk in the plan, and it required a protocol
+bump purely to express on-foot movement in world space (four booleans can
+only name eight directions, so a camera at 37° would walk you at 45°). It has
+been dropped on the owner's call. The fixed north-up camera stays. What was
+learned in costing it is worth keeping, and §10 records it.
 
 ---
 
@@ -481,143 +491,6 @@ PNG per tier in `evidence/`.
 
 ---
 
-# Wave Q — the camera
-
-## Q1 — the map turns, not you
-
-**The complaint:** maybe the map should rotate instead of the player, while
-walking and driving — maybe with a settings toggle.
-
-**Recommendation up front: build it, ship it off by default, behind a
-toggle.** It is the item in this document most likely to be judged worse once
-it exists — a rotating world is the genre's convention and also the thing
-that makes a meaningful minority of players motion-sick, and this renderer's
-whole art pipeline is built on axis-aligned blits. The toggle is not
-hedging; it is the deliverable.
-
-### The approach, and the one that was rejected
-
-**Rejected: render the world into an offscreen buffer and rotate-blit it.**
-It is by far the smaller diff — every `dx`/`dy` call site stays as it is —
-and it is wrong for this codebase. `GRAPHICS.md` Part 1 records that sprites
-were moved *off* per-draw `ctx.rotate` precisely because resampling pixel art
-at an arbitrary angle every frame makes it crawl; a whole-frame rotate does
-that to every pixel in the game, every frame, forever. It also costs a
-buffer 2× the frame's pixel count (the rotated bounding box) and forces the
-vignette, the name tags and the HUD out of the passes they currently live in.
-
-**Chosen: rotate at draw time, and let the existing bakes absorb it.** The
-sprite pipeline already bakes 32 rotation steps lazily and caches them
-(`sprites.ts:91-139`). Adding the camera angle to a sprite's angle is
-therefore *free at the pixel level* — a car at heading θ under a camera at φ
-is the same cached blit as a car at heading θ+φ under a fixed camera. That is
-what a baked-rotation pipeline is for, and it is the reason this is the right
-renderer to attempt this in.
-
-### What actually changes
-
-1. **A camera with an angle.** `computeCamera` (`renderer.ts:181`) returns a
-   `{ x, y, rot }`. `rot` is: the driven vehicle's heading + π/2 (nose up) while
-   driving; the direction of travel while walking, held at the last value when
-   stationary; smoothed with a wrap-aware exponential filter on the **render**
-   clock. Never in the sim, never on the wire.
-
-2. **The world→screen transform stops being separable.** `dx(wx)` / `dy(wy)`
-   (43 sites) become a `toScreen(wx, wy)` returning both — mechanical, and
-   the compiler finds every site.
-
-3. **Culling stops being an AABB.** Six or so places test
-   `wx < cam.x - 32 || …` (e.g. `renderer.ts:385`, `:661`, `:866`). Under
-   rotation these become one radius test against the viewport's
-   half-diagonal — a single shared helper, slightly conservative, correct at
-   every angle.
-
-4. **Ground chunks get one rotated transform.** `TileLayer.draw`
-   (`tiles.ts:128`) wraps its blits in a `translate(centre) / rotate(rot) /
-   translate(-centre)`. Chunk seams under rotation are the one real graphical
-   risk; mitigation is a 1-device-pixel bleed on each chunk's edges at bake
-   time, which is a change to `buildChunk` and nothing else. Which chunks are
-   visible comes from the same radius test as (3).
-
-5. **Ad-hoc `ctx.rotate(angle)` sites gain `+ rot`.** About eight in
-   `renderer.ts` (skid marks, bodies, turrets, damage overlays) and one in
-   `effects.ts:581` (decals). Each is a one-token change.
-
-6. **The light pass.** Point and cone lights are positioned through the new
-   transform; cone directions gain `+ rot`. The *static* shadow bakes
-   (`lighting.ts:373-397`) stay keyed on world position and are blitted under
-   the same rotated transform as the ground — they are soft blobs, and
-   resampling one is invisible, where re-baking one per camera angle would
-   multiply the cache by 32.
-
-7. **The minimap rotates too, or the toggle is a lie.** `minimap.ts:96` gains
-   the same rotation around the panel centre, plus a north pip that
-   counter-rotates.
-
-8. **What must *not* rotate:** the HUD, name tags (`renderer.ts:616`), escort
-   markers and mission arrows. Name tags are drawn inside the world pass
-   today; they move to a small post-pass that runs after the transform is
-   cleared.
-
-### The protocol change
-
-This is the part with a real cost. On-foot movement is four booleans, and the
-sim reads them as screen axes (`sim/player.ts:67-68`). Under a rotated camera
-the client must express intent in world space, and four booleans can only
-name eight directions — at a camera angle of 37°, "forward" would walk you at
-45°. That is visibly wrong, and there is no way around it that keeps the wire
-as it is.
-
-So `InputIntent` gains `moveAngle` (q256, the existing quantisation, one byte)
-and `moving` (one bit); `up/down/left/right` stay for **steering and
-throttle**, which are body-relative and unaffected by where the camera is
-pointing. `PROTOCOL_VERSION` 8 → 9. This touches `sim/input.ts`,
-`net/binary.ts`, `net/prediction.ts`, `sim/player.ts`, the bot harness
-(`server/src/bots/`), and invalidates recorded replays made before the bump —
-which is normal here and is why the constant carries a changelog.
-
-### The setting
-
-There is no settings UI in the client today; keys are ad-hoc in
-`input/keyboard.ts` and options arrive as query parameters (`?night=`,
-`?lights=`). The honest minimum, matching what exists: `?camera=rotate|fixed`
-for testing, a `V` key to toggle live, and `localStorage` to remember it. A
-proper options panel is worth doing but is not this item.
-
-**Files.** `client/src/render/renderer.ts` (the bulk), `tiles.ts`,
-`lighting.ts`, `effects.ts`, `minimap.ts`, `viewport.ts`,
-`client/src/input/keyboard.ts`, `client/src/main.ts`,
-`shared/src/sim/input.ts`, `shared/src/sim/player.ts`,
-`shared/src/net/binary.ts`, `shared/src/net/prediction.ts`,
-`shared/src/constants.ts`, `server/src/bots/*`.
-
-**Determinism.** Zero sim impact by construction — the camera angle never
-leaves the client. The protocol change *is* a sim change and is the one thing
-here that can desync: the gate is the existing replay and bot-harness hash
-checks.
-
-**Prediction.** `net/prediction.ts` replays local inputs through
-`stepPlayerMovement`; it needs the new field and nothing else.
-
-**Bandwidth.** +1 byte per input, ~30 B/s per client. Against a 50 KB/s gate.
-
-**Effort L. Risk H.** The two failure modes are graphical (chunk seams,
-pixel crawl at the ground/sprite boundary) and human (nausea, and losing the
-"which way is north" sense the fixed camera gives for free). The second is
-why it ships off by default.
-
-**Gate.**
-- A new `client/test/camera.test.ts`: `toScreen` round-trips through the
-  inverse at a spread of angles; the radius cull never rejects a point the
-  frame actually shows, at 16 angles; the wrap-aware smoothing crosses ±π
-  without a spin.
-- `client/test/viewport.test.ts` and `roadMarks.test.ts` stay green.
-- `pnpm bots` green after the protocol bump (this is the desync gate).
-- Evidence: `evidence/camera-fixed.png` and `evidence/camera-rotate-*.png` at
-  four angles, showing the same junction with no seams.
-
----
-
 # Wave R — the street
 
 ## R1 — bodies
@@ -760,6 +633,101 @@ the gate working as designed. New `shared/test/vehicle.test.ts` cases: a
 motorcycle above `ejectSpeed` ejects and stuns its rider and one below does
 not; a bicycle theft adds no heat and a car theft still does.
 `pnpm bots --script=joyride` for stability.
+
+---
+
+## R3 — every vehicle kind has a home
+
+**The requirement:** every type of vehicle can be found somewhere in the
+world.
+
+**What is true today.** Nominally every kind is reachable; practically most
+are not.
+
+| Source | Kinds it supplies |
+|---|---|
+| `PARKED_CYCLE` (`amenities.ts:568`) | `car`, `van`, `taxi`, `truck` — and only these four |
+| `traffic.json` `mix` | 11 kinds, but weighted: `digger` is **1 in 100**, `icecream` 2, `firetruck` 3 |
+| `boatSpawns` / moorings | `boat` |
+| `placeTank` (`amenities.ts:575`) | `tank` — exactly one, behind the first police station |
+| police spawns / `markGangCars` | `copcar`, `gangcar` |
+
+So a digger is a 1-in-100 roll on a traffic spawn that despawns at 1100 px:
+"findable" in the sense that a lottery ticket is winnable. And R2 makes it
+worse before it makes it better — six new bodies, two two-wheelers and (with
+S2) two aircraft, all competing for the same weighted roll.
+
+**The rule this item makes true, and tests:** *every kind in `vehicles.json`
+is either common in the traffic mix, or has at least one fixed, findable
+home on the map.* Not a lottery — a place you can drive to.
+
+### R3a — vehicle homes as worldgen data
+
+`CityMap` gains `vehicleHomes: VehicleSpawn[]`, a list **separate from**
+`parkingSpots`, for two reasons that are both bugs waiting to happen:
+
+- `session.ts:168` strides `parkingSpots` by `length / MAX_VEHICLES` and
+  keeps roughly one spot in six. `placeTank` already had to be special-cased
+  back in at `session.ts:171-173` because of it. Homes must never be sampled
+  away, and generalising that special case is exactly what this list is.
+- `markGangCars` (`turf.ts:116`) overwrites the kind of every seventh
+  parking spot with `gangcar`. A fire station whose engine turned into a gang
+  car one seed in seven is not a home.
+
+Placement runs after landmarks, keyed off what the city already generates,
+driven by a `vehicleHomes` block in `worldgen.json` so the roster is data:
+
+| Kind | Home | Anchor that already exists |
+|---|---|---|
+| `ambulance` | hospital forecourt | `landmarks` kind `hospital` |
+| `copcar` | station yard | `landmarks` kind `police` |
+| `tank` | station yard, one per city | `placeTank`, folded into this |
+| `firetruck` | fire station | new: an industrial/commercial block, lattice-placed |
+| `bus` | depot bay | largest `T_LOT` in a commercial block |
+| `garbage`, `truck`, `van` | industrial yard | `T_LOT` in an industrial district |
+| `digger` | building site | `T_LOT` in industrial, adjacent to a building |
+| `limo` | tower forecourt | `landmarks` kind `tower` |
+| `taxi` | rank | stadium and downtown arterial kerbs |
+| `icecream` | park edge | `T_PARK` boundary |
+| `boat` | moorings | `boatSpawns` (already) |
+| `moto`, `bicycle` | racks, everywhere | kerbside; also in `PARKED_CYCLE` |
+| `plane`, `heli` | airstrip apron, helipad | S2 |
+
+### R3b — the mix stops carrying kinds it cannot carry
+
+With homes in place, `traffic.json`'s `mix` goes back to being what it is
+good at — the *common* stock — and the specialist vehicles come off it or
+drop to a garnish weight. A firetruck belongs at a fire station and
+occasionally on a call, not as 3 % of all traffic.
+
+### R3c — the minimap knows
+
+A home you cannot find is not a home. Landmark-anchored homes get a small
+icon on the minimap at the same tier as shops (`minimap.ts:185-200` already
+draws shop kinds in distinct colours), so "where is a bus" has an answer that
+does not involve driving in circles.
+
+**Files.** `shared/src/world/types.ts` (`vehicleHomes`), `shared/src/world/amenities.ts`
+(placement; absorbs `placeTank`), `shared/src/world/generate.ts`,
+`shared/data/worldgen.json`, `shared/data/traffic.json`,
+`server/src/session.ts` (spawn homes unconditionally, drop the tank
+special-case), `shared/src/world/turf.ts` (leave homes alone),
+`client/src/render/minimap.ts`.
+
+**Determinism.** Placement is derived from tiles and landmarks with no rng
+draw of its own, exactly as `placeParking` is, so no seed's city changes
+shape because a home was added.
+
+**Bandwidth.** Zero — the map is generated on both ends, never transmitted.
+
+**Effort M. Risk L.**
+
+**Gate.** The important one is a **completeness test**, not a spot check:
+enumerate `getTuning().vehicles`, and for every kind assert it is either
+weighted ≥ 5 in the traffic mix or has ≥ 1 entry in `map.vehicleHomes`, over
+several seeds. That test is the requirement, written down. Plus: homes are on
+drivable ground, homes survive `session.ts`'s stride, and `markGangCars`
+never rewrites one.
 
 ---
 
@@ -918,9 +886,9 @@ rate must be > 0 and survival-while-fighting must be short. Both.
 | P1 | 3 on `CopState`, 1 on `PlayerState` | < 100 B/s |
 | P2 | 1 counter on `CopState` | < 20 B/s |
 | P3 | 1 on `PlayerState` | < 5 B/s |
-| Q1 | 1 byte + 1 bit per input | ~30 B/s |
 | R1 | none (static asset) | 0 |
 | R2 | none (kinds are already strings) | 0 |
+| R3 | none (the map is generated, never sent) | 0 |
 | S1 | none (a cop is already on the wire) | ~40 B/s |
 | S2 | 1 q8 on `VehicleState` | < 10 B/s |
 | S3 | none | 0 |
@@ -929,11 +897,12 @@ rate must be > 0 and survival-while-fighting must be short. Both.
 Bandwidth is not a constraint on any item in this plan; the sprite sheet
 growing from 68 KB to ~110 KB is the largest asset change, fetched once.
 
-**Protocol versions.** Two bumps: **9** at Q1 (the input shape), **10** at S2
-(`VehicleState.z`). Both invalidate replays recorded before them, which is
-normal and is why `constants.ts` keeps a changelog against the number. P1,
-P2 and P3 add tuning keys, which is also a wire contract change under this
-codebase's rules — fold them into the next bump rather than burning one each.
+**Protocol versions.** One bump, **9**, covering the tuning keys P1/P2/P3
+add and `VehicleState.z` from S2 — the tuning payload is part of the wire
+contract here, so a key added to it is a version change. Folding them into
+one bump rather than burning one each is deliberate; `constants.ts` keeps a
+changelog against the number. It invalidates replays recorded before it,
+which is normal.
 
 ---
 
@@ -941,13 +910,20 @@ codebase's rules — fold them into the next bump rather than burning one each.
 
 - **A client-selectable difficulty.** P2e is server-side. In a shared world,
   a difficulty setting each player chooses is not a setting, it is a cheat.
+- **A rotating camera.** Costed in full and dropped on the owner's call. The
+  costing is worth keeping, because it is the reason it was ever a hard call:
+  the *rendering* half is cheaper than it looks — sprites already bake 32
+  rotation steps and cache them (`sprites.ts:91-139`), so a car at heading θ
+  under a camera at φ is the same cached blit as a car at θ+φ, and only the
+  ground chunks would need a rotated transform. The *input* half is what
+  makes it expensive: on-foot movement is four booleans read as screen axes
+  (`sim/player.ts:67-68`), four booleans name eight directions, and at a
+  camera angle of 37° "forward" would walk you at 45°. There is no version
+  of this that keeps the wire as it is. Anyone reviving it should start from
+  the intent shape, not the renderer.
 - **Aim-relative movement**, again. `sim/player.ts:47-59` already tried it
-  and wrote down why it was worse. Q1 rotates the *camera*, and the movement
-  intent stays a direction in the world, which is the same decision seen from
-  the other side.
-- **A full settings UI.** Q1 needs one toggle and gets a key, a query
-  parameter and `localStorage`. A panel is worth building; it is not worth
-  blocking a camera on.
+  and wrote down why it was worse. Recorded here because it is the trap that
+  looks like a cheap version of the camera item and is not.
 - **Flyable aircraft before S2's groundwork.** A helicopter that is a cop
   (S1) needs no altitude on the wire. One that a player flies needs `z`,
   interest management, camera clamps and a landing model. They are two
@@ -966,4 +942,4 @@ codebase's rules — fold them into the next bump rather than burning one each.
 P1 is the bug. P2 is the tuning that P1 makes safe to apply. R1 is a day's
 sprite data for the most-looked-at object in the game after the player's own
 car. That trio turns the two complaints that are actually about the game
-being *unplayable* into a game, and costs less than Q1 alone.
+being *unplayable* into a game.

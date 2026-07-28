@@ -117,4 +117,4 @@ re-simulating to identical hashes is the desync alarm.
 
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
 direction, and `PROGRESS.md` for the per-phase log. `GTA.md` is the current
-forward plan — seven complaints from playing it, costed and ordered.
+forward plan — the complaints from playing it, costed and ordered.
