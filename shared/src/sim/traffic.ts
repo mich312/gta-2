@@ -19,6 +19,7 @@ import {
 } from './roadgrid.js';
 import { PLAYER_RADIUS } from '../constants.js';
 import { rayWallDistance } from './weapons.js';
+import { stopLineGap } from './signals.js';
 import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
 
@@ -521,6 +522,34 @@ function laneControl(
   // the end, so the same request means the same thing whatever the car's
   // engine and brakes happen to be worth.
   const ahead = scanAhead(state, map, v, t.scanHorizon);
+
+  // A red light is a car that will never move. Folding it into the same Ahead
+  // the car-following model already consumes means the driver eases to a halt
+  // at the line and everybody behind queues behind it, using the braking
+  // curve this model was tuned for — rather than a second, separate stopping
+  // rule of the kind the gap-acceptance experiment above found so expensive.
+  //
+  // Panic overrides it. A driver fleeing gunfire does not wait at a red, and
+  // one that did would look broken rather than frightened.
+  if (driver.panic === 0) {
+    const line = stopLineGap(
+      map,
+      v.pos.x,
+      v.pos.y,
+      dirIdx,
+      Math.abs(v.speed),
+      getVehicleTuning(v.kind).halfExtent,
+      state.tick,
+      t.signals,
+      t.comfortBrake,
+    );
+    if (line < ahead.gap) {
+      ahead.gap = line;
+      ahead.leadSpeed = 0;
+      ahead.person = false;
+    }
+  }
+
   const accel = idmAccel(v.speed, desired, ahead, t);
   const veh = getVehicleTuning(v.kind);
   const throttle =

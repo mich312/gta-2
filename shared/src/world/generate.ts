@@ -1,3 +1,4 @@
+import { labelJunctions } from '../sim/signals.js';
 import { assignTurf } from './turf.js';
 import { seedRng } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
@@ -60,6 +61,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     policeStations: [],
     cranes: [],
     payphones: [],
+    junctions: { idOf: new Int16Array(0), count: 0, heads: [] },
     turfCells: new Uint8Array(0),
     turfCellsWide: 0,
     turfCellTiles: 1,
@@ -113,6 +115,10 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeCranes(map);
   placePayphones(map);
   assignTurf(map, params);
+  // Last, and after every pass that can carve or close a road: the labels are
+  // derived from the finished tile grid, so anything that moves a road tile
+  // afterwards would leave a junction labelled where there is none.
+  map.junctions = labelJunctions(map);
 
   return map;
 }

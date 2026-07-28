@@ -123,6 +123,7 @@ for (const cs of CASES) {
     localPos: { x: live.pos.x, y: live.pos.y, angle: live.aimAngle },
     localVehicle: null,
     remotes: worldFrom(snap, 1),
+    tick: state.tick,
     dt: 1 / 30,
     nowMs: 1000,
   };
@@ -131,7 +132,9 @@ for (const cs of CASES) {
     scene.localVehicle = { kind: v.kind, pos: { ...v.pos }, heading: v.heading, speed: 0, condition: v.condition ?? 'ok', wear: 0, z: 0 };
     scene.remotes.vehicles = scene.remotes.vehicles.filter((rv) => rv.vehicle.id !== v.id);
   }
-  render(screen, map, scene, cam, sprites, tiles, effects, lights);
+  // The tile layer builds a bounded number of cached chunks per frame, so a
+  // single render of a spot the camera has never visited shows bare ground.
+  for (let f = 0; f < 24; f++) render(screen, map, scene, cam, sprites, tiles, effects, lights);
 
   const wrap = document.createElement('div');
   wrap.className = 'panel';

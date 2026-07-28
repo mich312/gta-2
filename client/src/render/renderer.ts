@@ -4,11 +4,15 @@ import {
   type PlayerState,
   type PropState,
   type Vec2,
+  type SignalColour,
   type WeaponTuning,
+  CARDINALS,
   PLAYER_RADIUS,
   TILE_SIZE,
   clamp,
+  getTrafficTuning,
   getWeaponTuning,
+  signalColour,
   vehicleWear,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -85,6 +89,8 @@ export interface Scene {
   } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
+  /** Server tick being rendered. Traffic signals are a function of it. */
+  tick: number;
   /** Seconds since the previous frame, for effects. */
   dt: number;
   /** Wall-clock ms, for strobes and flicker. */
@@ -297,6 +303,8 @@ export function render(
     lights.point(dx(cx), dy(cy), reach * RENDER_SCALE, 'shop', 0.5);
   }
 
+  drawSignals(ctx, map, cam, scene.tick, dx, dy, lights);
+
   drawProps(ctx, sprites, scene.remotes.props, dx, dy);
   drawPickups(ctx, scene.remotes.pickups, dx, dy, lights, scene.nowMs);
 
@@ -446,6 +454,67 @@ export function render(
     );
   }
 }
+
+/** Traffic-signal colours, ordered so the array index is the lamp position. */
+const SIGNAL_COLORS: Record<SignalColour, string> = {
+  red: '#ff5a4a',
+  amber: '#ffc23c',
+  green: '#5ce08a',
+};
+
+/**
+ * The lights at every junction arm in view.
+ *
+ * Read from `signalColour` — the same function the drivers consult — with the
+ * tick being rendered, so what the player sees and what the traffic obeys
+ * cannot drift apart. Nothing about signals is on the wire; both ends compute
+ * the phase from the tick they already have.
+ *
+ * Drawn here rather than baked into the tile layer on purpose: the colour
+ * changes every few seconds, and a cached chunk that had to be rebuilt on
+ * every phase change would turn a free feature into a performance problem.
+ */
+function drawSignals(
+  ctx: CanvasRenderingContext2D,
+  map: CityMap,
+  cam: Vec2,
+  tick: number,
+  dx: (x: number) => number,
+  dy: (y: number) => number,
+  lights: LightPass,
+): void {
+  const heads = map.junctions?.heads;
+  if (!heads) return;
+  const timing = getTrafficTuning().signals;
+  const R = RENDER_SCALE;
+  for (const head of heads) {
+    if (
+      head.x < cam.x - 24 ||
+      head.y < cam.y - 24 ||
+      head.x > cam.x + VIEW_W + 24 ||
+      head.y > cam.y + VIEW_H + 24
+    ) {
+      continue;
+    }
+    const colour = signalColour(head.junctionId, head.dirIdx, tick, timing);
+    // Stand the head at the kerb on the driver's right, facing back down the
+    // arm — where a real one is, and out of the carriageway the car uses.
+    const ax = CARDINALS[head.dirIdx]![0]!;
+    const ay = CARDINALS[head.dirIdx]![1]!;
+    const px = head.x + ax * 5 - ay * RIGHT_OFFSET;
+    const py = head.y + ay * 5 + ax * RIGHT_OFFSET;
+    const sx = dx(px);
+    const sy = dy(py);
+    ctx.fillStyle = '#1b2028';
+    ctx.fillRect(sx - 2 * R, sy - 2 * R, 4 * R, 4 * R);
+    ctx.fillStyle = SIGNAL_COLORS[colour];
+    ctx.fillRect(sx - 1 * R, sy - 1 * R, 2 * R, 2 * R);
+    lights.point(sx, sy, 7 * R, colour === 'green' ? 'lamp' : 'red', 0.3);
+  }
+}
+
+/** How far off the centre of the arm a signal head stands, in world px. */
+const RIGHT_OFFSET = 9;
 
 function drawProps(
   ctx: CanvasRenderingContext2D,

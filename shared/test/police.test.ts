@@ -221,10 +221,17 @@ describe('wanted + police', () => {
     // sends everyone home.
     let minDist = Infinity;
     let peakCops = 0;
+    // Measured across the window, like peakCops and for the same reason: the
+    // loop below patches the fugitive back up whenever they go down, so
+    // health at the final tick says only whether they were shot RECENTLY.
+    // Ambient traffic (and now the lights it waits at) shifts the timing of
+    // the whole chase, which is how a passing test came to depend on it.
+    let everHurt = false;
     for (let i = 0; i < 600; i++) {
       // Keep the fugitive on their feet and wanted: a dead target has no
       // pursuers, and this test is about whether pursuit converges.
       const me = state.players.byId[1]!;
+      if (me.health < 100) everHurt = true;
       me.heat = Math.max(me.heat, 310);
       if (me.mode === 'dead') {
         me.mode = 'foot';
@@ -245,7 +252,7 @@ describe('wanted + police', () => {
     // They converge: someone got within firing range of the standing target.
     expect(minDist).toBeLessThan(t.fireRange);
     // And it costs blood: the fugitive has been shot.
-    expect(state.players.byId[1]!.health).toBeLessThan(100);
+    expect(everHurt).toBe(true);
   });
 
   it('heat decays and cops go home when the fugitive stays out of sight', () => {

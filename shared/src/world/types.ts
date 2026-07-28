@@ -20,6 +20,26 @@ export const T_RAMP = 8;
 /** Shop interior floor: inside a building, walkable, open to the sky. */
 export const T_FLOOR = 9;
 
+/**
+ * Where a signal head stands: the road tile just outside a junction on one of
+ * its arms, and the cardinal approaching traffic is travelling. See
+ * sim/signals.ts.
+ */
+export interface SignalHead {
+  x: number;
+  y: number;
+  dirIdx: number;
+  junctionId: number;
+}
+
+/** Junction labelling and signal heads; see sim/signals.ts. */
+export interface JunctionMap {
+  /** Junction index per tile, row-major; -1 where there is no junction. */
+  idOf: Int16Array;
+  count: number;
+  heads: SignalHead[];
+}
+
 export const DISTRICT_TYPES = [
   'downtown',
   'residential',
@@ -136,6 +156,12 @@ export interface CityMap {
   /** Ringing phones: the city's way of offering you work. */
   payphones: Vec2[];
   /** Gang id per turf cell, row-major. 0 = nobody's. */
+  /**
+   * Junction labels, one per tile, -1 where there is none. Derived from the
+   * tiles at generation time and never sent: the client generates its own
+   * map from the seed, so both ends compute the same table for free.
+   */
+  junctions: JunctionMap;
   turfCells: Uint8Array;
   turfCellsWide: number;
   /** Turf cell size in tiles, so `gangAt` needs no tuning. */

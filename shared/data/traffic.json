@@ -15,6 +15,12 @@
   "reverseTicks": 30,
   "decisionCadenceTicks": 21,
   "turnChance": 0.25,
+  "signals": {
+    "greenTicks": 90,
+    "amberTicks": 24,
+    "junctionOffsetTicks": 37,
+    "lookaheadPx": 60
+  },
   "panicSpeed": 118,
   "panicTicks": 210,
   "panicRadius": 150,

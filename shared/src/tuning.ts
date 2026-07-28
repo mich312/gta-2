@@ -206,6 +206,17 @@ export interface TrafficTuning {
   reverseTicks: number;
   decisionCadenceTicks: number;
   turnChance: number;
+  /**
+   * Traffic-signal timing. Declared here rather than imported from
+   * sim/signals.ts because this file deliberately imports nothing at all —
+   * TypeScript is structural, so the two shapes satisfy each other.
+   */
+  signals: {
+    greenTicks: number;
+    amberTicks: number;
+    junctionOffsetTicks: number;
+    lookaheadPx: number;
+  };
   /** What a panicked driver accelerates to on the straight, px/s. */
   panicSpeed: number;
   /** How long a scare lasts, in sim ticks. */
@@ -642,6 +653,22 @@ function parseMix(raw: unknown): Array<{ kind: string; weight: number }> {
   });
 }
 
+function parseSignals(raw: unknown): TrafficTuning['signals'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `traffic.signals.${k}`);
+  const timing = {
+    greenTicks: n('greenTicks'),
+    amberTicks: n('amberTicks'),
+    junctionOffsetTicks: n('junctionOffsetTicks'),
+    lookaheadPx: n('lookaheadPx'),
+  };
+  // `num` already refuses zero and negatives — the same guard that caught a
+  // `damage: 0` weapon once. Both counts are genuinely positive: a zero green
+  // is a junction nothing ever gets through, and a zero amber is a light that
+  // turns red under a committed car.
+  return timing;
+}
+
 function parseTrafficTuning(raw: unknown): TrafficTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `traffic.${k}`);
@@ -668,6 +695,7 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     reverseTicks: n('reverseTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
     turnChance: n('turnChance'),
+    signals: parseSignals(r['signals']),
     panicSpeed: n('panicSpeed'),
     panicTicks: n('panicTicks'),
     panicRadius: n('panicRadius'),
@@ -700,6 +728,7 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   reverseTicks: 30,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
+  signals: { greenTicks: 90, amberTicks: 24, junctionOffsetTicks: 37, lookaheadPx: 60 },
   panicSpeed: 150,
   panicTicks: 210,
   panicRadius: 150,

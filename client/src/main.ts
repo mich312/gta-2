@@ -483,6 +483,10 @@ function frame(now: number): void {
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
+        // The predicted tick, not the last acked one: traffic signals are a
+        // function of it, and rendering the phase three ticks in the past
+        // would show a light the cars in front had already obeyed.
+        tick: predictor.predicted ? sync.latest?.tick ?? 0 : 0,
         dt: frameMs / 1000,
         nowMs: now,
       }
