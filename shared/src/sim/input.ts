@@ -29,6 +29,20 @@ export interface InputIntent {
   horn: boolean;
   /** Requested weapon slot; -1 = keep current. Still an intent, never state. */
   slot: number;
+  /**
+   * Which server tick's world this input was aimed at — lag compensation.
+   *
+   * Fractional, because the client's render clock is: remote cars are drawn
+   * between two snapshots, and the client collides against exactly the
+   * positions it draws. This is the client saying "here is the moment I was
+   * looking at"; the server goes back to it before judging what was hit
+   * (`rewoundWorld`). 0 means "no opinion" — a bot, a test, a client too new
+   * to have received a snapshot — and gets the present, as before.
+   *
+   * It is still an intent, not state: the server clamps it to a window it is
+   * willing to look back over and never takes a position from it.
+   */
+  viewTick: number;
 }
 
 export const NULL_INPUT: InputIntent = {
@@ -44,6 +58,7 @@ export const NULL_INPUT: InputIntent = {
   fitting: false,
   horn: false,
   slot: -1,
+  viewTick: 0,
 };
 
 /**
@@ -57,6 +72,7 @@ export function sanitizeIntent(raw: unknown): InputIntent | null {
   const tick = r['tick'];
   if (typeof seq !== 'number' || !Number.isFinite(seq) || seq < 0) return null;
   if (typeof tick !== 'number' || !Number.isFinite(tick) || tick < 0) return null;
+  const rawView = r['viewTick'];
   const rawAim = r['aimAngle'];
   const aimAngle =
     typeof rawAim === 'number' && Number.isFinite(rawAim) ? q256(wrapAngle(rawAim)) : 0;
@@ -76,5 +92,13 @@ export function sanitizeIntent(raw: unknown): InputIntent | null {
       typeof r['slot'] === 'number' && Number.isInteger(r['slot']) && r['slot'] >= 0 && r['slot'] < 8
         ? r['slot']
         : -1,
+    // Quantised to the 1/256-tick grid the wire uses, so a JSON client and a
+    // binary one produce the same rewind — and floored at zero, which is the
+    // "no opinion" value. How far back it is honoured is the SERVER's
+    // business (see MAX_REWIND_TICKS); this only rejects nonsense.
+    viewTick:
+      typeof rawView === 'number' && Number.isFinite(rawView) && rawView > 0
+        ? q256(rawView)
+        : 0,
   };
 }

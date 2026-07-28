@@ -54,6 +54,8 @@ export class Bot {
   private timer: NodeJS.Timeout | null = null;
   private seq = 1;
   private localTick = 0;
+  /** Newest snapshot tick this bot has predicted against; see `viewTick`. */
+  private viewTick = 0;
   private bytesIn = 0;
   private bytesOut = 0;
 
@@ -144,8 +146,14 @@ export class Bot {
             ? (this.sync.latest?.vehicles.find((v) => v.id === me.vehicleId) ?? null)
             : null;
         // Same collision context the browser client gets, so the harness
-        // measures the prediction players actually run.
-        if (this.sync.latest) this.predictor.setWorld(this.sync.latest.vehicles);
+        // measures the prediction players actually run. A bot has no render
+        // delay, so the world it predicts against is the newest snapshot
+        // whole — and `viewTick` says exactly that, which is what lets the
+        // server rewind to the same moment (see `rewoundWorld`).
+        if (this.sync.latest) {
+          this.predictor.setWorld(this.sync.latest.vehicles);
+          this.viewTick = this.sync.latest.tick;
+        }
         this.predictor.reconcile(me, myVehicle, ackSeq, this.map);
       }
     }
@@ -159,7 +167,7 @@ export class Bot {
         me: this.predictor.predicted,
         snapshot: this.sync.latest,
       });
-      const intent = { seq: this.seq++, tick: this.localTick, ...keys };
+      const intent = { seq: this.seq++, tick: this.localTick, viewTick: this.viewTick, ...keys };
       this.send({ type: 'input', ackTick: this.sync.ackTick, intents: [intent] });
       if (this.map) this.predictor.applyLocalInput(intent, this.map);
     }, TICK_MS);

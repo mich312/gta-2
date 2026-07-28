@@ -113,7 +113,11 @@ export class Predictor {
       p.lastInputSeq = intent.seq;
       p.aimAngle = intent.aimAngle;
     } else {
-      stepPlayerMovement(p, intent, map);
+      // On foot against the same delayed view. Predicting this is what stops
+      // a walk up to a parked car ending in a correction: the server now
+      // resolves it against exactly this world (`rewoundWorld`), so the two
+      // agree instead of merely being close.
+      stepPlayerMovement(p, intent, map, 0, this.world);
     }
   }
 

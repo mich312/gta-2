@@ -113,7 +113,14 @@ export class InputSource {
    * playerScreen: the local player's position in internal-res pixels, so aim
    * is computed relative to the avatar rather than the screen centre.
    */
-  sample(seq: number, tick: number, playerScreen: { x: number; y: number } | null): InputIntent {
+  sample(
+    seq: number,
+    tick: number,
+    playerScreen: { x: number; y: number } | null,
+    /** The server tick this frame's collision world is sampled at; see
+     *  `Interpolator.viewTick` and `rewoundWorld` on the server. */
+    viewTick: number,
+  ): InputIntent {
     const px = playerScreen?.x ?? viewport.w / 2;
     const py = playerScreen?.y ?? viewport.h / 2;
     const slot = this.pendingSlot;
@@ -139,6 +146,7 @@ export class InputSource {
       // leant-on key is one press rather than thirty a second.
       horn: this.has('KeyQ'),
       slot,
+      viewTick,
     };
   }
 }

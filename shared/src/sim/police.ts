@@ -7,13 +7,14 @@ import type { CopState, GameState, PlayerState, VehicleState } from './state.js'
 import { addHeat, createCop, wantedLevelOf, POWER_INVISIBLE, POWER_JAIL_CARD } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
-import { boxesOverlap, driveVehicle } from './vehicle.js';
+import { driveVehicle, vehiclesOverlap } from './vehicle.js';
 import type { SimEvent } from './events.js';
 import { applyDamage, bustPlayer, copIsDown, damageCop, rayWallDistance } from './weapons.js';
 import { isFriendly } from './respect.js';
 import { gangAt } from '../world/turf.js';
 import type { CityMap } from '../world/types.js';
 import { moveWithCollision } from '../world/collide.js';
+import { pushOutOfVehicles } from './bodies.js';
 import { CARDINAL_ANGLE, dirIsOpen, nearestCardinal } from './roadgrid.js';
 
 /**
@@ -289,7 +290,7 @@ function motorise(state: GameState, cop: CopState, heading: number): void {
   // driving anywhere. The officer without room simply stays on foot.
   for (const other of state.vehicles.ids) {
     const o = state.vehicles.byId[other];
-    if (o && boxesOverlap(v, o)) {
+    if (o && vehiclesOverlap(v, o)) {
       state.nextEntityId--;
       return;
     }
@@ -632,6 +633,9 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
         cop.vel.y = sy;
         moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, sx * DT, sy * DT);
       }
+      // An officer on foot is as solid against a car as anybody else: without
+      // this a pursuer walked through the roadblock his own force put down.
+      pushOutOfVehicles(cop.pos, cop.vel, PLAYER_RADIUS, state, map, cop.vehicleId);
       cop.pos.x = q8(cop.pos.x);
       cop.pos.y = q8(cop.pos.y);
       cop.vel.x = q8(cop.vel.x);

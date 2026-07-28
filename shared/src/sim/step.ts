@@ -13,6 +13,7 @@ import { insertEntity, removeEntity, getEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
+import { recordVehicleTrail, rewoundWorld } from './rewind.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
 import { clearWanted, stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
@@ -109,7 +110,11 @@ export function step(
           });
         }
         p.hornHeld = input?.horn === true;
-        stepVehicleDriving(v, input, map, next, next, events, p.z > 0);
+        // Sees the world the DRIVER saw — their own client is ~100 ms
+        // behind, and a contact judged on the server's clock instead is a
+        // contact the driver could not have aimed. What it may CHANGE is
+        // still the live state: detection rewinds, response does not.
+        stepVehicleDriving(v, input, map, rewoundWorld(next, input), next, events, p.z > 0);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
         if (input) {
@@ -118,7 +123,9 @@ export function step(
         }
       }
     } else {
-      stepPlayerMovement(p, input, map, next.tick);
+      // On foot against the same lag-compensated view the car uses, so
+      // walking into a parked car stops in the same place the client did.
+      stepPlayerMovement(p, input, map, next.tick, rewoundWorld(next, input));
     }
   }
 
@@ -162,6 +169,11 @@ export function step(
   for (const ev of events) {
     if (ev.type === 'kill' && ev.tick === next.tick) creditFrenzyKill(next, ev.killerId, events);
   }
+
+  // Last of all, so a trail frame holds exactly what this tick's snapshot
+  // holds. That equality is the whole point: it is what lets the server
+  // reproduce a client's interpolated view of the same two ticks.
+  recordVehicleTrail(next);
 
   return next;
 }

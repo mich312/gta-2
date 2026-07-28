@@ -38,7 +38,7 @@ the art on whole pixels.
 | R / G | answer a ringing payphone / walk away from the job |
 | M | mute / unmute sound |
 | L / K | log in / register (optional — guests always play) |
-| ` (backquote) | debug overlay: tick, RTT, bandwidth, hitboxes, prediction ghost |
+| ` (backquote) | debug overlay: tick, RTT, bandwidth, hitboxes (including the oriented box a car really collides with), prediction ghost |
 
 ### Server environment variables
 
