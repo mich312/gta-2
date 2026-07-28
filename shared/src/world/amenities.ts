@@ -180,16 +180,24 @@ function fillSolid(map: CityMap, b: Building): void {
 }
 
 /**
- * The fraction of a nominal window one arterial cell covers — the exchange
- * rate that turns per-window quotas ("3 gun shops", "4 hospitals") into
- * per-cell probabilities, so density stays constant no matter how large a
- * window is materialised or where it sits. A pure function of params only:
- * window position must never change what exists.
+ * The nominal city-window edge the per-window quotas are phrased against
+ * ("3 gun shops per 240² of world"). A CONSTANT, deliberately: dividing by
+ * the actual window's area made shop density a function of viewport size,
+ * so a padded store window and a session window disagreed about which
+ * buildings were shops — caught by the B1 store≡window gate.
+ */
+const QUOTA_WINDOW_TILES = 240;
+
+/**
+ * The fraction of the nominal quota window one arterial cell covers — the
+ * exchange rate that turns per-window quotas into per-cell lattice pitches,
+ * so density is constant no matter what size window is materialised or
+ * where it sits.
  */
 function cellQuotaFrac(params: WorldgenParams): number {
   return (
     (params.arterialSpacing * params.arterialSpacing) /
-    (params.widthTiles * params.heightTiles)
+    (QUOTA_WINDOW_TILES * QUOTA_WINDOW_TILES)
   );
 }
 
