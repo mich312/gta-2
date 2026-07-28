@@ -228,22 +228,64 @@ the middle of a wall's shadow. The far edge is a three-point fan rather than a
 single chord, because a chord across a wide angle cuts back inside the arc it
 stands in for, which shows up in play as a bright wedge sitting on a building.
 
-Three details make it read as lighting rather than as stencilling:
+Four things make it read as lighting rather than as stencilling.
 
-- **The shadow is never black.** `SHADOW_BOUNCE` leaves 17% of the light
-  standing. Real streets bounce light off the facing wall, off the road, off
-  the sky, and a shadow punched to nothing is a hole cut in the frame. It is
-  also the difference between an alley you can fight in and one you cannot see
-  in.
-- **Static lights are baked.** A lamp post has not moved since worldgen, so its
-  shadow is the same answer every frame: it is rendered once into its own sprite
-  and blitted thereafter, keyed on kind, radius and world position. That is what
-  makes the soft-shadow blur affordable — and softness matters, because a point
-  source casts a knife edge and nothing in a city is a point source.
-- **Moving lights are rationed.** Headlights, sirens, fires and muzzle flashes
-  recompute, up to `MAX_SHADOW_LIGHTS` a frame, sorted by how much screen they
-  cover — so the beam of the car you are driving always wins and the twelfth
-  siren three blocks away is the one that goes flat.
+**Nothing is a point source, so nothing casts a hard edge.** The silhouette is
+cast several times over from points spread across the lamp's own face, each at a
+fraction of full strength: where every sample agrees you get the umbra, and
+along the edges, where only some do, you get a penumbra. It widens with distance
+from the occluder exactly as it does in the world — sharp where a wall meets the
+ground, soft where the same wall's shadow ends — which is something a blur
+cannot do at any radius, because a blur softens the root as much as the tip.
+Measured: the soft edge is more than three times wider 60 px past a wall than 4
+px past it, and collapses to nothing when the source radius is set to zero.
+
+`destination-out` is multiplicative, so N punches at alpha `a` leave `(1 - a)^N`
+rather than `1 - Na`. Assuming otherwise leaves an umbra 37% too bright;
+`sampleAlpha` solves for the alpha that lands it where it belongs.
+
+**Shadows end, and how far away depends on how high the light hangs.** A
+shadow's length is `d · h / (H − h)` — the occluder's height against the light's.
+A pedestrian under a street lamp 30 units up throws a stub; the same pedestrian
+in a headlight, which sits at 4, below their own shoulders, throws one down the
+whole street. That ratio is most of why headlights look like headlights, and it
+is two lines.
+
+**A shadow is not a dimmer copy of the light casting it.** It used to be: a
+sixth of the lamp was left standing so that shadows were not holes, which made
+every shadow a darker version of the same sodium orange. What actually fills a
+shadow at night is the sky. So the light left standing drops to 6%, and the rest
+comes back as a cool wash — the coverage field weighted by the light's own
+falloff, recoloured, added at `SKY_BOUNCE`. Sampled either side of a wall: the
+lit tarmac is (149, 138, 123) and the shadow is (33, 38, 50). Warm to cool, not
+bright to dark, which is the single most reliable tell between a photograph of a
+street at night and a render of one.
+
+That weighting is why the coverage is built in its own buffer rather than
+punched into the light and subtracted back out. `destination-out` computes
+`dst · (1 − srcAlpha)`, not a difference, so subtracting a half-transparent
+light from itself leaves a quarter of it standing — and the sky lands in that,
+ringing every lamp in the city with a blue halo. The probe that caught it: a
+pixel in clear light measured 8% *brighter* with a shadow nearby than without
+one.
+
+**People and cars cast too, not just the city.** A pedestrian is a disc, so its
+silhouette is the chord between the two tangent points; a car is an oriented box
+and contributes the one or two faces the light can see. Both exact rather than
+approximated, because a pedestrian is twelve pixels across and a circle standing
+in for a car is visibly the wrong shape at the far end of a beam. Parked cars,
+bins and lamp posts are deliberately left out: a static light's shadows are
+baked, and anything permanently standing in one would force it recomputed every
+frame for a shadow that never changes. What moves is what earns the cost.
+
+**Static lights are baked, moving ones are rationed.** A lamp post has not moved
+since worldgen, so its shadow is the same answer every frame: rendered once into
+its own sprite and blitted thereafter, keyed on kind, radius and world position
+— until somebody walks under it, at which point that lamp falls back to the
+per-frame path for as long as they are there. Headlights, sirens, fires and
+muzzle flashes always recompute, up to `MAX_SHADOW_LIGHTS` a frame, sorted by
+how much screen they cover, so the beam of the car you are driving always wins
+and the twelfth siren three blocks away is the one that goes flat.
 
 The best of it is free: a shop's interior light is inside a room whose walls are
 solid tiles, so the light spills out through the doorway and nowhere else,
@@ -321,22 +363,35 @@ Two measurements shaped the implementation, both taken driving at night on a
   1440p window under 60 fps. Interpolating up to half size instead costs a
   quarter of the pixels, and doubling *that* with no filter is exactly one world
   pixel per step — which is what this art is made of anyway.
-- The soft-shadow blur is the other expensive thing, and driving down a lit
-  street brings a whole row of new lamps into view at once. Bakes are rationed
-  separately and hard: `MAX_LIGHT_BAKES` is 2 a frame, which is still four times
-  faster than a car passes lamp posts. The few that miss out are drawn flat for
-  a frame or two at the edge of the screen.
+- Baking is the other expensive thing, and driving down a lit street brings a
+  whole row of new lamps into view at once. Bakes are rationed separately and
+  hard: `MAX_LIGHT_BAKES` is 2 a frame, which is still four times faster than a
+  car passes lamp posts. The few that miss out are drawn flat for a frame or two
+  at the edge of the screen.
 
-With both in place, frame times over 14 seconds of continuous driving at night:
+And one that only showed up once bodies started casting. The sky pass needs two
+working buffers, and sharing one pair at the maximum sprite size cost **16 ms**
+on its own — because `copy` and `source-in` are *unbounded* composite
+operations: they clear everything outside what is being drawn, so a 136-pixel
+lamp paid for 262,144 pixels of work instead of 18,496. Fourteen times over, for
+every lamp with somebody standing under it. The buffers are now kept per sprite
+size, and sizes cluster hard because every street lamp has the same radius.
+
+The interesting part is that neither half showed it alone: with bodies off it
+was free, and with the sky pass off it was free, because the cost was the number
+of lights the bodies pushed onto the per-frame path multiplied by what that path
+wasted.
+
+With all of it in place, frame times over 14 seconds of continuous driving at
+night:
 
 ```
-1920x1080 (960x540 backing)    p50 16.7  p95 16.8  p99 16.8
-2560x1440 (1280x720 backing)   p50 16.7  p95 16.8  p99 33.4
+1920x1080 (960x540 backing)    p50 16.7  p95 16.7  p99 16.8
+2560x1440 (1280x720 backing)   p50 16.7  p95 16.7  p99 16.8
 ```
 
-The 1080p figure is identical to the same run before any of this work; 1440p
-carries a 78% larger backing store, full shadow casting and the bloom for the
-occasional dropped frame — and no letterbox.
+A flat 60 at both — 1440p carries a 78% larger backing store, soft shadows off
+the city and off everything moving in it, and the bloom, and no letterbox.
 
 `?lights=cheap` keeps the grade and the lamps and drops the shadows and the
 bloom, for a machine that cannot afford them; `?lights=off` leaves the scene

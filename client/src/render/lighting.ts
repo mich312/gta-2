@@ -8,15 +8,26 @@ import {
   GRADE_DAY,
   GRADE_NIGHT,
   LIGHT_CACHE_LIMIT,
+  LIGHT_HEIGHT,
   MAX_LIGHT_BAKES,
   MAX_SHADOW_LIGHTS,
   RENDER_SCALE,
   SHADOW_BOUNCE,
-  SHADOW_SOFT_PX,
+  SHADOW_SAMPLES_DYNAMIC,
+  SHADOW_SAMPLES_STATIC,
+  SKY_BOUNCE,
+  SOURCE_RADIUS,
   VIGNETTE,
 } from './config.js';
 import { hash2, noise1 } from './noise.js';
-import { occluderEdges, punchShadows } from './shadows.js';
+import {
+  type Occluder,
+  entityEdges,
+  occluderEdges,
+  punchShadows,
+  sampleAlpha,
+  sampleOffset,
+} from './shadows.js';
 import { viewport } from './viewport.js';
 
 export type LightKind = 'lamp' | 'head' | 'red' | 'blue' | 'muzzle' | 'shop' | 'window' | 'fire';
@@ -56,6 +67,14 @@ interface PointLight {
   kind: LightKind;
   alpha: number;
   shadow: ShadowMode;
+}
+
+/** Scratch buffers the sky pass works in, one set per sprite size. */
+interface ShadowPad {
+  mask: HTMLCanvasElement;
+  maskCtx: CanvasRenderingContext2D;
+  pristine: HTMLCanvasElement;
+  pristineCtx: CanvasRenderingContext2D;
 }
 
 interface ConeLight {
@@ -105,10 +124,25 @@ export class LightPass {
   /** Scratch a single light is assembled in before it joins the buffer. */
   private readonly scratch: HTMLCanvasElement;
   private readonly scratchCtx: CanvasRenderingContext2D;
+  /**
+   * Working buffers for the sky pass, one set per sprite size.
+   *
+   * Sized to the light rather than shared at the maximum, because two of the
+   * composite operations the pass needs — `copy` and `source-in` — are
+   * unbounded: they clear everything outside what is being drawn, so on one
+   * 512-square canvas a 136-pixel lamp paid for 262,144 pixels of work instead
+   * of 18,496. Fourteen times over, for every lamp with somebody standing
+   * under it, is the difference between 60 fps and 30. Sizes cluster hard
+   * (every street lamp is the same radius), so the map stays tiny.
+   */
+  private readonly pads = new Map<number, ShadowPad>();
   /** Baked static lights, keyed by kind, radius and world position. */
   private readonly baked = new Map<string, HTMLCanvasElement>();
   /** Reused across every occlusion query in a frame; never escapes. */
   private readonly segs: number[] = [];
+
+  /** Bodies and cars that stand in the light. Replaced every frame. */
+  private occluders: readonly Occluder[] = [];
 
   /** The city, for occlusion, and where world origin sits on screen. */
   private map: CityMap | null = null;
@@ -173,6 +207,18 @@ export class LightPass {
     this.map = map;
     this.originX = originX;
     this.originY = originY;
+  }
+
+  /**
+   * The people and cars that cast shadows this frame, in world coordinates.
+   *
+   * Deliberately not the whole street: parked cars, bins and lamp posts are
+   * left out because a static light's shadows are baked, and anything
+   * permanently standing in one would force it to be recomputed every frame
+   * for a shadow that never changes. What moves is what earns the cost.
+   */
+  setOccluders(list: readonly Occluder[]): void {
+    this.occluders = list;
   }
 
   /**
@@ -312,7 +358,10 @@ export class LightPass {
   private drawPoint(buf: CanvasRenderingContext2D, p: PointLight): void {
     const tex = this.textures.get(p.kind) as HTMLCanvasElement;
     const d = p.radius * 2;
-    const mode = this.shadowModeFor(p.shadow, d);
+    const wx = this.worldX(p.x);
+    const wy = this.worldY(p.y);
+    const worldRadius = p.radius / RENDER_SCALE;
+    const mode = this.shadowModeFor(p.shadow, d, wx, wy, worldRadius);
     const plain = (): void => {
       buf.globalAlpha = p.alpha;
       buf.drawImage(tex, p.x - p.radius, p.y - p.radius, d, d);
@@ -320,9 +369,6 @@ export class LightPass {
     if (mode === 'none') return plain();
 
     const size = Math.min(MAX_SPRITE, Math.ceil(d));
-    const wx = this.worldX(p.x);
-    const wy = this.worldY(p.y);
-    const worldRadius = p.radius / RENDER_SCALE;
 
     if (mode === 'static') {
       // Quantised to half a world pixel: a lamp is at one place for the life
@@ -334,7 +380,7 @@ export class LightPass {
         // bake in one frame. Draw flat now, bake on a later frame.
         if (this.bakeBudget <= 0) return plain();
         this.bakeBudget--;
-        sprite = this.bake(tex, size, wx, wy, worldRadius, SHADOW_SOFT_PX);
+        sprite = this.bake(p.kind, size, wx, wy, worldRadius);
         if (this.baked.size >= LIGHT_CACHE_LIMIT) {
           // Insertion order is close enough to least-recently-lit here: the
           // cache only ever fills with lights that have left the screen.
@@ -355,14 +401,17 @@ export class LightPass {
     s.globalAlpha = 1;
     s.clearRect(0, 0, size, size);
     s.drawImage(tex, 0, 0, size, size);
-    this.cut(s, size, wx, wy, worldRadius, 0);
+    this.cut(s, size, p.kind, wx, wy, worldRadius, SHADOW_SAMPLES_DYNAMIC);
     buf.globalAlpha = p.alpha;
     buf.drawImage(this.scratch, 0, 0, size, size, p.x - p.radius, p.y - p.radius, d, d);
   }
 
   private drawCone(buf: CanvasRenderingContext2D, c: ConeLight): void {
     const tex = this.cones.get(c.kind) as HTMLCanvasElement;
-    const mode = this.shadowModeFor(c.shadow, c.length * 2);
+    const wx = this.worldX(c.x);
+    const wy = this.worldY(c.y);
+    const worldLen = c.length / RENDER_SCALE;
+    const mode = this.shadowModeFor(c.shadow, c.length * 2, wx, wy, worldLen);
     if (mode === 'none') {
       const scale = c.length / CONE_LEN;
       buf.globalAlpha = c.alpha;
@@ -390,7 +439,7 @@ export class LightPass {
     s.scale(half / CONE_LEN, half / CONE_LEN);
     s.drawImage(tex, 0, -tex.height / 2);
     s.setTransform(1, 0, 0, 1, 0, 0);
-    this.cut(s, size, this.worldX(c.x), this.worldY(c.y), c.length / RENDER_SCALE, 0);
+    this.cut(s, size, c.kind, wx, wy, worldLen, SHADOW_SAMPLES_DYNAMIC);
     buf.globalAlpha = c.alpha;
     buf.drawImage(this.scratch, 0, 0, size, size, c.x - want / 2, c.y - want / 2, want, want);
   }
@@ -400,76 +449,176 @@ export class LightPass {
    * Bigger lights are asked first (the caller sorts), so what falls off the end
    * is the small stuff nobody is looking at.
    */
-  private shadowModeFor(want: ShadowMode, diameter: number): ShadowMode {
+  private shadowModeFor(
+    want: ShadowMode,
+    diameter: number,
+    wx: number,
+    wy: number,
+    worldRadius: number,
+  ): ShadowMode {
     if (want === 'none' || !this.map || this.cheap) return 'none';
     // A light smaller than a tile cannot have anything meaningful in front of
     // it: it is already inside whatever it would be occluded by.
     if (diameter < 12) return 'none';
-    if (want === 'static') return 'static';
-    return this.castBudget > 0 ? 'dynamic' : 'none';
+    // A lamp's shadows are baked — until somebody walks under it. Bodies move,
+    // so a light with one inside it has to be recomputed like any other, and
+    // the alternative is a pedestrian standing in a pool of light throwing
+    // nothing, which is the sort of thing you cannot stop seeing.
+    if (want === 'static' && !this.occluderNear(wx, wy, worldRadius)) return 'static';
+    return this.castBudget > 0 ? 'dynamic' : want === 'static' ? 'static' : 'none';
+  }
+
+  /** Is anything that casts a shadow standing inside this light? */
+  private occluderNear(wx: number, wy: number, radius: number): boolean {
+    for (const o of this.occluders) {
+      const reach = radius + Math.max(o.r, Math.hypot(o.halfLong, o.halfWide));
+      const dx = o.x - wx;
+      const dy = o.y - wy;
+      if (dx * dx + dy * dy <= reach * reach) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The working buffers for a sprite of this size, rounded up so that lights
+   * of similar radius share one set rather than minting a canvas each.
+   */
+  private padFor(size: number): ShadowPad {
+    const dim = Math.min(MAX_SPRITE, Math.ceil(size / 32) * 32);
+    let pad = this.pads.get(dim);
+    if (!pad) {
+      if (this.pads.size >= 12) {
+        const oldest = this.pads.keys().next().value;
+        if (oldest !== undefined) this.pads.delete(oldest);
+      }
+      const mask = document.createElement('canvas');
+      mask.width = dim;
+      mask.height = dim;
+      const pristine = document.createElement('canvas');
+      pristine.width = dim;
+      pristine.height = dim;
+      pad = {
+        mask,
+        maskCtx: mask.getContext('2d') as CanvasRenderingContext2D,
+        pristine,
+        pristineCtx: pristine.getContext('2d') as CanvasRenderingContext2D,
+      };
+      this.pads.set(dim, pad);
+    }
+    return pad;
   }
 
   /** Bake a shadowed point light at its own size, for the static cache. */
   private bake(
-    tex: HTMLCanvasElement,
+    kind: LightKind,
     size: number,
     wx: number,
     wy: number,
     worldRadius: number,
-    soft: number,
   ): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const c = canvas.getContext('2d') as CanvasRenderingContext2D;
-    c.drawImage(tex, 0, 0, size, size);
-    this.cut(c, size, wx, wy, worldRadius, soft);
+    c.drawImage(this.textures.get(kind) as HTMLCanvasElement, 0, 0, size, size);
+    this.cut(c, size, kind, wx, wy, worldRadius, SHADOW_SAMPLES_STATIC);
     return canvas;
   }
 
   /**
-   * Take the light away from everything the city stands in front of.
+   * Take the light away from everything standing in front of it, and put the
+   * sky back where it went.
    *
-   * Not all of it: `SHADOW_BOUNCE` survives, because a shadow punched to
-   * nothing is a hole cut in the frame rather than a shadow — real streets
-   * bounce light off the facing wall, off the road and off the sky, and an
-   * alley you cannot see in is an alley you cannot fight in.
+   * Three things happen, in this order, and each is load-bearing:
    *
-   * The whole silhouette goes down as a single path with one fill, which is
-   * what makes the partial alpha correct: two overlapping quads filled
-   * separately would take the light away twice and leave a dark seam down the
-   * middle of every wall.
+   *  - The silhouette is cast once per sample point across the lamp's own face,
+   *    at an alpha chosen so that the region every sample agrees on lands on
+   *    exactly `SHADOW_BOUNCE` of the light. `destination-out` is
+   *    multiplicative, so the alphas do not add: assuming they did is what
+   *    leaves an umbra 37% too bright.
+   *  - Each sample's whole silhouette goes down as one path with one fill, so
+   *    two overlapping quads take the light away once rather than twice — the
+   *    difference between a wall's shadow and a wall's shadow with a dark seam
+   *    down the middle of it.
+   *  - Then the sky goes back into the shadow, and only into the shadow: the
+   *    coverage field, weighted by the light's own falloff so it cannot spill
+   *    past the lamp's reach, recoloured and added at `SKY_BOUNCE`. A shadow
+   *    at night is not a dimmer copy of the sodium lamp casting it; it is lit
+   *    by the sky, and it is blue.
+   *
+   * The weighting is why the coverage is built in its own buffer rather than
+   * punched straight into the light and subtracted back out afterwards.
+   * `destination-out` computes `dst * (1 - srcAlpha)`, not a difference, so
+   * subtracting a half-transparent light from itself leaves a quarter of it
+   * standing — and the sky lands in that, which rings every lamp in the city
+   * with a blue halo it has no business having. Measured before it was
+   * noticed: a probe pixel in clear light 8% brighter with a shadow nearby
+   * than without one.
    */
   private cut(
     c: CanvasRenderingContext2D,
     size: number,
+    kind: LightKind,
     wx: number,
     wy: number,
     worldRadius: number,
-    soft: number,
+    samples: number,
   ): void {
     const map = this.map;
     if (!map) return;
-    const count = occluderEdges(map, wx, wy, worldRadius, this.segs);
+    const height = LIGHT_HEIGHT[kind] ?? 20;
+    // Buildings first — the call resets the array — then the bodies on top of
+    // them, which returns the new total.
+    occluderEdges(map, wx, wy, worldRadius, this.segs);
+    const count = entityEdges(this.occluders, wx, wy, worldRadius, height, this.segs);
     if (count === 0) return;
     const half = size / 2;
     // The sprite is `size` device pixels across a light of `worldRadius * 2`
     // world pixels, whatever the scratch was clamped to.
     const scale = half / worldRadius;
+    const source = SOURCE_RADIUS[kind] ?? 2;
+
+    const pad = this.padFor(size);
+    // The light as it stands, for weighting the sky by its falloff later.
+    const pr = pad.pristineCtx;
+    pr.setTransform(1, 0, 0, 1, 0, 0);
+    pr.globalAlpha = 1;
+    pr.globalCompositeOperation = 'copy';
+    pr.drawImage(c.canvas, 0, 0, size, size, 0, 0, size, size);
+
+    // How much of the lamp's face each pixel cannot see.
+    const m = pad.maskCtx;
+    m.setTransform(1, 0, 0, 1, 0, 0);
+    m.globalCompositeOperation = 'source-over';
+    m.globalAlpha = 1;
+    m.clearRect(0, 0, size, size);
+    m.globalAlpha = sampleAlpha(SHADOW_BOUNCE, samples);
+    m.fillStyle = '#000';
+    for (let i = 0; i < samples; i++) {
+      const [ox, oy] = sampleOffset(i, samples, source);
+      punchShadows(m, this.segs, count, wx, wy, ox, oy, half, half, scale, worldRadius);
+    }
 
     c.save();
     c.globalCompositeOperation = 'destination-out';
-    c.globalAlpha = 1 - SHADOW_BOUNCE;
-    c.fillStyle = '#000';
-    if (soft > 0 && supportsFilter(c)) c.filter = `blur(${soft}px)`;
-    punchShadows(c, this.segs, count, wx, wy, half, half, scale, worldRadius);
+    c.globalAlpha = 1;
+    c.drawImage(pad.mask, 0, 0, size, size, 0, 0, size, size);
+    c.restore();
+
+    // Coverage times falloff, in the colour of the sky.
+    m.globalAlpha = 1;
+    m.globalCompositeOperation = 'source-in';
+    m.drawImage(pad.pristine, 0, 0, size, size, 0, 0, size, size);
+    m.globalCompositeOperation = 'source-in';
+    m.fillStyle = palette.skyBounce;
+    m.fillRect(0, 0, size, size);
+
+    c.save();
+    c.globalCompositeOperation = 'lighter';
+    c.globalAlpha = SKY_BOUNCE;
+    c.drawImage(pad.mask, 0, 0, size, size, 0, 0, size, size);
     c.restore();
   }
-}
-
-/** Whether this context honours `filter`; jsdom and old Safari do not. */
-function supportsFilter(ctx: CanvasRenderingContext2D): boolean {
-  return typeof ctx.filter === 'string';
 }
 
 /**

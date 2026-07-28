@@ -40,6 +40,7 @@ import type { SpriteSheet } from './sprites.js';
 import type { TileLayer } from './tiles.js';
 import { BLOOD_DROP, BLOOD_POOL, type Effects } from './effects.js';
 import { flicker, lampCharacter, type LightPass } from './lighting.js';
+import type { Occluder } from './shadows.js';
 import { RENDER_SCALE, SUN_X, SUN_Y } from './config.js';
 import { hash2 } from './noise.js';
 import { viewport } from './viewport.js';
@@ -349,8 +350,10 @@ export function render(
   const dy = (wy: number): number => originY + Math.round(wy * RENDER_SCALE);
 
   // What the light pass needs to know to work out what is standing in front of
-  // a lamp: the city, and where world origin landed on screen this frame.
+  // a lamp: the city, where world origin landed on screen this frame, and
+  // everything with a body between the two.
   lights.setWorld(map, originX, originY);
+  lights.setOccluders(collectOccluders(scene, cam));
 
   tiles.draw(ctx, cam, originX, originY);
   effects.update(scene.dt);
@@ -672,6 +675,85 @@ function drawPackages(
     ctx.fillRect(x - 2 * R, y - 2 * R, 4 * R, 4 * R);
     if (!taken) lights.point(x, y, (6 + pulse * 4) * R, 'shop', 0.25 + pulse * 0.2);
   }
+}
+
+/**
+ * How tall things stand, in world pixels, for the shadows they throw.
+ *
+ * The numbers matter against `LIGHT_HEIGHT`, not on their own: a person at 9
+ * is taller than a headlight at 4 and shorter than a street lamp at 30, so the
+ * same pedestrian throws a shadow down the whole street in front of a car and
+ * a stub of one under a lamp post. That ratio is the entire model.
+ */
+const BODY_HEIGHT = 9;
+const CAR_HEIGHT = 7;
+
+/** Reused every frame: the light pass reads it and never keeps it. */
+const occluders: Occluder[] = [];
+
+/**
+ * The bodies and cars close enough to the view to be worth casting.
+ *
+ * A margin of one screen beyond the frame, because a shadow is thrown by
+ * something that need not be visible itself — the whole point of the long
+ * shadow a headlight throws is that you see it before you see what is making
+ * it. Parked and moving cars alike: an empty car parked across a beam stops it
+ * just as well as one with a driver.
+ */
+function collectOccluders(scene: Scene, cam: Vec2): Occluder[] {
+  occluders.length = 0;
+  const x0 = cam.x - viewport.w * 0.5;
+  const y0 = cam.y - viewport.h * 0.5;
+  const x1 = cam.x + viewport.w * 1.5;
+  const y1 = cam.y + viewport.h * 1.5;
+  const inView = (x: number, y: number): boolean => x > x0 && y > y0 && x < x1 && y < y1;
+  const body = (x: number, y: number): void => {
+    if (!inView(x, y)) return;
+    occluders.push({
+      x,
+      y,
+      r: PLAYER_RADIUS,
+      halfLong: 0,
+      halfWide: 0,
+      heading: 0,
+      height: BODY_HEIGHT,
+    });
+  };
+
+  for (const r of scene.remotes.players) body(r.x, r.y);
+  for (const c of scene.remotes.cops) body(c.x, c.y);
+  for (const pd of scene.remotes.peds) {
+    // The dead lie down. A body on the tarmac is not a wall.
+    if (pd.ped.mode === 'dead' || pd.ped.mode === 'downed') continue;
+    body(pd.x, pd.y);
+  }
+  if (scene.localPos && scene.local?.mode !== 'driving') body(scene.localPos.x, scene.localPos.y);
+
+  const car = (x: number, y: number, heading: number, kind: string): void => {
+    if (!inView(x, y)) return;
+    const t = getVehicleTuning(kind);
+    occluders.push({
+      x,
+      y,
+      r: 0,
+      halfLong: t.halfExtent,
+      halfWide: t.halfExtent * 0.55,
+      heading,
+      height: CAR_HEIGHT,
+    });
+  };
+  for (const rv of scene.remotes.vehicles) {
+    car(rv.x, rv.y, rv.heading, rv.vehicle.kind);
+  }
+  if (scene.localVehicle) {
+    car(
+      scene.localVehicle.pos.x,
+      scene.localVehicle.pos.y,
+      scene.localVehicle.heading,
+      scene.localVehicle.kind,
+    );
+  }
+  return occluders;
 }
 
 /** Windows lit in one frame, whatever the view size. Bounds the worst block. */
