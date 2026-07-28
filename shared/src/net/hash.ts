@@ -90,6 +90,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.health);
     h = hashString(h, v.condition);
     h = hashNumber(h, v.fuseAtTick ?? -1);
+    h = hashNumber(h, v.igniterId ?? -1);
     h = hashString(h, v.fitting);
     h = hashNumber(h, v.fittingAmmo);
   }

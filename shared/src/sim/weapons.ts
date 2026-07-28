@@ -256,7 +256,7 @@ function fireOnce(
   } else if (hitProp) {
     damageProp(state, hitProp, damage, events);
   } else if (hitVehicle) {
-    damageVehicle(state, hitVehicle, damage, events);
+    damageVehicle(state, hitVehicle, damage, events, shooter.id);
   }
 }
 

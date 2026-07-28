@@ -13,6 +13,8 @@
   "heatPerDamage": 0.8,
   "heatPerKill": 60,
   "heatPerTheft": 15,
+  "heatPerVehicleKill": 40,
+  "heatPerOccupiedVehicleKill": 70,
   "heatPerCopKill": 120,
   "heatDecayPerSec": 5,
   "despawnTicks": 450,

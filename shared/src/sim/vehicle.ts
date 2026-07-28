@@ -117,6 +117,10 @@ function integrateVehicle(
     v.speed = q8(-v.speed * t.crashDamp);
     if (Math.abs(v.speed) < 10) v.speed = 0;
     if (sim && closing > 36) {
+      // No attacker: a collision is an accident as far as the police are
+      // concerned, and nothing here can tell a deliberate ram from a bad
+      // line through a junction. Charging for it would make every scrape in
+      // ambient traffic a crime and turn the wanted system into noise.
       damageVehicle(sim, v, collisionDamage(v.kind, closing), events ?? []);
       damageVehicle(sim, hit, collisionDamage(hit.kind, closing), events ?? []);
     }

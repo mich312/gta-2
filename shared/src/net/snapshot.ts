@@ -93,6 +93,7 @@ const VEHICLE_FIELDS = [
   'health',
   'condition',
   'fuseAtTick',
+  'igniterId',
   'fitting',
   'fittingAmmo',
 ] as const;

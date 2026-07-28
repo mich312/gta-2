@@ -183,7 +183,7 @@ function fireCarGuns(
     if (ped) damagePed(state, ped, weapon.damage, ownerId, events);
   } else if (hitVehicleId !== null) {
     const other = state.vehicles.byId[hitVehicleId];
-    if (other) damageVehicle(state, other, weapon.damage, events);
+    if (other) damageVehicle(state, other, weapon.damage, events, ownerId);
   }
 }
 

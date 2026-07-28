@@ -141,6 +141,21 @@ export interface VehicleState {
   /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
   fuseAtTick: number | null;
   /**
+   * Who set it alight, or null when nobody did — a shunt in ambient traffic
+   * lights cars too, and that is an accident, not a crime. Written once, at
+   * ignition, and read on the far side of the fuse so the blast is credited
+   * to the arsonist rather than to whoever was at the wheel. Carries down a
+   * chain reaction, so burning a car park is one person's fire throughout.
+   *
+   * It rides the wire, which it would not have to if `takeSnapshot` projected
+   * fields — it clones whole entities, so anything on a table is in the
+   * snapshot whether the codec encodes it or not, and a field the codec
+   * silently dropped would fail the round-trip test. The cost is near zero in
+   * practice: it changes exactly once in a vehicle's life, so the delta path
+   * never carries it twice.
+   */
+  igniterId: number | null;
+  /**
    * What the garage bolted on: '' , 'bomb', 'slick', 'mine' or 'guns'.
    * Two fields on a table that is already on the wire, changing only when
    * you buy or use something — see FEATURES.md G2.
@@ -363,6 +378,7 @@ export function createVehicle(
     health: getVehicleTuning(kind).health,
     condition: 'ok',
     fuseAtTick: null,
+    igniterId: null,
     fitting: '',
     fittingAmmo: 0,
   };

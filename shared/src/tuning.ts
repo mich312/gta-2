@@ -83,6 +83,10 @@ export interface PoliceTuning {
   heatPerDamage: number;
   heatPerKill: number;
   heatPerTheft: number;
+  /** Setting an empty car alight. Property, so it sits between theft and murder. */
+  heatPerVehicleKill: number;
+  /** Setting a car alight with somebody in it. The deaths are charged separately. */
+  heatPerOccupiedVehicleKill: number;
   heatPerCopKill: number;
   heatDecayPerSec: number;
   despawnTicks: number;
@@ -407,6 +411,8 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerDamage: n('heatPerDamage'),
     heatPerKill: n('heatPerKill'),
     heatPerTheft: n('heatPerTheft'),
+    heatPerVehicleKill: n('heatPerVehicleKill'),
+    heatPerOccupiedVehicleKill: n('heatPerOccupiedVehicleKill'),
     heatPerCopKill: n('heatPerCopKill'),
     heatDecayPerSec: n('heatDecayPerSec'),
     despawnTicks: n('despawnTicks'),
@@ -748,6 +754,8 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerDamage: 0.8,
   heatPerKill: 60,
   heatPerTheft: 15,
+  heatPerVehicleKill: 40,
+  heatPerOccupiedVehicleKill: 70,
   heatPerCopKill: 120,
   heatDecayPerSec: 5,
   despawnTicks: 150,
