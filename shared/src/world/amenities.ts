@@ -7,7 +7,9 @@ import type { WorldgenParams } from './params.js';
 import {
   DISTRICT_TYPES,
   T_BANK,
+  T_SAND,
   T_BUILDING,
+  T_FIELD,
   T_FLOOR,
   T_LOT,
   T_PARK,
@@ -182,16 +184,24 @@ function fillSolid(map: CityMap, b: Building): void {
 }
 
 /**
- * The fraction of a nominal window one arterial cell covers — the exchange
- * rate that turns per-window quotas ("3 gun shops", "4 hospitals") into
- * per-cell probabilities, so density stays constant no matter how large a
- * window is materialised or where it sits. A pure function of params only:
- * window position must never change what exists.
+ * The nominal city-window edge the per-window quotas are phrased against
+ * ("3 gun shops per 240² of world"). A CONSTANT, deliberately: dividing by
+ * the actual window's area made shop density a function of viewport size,
+ * so a padded store window and a session window disagreed about which
+ * buildings were shops — caught by the B1 store≡window gate.
+ */
+const QUOTA_WINDOW_TILES = 240;
+
+/**
+ * The fraction of the nominal quota window one arterial cell covers — the
+ * exchange rate that turns per-window quotas into per-cell lattice pitches,
+ * so density is constant no matter what size window is materialised or
+ * where it sits.
  */
 function cellQuotaFrac(params: WorldgenParams): number {
   return (
     (params.arterialSpacing * params.arterialSpacing) /
-    (params.widthTiles * params.heightTiles)
+    (QUOTA_WINDOW_TILES * QUOTA_WINDOW_TILES)
   );
 }
 
@@ -448,11 +458,28 @@ export function placeProps(map: CityMap): void {
   let barrelN = 0;
   for (let ty = 0; ty < map.heightTiles; ty++) {
     for (let tx = 0; tx < map.widthTiles; tx++) {
-      if (t(map, tx, ty) !== T_SIDEWALK) continue;
-      const roadRight = t(map, tx + 1, ty) === T_ROAD;
-      const roadDown = t(map, tx, ty + 1) === T_ROAD;
+      const tile = t(map, tx, ty);
+      // Barrels stand on the yard as well as the pavement: an industrial
+      // slab in this world mostly fronts onto its LOT, and a barrel rule
+      // that only knew sidewalks put zero barrels in a city whose industry
+      // had no kerbs.
+      if (tile !== T_SIDEWALK && tile !== T_LOT) continue;
       const bldLeft = t(map, tx - 1, ty) === T_BUILDING;
       const bldUp = t(map, tx, ty - 1) === T_BUILDING;
+      if (tile === T_LOT) {
+        const district = DISTRICT_TYPES[map.district[ty * map.widthTiles + tx] as number];
+        if ((bldLeft || bldUp) && district === 'industrial' && ++barrelN % 3 === 0) {
+          barrels.push({
+            kind: 'barrel',
+            x: (tx + 0.5) * TILE_SIZE,
+            y: (ty + 0.5) * TILE_SIZE,
+            orient: 0,
+          });
+        }
+        continue;
+      }
+      const roadRight = t(map, tx + 1, ty) === T_ROAD;
+      const roadDown = t(map, tx, ty + 1) === T_ROAD;
       const parkLeft = t(map, tx - 1, ty) === T_PARK;
       const parkUp = t(map, tx, ty - 1) === T_PARK;
       // Lamp spacing varies by district: downtown is brightly lit, industrial
@@ -675,6 +702,7 @@ export function placeBoatSpawns(map: CityMap): void {
           const near = t(map, tx + dx, ty + dy);
           if (
             near === T_BANK ||
+            near === T_SAND ||
             near === T_SIDEWALK ||
             near === T_ROAD ||
             near === T_PARK ||
@@ -707,6 +735,10 @@ const LANDMARK_NAMES: Record<LandmarkKind, string[]> = {
   tower: ['Vantage Tower', 'The Spire', 'Halloran Building'],
   hospital: ['Mercy General', 'St. Brannoch', 'Riverside Infirmary', 'Central Clinic'],
   police: ['1st Precinct', 'Kelvin Road Station', 'Harbour Precinct', 'Central Station'],
+  farm: ['Hollis Farm', 'Two Oaks', 'Merton Yard', 'Longacre'],
+  campground: ['Pinewatch Camp', 'The Clearings', 'Restwater'],
+  lighthouse: ['Old Point Light', 'Gannet Light', 'The Lantern'],
+  quarry: ['Greyhill Quarry', 'The Cut', 'Basset Pit'],
 };
 
 /** Minimum footprint that reads as "big" for each kind, in tiles. */
@@ -716,6 +748,12 @@ const LANDMARK_SIZE: Record<LandmarkKind, [number, number]> = {
   tower: [6, 6],
   hospital: [6, 5],
   police: [5, 5],
+  // Rural kinds are placed by their own pass, not the city block pass;
+  // sizes here are their stamped extents.
+  farm: [9, 7],
+  campground: [7, 6],
+  lighthouse: [3, 3],
+  quarry: [9, 7],
 };
 
 const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
@@ -724,6 +762,10 @@ const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
   tower: ['downtown', 'commercial'],
   hospital: ['commercial', 'residential', 'downtown'],
   police: ['downtown', 'commercial', 'residential'],
+  farm: [],
+  campground: [],
+  lighthouse: [],
+  quarry: [],
 };
 
 /** Weights for the rolled (non-coverage) landmark kinds, per nominal window. */
@@ -804,12 +846,12 @@ export function placeLandmarks(
       const w = Math.min(minW, b.w - 2);
       const h = Math.min(minH, b.h - 2);
       if (w < 3 || h < 3) continue;
-      // Never on the water, and never on the quay that lines it.
+      // Never on the water, nor the quay, nor the beach.
       let clear = true;
       for (let ty = y; ty < y + h && clear; ty++) {
         for (let tx = x; tx < x + w; tx++) {
           const tile = t(map, tx, ty);
-          if (tile === T_WATER || tile === T_BANK) {
+          if (tile === T_WATER || tile === T_BANK || tile === T_SAND) {
             clear = false;
             break;
           }
@@ -889,6 +931,142 @@ export function registerClinics(map: CityMap): void {
       entryX: Math.floor(l.doorX / TILE_SIZE),
       entryY: Math.floor(l.doorY / TILE_SIZE),
     });
+  }
+}
+
+/**
+ * Rural destinations (WORLDGEN.md §11.1 A3): the §3.6 stamp idea, built.
+ * A stamp is drawn tiles plus registered buildings plus a named landmark —
+ * so it collides, renders, and shows on the radar like anything else. All
+ * cell-local: rng from hash(seed, cell), placed only fully inside the
+ * window (the established rim edge effect), on clear meadow so lanes,
+ * forest and water are respected by construction.
+ */
+export function placeRuralSites(
+  map: CityMap,
+  params: WorldgenParams,
+  cells: WorldCell[],
+  seed: number,
+  isRural: (gx: number, gy: number) => boolean,
+  gritAt: (gx: number, gy: number) => number,
+): void {
+  const wx = params.windowX;
+  const wy = params.windowY;
+
+  /** First w×h patch of pure meadow in the cell, with a 1-tile margin. */
+  const clearPatch = (cell: WorldCell, w: number, h: number): { x: number; y: number } | null => {
+    const x0 = Math.max(1, cell.gx - wx);
+    const y0 = Math.max(1, cell.gy - wy);
+    const x1 = Math.min(map.widthTiles - 1, cell.gx + cell.gw - wx) - w;
+    const y1 = Math.min(map.heightTiles - 1, cell.gy + cell.gh - wy) - h;
+    for (let y = y0; y <= y1; y += 2) {
+      for (let x = x0; x <= x1; x += 2) {
+        let clear = true;
+        for (let dy = -1; dy <= h && clear; dy++) {
+          for (let dx = -1; dx <= w; dx++) {
+            if (t(map, x + dx, y + dy) !== T_FIELD) {
+              clear = false;
+              break;
+            }
+          }
+        }
+        if (clear) return { x, y };
+      }
+    }
+    return null;
+  };
+
+  const stampBuilding = (x: number, y: number, w: number, h: number): void => {
+    for (let ty = y; ty < y + h; ty++) {
+      for (let tx = x; tx < x + w; tx++) map.tiles[ty * map.widthTiles + tx] = T_BUILDING;
+    }
+    map.buildings.push({ x, y, w, h, district: 'park' });
+  };
+  const stampGround = (x: number, y: number, w: number, h: number, tile: number): void => {
+    for (let ty = y; ty < y + h; ty++) {
+      for (let tx = x; tx < x + w; tx++) map.tiles[ty * map.widthTiles + tx] = tile;
+    }
+  };
+  const register = (kind: LandmarkKind, cell: WorldCell, x: number, y: number, w: number, h: number): void => {
+    const names = LANDMARK_NAMES[kind];
+    map.landmarks.push({
+      kind,
+      name: names[mod(cell.i * 11 + cell.j * 5, names.length)] as string,
+      x,
+      y,
+      w,
+      h,
+      doorX: (x + w / 2) * TILE_SIZE,
+      doorY: (y + h + 0.5) * TILE_SIZE,
+    });
+  };
+
+  for (const cell of cells) {
+    const cgx = cell.gx + Math.floor(cell.gw / 2);
+    const cgy = cell.gy + Math.floor(cell.gh / 2);
+    if (!isRural(cgx, cgy)) continue;
+    let rng = seedRng(deriveSeed(seed, `cell.sites.${cell.i}.${cell.j}`));
+
+    // Coast in the cell? Then a lighthouse outranks the roll. Scanned on
+    // the window's tiles, clipped: suppression at the rim is the standard
+    // edge effect.
+    let coast = false;
+    for (let ty = Math.max(0, cell.gy - wy); ty < Math.min(map.heightTiles, cell.gy + cell.gh - wy) && !coast; ty += 2) {
+      for (let tx = Math.max(0, cell.gx - wx); tx < Math.min(map.widthTiles, cell.gx + cell.gw - wx); tx += 2) {
+        if (t(map, tx, ty) === T_WATER) {
+          coast = true;
+          break;
+        }
+      }
+    }
+
+    let kind: LandmarkKind | null = null;
+    if (coast) {
+      let roll: number;
+      [roll, rng] = nextFloat01(rng);
+      if (roll < 0.5) kind = 'lighthouse';
+    }
+    if (kind === null && gritAt(cgx, cgy) >= 0.62) kind = 'quarry';
+    if (kind === null) {
+      let roll: number;
+      [roll, rng] = nextFloat01(rng);
+      kind = roll < 0.45 ? 'farm' : roll < 0.6 ? 'campground' : null;
+    }
+    if (kind === null) continue;
+
+    const [w, h] = LANDMARK_SIZE[kind];
+    const at = clearPatch(cell, w, h);
+    if (!at) continue;
+
+    switch (kind) {
+      case 'farm':
+        // House, barn, and the yard between them.
+        stampGround(at.x, at.y, w, h, T_LOT);
+        stampBuilding(at.x, at.y, 3, 3);
+        stampBuilding(at.x + w - 4, at.y + h - 3, 4, 3);
+        break;
+      case 'campground':
+        // A kept clearing with a warden's hut: the emptiness is the point.
+        stampGround(at.x, at.y, w, h, T_PARK);
+        stampBuilding(at.x + 1, at.y + 1, 2, 2);
+        break;
+      case 'lighthouse':
+        stampBuilding(at.x, at.y, 3, 3);
+        break;
+      case 'quarry':
+        // A working pit: open ground a car can enter, and a crusher —
+        // the crane economy reaches the countryside.
+        stampGround(at.x, at.y, w, h, T_LOT);
+        stampBuilding(at.x, at.y, 3, 3);
+        map.cranes.push({
+          x: (at.x + w - 2.5) * TILE_SIZE,
+          y: (at.y + h - 2.5) * TILE_SIZE,
+        });
+        break;
+      default:
+        continue;
+    }
+    register(kind, cell, at.x, at.y, w, h);
   }
 }
 
@@ -1001,7 +1179,9 @@ export function placeCranes(map: CityMap): void {
       sites.push({ x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE });
     }
   }
-  map.cranes = sites;
+  // APPEND: quarries (placeRuralSites) have already put their crushers in
+  // the list, and an assignment here silently threw them away.
+  map.cranes = [...map.cranes, ...sites];
 }
 
 /**

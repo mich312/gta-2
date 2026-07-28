@@ -677,7 +677,14 @@ describe('errand driving (goto)', () => {
       const driver = state.trafficDrivers[930];
       const v = state.vehicles.byId[930];
       expect(v).toBeDefined(); // never culled mid-errand
-      if (driver && driver.mission === 'cruise' && v) arrivedAt = { x: v.pos.x, y: v.pos.y };
+      // Two legitimate endings: the driver melts back into cruising, OR —
+      // when the trip timer ran out on the way — they arrive, park at the
+      // destination kerb and walk away (the driver record goes with them,
+      // the car stays). Both are "the errand got there"; only giving up
+      // mid-route is a failure.
+      if (v && ((driver && driver.mission === 'cruise') || !driver)) {
+        arrivedAt = { x: v.pos.x, y: v.pos.y };
+      }
     }
     expect(arrivedAt).not.toBeNull();
     // Arrival means arrived: within the corner reach plus a lane's offset of

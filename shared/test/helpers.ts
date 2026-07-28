@@ -91,6 +91,30 @@ export function straightEastLane(
 }
 
 /**
+ * The centre of a size×size square of ground that is open in every
+ * direction — for movement tests that need to run without clipping a wall.
+ * The countryside makes these plentiful; hard-coding "the spawn has room
+ * up-and-right" stopped being true the day the map stopped being a grid.
+ */
+export function openSquare(map: CityMap, size = 12): { x: number; y: number } {
+  for (let ty = 2; ty < map.heightTiles - size - 2; ty++) {
+    for (let tx = 2; tx < map.widthTiles - size - 2; tx++) {
+      let open = true;
+      for (let dy = 0; dy < size && open; dy++) {
+        for (let dx = 0; dx < size; dx++) {
+          if (isSolidAtWorld(map, (tx + dx + 0.5) * TILE_SIZE, (ty + dy + 0.5) * TILE_SIZE)) {
+            open = false;
+            break;
+          }
+        }
+      }
+      if (open) return { x: (tx + size / 2) * TILE_SIZE, y: (ty + size / 2) * TILE_SIZE };
+    }
+  }
+  throw new Error('no open square on this map');
+}
+
+/**
  * A mooring with `need` px of open water ahead of its heading, for boat tests.
  *
  * Same trap as `roadLane`: taking `boatSpawns[0]` and opening the throttle

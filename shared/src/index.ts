@@ -35,6 +35,7 @@ export * from './replay/format.js';
 export * from './world/types.js';
 export * from './world/params.js';
 export * from './world/generate.js';
+export * from './world/store.js';
 export * from './world/collide.js';
 export * from './economy/catalog.js';
 export * from './economy/depot.js';

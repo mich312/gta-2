@@ -11,6 +11,8 @@ import {
   T_WATER,
   T_BRIDGE,
   T_BANK,
+  T_TREES,
+  T_SAND,
   T_RAMP,
   T_FLOOR,
   TILE_SIZE,
@@ -372,6 +374,14 @@ export class TileLayer {
         break;
       case T_BANK:
         this.paintBank(ctx, tx, ty, x, y);
+        break;
+      case T_TREES:
+        // Canopy: the park grass painter with the forest palette does the
+        // job — solid dark green with organic speckle, denser than lawn.
+        this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true);
+        break;
+      case T_SAND:
+        this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
         break;
       case T_BRIDGE:
         this.paintBridge(ctx, tx, ty, x, y);

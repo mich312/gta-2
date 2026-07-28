@@ -62,6 +62,8 @@ export function generateRoads(
   params: WorldgenParams,
   districtIdxAt: (gx: number, gy: number) => number,
   seed: number,
+  /** Open country at a global tile? Rural regions subdivide to lane scale. */
+  isRural: (gx: number, gy: number) => boolean = () => false,
 ): RoadsResult {
   const wx = params.windowX;
   const wy = params.windowY;
@@ -130,42 +132,49 @@ export function generateRoads(
       ];
       while (queue.length > 0) {
         const r = queue.shift() as { x: number; y: number; w: number; h: number };
-        const districtIdx = districtIdxAt(r.x + Math.floor(r.w / 2), r.y + Math.floor(r.h / 2));
+        const cxm = r.x + Math.floor(r.w / 2);
+        const cym = r.y + Math.floor(r.h / 2);
+        const districtIdx = districtIdxAt(cxm, cym);
         const district = DISTRICT_TYPES[districtIdx] as DistrictType;
-        const [minB, maxB] = params.blockSize[district];
+        // Open country subdivides to LANE scale: huge blocks, narrow
+        // carve — a country lane, not a street. The rural flag rides on
+        // the block so the fill pass and the sidewalk pass know too.
+        const rural = isRural(cxm, cym);
+        const [minB, maxB] = rural ? params.countryside.blockSize : params.blockSize[district];
+        const carveW = rural ? params.countryside.laneWidth : sw;
 
         const splitW = r.w > maxB;
         const splitH = r.h > maxB;
         if (!splitW && !splitH) {
           if (r.w >= 3 && r.h >= 3) {
-            cell.blocks.push({ x: r.x - wx, y: r.y - wy, w: r.w, h: r.h, district });
+            cell.blocks.push({ x: r.x - wx, y: r.y - wy, w: r.w, h: r.h, district, rural });
           }
           continue;
         }
         if (splitW && (!splitH || r.w >= r.h)) {
           const lo = r.x + Math.max(3, Math.floor(minB / 2));
-          const hi = r.x + r.w - Math.max(3, Math.floor(minB / 2)) - sw;
+          const hi = r.x + r.w - Math.max(3, Math.floor(minB / 2)) - carveW;
           if (hi <= lo) {
-            cell.blocks.push({ x: r.x - wx, y: r.y - wy, w: r.w, h: r.h, district });
+            cell.blocks.push({ x: r.x - wx, y: r.y - wy, w: r.w, h: r.h, district, rural });
             continue;
           }
           let cut: number;
           [cut, rng] = nextIntRange(rng, lo, hi + 1);
-          carveG(cut, r.y, sw, r.h, 0);
+          carveG(cut, r.y, carveW, r.h, 0);
           queue.push({ x: r.x, y: r.y, w: cut - r.x, h: r.h });
-          queue.push({ x: cut + sw, y: r.y, w: r.x + r.w - cut - sw, h: r.h });
+          queue.push({ x: cut + carveW, y: r.y, w: r.x + r.w - cut - carveW, h: r.h });
         } else {
           const lo = r.y + Math.max(3, Math.floor(minB / 2));
-          const hi = r.y + r.h - Math.max(3, Math.floor(minB / 2)) - sw;
+          const hi = r.y + r.h - Math.max(3, Math.floor(minB / 2)) - carveW;
           if (hi <= lo) {
-            cell.blocks.push({ x: r.x - wx, y: r.y - wy, w: r.w, h: r.h, district });
+            cell.blocks.push({ x: r.x - wx, y: r.y - wy, w: r.w, h: r.h, district, rural });
             continue;
           }
           let cut: number;
           [cut, rng] = nextIntRange(rng, lo, hi + 1);
-          carveG(r.x, cut, r.w, sw, 0);
+          carveG(r.x, cut, r.w, carveW, 0);
           queue.push({ x: r.x, y: r.y, w: r.w, h: cut - r.y });
-          queue.push({ x: r.x, y: cut + sw, w: r.w, h: r.y + r.h - cut - sw });
+          queue.push({ x: r.x, y: cut + carveW, w: r.w, h: r.y + r.h - cut - carveW });
         }
       }
 

@@ -72,6 +72,14 @@ function cruiseKeys(tick: number, botIndex: number): ScriptedKeys {
 
 const scripts: Record<string, BotScript> = {
   idle: () => ({ ...NONE }),
+  /**
+   * Walk east, forever: the B4 roaming gate (WORLDGEN.md §11.2). Crossing
+   * the window margin trips rebases; every client must re-simulate each
+   * one identically or the harness's desync counter says so.
+   */
+  roam: () => ({ ...NONE, right: true }),
+  /** Walk north-west, forever: negative window origins, live. */
+  roamnw: () => ({ ...NONE, left: true, up: true }),
 
   /** Wander in a heading that rotates slowly, offset per bot. */
   cruise: cruiseKeys,

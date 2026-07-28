@@ -48,6 +48,7 @@ the art on whole pixels.
 | `SEED` | random | city + session seed |
 | `WEAPONS_LOST_ON_DEATH` | `true` | death costs your guns (design flag) |
 | `PED_COUNT` | `200` | pedestrians per session |
+| `ROAM` | `1` | the window follows the players — the world is infinite in all directions (`0` pins it) |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
 | `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |

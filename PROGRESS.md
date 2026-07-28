@@ -1,5 +1,41 @@
 # PROGRESS
 
+<<<<<<< HEAD
+## Worldgen §11 delivered: countryside, store, and the walls come off
+
+The full §11 plan (WORLDGEN.md), shipped in four commits. 468 tests
+green throughout; brawl gate 0 desyncs; the new roaming gate walks two
+bots east for 90 s across multiple window rebases with 0 desyncs,
+2.63 px corrections and ~18 KB/s; every replay — including one that
+crosses rebases — re-simulates hash-identical.
+
+**A1/A2 — the countryside is real.** Rural regions subdivide to
+lane scale with no kerbs (crowd/props/parking quiet emerges from the
+existing sidewalk filters), meadow finally uses T_FIELD, T_TREES forest
+grows on the wildness field one tile clear of every lane, and shores
+split on urban intensity: stone quay in town, T_SAND beach in the
+country. **A3** — farms, campgrounds, lighthouses and quarries
+(with crushers) stamp into rural cells as named landmarks: the §3.6
+stamp mechanism, built. **B1** — WorldStore serves cell-keyed
+tiles/landmarks from padded windows, proven bit-identical to session
+windows; its gate caught cellQuotaFrac depending on window size (quotas
+now phrase against a constant nominal 240² city). **B2–B4** — ROAM=1
+slides the session window after the players: one rebase SimCommand
+shifts players and drops the region's ambient world, reseed commands
+repopulate, replays swap windows at the same boundary.
+
+**Deliberately scoped.** Rebase is opt-in (ROAM=1); the browser client
+handles it with a map regen and one visible snap — untested in a real
+browser, flagged. Hidden-package finds are window-indexed and reset
+across a rebase. Deep-country cells have no hospitals (landmarks prefer
+urban districts), so a countryside death respawns in town. Full resyncs
+spike at each rebase (~40-90 per roam run) — correct but optimizable.
+
+**Least confident about.** Rebase under packet loss mid-swap (bots run
+clean sockets); the browser-side rebase snap; and mission/economy state
+that references old-window coordinates beyond the abandon-on-cross rule.
+
+=======
 ## A room to test in
 
 580 tests green (up from 564; 16 new). 8-bot joyride lockstep, 0 desyncs,
@@ -298,6 +334,7 @@ game disagrees with itself about how big a car is; it is left alone on purpose
 so changing it is a weapons change with a tuning pass attached, not a collider
 fix. And lag compensation has only been measured in the harness and in tests,
 never against a real link with real jitter.
+>>>>>>> origin/main
 
 ## Worldgen: quays line the waterways, and a drowned road end is tested
 

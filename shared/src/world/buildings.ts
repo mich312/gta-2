@@ -2,10 +2,13 @@ import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import {
   T_BANK,
   T_BUILDING,
+  T_FIELD,
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_SAND,
   T_SIDEWALK,
+  T_TREES,
   T_WATER,
   type BlockRect,
   type Building,
@@ -22,11 +25,11 @@ function fill(ctx: Ctx, x: number, y: number, w: number, h: number, t: number): 
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
-      // Never build on the river, and never on the quay that lines it.
-      // Blocks are carved between roads and can straddle water, so this
-      // guard is what keeps offices out of the bay and off the waterfront.
+      // Never build on the river, nor the quay that lines it, nor the
+      // beach. Blocks are carved between roads and can straddle water, so
+      // this guard is what keeps offices out of the bay and off the shore.
       const here = ctx.tiles[ty * ctx.W + tx];
-      if (here === T_WATER || here === T_BANK) continue;
+      if (here === T_WATER || here === T_BANK || here === T_SAND) continue;
       ctx.tiles[ty * ctx.W + tx] = t;
     }
   }
@@ -45,7 +48,7 @@ function rectHasWater(ctx: Ctx, x: number, y: number, w: number, h: number): boo
     for (let tx = x; tx < x + w; tx++) {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
       const t = ctx.tiles[ty * ctx.W + tx];
-      if (t === T_WATER || t === T_BANK) return true;
+      if (t === T_WATER || t === T_BANK || t === T_SAND) return true;
     }
   }
   return false;
@@ -66,7 +69,8 @@ function laySidewalk(ctx: Ctx, b: BlockRect): void {
       const perimeter = tx === b.x || ty === b.y || tx === b.x + b.w - 1 || ty === b.y + b.h - 1;
       if (!perimeter) continue;
       const here = ctx.tiles[ty * ctx.W + tx];
-      if (here === T_WATER || here === T_BANK) continue; // no kerb on a river, and the quay stays a quay
+      // No kerb on a river; the quay stays a quay and the beach a beach.
+      if (here === T_WATER || here === T_BANK || here === T_SAND) continue;
       if (
         isRoad(ctx, tx - 1, ty) ||
         isRoad(ctx, tx + 1, ty) ||
@@ -119,7 +123,8 @@ function packRect(
  * Fill one block: sidewalk ring, then district-specific building layout.
  * The visual identity of each district lives here — downtown packs solid,
  * residential rows leave yards, industrial is big slabs on open lots,
- * parks stay green.
+ * parks stay green — and the countryside is meadow with forest where the
+ * wildness field says so.
  */
 export function fillBlock(
   tiles: Uint8Array,
@@ -128,8 +133,39 @@ export function fillBlock(
   buildings: Building[],
   b: BlockRect,
   rng: number,
+  /** Forest predicate (window-LOCAL tiles); only rural blocks consult it. */
+  wildAt?: (tx: number, ty: number) => boolean,
 ): number {
   const ctx: Ctx = { tiles, W, H, buildings };
+
+  if (b.rural) {
+    // Open country: no kerbs (which is what silences the crowd, the
+    // props, the payphones and the kerbside cars out here — they all
+    // filter on sidewalk), meadow underfoot, forest where the wildness
+    // field says forest — except within one tile of a carved lane, so
+    // every lane stays drivable at full width.
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        const here = tiles[ty * W + tx];
+        if (here !== T_FIELD) continue; // water, bank, sand, roads stay
+        tiles[ty * W + tx] = wildAt?.(tx, ty) ? T_TREES : T_FIELD;
+      }
+    }
+    for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
+      for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
+        if (tiles[ty * W + tx] !== T_TREES) continue;
+        const nearRoad =
+          isRoad(ctx, tx - 1, ty) ||
+          isRoad(ctx, tx + 1, ty) ||
+          isRoad(ctx, tx, ty - 1) ||
+          isRoad(ctx, tx, ty + 1);
+        if (nearRoad) tiles[ty * W + tx] = T_FIELD;
+      }
+    }
+    return rng;
+  }
+
   laySidewalk(ctx, b);
   const ix = b.x + 1;
   const iy = b.y + 1;

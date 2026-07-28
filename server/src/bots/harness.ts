@@ -18,7 +18,7 @@ import { loadSharedTuning } from '../tuning.js';
  * bots 45–229 px, desyncs zero throughout. The limit exists to catch
  * SYSTEMIC divergence (which shows on every bot), not the biggest single
  * lawful shove. */
-const CORRECTION_LIMIT_PX: Record<string, number> = { default: 32, joyride: 96, brawl: 256 };
+const CORRECTION_LIMIT_PX: Record<string, number> = { default: 32, joyride: 96, brawl: 256, roam: 96, roamnw: 96 };
 /** Phase-7 gate: with 200 peds, each client must stay under 50 KB/s down. */
 const MAX_KBPS_IN = 50;
 
