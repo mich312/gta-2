@@ -168,6 +168,39 @@ export interface PoliceTuning {
   heatPerOccupiedVehicleKill: number;
   heatPerCopKill: number;
   heatDecayPerSec: number;
+  /**
+   * Ticks out of sight before the heat starts coming off at all.
+   *
+   * The cool-down clock (GTA.md P1b). What it replaced was a presence gate —
+   * "does any officer see you right now" — which the spawner defeated by
+   * construction: it answers a wanted level by placing fresh officers inside
+   * sight range, so the higher the level the more reliably the gate stayed
+   * shut. A clock can be waited out; a gate the system keeps closing cannot.
+   */
+  wantedCooldownTicks: number;
+  /**
+   * How much faster the heat comes off per further second clean, as a
+   * fraction of the base rate.
+   *
+   * Solved from the target rather than picked: a five-star level is 500 heat,
+   * and integrating `heatDecayPerSec * (1 + ramp * t)` to 500 puts 0.1 at
+   * about 35 seconds. Flat decay put the same escape at 100 s, which is long
+   * enough that nobody ever finds out it is possible.
+   */
+  heatDecayRamp: number;
+  /** Ceiling on the ramped rate, so the top of the ladder still costs time. */
+  heatDecayMax: number;
+  /**
+   * Ticks an officer keeps looking after losing sight, before dropping the
+   * target altogether. Sets the length of the tail on every escape.
+   */
+  searchGiveUpTicks: number;
+  /** Within this of the last-seen point, an officer stops walking and casts about. */
+  searchArriveDist: number;
+  /** Ticks per leg of the cast-about, before another direction is drawn. */
+  searchWanderTicks: number;
+  /** A cruiser searches wider and faster than a man on foot: this much. */
+  carSearchSpeedScale: number;
   despawnTicks: number;
   /** Wanted level from which cops arrive in cars. */
   carsFromStar: number;
@@ -648,6 +681,13 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerOccupiedVehicleKill: n('heatPerOccupiedVehicleKill'),
     heatPerCopKill: n('heatPerCopKill'),
     heatDecayPerSec: n('heatDecayPerSec'),
+    wantedCooldownTicks: n('wantedCooldownTicks'),
+    heatDecayRamp: n('heatDecayRamp'),
+    heatDecayMax: n('heatDecayMax'),
+    searchGiveUpTicks: n('searchGiveUpTicks'),
+    searchArriveDist: n('searchArriveDist'),
+    searchWanderTicks: n('searchWanderTicks'),
+    carSearchSpeedScale: n('carSearchSpeedScale'),
     despawnTicks: n('despawnTicks'),
     carsFromStar: n('carsFromStar'),
     roadblocksFromStar: n('roadblocksFromStar'),
@@ -1095,6 +1135,13 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerOccupiedVehicleKill: 70,
   heatPerCopKill: 120,
   heatDecayPerSec: 5,
+  wantedCooldownTicks: 90,
+  heatDecayRamp: 0.1,
+  heatDecayMax: 26,
+  searchGiveUpTicks: 240,
+  searchArriveDist: 40,
+  searchWanderTicks: 30,
+  carSearchSpeedScale: 1.4,
   despawnTicks: 150,
   carsFromStar: 3,
   roadblocksFromStar: 4,

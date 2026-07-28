@@ -390,6 +390,7 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
     (r, o) => (o['carHitCooldown'] = r.int()),
   ),
   f('heat', (w, p) => w.f64(p.heat), (r, o) => (o['heat'] = r.f64())),
+  f('unseenTicks', (w, p) => w.uint(p.unseenTicks), (r, o) => (o['unseenTicks'] = r.uint())),
   f('frenzyTarget', (w, p) => w.int(p.frenzyTarget), (r, o) => (o['frenzyTarget'] = r.int())),
   f('frenzyKills', (w, p) => w.int(p.frenzyKills), (r, o) => (o['frenzyKills'] = r.int())),
   f(
@@ -522,6 +523,13 @@ const COP_CODECS: Array<FieldCodec<CopState>> = [
   ),
   f('vehicleId', (w, c) => w.optInt(c.vehicleId), (r, o) => (o['vehicleId'] = r.optInt())),
   f('stuckTicks', (w, c) => w.int(c.stuckTicks), (r, o) => (o['stuckTicks'] = r.int())),
+  // q8 like every other position on this wire: the sim only ever ships grid
+  // values, and an off-grid one is a permanent hash desync for every client
+  // that can see it.
+  f('lastSeenX', (w, c) => w.q8(c.lastSeenX), (r, o) => (o['lastSeenX'] = r.q8())),
+  f('lastSeenY', (w, c) => w.q8(c.lastSeenY), (r, o) => (o['lastSeenY'] = r.q8())),
+  f('searchTicks', (w, c) => w.int(c.searchTicks), (r, o) => (o['searchTicks'] = r.int())),
+  f('searchDir', (w, c) => w.int(c.searchDir), (r, o) => (o['searchDir'] = r.int())),
 ];
 
 const PED_CODECS: Array<FieldCodec<PedState>> = [

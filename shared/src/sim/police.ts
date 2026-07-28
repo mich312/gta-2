@@ -4,7 +4,14 @@ import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
 import type { CopState, GameState, PlayerState, VehicleState } from './state.js';
-import { addHeat, createCop, wantedLevelOf, POWER_INVISIBLE, POWER_JAIL_CARD } from './state.js';
+import {
+  addHeat,
+  createCop,
+  wantedLevelOf,
+  POWER_INVISIBLE,
+  POWER_JAIL_CARD,
+  UNSEEN_CAP,
+} from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
 import { driveVehicle, vehiclesOverlap } from './vehicle.js';
@@ -46,9 +53,56 @@ export function anyCopSees(state: GameState, map: CityMap, p: PlayerState): bool
     const cop = state.cops.byId[cid];
     // A body witnesses nothing. Without this the officer you just shot went on
     // reporting your car thefts from the pavement for the next forty seconds.
-    if (cop && !copIsDown(cop) && hasLineOfSight(map, cop, p, range)) return true;
+    if (cop && !copIsDown(cop) && copSees(map, cop, p, range)) return true;
   }
   return false;
+}
+
+/**
+ * Whether this officer can see that player, allowing for the one thing that
+ * makes somebody unseeable regardless of geometry.
+ *
+ * Invisibility already dropped a pursuit at the retarget step; it has to drop
+ * *sight* too, or an invisible fugitive standing in the open kept the
+ * cool-down clock pinned at zero and could never lose the heat they took the
+ * power-up to lose.
+ */
+function copSees(map: CityMap, cop: CopState, p: PlayerState, range: number): boolean {
+  if ((p.powerFlags & POWER_INVISIBLE) !== 0) return false;
+  return hasLineOfSight(map, cop, p, range);
+}
+
+/**
+ * Is this player getting away, and for how long have they been?
+ *
+ * `unseenTicks` is the whole of P1b: the counter resets to 0 on any officer's
+ * line of sight and otherwise climbs, and everything downstream — whether the
+ * heat decays, how fast, and whether the dispatcher sends anybody new — reads
+ * it rather than asking "is somebody looking at them right now".
+ *
+ * Called once per player per tick, before anything that reads the result.
+ */
+function updateSight(state: GameState, map: CityMap, p: PlayerState): void {
+  // The clock runs only while there is something for it to decide. With no
+  // heat there is nothing to decay and nobody to call off, so it parks at
+  // zero — which matters on the wire rather than in the sim: a counter that
+  // ticked regardless would put a player-table delta on every frame for
+  // every player standing still doing nothing, which is most of them, most
+  // of the time. There is a test.
+  if (p.heat <= 0) {
+    p.unseenTicks = 0;
+    return;
+  }
+  if (anyCopSees(state, map, p)) {
+    p.unseenTicks = 0;
+    return;
+  }
+  if (p.unseenTicks < UNSEEN_CAP) p.unseenTicks++;
+}
+
+/** True while nobody official has had eyes on this player for long enough. */
+export function isCoolingDown(p: PlayerState): boolean {
+  return p.unseenTicks >= getTuning().police.wantedCooldownTicks;
 }
 
 /** Officers still on their feet, for the spawn budget. Bodies are not police. */
@@ -121,11 +175,43 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
     if (!p || p.mode === 'dead') continue;
     const wanted = wantedLevelOf(p);
     if (wanted === 0) continue;
-    const assigned = state.cops.ids.filter(
-      (cid) => state.cops.byId[cid]?.targetId === pid,
-    ).length;
+    // Two different counts, because they answer two different questions.
+    //
+    // `onIt` is how many units are actually ON this suspect — in contact, or
+    // recently enough out of it to still be warm. It is what the dispatch
+    // budget is measured against, and it deliberately excludes an officer who
+    // has been searching empty streets for eight seconds: before this, six
+    // units combing the wrong block counted as a full response, so the force
+    // stopped answering a suspect standing in plain view three streets away.
+    //
+    // `assignedAny` is how many are out on this call at all, warm or cold,
+    // and it is what the suppression below reads. Splitting them is what lets
+    // "stop reinforcing a lost search" and "keep the pressure up on a live
+    // one" be true at the same time.
+    let onIt = 0;
+    let assignedAny = 0;
+    for (const cid of state.cops.ids) {
+      const c = state.cops.byId[cid];
+      if (!c || c.targetId !== pid || copIsDown(c)) continue;
+      assignedAny++;
+      if (c.searchTicks < t.searchGiveUpTicks * SEARCH_WARM_FRACTION) onIt++;
+    }
     const desired = Math.min(t.copsPerStar * wanted, t.maxCopsPerPlayer);
-    if (assigned >= desired) continue;
+    if (onIt >= desired) continue;
+
+    // A search that has lost you is not reinforced. This is the line that
+    // closes P1's loop: the spawner's old job was to put a fresh pair of eyes
+    // 260 px from a fugitive every 0.6 s, which is precisely what kept the
+    // decay gate shut and made an escape impossible. Officers already out
+    // keep looking — the force does not forget you, it just stops being fed.
+    //
+    // `assigned > 0` is load-bearing and was learned the hard way. Without
+    // it the suppression also blocks the FIRST car: commit a crime on an
+    // empty street, and three seconds later nobody can see you, so nobody is
+    // sent, so nobody can ever see you. The police simply never turn out.
+    // Dispatching the first unit is the crime being reported; suppressing the
+    // second is the search being called off.
+    if (assignedAny > 0 && isCoolingDown(p)) continue;
 
     // Deterministic spawn spot: walk the kerbside spawn list (dense, on
     // roads — cops arrive from the street) from an rng offset and take the
@@ -143,6 +229,13 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
       const stats = copStats(kind);
       const cop = createCop(state.nextEntityId++, candidate, stats.health, kind);
       cop.targetId = pid;
+      // The call coming in: dispatch knows where the suspect was reported,
+      // not where they are. That is what a unit drives to, and if the suspect
+      // has moved on by the time it arrives, it searches and eventually gives
+      // up — see the search block in stepPolice. Without this a fresh unit
+      // would drive to (0, 0).
+      cop.lastSeenX = q8(p.pos.x);
+      cop.lastSeenY = q8(p.pos.y);
       insertEntity(state.cops, cop);
       // From carsFromStar upward, units ARRIVE by car. Motorising mid-chase
       // instead would drop a cruiser wherever the officer happened to be
@@ -268,6 +361,13 @@ const PURSUIT_CLEAR_LOOK = 96;
 /** Multiple of `dismountDist` within which a walled-off target is walked to. */
 const PURSUIT_FOOT_DIST_FACTOR = 2;
 
+/**
+ * How far into its search an officer still counts as being on the suspect,
+ * for the dispatch budget. Past this they are looking rather than chasing,
+ * and a fresh unit is warranted.
+ */
+const SEARCH_WARM_FRACTION = 0.5;
+
 /** Cop cruisers are AI-driven like traffic, but with a distinct id band. */
 function copDriverId(copId: number): number {
   return -100000 - copId;
@@ -344,6 +444,10 @@ function drivePursuit(
   map: CityMap,
   cop: CopState,
   target: PlayerState,
+  /** Where to drive: the fugitive if visible, else where they were last seen. */
+  goalX: number,
+  goalY: number,
+  seen: boolean,
   events: SimEvent[],
 ): void {
   if (cop.vehicleId === null) return;
@@ -354,8 +458,8 @@ function drivePursuit(
     return;
   }
   const t = getTuning().police;
-  const want = dAtan2(target.pos.y - cop.pos.y, target.pos.x - cop.pos.x);
-  const d = dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y);
+  const want = dAtan2(goalY - cop.pos.y, goalX - cop.pos.x);
+  const d = dist(cop.pos.x, cop.pos.y, goalX, goalY);
 
   /** The officer rides with the car. */
   const ride = (): void => {
@@ -369,7 +473,12 @@ function drivePursuit(
   // city; it cannot follow a fugitive into a park interior or a plaza, and
   // without this the motorised response simply circles at a distance and
   // never closes — which is worse than the on-foot posse it replaced.
-  if (d <= t.dismountDist) {
+  //
+  // Only when the fugitive is actually IN VIEW. A unit that has lost you is
+  // driving to a moving search point, and getting out of the car every time
+  // it reaches one would strip the whole force of its cars within seconds of
+  // the first corner you turned.
+  if (seen && d <= t.dismountDist) {
     v.driverId = null;
     cop.vehicleId = null;
     cop.stuckTicks = 0;
@@ -392,16 +501,14 @@ function drivePursuit(
   const look = Math.min(d, PURSUIT_CLEAR_LOOK);
   const blocked = rayWallDistance(map, v.pos.x, v.pos.y, dCos(want), dSin(want), look) < look;
 
-  // Close, but with a wall in between: the fugitive is inside a building, a
-  // plaza or a park interior, and no amount of driving will help. Park it and
-  // go in on foot. Without this an officer circles the block indefinitely —
-  // never near enough to dismount, never blocked enough to give up on the car.
-  if (blocked && d <= t.dismountDist * PURSUIT_FOOT_DIST_FACTOR) {
-    v.driverId = null;
-    cop.vehicleId = null;
-    cop.stuckTicks = 0;
-    return;
-  }
+  // There used to be a third exit here: close, but with a wall in between —
+  // park and go in on foot. P1a made it unreachable and it has been removed.
+  // `blocked` and `seen` are the same ray test over different lengths, so
+  // "there is a wall in the way" and "the officer can see them" cannot both
+  // hold, and a fugitive inside a building is now handled by the thing that
+  // actually models it: the officer cannot see them, so they search the area
+  // and give up. Leaving the branch in would have been a condition that reads
+  // as live and never fires.
   let aim = want;
   if (blocked) {
     const dir = detourDir(map, v, want);
@@ -503,12 +610,21 @@ function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
 export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): void {
   const t = getTuning().police;
 
-  // Wanted levels + decay while unseen.
+  // Wanted levels, and the heat coming off once you have been out of sight
+  // long enough. The clock is what makes an escape possible at all — see
+  // GTA.md P1b and `updateSight`.
   for (const pid of state.players.ids) {
     const p = state.players.byId[pid];
     if (!p) continue;
-    if (p.heat > 0 && !anyCopSees(state, map, p)) {
-      p.heat = Math.max(0, p.heat - (t.heatDecayPerSec * DT));
+    updateSight(state, map, p);
+    if (p.heat > 0 && isCoolingDown(p)) {
+      // Ramped, not flat. The rate climbs with every further second clean, so
+      // the first stars come off slowly and a long clean run finishes the job
+      // — a flat 5/s put a five-star escape at 100 s, which is long enough
+      // that nobody ever discovered it was possible.
+      const clean = (p.unseenTicks - t.wantedCooldownTicks) * DT;
+      const rate = Math.min(t.heatDecayMax, t.heatDecayPerSec * (1 + t.heatDecayRamp * clean));
+      p.heat = Math.max(0, p.heat - rate * DT);
     }
     p.wantedLevel = wantedLevelOf(p);
   }
@@ -537,21 +653,52 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     if (cop.fireCooldown > 0) cop.fireCooldown--;
     if (cop.carHitCooldown > 0) cop.carHitCooldown--;
 
-    // Retarget: nearest living wanted player.
-    let target: PlayerState | null = null;
-    let bestD = Infinity;
-    for (const pid of state.players.ids) {
-      const p = state.players.byId[pid];
-      if (!p || p.mode === 'dead' || wantedLevelOf(p) === 0) continue;
-      // Invisible suspects are not acquired. Officers already chasing lose
-      // the target too — that is the point of the power-up.
-      if ((p.powerFlags & POWER_INVISIBLE) !== 0) continue;
-      const d = dist(cop.pos.x, cop.pos.y, p.pos.x, p.pos.y);
-      if (d < bestD) {
-        bestD = d;
-        target = p;
+    // Who this officer is after.
+    //
+    // Not "the nearest wanted player", which is what it used to be and is the
+    // other half of why nobody could be given the slip: an officer who had
+    // just lost you re-acquired you on the next tick from across a building,
+    // because proximity was the whole test. Now there are exactly two ways to
+    // have a target — you were DISPATCHED to one (maybeSpawnCop assigns it,
+    // with a last-known position: that is the call coming in), or you can SEE
+    // one. Everything else is a search, and a search can fail.
+    const held = cop.targetId === null ? null : state.players.byId[cop.targetId];
+    const holdable =
+      held !== undefined &&
+      held !== null &&
+      held.mode !== 'dead' &&
+      wantedLevelOf(held) > 0 &&
+      // Invisibility drops a pursuit OUTRIGHT, rather than merely blocking
+      // sight and leaving the officer to search you out over the next eight
+      // seconds. That is the difference between the power-up doing what it
+      // says and being a slightly better street corner: it lasts 15 s, and
+      // spending half of it waiting for a search to expire is not an escape.
+      (held.powerFlags & POWER_INVISIBLE) === 0 &&
+      cop.searchTicks < t.searchGiveUpTicks;
+    let target: PlayerState | null = holdable ? (held as PlayerState) : null;
+    if (!target) {
+      // Nothing to hold on to: look up. Only somebody actually in view is
+      // acquired — an invisible suspect is not, which is the point of the
+      // power-up, and `copSees` is where that is enforced for sight as well
+      // as for acquisition.
+      let bestSeen = Infinity;
+      for (const pid of state.players.ids) {
+        const p = state.players.byId[pid];
+        if (!p || p.mode === 'dead' || wantedLevelOf(p) === 0) continue;
+        if (!copSees(map, cop, p, t.sightRange)) continue;
+        const d = dist(cop.pos.x, cop.pos.y, p.pos.x, p.pos.y);
+        if (d < bestSeen) {
+          bestSeen = d;
+          target = p;
+        }
+      }
+      // A fresh acquisition starts in contact, wherever the search had got to.
+      if (target) {
+        cop.searchTicks = 0;
+        cop.searchDir = -1;
       }
     }
+    const bestD = target ? dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y) : Infinity;
 
     // A gang that owes you does not stand by while you are chased across
     // their ground: their people shoot at the officers instead. This is the
@@ -585,18 +732,69 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     cop.idleTicks = 0;
     cop.targetId = target.id;
 
+    // Contact, or the lack of it. Everything below steers at `goal`, which is
+    // the fugitive while they are in view and the last place they were seen
+    // once they are not. This is the whole of P1a: an officer who cannot see
+    // you does not know where you are.
+    const seen = copSees(map, cop, target, t.sightRange);
+    if (seen) {
+      cop.lastSeenX = q8(target.pos.x);
+      cop.lastSeenY = q8(target.pos.y);
+      cop.searchTicks = 0;
+      cop.searchDir = -1;
+    } else {
+      cop.searchTicks++;
+    }
+    // Out of contact and standing where they last saw you: cast about.
+    //
+    // The sweep is done by MOVING the last-seen point one street-length down
+    // an open cardinal, so the ordinary chase code below — on foot or at the
+    // wheel — drives the search without knowing it is a search. A cruiser
+    // sweeps further per leg than a man on foot, which is what makes losing a
+    // car harder than losing a pedestrian, and it is the same road-grid test
+    // (`dirIsOpen`) the pursuit detour already uses.
+    if (!seen && dist(cop.pos.x, cop.pos.y, cop.lastSeenX, cop.lastSeenY) <= t.searchArriveDist) {
+      let roll: number;
+      [roll, state.rng] = nextIntRange(state.rng, 0, 4);
+      // Carrying straight on is preferred, so a search reads as walking down
+      // a street rather than as pacing on the spot.
+      let picked = cop.searchDir >= 0 && dirIsOpen(map, cop.pos.x, cop.pos.y, cop.searchDir)
+        ? cop.searchDir
+        : roll;
+      if (roll === 0 || !dirIsOpen(map, cop.pos.x, cop.pos.y, picked)) {
+        for (let i = 0; i < 4; i++) {
+          const d = (roll + i) % 4;
+          if (dirIsOpen(map, cop.pos.x, cop.pos.y, d)) {
+            picked = d;
+            break;
+          }
+        }
+      }
+      cop.searchDir = picked;
+      const angle = CARDINAL_ANGLE[picked] as number;
+      // One leg is what this unit covers in `searchWanderTicks` — so a
+      // cruiser sweeps a couple of blocks where a man on foot sweeps a
+      // frontage, and (not incidentally) a driving leg is longer than
+      // `dismountDist`, which is what keeps a searching cruiser in its car.
+      const legSpeed =
+        cop.vehicleId !== null ? t.copCarSpeed * t.carSearchSpeedScale : copStats(cop.kind).moveSpeed;
+      const stride = t.searchWanderTicks * legSpeed * DT;
+      cop.lastSeenX = q8(cop.pos.x + dCos(angle) * stride);
+      cop.lastSeenY = q8(cop.pos.y + dSin(angle) * stride);
+    }
+
+    const goalX = seen ? target.pos.x : cop.lastSeenX;
+    const goalY = seen ? target.pos.y : cop.lastSeenY;
+    const goalD = dist(cop.pos.x, cop.pos.y, goalX, goalY);
+
     // Escalation by KIND, not just count. Below carsFromStar the response is
     // the on-foot posse it always was; at and above it, officers arrive
     // motorised (see maybeSpawnCop) — which is what stops a car being a
     // guaranteed escape from a force whose top speed was 122 px/s against
     // the player's 330.
     if (cop.vehicleId !== null) {
-      drivePursuit(state, map, cop, target, events);
-      if (
-        cop.fireCooldown === 0 &&
-        bestD <= t.fireRange &&
-        hasLineOfSight(map, cop, target, t.fireRange)
-      ) {
+      drivePursuit(state, map, cop, target, goalX, goalY, seen, events);
+      if (seen && cop.fireCooldown === 0 && bestD <= t.fireRange) {
         copFire(state, map, cop, target, events);
       }
       continue;
@@ -615,10 +813,10 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // finished approaching stood half a pixel outside hands-on range and
     // shot a stationary suspect forever — whether an arrest ever landed
     // depended on where the last 4 px stride happened to fall.
-    if (bestD > t.bustRadius - 2) {
+    if (goalD > t.bustRadius - 2) {
       const moveSpeed = copStats(cop.kind).moveSpeed;
-      const dirX = (target.pos.x - cop.pos.x) / bestD;
-      const dirY = (target.pos.y - cop.pos.y) / bestD;
+      const dirX = (goalX - cop.pos.x) / goalD;
+      const dirY = (goalY - cop.pos.y) / goalD;
       cop.vel.x = dirX * moveSpeed;
       cop.vel.y = dirY * moveSpeed;
       moveWithCollision(map, cop.pos, cop.vel, PLAYER_RADIUS, cop.vel.x * DT, cop.vel.y * DT);
@@ -645,6 +843,11 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
       cop.vel.y = 0;
     }
 
+    // Nothing below happens to somebody the officer cannot see. Both an
+    // arrest and a shot used to be pure geometry, so a suspect standing on
+    // the far side of a shopfront could be nicked through it.
+    if (!seen) continue;
+
     // Hands before bullets: an officer within reach of a stationary suspect
     // arrests them. Checked before the fire test so a point-blank cop never
     // shoots somebody they could have taken in.
@@ -653,11 +856,7 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
       continue;
     }
 
-    if (
-      cop.fireCooldown === 0 &&
-      bestD <= t.fireRange &&
-      hasLineOfSight(map, cop, target, t.fireRange)
-    ) {
+    if (cop.fireCooldown === 0 && bestD <= t.fireRange) {
       copFire(state, map, cop, target, events);
     }
   }

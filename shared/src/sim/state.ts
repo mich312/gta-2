@@ -36,6 +36,29 @@ export interface CopState {
   vehicleId: number | null;
   /** Consecutive ticks a cruiser has been unable to move. */
   stuckTicks: number;
+  /**
+   * Where the target was last actually SEEN.
+   *
+   * The fields that make an officer capable of losing you. Before them every
+   * pursuer read `target.pos` on every tick whether or not there was a
+   * building in the way, so nobody in the force could be given the slip and
+   * the wanted level could never come down — see GTA.md P1. An officer out
+   * of contact steers at this point instead, searches around it, and gives
+   * up when `searchTicks` runs out.
+   *
+   * `searchTicks` is 0 while in contact, so an officer who has you in view
+   * costs nothing extra on the wire: a field that does not change is not
+   * sent, and the whole of a normal chase is the unchanged case.
+   */
+  lastSeenX: number;
+  lastSeenY: number;
+  searchTicks: number;
+  /**
+   * Which way this officer is casting about, as a cardinal index (0-3), or
+   * -1 while they are still walking to the last-seen point. Held between
+   * ticks so a search reads as sweeping a street rather than as jitter.
+   */
+  searchDir: number;
 }
 
 export interface PropState {
@@ -98,6 +121,18 @@ export const POWER_JAIL_CARD = 8;
 export const POWER_STUNNED = 16;
 /** Everything the clock governs. */
 export const POWER_TIMED = POWER_DOUBLE_DAMAGE | POWER_INVISIBLE | POWER_FAST_RELOAD;
+
+/**
+ * Ceiling on `PlayerState.unseenTicks`.
+ *
+ * The counter answers "have they been out of sight long enough" and "how fast
+ * is the heat coming off now" (police.ts). The second saturates once the
+ * ramped decay rate hits `heatDecayMax` — about 42 s at the shipped numbers —
+ * and the heat is long gone by then, so counting past a minute measures
+ * nothing anybody reads. It is a wire cost, not a sim cost: every increment
+ * is a player-table delta.
+ */
+export const UNSEEN_CAP = 30 * 60;
 
 export interface PickupState {
   id: number;
@@ -346,6 +381,23 @@ export interface PlayerState {
   carHitCooldown: number;
   /** Police heat; wantedLevel = floor(heat/100) clamped to 5. */
   heat: number;
+  /**
+   * Consecutive ticks with no officer on their feet holding line of sight.
+   *
+   * The cool-down clock. Heat decays once this passes `wantedCooldownTicks`
+   * and not before, which is a different rule from the one it replaced — the
+   * old test was "does anybody see you RIGHT NOW", and since the spawner
+   * answers a wanted level by placing fresh officers 260 px away, the answer
+   * was almost always yes. See GTA.md P1b.
+   *
+   * A counter that resets rather than a tick stamp, deliberately: it is 0 and
+   * *stays* 0 for the whole of a chase, so the commonest case costs nothing
+   * on the wire — a field that does not change is not sent. It counts only
+   * while you are getting away, which is exactly when the HUD wants it, and
+   * it stops at `UNSEEN_CAP` so a quiet player is not paying a byte a tick
+   * for ever.
+   */
+  unseenTicks: number;
   /** Kills still needed to complete a frenzy, or 0 when not running. */
   frenzyTarget: number;
   frenzyKills: number;
@@ -512,6 +564,10 @@ export function createCop(id: number, pos: Vec2, health: number, kind = 'patrol'
     carHitCooldown: 0,
     vehicleId: null,
     stuckTicks: 0,
+    lastSeenX: 0,
+    lastSeenY: 0,
+    searchTicks: 0,
+    searchDir: -1,
   };
 }
 
@@ -581,6 +637,10 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     fireCooldown: 0,
     carHitCooldown: 0,
     heat: 0,
+    // Clear, but not "clean for ten minutes": the ramp measures time since
+    // the last offence or sighting, and starting it saturated would have a
+    // brand-new player shedding heat at the maximum rate on their first tick.
+    unseenTicks: 0,
     frenzyTarget: 0,
     frenzyKills: 0,
     frenzyEndsAtTick: null,
@@ -615,6 +675,18 @@ export function wantedLevelOf(p: PlayerState): number {
 
 export function addHeat(p: PlayerState, amount: number): void {
   p.heat = Math.min(699, p.heat + amount);
+  // A fresh offence restarts the cool-down clock, exactly as being seen does.
+  //
+  // The clock measures "how long since the police last had anything on you",
+  // and a crime committed thirty seconds into a clean run is something on
+  // you whether or not anybody was looking. Without this the ramp keeps
+  // accelerating straight through a spree — heat came off faster than a
+  // pistol could put it on, and it was possible to shoot people all afternoon
+  // without ever reaching one star.
+  //
+  // Cheap, because this is already the one chokepoint every crime goes
+  // through: theft, arson, noise, damage, kills and cop kills all land here.
+  p.unseenTicks = 0;
 }
 
 export function cloneState(s: GameState): GameState {

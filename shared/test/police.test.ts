@@ -398,21 +398,60 @@ describe('wanted + police', () => {
     for (const d of shooterRange) expect(d).toBeGreaterThan(t.bustRadius - 1.5);
   });
 
-  it('heat decays and cops go home when the fugitive stays out of sight', () => {
-    // Directly seed modest heat (below one star after decay begins).
+  it('heat holds for the cool-down, then decays on a ramp (P1b)', () => {
+    // The rule this pins replaced a presence gate — "does anybody see you
+    // right now" — which the spawner defeated by construction, since it
+    // answers a wanted level by putting fresh officers inside sight range.
+    // The clock can be waited out; the gate could not. See GTA.md P1.
+    const t = getTuning().police;
     let state = createGameState(9);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
     state.players.byId[1]!.heat = 90; // manual seed, server-side test
-    const decayPerTick = getTuning().police.heatDecayPerSec / 30;
+
+    // Nothing comes off during the cool-down, however empty the street is.
+    // The threshold tick is the first one that decays, so the quiet stretch
+    // is one shorter than the tunable.
+    for (let i = 0; i < t.wantedCooldownTicks - 1; i++) state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.heat).toBe(90);
+
+    // The tick the clock expires, decay starts at exactly the base rate: the
+    // ramp is measured from the threshold, not from the crime.
     const before = state.players.byId[1]!.heat;
     state = step(state, {}, [], map);
-    // No cops exist -> unseen -> decay applies.
-    expect(state.players.byId[1]!.heat).toBeCloseTo(before - decayPerTick, 5);
+    expect(state.players.byId[1]!.heat).toBeCloseTo(before - t.heatDecayPerSec / 30, 5);
+
+    // And it accelerates: the second second sheds more than the first.
+    const mark = state.players.byId[1]!.heat;
+    for (let i = 0; i < 30; i++) state = step(state, {}, [], map);
+    const firstSecond = mark - state.players.byId[1]!.heat;
+    const mark2 = state.players.byId[1]!.heat;
+    for (let i = 0; i < 30; i++) state = step(state, {}, [], map);
+    expect(mark2 - state.players.byId[1]!.heat).toBeGreaterThan(firstSecond);
+
     for (let i = 0; i < 90 * 30; i++) {
       state = step(state, {}, [], map);
       if (state.players.byId[1]!.heat === 0) break;
     }
     expect(state.players.byId[1]!.heat).toBe(0);
+  });
+
+  it('a five-star chase can be escaped, and in about the time it is meant to', () => {
+    // The headline number of P1, asserted rather than argued. Before it, the
+    // answer was "never": the decay gate was held shut by officers the
+    // spawner produced in proportion to the wanted level itself.
+    let state = createGameState(11);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    state.players.byId[1]!.heat = 500;
+    let ticks = 0;
+    for (; ticks < 30 * 120; ticks++) {
+      state = step(state, {}, [], map);
+      if (state.players.byId[1]!.heat === 0) break;
+    }
+    expect(state.players.byId[1]!.heat).toBe(0);
+    // Long enough to be an achievement, short enough to attempt. The window
+    // is wide on purpose — it is a design target, not a golden value.
+    expect(ticks / 30).toBeGreaterThan(20);
+    expect(ticks / 30).toBeLessThan(60);
   });
 
   it('shooting a cop hurts it and killing one raises heat hard', () => {
@@ -628,9 +667,12 @@ describe('escalation by kind', () => {
     expect(state.vehicles.byId[501]!.driverId).toBeNull();
   });
 
-  it('an officer bails out of a cruiser that cannot close, rather than being lost', () => {
-    // Target parked inside a building, so no amount of driving closes the
-    // gap: the officer must give up on the car and continue on foot.
+  it('an officer who cannot find the suspect gives up, rather than hunting for ever (P1a)', () => {
+    // Target parked inside a building: never visible, never reachable. The
+    // old force would drive at the wall until the stuck-counter took the car
+    // away and then stand there indefinitely, because pursuit read
+    // `target.pos` directly and nobody could ever be given the slip.
+    const t = getTuning().police;
     let solid = { x: 0, y: 0 };
     outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
       for (let tx = 4; tx < map.widthTiles - 4; tx++) {
@@ -641,7 +683,39 @@ describe('escalation by kind', () => {
       }
     }
     let state = wedged({ x: solid.x - 300, y: solid.y }, solid);
-    for (let i = 0; i < 200 && state.cops.byId[500]?.vehicleId != null; i++) {
+    // Held above a star throughout, so giving up is the search expiring and
+    // not the suspect simply becoming uninteresting.
+    for (let i = 0; i < t.searchGiveUpTicks + 30; i++) {
+      state.players.byId[1]!.heat = 410;
+      state = step(state, {}, [], map);
+    }
+    const after = state.cops.byId[500];
+    expect(after).toBeDefined();
+    expect(after!.targetId).toBeNull();
+    expect(after!.searchTicks).toBeGreaterThanOrEqual(t.searchGiveUpTicks);
+  });
+
+  it('an officer bails out of a cruiser that cannot close, rather than being lost', () => {
+    // The stuck bail-out, which survives P1 and is still the only way a
+    // wedged cruiser stops being a wedged cruiser. Set up so the officer can
+    // SEE the target throughout — a chase, not a search — with the car nosed
+    // into the building behind them.
+    //
+    // (The other old exit, "close but with a wall between", was removed with
+    // P1a: `blocked` and `seen` are the same ray test, so it could never
+    // fire once pursuit stopped being omniscient. A fugitive inside a
+    // building is now a search that expires, covered by its own test above.)
+    let solid = { x: 0, y: 0 };
+    outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
+      for (let tx = 4; tx < map.widthTiles - 4; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) {
+          solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+          break outer;
+        }
+      }
+    }
+    let state = wedged({ x: solid.x - 300, y: solid.y }, solid);
+    for (let i = 0; i < 400 && state.cops.byId[500]?.vehicleId != null; i++) {
       const c = state.cops.byId[500];
       if (c?.vehicleId != null) {
         const veh = state.vehicles.byId[c.vehicleId];
@@ -652,6 +726,11 @@ describe('escalation by kind', () => {
           veh.condition = 'ok';
           veh.fuseAtTick = null;
         }
+        // Hold the officer in contact: park the suspect on the cruiser's nose
+        // each tick, in the open, so `seen` is true and the pursuit drives at
+        // them rather than sweeping for them.
+        const p = state.players.byId[1]!;
+        p.pos = { x: veh.pos.x + 40, y: veh.pos.y };
       }
       state.players.byId[1]!.heat = 410;
       state = step(state, {}, [], map);
