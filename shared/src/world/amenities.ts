@@ -6,6 +6,7 @@ import type { WorldCell } from './roads.js';
 import type { WorldgenParams } from './params.js';
 import {
   DISTRICT_TYPES,
+  T_BANK,
   T_BUILDING,
   T_FLOOR,
   T_LOT,
@@ -561,12 +562,19 @@ export function placeBoatSpawns(map: CityMap): void {
         }
       }
       if (!roomy) continue;
-      // ...and dry land within reach, or nobody can get aboard.
+      // ...and dry land within reach, or nobody can get aboard. The quay
+      // is the natural mooring edge — that is what it is for.
       let bank = false;
       for (let dy = -3; dy <= 3 && !bank; dy++) {
         for (let dx = -3; dx <= 3; dx++) {
           const near = t(map, tx + dx, ty + dy);
-          if (near === T_SIDEWALK || near === T_ROAD || near === T_PARK || near === T_LOT) {
+          if (
+            near === T_BANK ||
+            near === T_SIDEWALK ||
+            near === T_ROAD ||
+            near === T_PARK ||
+            near === T_LOT
+          ) {
             bank = true;
             break;
           }
@@ -691,11 +699,12 @@ export function placeLandmarks(
       const w = Math.min(minW, b.w - 2);
       const h = Math.min(minH, b.h - 2);
       if (w < 3 || h < 3) continue;
-      // Never on the water.
+      // Never on the water, and never on the quay that lines it.
       let clear = true;
       for (let ty = y; ty < y + h && clear; ty++) {
         for (let tx = x; tx < x + w; tx++) {
-          if (t(map, tx, ty) === T_WATER) {
+          const tile = t(map, tx, ty);
+          if (tile === T_WATER || tile === T_BANK) {
             clear = false;
             break;
           }

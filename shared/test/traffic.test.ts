@@ -19,7 +19,7 @@ import { planRoute } from '../src/sim/roadgrid.js';
 import { straightEastLane } from './helpers.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
-import { T_BRIDGE, T_ROAD, TILE_SIZE } from '../src/world/types.js';
+import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE } from '../src/world/types.js';
 
 initTuning({
   player: playerTuning,
@@ -261,6 +261,54 @@ describe('ambient traffic', () => {
       hurt = state.players.byId[1]!.health < 100;
     }
     expect(hurt).toBe(true);
+  });
+
+  it('recovers at a drowned road end instead of wedging on the bank', () => {
+    // Spans wider than maxBridgeSpan interrupt an arterial: the road stops
+    // at the water and resumes on the far side. A driver sent up the stub
+    // must treat the bank like any wall — stuck-recovery backs it out and
+    // it picks another way — rather than idling nose-to-water forever.
+    // Staged on a found dead end, because that is now real geometry.
+    let end: { tx: number; ty: number } | null = null;
+    outer: for (let ty = 8; ty < map.heightTiles - 8; ty++) {
+      for (let tx = 8; tx < map.widthTiles - 8; tx++) {
+        if (!isDrivable(tx, ty)) continue;
+        // Water directly east, a straight drivable run-up behind.
+        if (map.tiles[ty * map.widthTiles + tx + 1] !== T_WATER) continue;
+        let run = true;
+        for (let i = 1; i <= 6 && run; i++) run = isDrivable(tx - i, ty);
+        if (!run) continue;
+        end = { tx, ty };
+        break outer;
+      }
+    }
+    if (!end) return; // this seed's window has no eastward drowned end — fine
+    const lane = { x: (end.tx - 5 + 0.5) * TILE_SIZE, y: (end.ty + 0.5) * TILE_SIZE };
+    let state = createGameState(404);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'w' }], map);
+    // Keep a player nearby so the ambient driver is not culled mid-test.
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 200 };
+    state = ambientCar(state, 920, lane);
+
+    let everInWater = false;
+    for (let i = 0; i < 450; i++) {
+      state = step(state, {}, [], map);
+      const car = state.vehicles.byId[920];
+      if (!car) break;
+      const ctx = Math.floor(car.pos.x / TILE_SIZE);
+      const cty = Math.floor(car.pos.y / TILE_SIZE);
+      if (map.tiles[cty * map.widthTiles + ctx] === T_WATER) everInWater = true;
+    }
+    expect(everInWater).toBe(false);
+    const car = state.vehicles.byId[920];
+    if (car) {
+      // Recovered: not still parked against the water it drove at.
+      const distFromEnd = Math.hypot(
+        car.pos.x - (end.tx + 0.5) * TILE_SIZE,
+        car.pos.y - (end.ty + 0.5) * TILE_SIZE,
+      );
+      expect(distFromEnd).toBeGreaterThan(TILE_SIZE * 2);
+    }
   });
 
   it('moves every tick, not three ticks at a time', () => {

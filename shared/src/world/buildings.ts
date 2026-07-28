@@ -1,5 +1,6 @@
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import {
+  T_BANK,
   T_BUILDING,
   T_LOT,
   T_PARK,
@@ -21,27 +22,30 @@ function fill(ctx: Ctx, x: number, y: number, w: number, h: number, t: number): 
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
-      // Never build on the river. Blocks are carved between roads and can
-      // straddle water, so this guard is what keeps offices out of the bay.
-      if (ctx.tiles[ty * ctx.W + tx] === T_WATER) continue;
+      // Never build on the river, and never on the quay that lines it.
+      // Blocks are carved between roads and can straddle water, so this
+      // guard is what keeps offices out of the bay and off the waterfront.
+      const here = ctx.tiles[ty * ctx.W + tx];
+      if (here === T_WATER || here === T_BANK) continue;
       ctx.tiles[ty * ctx.W + tx] = t;
     }
   }
 }
 
 /**
- * True if any tile of this footprint is river.
+ * True if any tile of this footprint is river — or the quay lining it.
  *
- * `fill` already refuses to paint over water, but the Building RECORD is what
- * shop doorways are derived from — so a footprint straddling the bank would
- * paint correctly and still put a gun shop door in the water. Footprints that
- * touch the river are not placed at all.
+ * `fill` already refuses to paint over either, but the Building RECORD is
+ * what shop doorways are derived from — so a footprint straddling the
+ * waterfront would paint correctly and still put a gun shop door in the
+ * water. Footprints that touch the river or its bank are not placed at all.
  */
 function rectHasWater(ctx: Ctx, x: number, y: number, w: number, h: number): boolean {
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
-      if (ctx.tiles[ty * ctx.W + tx] === T_WATER) return true;
+      const t = ctx.tiles[ty * ctx.W + tx];
+      if (t === T_WATER || t === T_BANK) return true;
     }
   }
   return false;
@@ -61,7 +65,8 @@ function laySidewalk(ctx: Ctx, b: BlockRect): void {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
       const perimeter = tx === b.x || ty === b.y || tx === b.x + b.w - 1 || ty === b.y + b.h - 1;
       if (!perimeter) continue;
-      if (ctx.tiles[ty * ctx.W + tx] === T_WATER) continue; // no kerb on a river
+      const here = ctx.tiles[ty * ctx.W + tx];
+      if (here === T_WATER || here === T_BANK) continue; // no kerb on a river, and the quay stays a quay
       if (
         isRoad(ctx, tx - 1, ty) ||
         isRoad(ctx, tx + 1, ty) ||

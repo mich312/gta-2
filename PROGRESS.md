@@ -1,5 +1,35 @@
 # PROGRESS
 
+## Worldgen: quays line the waterways, and a drowned road end is tested
+
+325 tests green (three new); brawl 45 s PASS, 0 desyncs. Seed-breaking
+for waterfront tiles.
+
+**T_BANK.** Every open tile beside waterway water becomes an
+embankment/quay: walkable stone waterfront, solid to boat hulls (it is
+what a hull moors against), never built on. Stamped after the bridge
+fixup and before block fill, so every fill pass treats the quay like
+water and keeps buildings, sidewalks and yards off it — the first
+transition band of WORLDGEN.md §9.4's water ladder, made real. Bank
+adjacency is tested on the water FIELD, not the window arrays, so the
+strip is window-independent (the overlap invariant covers it
+automatically). Moorings count the quay as boardable land; landmarks
+refuse footprints touching it; park ponds stay bare (decoration, not
+waterway). Rendered as flat stone with a lighter coping course along the
+water's edge, on the radar as a light outline around the blue.
+
+**Pinned:** waterway water may only touch water, bridge, bank, or the
+stub of a drowned road — nothing else, asserted per-tile (`water.test`);
+the quay is open to feet and solid to hulls, every bank tile; and the
+previous entry's flagged gap — a car sent up a drowned road end backs
+out and leaves rather than wedging at the bank (`traffic.test`, staged
+on found geometry).
+
+**Least confident about.** The quay is one tile wide by construction; a
+window whose rim slices along a waterfront can show a quay strip against
+the window wall with nothing behind it — harmless, rim-only, but
+unswept.
+
 ## Worldgen: bridges are crossings, not causeways
 
 322 tests green (two new); brawl 45 s PASS, 0 desyncs. Seed-breaking for

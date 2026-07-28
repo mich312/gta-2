@@ -10,13 +10,14 @@ import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
+import { makeFields } from '../src/world/fields.js';
 import { generateCity } from '../src/world/generate.js';
 import { openWater } from './helpers.js';
 import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import { isSolidTile, boxInSolid } from '../src/world/collide.js';
-import { T_BRIDGE, T_BUILDING, T_WATER, TILE_SIZE } from '../src/world/types.js';
+import { T_BANK, T_BRIDGE, T_BUILDING, T_WATER, TILE_SIZE } from '../src/world/types.js';
 import { hashState } from '../src/net/hash.js';
 
 initTuning({
@@ -110,6 +111,46 @@ describe('the river', () => {
         }
       }
     }
+  });
+
+  it('waterways are lined with quays: nothing is built against open water', () => {
+    // The transition band of the water ladder (WORLDGEN.md §9.4): every
+    // land tile that meets waterway water is T_BANK — walkable waterfront —
+    // so the only things allowed to touch the river are the bank, a bridge,
+    // and the stub of a road that drowned. Buildings, sidewalks, yards and
+    // parks may not sit flush against open water. Park ponds are exempt:
+    // they are carved decoration, not field waterways.
+    const fields = makeFields(1234, params);
+    for (let ty = 1; ty < map.heightTiles - 1; ty++) {
+      for (let tx = 1; tx < map.widthTiles - 1; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) continue;
+        if (!fields.water(params.windowX + tx, params.windowY + ty)) continue; // pond
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const n = map.tiles[(ty + dy) * map.widthTiles + (tx + dx)] as number;
+          const allowed =
+            n === T_WATER || n === T_BRIDGE || n === T_BANK || n === 1; /* T_ROAD */
+          expect(allowed, `tile ${n} flush against water at (${tx + dx}, ${ty + dy})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('the quay is open to feet and solid to hulls', () => {
+    let banks = 0;
+    for (let ty = 0; ty < map.heightTiles; ty++) {
+      for (let tx = 0; tx < map.widthTiles; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] !== T_BANK) continue;
+        banks++;
+        expect(isSolidTile(map, tx, ty, 'land')).toBe(false);
+        expect(isSolidTile(map, tx, ty, 'water')).toBe(true);
+      }
+    }
+    expect(banks).toBeGreaterThan(50);
   });
 
   it('every bridge tile is open water underneath — boats go under, everywhere', () => {

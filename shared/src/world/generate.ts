@@ -20,7 +20,7 @@ import {
   placeShops,
   placeVehicleSpawns,
 } from './amenities.js';
-import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE, type CityMap } from './types.js';
+import { T_BANK, T_BRIDGE, T_FIELD, T_ROAD, T_WATER, TILE_SIZE, type CityMap } from './types.js';
 
 /**
  * A WINDOW onto an unbounded world, as a pure function of (seed, params).
@@ -132,6 +132,30 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
           ((axisBits & ARTERIAL_HORIZONTAL) !== 0 &&
             crossingSpan(fields, gx, gy, 1, 0) <= maxSpan));
       map.tiles[i] = bridged ? T_BRIDGE : T_WATER;
+    }
+  }
+
+  // Banks: every open tile beside waterway water becomes quay/embankment,
+  // BEFORE blocks fill — so the fill passes treat the quay like water and
+  // keep buildings, sidewalks and yards off it, and every waterfront gets
+  // a walkable edge instead of a building sliced off by the river.
+  // Neighbourhood is tested on the water FIELD (global, pure), so a bank
+  // at the window rim agrees with every other viewport; roads keep their
+  // tiles, which is what lets a drowned road end reach its own bank.
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const i = ty * W + tx;
+      if (map.tiles[i] !== T_FIELD) continue;
+      const gx = wx + tx;
+      const gy = wy + ty;
+      if (
+        fields.water(gx + 1, gy) ||
+        fields.water(gx - 1, gy) ||
+        fields.water(gx, gy + 1) ||
+        fields.water(gx, gy - 1)
+      ) {
+        map.tiles[i] = T_BANK;
+      }
     }
   }
 

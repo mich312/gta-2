@@ -8,6 +8,7 @@ import {
   T_ROAD,
   T_WATER,
   T_BRIDGE,
+  T_BANK,
   T_SIDEWALK,
   T_FLOOR,
   generateCity,
@@ -31,6 +32,7 @@ interface PaletteFile {
   shopClothing: string;
   shopFloor: string;
   water: string;
+  bank: string;
   kerb: string;
   uiAccent: string;
 }
@@ -80,6 +82,7 @@ function main(): void {
     [T_PARK]: hexToRgb(palette.park),
     [T_LOT]: hexToRgb(palette.lot),
     [T_WATER]: hexToRgb(palette.water),
+    [T_BANK]: hexToRgb(palette.bank),
     [T_BRIDGE]: hexToRgb(palette.kerb),
     [T_FLOOR]: hexToRgb(palette.shopFloor),
   };

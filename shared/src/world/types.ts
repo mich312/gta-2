@@ -19,6 +19,14 @@ export const T_BRIDGE = 7;
 export const T_RAMP = 8;
 /** Shop interior floor: inside a building, walkable, open to the sky. */
 export const T_FLOOR = 9;
+/**
+ * Embankment/quay: the walkable stone strip where land meets a waterway.
+ * Open to feet and wheels, solid to boats — it is the wall a hull moors
+ * against. The transition band of the water ladder (WORLDGEN.md §9.4):
+ * nothing is built on it, so every waterfront reads as deliberate edge
+ * rather than a building sliced off by the river.
+ */
+export const T_BANK = 10;
 
 export const DISTRICT_TYPES = [
   'downtown',
