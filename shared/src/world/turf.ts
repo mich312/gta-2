@@ -32,13 +32,21 @@ export function assignTurf(map: CityMap, params: WorldgenParams): void {
   const cw = Math.ceil(map.widthTiles / cell);
   const ch = Math.ceil(map.heightTiles / cell);
 
-  // Home points, evenly spaced around a ring centred on the city.
+  // Home points around the city — but NOT on a perfect ring. Evenly spaced
+  // at equal radius produced four identical wedges meeting at a point in the
+  // middle: geometrically correct, and unmistakably a pie chart. Staggering
+  // the angle and the distance gives each gang a differently-shaped patch,
+  // which is what territory actually looks like.
   const homes: Array<{ x: number; y: number; gang: number }> = [];
   const cx = map.widthTiles / 2;
   const cy = map.heightTiles / 2;
-  const radius = Math.min(map.widthTiles, map.heightTiles) * 0.32;
+  const span = Math.min(map.widthTiles, map.heightTiles);
   for (let i = 0; i < count; i++) {
-    const angle = (i / count) * Math.PI * 2;
+    // Fixed irregular offsets: a pure function of the index, so the map is
+    // still identical for the same seed on every host.
+    const angle =
+      (i / count) * Math.PI * 2 + (ANGLE_STAGGER[i % ANGLE_STAGGER.length] as number);
+    const radius = span * (RADIUS_STAGGER[i % RADIUS_STAGGER.length] as number);
     homes.push({
       x: cx + Math.cos(angle) * radius,
       y: cy + Math.sin(angle) * radius,
@@ -52,12 +60,18 @@ export function assignTurf(map: CityMap, params: WorldgenParams): void {
     for (let x = 0; x < cw; x++) {
       const tx = x * cell + cell / 2;
       const ty = y * cell + cell / 2;
+      // A little deterministic wobble on the comparison, so borders follow a
+      // ragged line rather than a ruler. Small enough that territory stays
+      // contiguous — the test asserts neighbouring cells agree >85% of the
+      // time, which a straight-line partition passes trivially and confetti
+      // does not.
+      const jitter = 1 + WOBBLE * (hash2(x, y) - 0.5);
       let best = homes[0] as { x: number; y: number; gang: number };
       let bestD = Infinity;
       for (const h of homes) {
         const dx = h.x - tx;
         const dy = h.y - ty;
-        const d = dx * dx + dy * dy;
+        const d = (dx * dx + dy * dy) * jitter;
         if (d < bestD) {
           bestD = d;
           best = h;
@@ -74,6 +88,19 @@ export function assignTurf(map: CityMap, params: WorldgenParams): void {
     y: h.y * TILE_SIZE,
     gang: h.gang,
   }));
+}
+
+/** Irregularity, all fixed constants so the partition stays a pure function. */
+const ANGLE_STAGGER = [0.0, 0.55, -0.3, 0.85, 0.2, -0.6, 0.4, -0.15];
+const RADIUS_STAGGER = [0.34, 0.22, 0.4, 0.27, 0.36, 0.25, 0.31, 0.38];
+/** How far a cell's distance test may be nudged, as a fraction. */
+const WOBBLE = 0.12;
+
+/** Deterministic 0..1 from a cell coordinate. No rng, no state. */
+function hash2(x: number, y: number): number {
+  let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
 /** Which gang holds the ground at a world position. 0 if nobody does. */

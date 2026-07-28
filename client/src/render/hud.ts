@@ -281,23 +281,39 @@ export class Hud {
     // Respect, one bar per gang, always all of them. Showing only the gang
     // whose ground you are on would hide the cost of what you just did:
     // the point of the mechanic is that pleasing one displeases another.
+    //
+    // On its own backing panel because the first version drew 3px bars
+    // straight onto the road and was, in practice, invisible.
     if (me.respect.length > 0) {
-      const bw = 22;
-      const bx = INTERNAL_WIDTH / 2 - (me.respect.length * (bw + 3)) / 2;
+      const bw = 26;
+      const gap = 4;
+      const panelW = me.respect.length * (bw + gap) + 10;
+      const panelH = 20;
+      const panelX = INTERNAL_WIDTH / 2 - panelW / 2;
+      const panelY = INTERNAL_HEIGHT - 34;
+      ctx.fillStyle = 'rgba(8, 12, 16, 0.72)';
+      ctx.fillRect(panelX, panelY, panelW, panelH);
+      ctx.strokeStyle = 'rgba(200, 220, 235, 0.25)';
+      ctx.strokeRect(panelX + 0.5, panelY + 0.5, panelW - 1, panelH - 1);
+      ctx.font = '8px monospace';
+      ctx.fillStyle = '#8fa8c8';
+      ctx.fillText('RESPECT', panelX + 5, panelY + 8);
+
       me.respect.forEach((value, i) => {
-        const x = bx + i * (bw + 3);
-        const y = INTERNAL_HEIGHT - 30;
-        ctx.fillStyle = 'rgba(8, 12, 16, 0.6)';
-        ctx.fillRect(x, y, bw, 3);
-        // Centre is neutral; it fills right when they like you and left when
-        // they do not.
+        const x = panelX + 5 + i * (bw + gap);
+        const y = panelY + 12;
+        // An empty track you can see, so "neutral with everybody" still
+        // reads as a state rather than as nothing being drawn.
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.13)';
+        ctx.fillRect(x, y, bw, 4);
         const frac = Math.max(-1, Math.min(1, value / 60));
         const half = bw / 2;
         ctx.fillStyle = GANG_COLORS[i] ?? '#8fa8c8';
-        if (frac >= 0) ctx.fillRect(x + half, y, half * frac, 3);
-        else ctx.fillRect(x + half + half * frac, y, -half * frac, 3);
-        ctx.fillStyle = 'rgba(220, 230, 240, 0.5)';
-        ctx.fillRect(x + half, y - 1, 1, 5);
+        if (frac >= 0) ctx.fillRect(x + half, y, Math.max(1, half * frac), 4);
+        else ctx.fillRect(x + half + half * frac, y, Math.max(1, -half * frac), 4);
+        // Centre tick, so you can see which side of neutral you are on.
+        ctx.fillStyle = 'rgba(230, 240, 250, 0.65)';
+        ctx.fillRect(x + half, y - 1, 1, 6);
       });
     }
 
@@ -307,10 +323,13 @@ export class Hud {
       ctx.font = '8px monospace';
       ctx.textAlign = 'right';
       ctx.fillStyle = '#8fa8c8';
-      ctx.fillText(`WANTED x${this.exportBonus}`, INTERNAL_WIDTH - 6, INTERNAL_HEIGHT - 30);
+      // NOT "WANTED": that word belongs to the police, and using it here for
+      // the crushers' shopping list put two unrelated meanings on screen at
+      // once.
+      ctx.fillText(`EXPORT x${this.exportBonus}`, INTERNAL_WIDTH - 6, INTERNAL_HEIGHT - 46);
       ctx.fillStyle = '#d8c88f';
       this.exportKinds.forEach((k, i) => {
-        ctx.fillText(k, INTERNAL_WIDTH - 6, INTERNAL_HEIGHT - 21 + i * 8);
+        ctx.fillText(k, INTERNAL_WIDTH - 6, INTERNAL_HEIGHT - 37 + i * 8);
       });
       ctx.textAlign = 'left';
     }

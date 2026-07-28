@@ -138,7 +138,10 @@ export class Minimap {
     // are on without anything as loud as a border.
     if (map.turfCellsWide > 0) {
       const cellPx = (map.widthTiles / map.turfCellsWide) * TILE_SIZE;
-      ctx.globalAlpha = 0.22;
+      // 0.22 drowned the city: the radar went uniformly purple and the
+      // streets under it stopped being readable. Territory is context, not
+      // the subject of the panel.
+      ctx.globalAlpha = 0.11;
       for (let i = 0; i < map.turfCells.length; i++) {
         const gang = map.turfCells[i] as number;
         const tint = TURF_TINT[gang];
