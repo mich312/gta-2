@@ -256,7 +256,6 @@ export class Session {
    * new one. Whole-tile deltas keep every position exact on the q8 grid.
    */
   maybeRebase(): void {
-    this.lastRebase = null;
     // Guarded against thrash: players spread wider than the window minus
     // margins can never all clear the edge check, so without a cooldown
     // the session rebases every check and the wire drowns in reseeds.
@@ -443,6 +442,10 @@ export class Session {
   tick(): FullSnapshot {
     // The window follows the players, when roaming is on. Checked before
     // inputs so the rebase and its reseed lead this tick's command batch.
+    // lastRebase is a one-TICK flag: cleared here every tick, not inside
+    // maybeRebase — left set for the 30 ticks between checks, one rebase
+    // broadcast thirty times and the client regenerated the city for each.
+    this.lastRebase = null;
     if (this.options.roam && this.state.tick % 30 === 0) this.maybeRebase();
     // Rate-limited: at most PED_RESPAWN_PER_SEC arrivals a second.
     if (this.state.tick % Math.round(30 / PED_RESPAWN_PER_SEC) === 0) this.topUpPeds();
