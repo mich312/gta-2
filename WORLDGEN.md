@@ -707,3 +707,153 @@ and interest management assumes one arena. The remaining work for
 walk-forever play is server-side streaming: chunk-backed `CityMap`
 queries, population that follows players (§8.1's spawner rework), and
 respawn/turf semantics per region. Worldgen is no longer the blocker.
+
+---
+
+## 11. Plan: real countryside, then walk-forever streaming
+
+The two tracks left open by §10, planned to implementation depth. Track A
+(countryside) goes first: it is pure worldgen on proven machinery, its
+results are visible in every render, and it defines what streaming will
+actually stream past. Track B (streaming) is phased so the risky step —
+game code reading a world that no longer fits in one array — lands alone
+and provably equal to the window it replaces.
+
+### 11.1 Track A — the countryside made real
+
+Today the space between cities is park blocks wearing the full urban
+street grid: sidewalk rings, three-tile secondaries, lamp-ready kerbs.
+Three phases, each shippable alone.
+
+**A1 — De-grid (M).** Rules, all density-gated so the city→country
+transition stays continuous:
+
+- *Roads:* cells whose centre density is rural (below `residential × 0.5`,
+  the §L1 open-country branch) subdivide to lane-scale instead of
+  block-scale: target extent ~48 tiles, carve width 2 (`roads.ts` — the
+  cell's district lookup already has the density; add a per-district
+  road width to `blockSize`'s table or a parallel `laneWidth` param).
+  Arterials persist as highways — that is what they are out there.
+- *No kerbs:* `laySidewalk` skips countryside blocks entirely
+  (`buildings.ts` — one district check). Ped spawns, props, payphones and
+  parking all filter on sidewalk today, so rural quiet **emerges** from
+  this one change: no pavement, no crowd, no street furniture, no
+  kerbside cars. Verify, don't re-implement.
+- *Ground:* countryside `fillBlock` case paints meadow (`T_FIELD` — tile
+  0, unused since day one) with `wildness`-driven forest patches: a new
+  `T_TREES` tile, solid to everything like a building but rendered as
+  canopy. Forest respects a 1-tile clearance from any road (walk the
+  block, skip tiles adjacent to carved lanes) so lanes stay drivable.
+  Window-independence is free: fills already derive per-block streams
+  from global coords.
+- *Invariants:* no sidewalk tile in a rural-district cell across seeds;
+  every lane connects to the arterial ring (existing subdivision
+  guarantees it — pin it anyway); `T_TREES` never adjacent to `T_ROAD`.
+
+**A2 — Shores by density (S).** The waterfront ladder splits on urban
+intensity at the bank pass (`generate.ts`): density ≥ `commercial` keeps
+the stone quay (`T_BANK`); below it the edge becomes `T_SAND`, widened to
+2–3 tiles by re-sampling the water field at radius 2 (still pure, still
+window-independent). Beach props (umbrella, towel — ordinal scan over
+sand) ride along. **Swimming stays out of this phase**: `T_SHALLOW` and
+the swim state touch the prediction hot loop and land alone later, per
+the standing rule (`ROADMAP.md:577`'s water precedent).
+
+**A3 — Destinations (M).** Countryside needs reasons to drive through
+it. Stamp kinds gated to rural cells, placed by the landmark machinery
+(they ARE landmarks — named, on the radar): farm (house cluster + yard +
+barn slab at a lane junction), campground (clearing + tents-as-props),
+lighthouse (coast cells only: water within a cell radius), quarry (grit
+pocket: lot + crane — the crusher economy reaches the countryside).
+Rates via the existing `cellQuotaFrac` exchange. One new mechanism only:
+a stamp = tile template + prop list + approach contract, the §3.6
+mechanism, built here because these four are its first honest users —
+the city landmark upgrade (§4.5) then comes free.
+
+### 11.2 Track B — streaming: the window learns to walk
+
+**B0 — the measured facts this plan stands on.** Direct `map.tiles[i]`
+indexing outside worldgen: **nine sites** (four in the client tile
+renderer's bake, one each in roadgrid/peds/frenzy/minimap/mapgen) —
+everything else already goes through `tileAt`/`isSolidTile`/
+`drivableTile`. Generation cost is ~0.5 ms per arterial cell (125 ms /
+~25 cells at 240²). The tile renderer is already chunk-cached with a
+bounded budget (`CHUNK_BUILDS_PER_FRAME`, `CHUNK_CACHE_LIMIT`). Wire
+positions are varints. Hospitals, police and shops are already coverage
+lattices — they stream by construction. This is why B is tractable.
+
+**B1 — chunk-backed world store, proven equal (L, the risky one).**
+- `world/store.ts`: a `WorldStore` holding generated **cells** (tiles
+  rasterised per cell + the cell's buildings/shops/landmarks lists) in a
+  keyed cache, LRU-evicted outside a residency radius. `tileAtGlobal`,
+  `featuresNear(x, y, r)`, `nearestHospital(x, y)` queries on top.
+- Migrate the nine direct index sites plus the renderer's window-sized
+  precomputes (`runH`/`runV`/`buildingOf`/`shopOf` become per-chunk,
+  computed at bake time — they are bake acceleration, not sim state).
+- `CityMap` keeps its shape as **the compatibility view**: a session
+  still materialises a window through the store. THE gate for this
+  phase: a new test proving store-served tiles and feature lists are
+  bit-identical to `generateCity`'s window output for the same region —
+  the windows.test.ts invariant, now three-way.
+- Nothing moves yet. B1 changes plumbing, not behaviour: every existing
+  test and gate must pass untouched.
+
+**B2 — the client walks (M).** Renderer and minimap consume the store
+(radar bakes a region around the player, rebaked on region change);
+prediction requires resident cells for a ring around the local player,
+generated synchronously on entry (0.5 ms/cell is affordable mid-frame;
+pre-generate one cell ahead along velocity to keep even that off the
+hot path). Client memory bounded by the LRU.
+**B3 — the server population follows (L).** Ped/traffic/pickup/prop
+budgets become per-active-region (the ring around each player's
+interest radius), spawned from store queries instead of session lists,
+despawned with their region; `ROADMAP.md:141`'s outside-the-radius
+top-up pattern, generalised. Session semantics that must be re-decided,
+named in §11.4. The window params stay as the *starting* region; the
+walls come off when a player's ring crosses the old edge.
+**B4 — the roaming gate (S).** A bot script that drives one direction
+for minutes across multiple cells/cities: 0 desyncs (both sides stream
+identically or hashes scream), bandwidth under the 50 KB/s gate
+throughout, chunk-gen p95 under budget, memory flat under LRU. Plus a
+teleport test: two players 100k tiles apart in one session.
+
+### 11.3 Sequence and risk
+
+| # | Phase | Size | Risk | Gate |
+|---|---|---|---|---|
+| 1 | A1 de-grid | M | low | seed sweeps + window overlap; renders |
+| 2 | A2 shores | S | low | ladder invariants per density band |
+| 3 | A3 destinations + stamp mechanism | M | low | reachability per stamp; quotas |
+| 4 | B1 world store | L | **medium** | store ≡ window, bit-for-bit; all gates green untouched |
+| 5 | B2 client streaming | M | medium | frame budget; prediction corrections unchanged |
+| 6 | B3 population streaming | L | **high** | roaming bots, 0 desyncs; bandwidth |
+| 7 | B4 gates + sizes | S | low | the roaming harness itself |
+
+Risks, ranked: **(1)** B3 turf/respawn semantics are design decisions
+wearing an engineering hat — settle §11.4 before writing code, not
+during. **(2)** Synchronous cell generation on the prediction path (B2)
+— bounded by measurement, but a pathological cell (huge landmark carve)
+needs a budget test. **(3)** LRU eviction vs. determinism — eviction
+must never change what regenerating the cell produces (it can't: cells
+are pure functions — pin it with a test anyway). **(4)** A1's lane-scale
+subdivision changes traffic's world; run the full bot suite, not just
+worldgen tests.
+
+### 11.4 Decisions needed before B3 (design, not code)
+
+1. **Turf in a many-city world.** Options: gangs claim whole city cores
+   (`cityCore` hash picks the gang set per city — territory becomes a
+   fact about a city, which fits §RESEARCH's district-gang model), or
+   turf stays a per-session ring at the starting city and the wider
+   world is neutral. Recommendation: per-core, it's one hash.
+2. **Where the dead wake up.** Nearest-hospital already streams
+   (coverage lattice). Decide whether respawn can move you to a city
+   you have never visited, or clamps to your starting core's region.
+3. **A soft world bound.** Floats are exact far past anything reachable,
+   but a session that drifts 10^6 tiles strains nothing except sense.
+   Recommendation: clamp movement at ±100k tiles from origin and call
+   it the map, honestly, in one constant.
+
+Done in this order, the world stops being a window with walls at
+step 6 — and every step before that ships something visible or proves
+something the next step needs.
