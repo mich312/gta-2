@@ -683,7 +683,11 @@ describe('money you can find, and a till you can empty (O1)', () => {
     let state = createGameState(777);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'robber' }], map);
     economy.bindGuest(1);
-    const shop = map.shops[0]!;
+    // A GUN shop specifically: the fixture buys a pistol to prove the shut
+    // shop refuses. shops[0] used to be one by construction (kinds were
+    // placed in order); cell-local placement pushes shops in cell order, so
+    // the first shop is whatever kind the first cell rolled.
+    const shop = map.shops.find((s) => s.kind === 'gun')!;
     const p = state.players.byId[1]!;
     p.pos = { x: (shop.doorX + 0.5) * TILE_SIZE, y: (shop.doorY + 0.5) * TILE_SIZE };
     p.weapons = [{ weaponId: 'pistol', ammo: 30 }];

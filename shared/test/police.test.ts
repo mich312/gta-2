@@ -22,7 +22,8 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
-import { clearSpot, roadLane } from './helpers.js';
+import { clearSpot, roadLane, straightEastLane } from './helpers.js';
+import { isSolidTile } from '../src/world/collide.js';
 import { TICK_RATE } from '../src/constants.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
@@ -79,7 +80,13 @@ function commitCrimes(targetLevel: number): GameState {
     if (p1.mode === 'dead' && p1.respawnAtTick !== null && state.tick >= p1.respawnAtTick) {
       cmds.push({ type: 'respawnPlayer', playerId: 1, loadout: PISTOL });
     }
-    state = step(state, { 1: fire(seq++, aim) }, cmds, map);
+    // The crook keeps moving while shooting. Standing still, they are a
+    // stationary suspect — and since the bust-standoff fix an officer who
+    // reaches one ARRESTS them, which zeroes heat and resets the spree this
+    // fixture exists to build. Legging it is what makes you shootable-at
+    // and un-arrestable; it is also what an actual spree looks like.
+    const moving = { ...fire(seq++, aim), right: t % 120 < 60, left: t % 120 >= 60 };
+    state = step(state, { 1: moving }, cmds, map);
   }
   return state;
 }
@@ -342,8 +349,10 @@ describe('wanted + police', () => {
     // happening and nobody would have noticed if it stopped.
     const t = getTuning().police;
     let state = commitCrimes(3);
-    const lane = roadLane(map);
-    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    // A quiet straight street: officers must be able to pull up and close on
+    // foot, which a junction-riddled or dead-end spot can quietly prevent.
+    const lane = straightEastLane(map);
+    state.players.byId[1]!.pos = { x: lane.x + 5 * TILE_SIZE, y: lane.y };
 
     const events: SimEvent[] = [];
     // How far the SHOOTER was from the suspect, for every police shot. The
@@ -452,9 +461,14 @@ describe('escalation by kind', () => {
     stars: number,
     ticks: number,
     seed = 55,
+    at?: { x: number; y: number },
   ): { state: GameState; peakDriving: number; peakCars: number } {
     let state = createGameState(seed);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    // Roadblock tests hand a lane position: blocks are thrown across the
+    // road AHEAD of the fugitive, so a fugitive off in the countryside (or
+    // wherever the seed's spawn landed) may have no kerb ahead to build on.
+    if (at) state.players.byId[1]!.pos = { x: at.x, y: at.y };
     let peakDriving = 0;
     let peakCars = 0;
     for (let i = 0; i < ticks; i++) {
@@ -511,8 +525,9 @@ describe('escalation by kind', () => {
   });
 
   it('four stars throws roadblocks across the road', () => {
-    const three = chaseAt(3, 1500, 61).peakCars;
-    const four = chaseAt(4, 1500, 61).peakCars;
+    const lane = straightEastLane(map);
+    const three = chaseAt(3, 1500, 61, lane).peakCars;
+    const four = chaseAt(4, 1500, 61, lane).peakCars;
     // Roadblock cruisers are additional to pursuit cruisers.
     expect(four).toBeGreaterThan(three);
   });
@@ -525,7 +540,7 @@ describe('escalation by kind', () => {
     // carried a permanent one-bit disagreement with the server — the bot
     // harness read it as an endless hash desync. Found by the harness, fixed
     // at the spawn, pinned here.
-    const { state } = chaseAt(4, 1500, 61);
+    const { state } = chaseAt(4, 1500, 61, straightEastLane(map));
     for (const id of state.vehicles.ids) {
       const v = state.vehicles.byId[id]!;
       expect(v.pos.x * 8, `vehicle ${id} pos.x ${v.pos.x}`).toBeCloseTo(
@@ -607,11 +622,42 @@ describe('escalation by kind', () => {
     // arrived pointing away drove a circle the width of a block, never closed,
     // and hit the bail-out — the officer lost the car within half a second and
     // ran the rest. It should U-turn and drive.
-    const start = { x: 1000, y: 1000 };
-    const targetAt = { x: 1240, y: 1000 };
+    //
+    // Staged on found OPEN GROUND, not a hard-coded coordinate and not a
+    // street: a U-turn needs room for its arc, and since the vehicle-parts
+    // work slowed low-speed steering, a cruiser boxed between kerbs runs
+    // out of patience and bails — which is the OTHER test's behaviour. The
+    // claim here is "given room, it turns and closes".
+    // 26×5 tiles of open ground with the start NINE tiles in: the cruiser
+    // faces AWAY (west) before it turns, so it needs arc room behind it as
+    // well as the driving line to the target in front — a clearing checked
+    // only eastward parks it against whatever lies west and it bails.
+    let clearing: { x: number; y: number } | null = null;
+    outer: for (let ty = 8; ty < map.heightTiles - 8; ty++) {
+      for (let tx = 8; tx < map.widthTiles - 34; tx++) {
+        let open = true;
+        for (let dy = -2; dy <= 2 && open; dy++) {
+          for (let dx = 0; dx < 26; dx++) {
+            if (isSolidTile(map, tx + dx, ty + dy, 'land')) {
+              open = false;
+              break;
+            }
+          }
+        }
+        if (!open) continue;
+        clearing = { x: (tx + 9.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+        break outer;
+      }
+    }
+    expect(clearing, 'no open clearing on this map').not.toBeNull();
+    const start = clearing!;
+    const targetAt = { x: start.x + 240, y: start.y };
     let state = wedged(start, targetAt);
     state.vehicles.byId[501]!.heading = Math.PI; // facing directly away
     const before = Math.hypot(start.x - targetAt.x, start.y - targetAt.y);
+    // 40 ticks: enough to turn and start closing, NOT enough to arrive —
+    // a cruiser that reaches dismountDist finishes the chase on foot
+    // (correctly), and this assertion would misread that as ditching.
     for (let i = 0; i < 40; i++) {
       state.players.byId[1]!.heat = 410;
       state = step(state, {}, [], map);

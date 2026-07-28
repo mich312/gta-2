@@ -10,13 +10,14 @@ import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
+import { makeFields } from '../src/world/fields.js';
 import { generateCity } from '../src/world/generate.js';
 import { openWater } from './helpers.js';
 import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import { isSolidTile, boxInSolid } from '../src/world/collide.js';
-import { T_BRIDGE, T_BUILDING, T_WATER, TILE_SIZE } from '../src/world/types.js';
+import { T_BANK, T_BRIDGE, T_BUILDING, T_WATER, TILE_SIZE } from '../src/world/types.js';
 import { hashState } from '../src/net/hash.js';
 
 initTuning({
@@ -77,6 +78,96 @@ describe('the river', () => {
     expect(Array.from(again.tiles)).toEqual(Array.from(map.tiles));
     expect(again.boatSpawns).toEqual(map.boatSpawns);
   });
+
+  it('bridges cross water; they never run along it or across the sea', () => {
+    // Every bridge tile must belong to a genuine crossing: a run of
+    // water-or-bridge no longer than maxBridgeSpan along SOME axis. A
+    // causeway — a road laid lengthwise over a river — or a span across
+    // open water fails this on both axes. The road is supposed to stop at
+    // the bank there, and the boat is supposed to be the way across.
+    const wet = (m: typeof map, tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= m.widthTiles || ty >= m.heightTiles) return false;
+      const t = m.tiles[ty * m.widthTiles + tx];
+      return t === T_WATER || t === T_BRIDGE;
+    };
+    const span = (m: typeof map, tx: number, ty: number, dx: number, dy: number): number => {
+      let n = 1;
+      for (let s = 1; wet(m, tx + dx * s, ty + dy * s); s++) n++;
+      for (let s = 1; wet(m, tx - dx * s, ty - dy * s); s++) n++;
+      return n;
+    };
+    const max = params.water.maxBridgeSpan;
+    for (const seed of [1, 7, 42, 1234, 90210]) {
+      const m = generateCity(seed, params);
+      for (let ty = 0; ty < m.heightTiles; ty++) {
+        for (let tx = 0; tx < m.widthTiles; tx++) {
+          if (m.tiles[ty * m.widthTiles + tx] !== T_BRIDGE) continue;
+          // Interior tiles only: at the window rim a run is cut short by
+          // the edge, which reads as "short" — skip the ambiguity.
+          if (tx < max || ty < max || tx >= m.widthTiles - max || ty >= m.heightTiles - max)
+            continue;
+          const ok = Math.min(span(m, tx, ty, 0, 1), span(m, tx, ty, 1, 0)) <= max;
+          expect(ok, `seed ${seed}: causeway/sea bridge at (${tx}, ${ty})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('waterways are lined with quays: nothing is built against open water', () => {
+    // The transition band of the water ladder (WORLDGEN.md §9.4): every
+    // land tile that meets waterway water is T_BANK — walkable waterfront —
+    // so the only things allowed to touch the river are the bank, a bridge,
+    // and the stub of a road that drowned. Buildings, sidewalks, yards and
+    // parks may not sit flush against open water. Park ponds are exempt:
+    // they are carved decoration, not field waterways.
+    const fields = makeFields(1234, params);
+    for (let ty = 1; ty < map.heightTiles - 1; ty++) {
+      for (let tx = 1; tx < map.widthTiles - 1; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) continue;
+        if (!fields.water(params.windowX + tx, params.windowY + ty)) continue; // pond
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const n = map.tiles[(ty + dy) * map.widthTiles + (tx + dx)] as number;
+          const allowed =
+            n === T_WATER || n === T_BRIDGE || n === T_BANK || n === 1; /* T_ROAD */
+          expect(allowed, `tile ${n} flush against water at (${tx + dx}, ${ty + dy})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('the quay is open to feet and solid to hulls', () => {
+    let banks = 0;
+    for (let ty = 0; ty < map.heightTiles; ty++) {
+      for (let tx = 0; tx < map.widthTiles; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] !== T_BANK) continue;
+        banks++;
+        expect(isSolidTile(map, tx, ty, 'land')).toBe(false);
+        expect(isSolidTile(map, tx, ty, 'water')).toBe(true);
+      }
+    }
+    expect(banks).toBeGreaterThan(50);
+  });
+
+  it('every bridge tile is open water underneath — boats go under, everywhere', () => {
+    for (const seed of [1, 7, 1234]) {
+      const m = generateCity(seed, params);
+      let bridges = 0;
+      for (let ty = 0; ty < m.heightTiles; ty++) {
+        for (let tx = 0; tx < m.widthTiles; tx++) {
+          if (m.tiles[ty * m.widthTiles + tx] !== T_BRIDGE) continue;
+          bridges++;
+          expect(isSolidTile(m, tx, ty, 'water'), `seed ${seed} bridge (${tx}, ${ty})`).toBe(false);
+          expect(isSolidTile(m, tx, ty, 'land'), `seed ${seed} bridge (${tx}, ${ty})`).toBe(false);
+        }
+      }
+      expect(bridges).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('media', () => {
@@ -129,7 +220,20 @@ describe('media', () => {
   });
 
   it('a player cannot walk into the river', () => {
-    const { tx, ty } = aWaterTile();
+    // A water tile with a WALKABLE bank above it: the first water tile in
+    // row-major order can sit under a building's edge, and a walker starting
+    // inside a wall proves nothing about the river.
+    function approachableWater(): { tx: number; ty: number } {
+      for (let ty = 3; ty < map.heightTiles; ty++) {
+        for (let tx = 0; tx < map.widthTiles; tx++) {
+          if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) continue;
+          if (isSolidTile(map, tx, ty - 1, 'land') || isSolidTile(map, tx, ty - 2, 'land')) continue;
+          return { tx, ty };
+        }
+      }
+      throw new Error('no approachable bank');
+    }
+    const { tx, ty } = approachableWater();
     // Start on the bank just above the water and walk straight at it.
     let state = createGameState(5);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
@@ -225,12 +329,17 @@ describe('boats', () => {
       const ashore = state.players.byId[1]!;
       expect(ashore.mode).toBe('foot');
       expect(ashore.vehicleId).toBeNull();
-      // Ashore, not overboard — and within wading distance of the boat.
+      // Ashore, not overboard — and within the disembark mechanic's true
+      // reach: DISEMBARK_REACH_TILES (4) of tile-centre candidates around
+      // the hull, whose farthest corner centre sits 4.5·√2 tiles out. The
+      // old 4-tile bound was tighter than the mechanic and held only
+      // because every mooring on the old map happened to have nearer dry
+      // ground.
       expect(boxInSolid(map, ashore.pos, 6, 'land')).toBe(false);
       const boat = state.vehicles.byId[60]!;
       expect(boat.driverId).toBeNull();
       expect(Math.hypot(ashore.pos.x - boat.pos.x, ashore.pos.y - boat.pos.y)).toBeLessThanOrEqual(
-        4 * TILE_SIZE + 1,
+        4.5 * Math.SQRT2 * TILE_SIZE + 1,
       );
     }
   });

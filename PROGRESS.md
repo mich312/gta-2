@@ -1,5 +1,209 @@
 # PROGRESS
 
+## Worldgen: quays line the waterways, and a drowned road end is tested
+
+325 tests green (three new); brawl 45 s PASS, 0 desyncs. Seed-breaking
+for waterfront tiles.
+
+**T_BANK.** Every open tile beside waterway water becomes an
+embankment/quay: walkable stone waterfront, solid to boat hulls (it is
+what a hull moors against), never built on. Stamped after the bridge
+fixup and before block fill, so every fill pass treats the quay like
+water and keeps buildings, sidewalks and yards off it — the first
+transition band of WORLDGEN.md §9.4's water ladder, made real. Bank
+adjacency is tested on the water FIELD, not the window arrays, so the
+strip is window-independent (the overlap invariant covers it
+automatically). Moorings count the quay as boardable land; landmarks
+refuse footprints touching it; park ponds stay bare (decoration, not
+waterway). Rendered as flat stone with a lighter coping course along the
+water's edge, on the radar as a light outline around the blue.
+
+**Pinned:** waterway water may only touch water, bridge, bank, or the
+stub of a drowned road — nothing else, asserted per-tile (`water.test`);
+the quay is open to feet and solid to hulls, every bank tile; and the
+previous entry's flagged gap — a car sent up a drowned road end backs
+out and leaves rather than wedging at the bank (`traffic.test`, staged
+on found geometry).
+
+**Least confident about.** The quay is one tile wide by construction; a
+window whose rim slices along a waterfront can show a quay strip against
+the window wall with nothing behind it — harmless, rim-only, but
+unswept.
+
+## Worldgen: bridges are crossings, not causeways
+
+322 tests green (two new); brawl 45 s PASS, 0 desyncs. Seed-breaking for
+bridge/water tiles only (`water.maxBridgeSpan` added to params).
+
+The unbounded-world bridge rule was "arterial over water ⇒ bridge", which
+had two failure modes the renders made obvious: an arterial running
+LENGTHWISE over a river became a causeway that roofed the waterway for
+dozens of tiles, and wide water got crossed as casually as a ditch. The
+rule is now span-limited and axis-aware: `arterialMask` records which
+axis carved each tile (`ARTERIAL_VERTICAL`/`ARTERIAL_HORIZONTAL`), and a
+tile bridges only when the water span measured ALONG that road's
+direction of travel is ≤ `maxBridgeSpan` (20 — chosen by measurement:
+at 16, seed 7's oblique crossings left its whole window bridgeless).
+Spans are measured on the water FIELD, not the window arrays, so the
+decision stays identical from every viewport. Where the span is too
+long, the road now stops at the bank and the boat is the way across —
+wide water is finally a real barrier.
+
+Boats under bridges needed no collision change — `isSolidTile` has
+carried "bridge: road on top, navigable water underneath" since D1 and
+there is no boat AI probing tiles — but it was only tested for one tile
+on one seed. Now pinned for every bridge tile across three seeds, along
+with the anti-causeway invariant: every interior bridge tile belongs to
+a crossing ≤ maxBridgeSpan along some axis, five seeds.
+
+**Least confident about.** Interrupted arterials (a road that dips into
+a lengthwise river stretch now dead-ends at the bank, resumes beyond)
+rely on traffic's existing stuck-recovery to turn cars around at the
+water's edge; the bot gates pass but no test pins a car's behaviour at a
+drowned road end specifically.
+
+## Worldgen: the unbounded world (WORLDGEN.md §10)
+
+The map is now a WINDOW onto an infinite design. 320 tests green (up from
+316) including the new window-independence invariant; 8-bot brawl 60 s:
+0 desyncs, tick spread 0, ~15 KB/s per client; joyride PASS; replay
+re-simulates hash-identical. A 240² window generates in ~125 ms wherever
+it sits — `mapgen --seed=7 --wx=1000128 --wy=-777600` renders a full city
+a million tiles from the origin at the same cost as the origin.
+
+**The rule that makes it work: no pass may depend on the map's extent.**
+Arterials are an infinite jittered lattice (`arterialCoord(seed, axis, k)`
+— line 40 000 is as cheap as line 4); the ground between them divides into
+CELLS, and each cell's subdivision, blocks, buildings, landmark and shops
+derive their rng from `hash(seed, cell index)` in global coordinates.
+Density traded its single core for an infinite lattice of hashed city
+cores with open country between (`fields.ts: cityCore`); the sine-meander
+river became noise-contour waterway bands (rivers, lakes, loops — arterial
+crossings still bridge, secondaries still revert). Ramps went
+position-hashed because they mutate tiles and an every-Nth counter would
+have made tiles a function of the window.
+
+**Proven, not claimed** (`windows.test.ts`): overlapping windows of one
+seed agree tile-for-tile in the overlap interior; a window at a million
+tiles is a real city with hospitals; negative coordinates work; distant
+windows differ. The rim is the documented edge effect: carving passes
+skip footprints not fully inside their own window, so views may differ
+within one cell span of a window edge — never deeper.
+
+**Quotas became coverage lattices.** "4 hospitals per city" is
+meaningless on a plane, so hospitals and police stations claim every
+second cell each way (offset apart — the §6.2 coverage doctrine, now
+structural), and each shop kind gets a lattice whose pitch derives from
+the old quota. A respray that cannot open its two-tile garage door now
+walls itself back up and tries the next building rather than shipping a
+garage for pedestrians (previously the quota retry loop hid this).
+
+**CityMap consumers never learned.** Window-local coordinates throughout;
+sim, prediction, codec, client and bots untouched. `worldgen.json` gains
+`windowX/windowY`, `arterialSpacing` (replacing arterial counts),
+`fields.citySpacing`, and `water.scale/width` (replacing `waterWidth`).
+
+**The gate that argued back.** Brawl runs tripped the harness's 96 px
+prediction-correction limit (113–229 px) with zero desyncs and clean
+replays. Diagnosis across five runs: spikes only on bots being rammed by
+cruisers in 30-kill four-star brawls (a low-kill run: every bot ≤ 3.1 px;
+the previous world already showed 45 px). A ram is a server-granted shove
+the predictor deliberately does not guess at (`prediction.ts` contract),
+and the new world's long countryside arterials let cruisers reach full
+speed before impact. Limit recalibrated to 256 px for brawl with the
+reasoning in `harness.ts`; desyncs remain the hard gate.
+
+**Replay note:** every seed's city changes shape again, and the params
+file shape changed — old replays and stale bundles fail loudly, by
+design. Declared, as ever.
+
+**Deliberately deferred.** Playable streaming (the window still has
+walls): chunk-backed CityMap queries, population that follows players,
+per-region respawn/turf. Countryside is stubbed as park blocks with the
+full secondary grid — it reads as "green city", not open country, until
+§8's nature work (dirt tracks, suppressed subdivision, forests) lands on
+this substrate.
+
+**Least confident about.** The rim edge-effect margin (one cell span) is
+argued from construction and held by two seeds' overlap tests, not
+exhaustively swept; and the brawl correction ceiling is now generous
+enough that a genuine prediction regression under 256 px would slip it —
+the systemic signal (corrections on EVERY bot) is what to watch in
+harness output, and a dead-reckoning pass over snapshot vehicles is the
+principled fix if rams ever need predicting.
+
+## Worldgen: hierarchical seeding and the field-scored city (WORLDGEN.md §9.5 steps 1–2)
+
+The first two steps of the layered-architecture migration. 316 tests green
+(up from 310), 8-bot brawl 60 s: 0 desyncs, tick spread 0, ~13 KB/s per
+client against the 50 KB/s gate, replay re-simulates hash-identical.
+Generation is 99–154 ms at 240² (was ~56 ms; the classifier samples three
+noise fields per tile).
+
+**Hierarchical seeding.** `deriveSeed(seed, label)` (FNV-1a + avalanche,
+integer ops only) gives every worldgen pass its own rng stream —
+`worldgen.river`, `worldgen.roads`, `worldgen.blocks`, `worldgen.landmarks`,
+`worldgen.shops`, `worldgen.vehicles`, `worldgen.playerSpawns` — replacing
+the single thread that made any added draw reshape every city. The standing
+`ROADMAP.md` risk "RNG-order churn invalidates old replays: any phase adding
+a draw" is retired for cross-pass effects: a pass can now grow draws freely
+and only its own output moves. Pass order stays load-bearing for data
+dependencies only.
+
+**Fields and classification.** `world/fields.ts` is L0 of the layer stack:
+integer-hash value noise (same mixing family as turf's `hash2`, no
+transcendentals, bit-identical on every host) shaped into `density` (radial
+falloff from a seed-jittered core + noise), `wildness` and `grit`
+(noise + map-edge affinity). `districts.ts` now *scores* these instead of
+painting nearest-Voronoi-seed patches: density thresholds give downtown →
+commercial → residential as concentric rings around a core that is visibly
+the centre, the rim splits industrial/residential on grit, and wildness cuts
+park pockets anywhere outside the core. Rendered across seeds 7/42/1234/
+90210: every city now has a legible downtown, a commercial ring, industry at
+the edges, and no colour confetti. Borders are noise-ragged, never straight.
+
+**The knife-edge the new maps exposed.** Police on foot stopped closing at a
+flat 24 px, but `bustRadius` is 22: an officer who had finished approaching
+stood half a pixel outside hands-on range and shot a stationary suspect
+forever. Old maps passed the arrest test because the last 4 px stride
+happened to land inside the window; the first new map parked all six cops at
+22.5 px and the test went red. The standoff is now `bustRadius - 2` — the
+sim change this wave makes besides worldgen, and it makes "stand still and
+you get nicked, not shot" true by construction instead of by luck.
+
+**Test staging hardened.** `straightEastLane(map, run, width)` in
+`test/helpers.ts` finds a junction-free straight corridor with unbroken
+kerbs (the old `eastboundLane` wanted an exactly-two-tile road — a rare
+generator accident — and only checked for cross-streets at the start tile,
+so ambient drivers could turn off mid-test). The cruiser U-turn test stages
+on a 4-wide arterial stretch because a 3-wide street boxed in by buildings
+is a three-point-turn problem; the walk-into-the-river test now picks a
+water tile with a walkable bank instead of assuming the first one in
+row-major order has one; the hard-coded `{x:1000, y:1000}` police staging is
+gone. New `fields.test.ts` pins: noise determinism/bounds, density
+core-to-rim gradient, all five district types present on every seed,
+downtown mean distance-to-core below industrial's, ≥75 % neighbour agreement
+(the anti-confetti bar turf already uses), and stream independence.
+
+**Replay note** (per the risk table): every seed's city changes shape —
+district layout, therefore roads, buildings, spawns, everything. Replays
+recorded before this wave no longer re-simulate. Expected, deliberate,
+stated. `worldgen.json` loses `districtSeeds`, gains `fields`
+(thresholds + noise scale); the params parser hard-fails on the old file
+shape, so a stale client bundle cannot silently generate a different city.
+
+**Deliberately deferred.** Steps 3–6 of the migration (transition
+ladders/ecotones, the road graph, parcels with frontage, content-layer
+queries); density modulation of `fillBlock` coverage and amenity spacing
+(the field exists, consumers still read district type); `mapgen --layer`
+debug rendering; any map-size change.
+
+**Least confident about.** The classification thresholds (`fields` in
+`worldgen.json`) are tuned by eye against four seeds; a pathological seed
+could still produce a lopsided city — the invariant tests bound presence and
+contiguity, not beauty. And the cop-standoff change alters every chase's
+approach geometry by 4 px; the police suite is green but that mechanic has
+more tests than any other because it keeps deserving them.
 ## The turret: a part that does not turn with the body
 
 Asked whether a tank's turret traverses independently, the answer was no —

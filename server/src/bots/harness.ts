@@ -8,8 +8,17 @@ import { loadSharedTuning } from '../tuning.js';
 /** Bots predict locally; a hold/fast-forward on the server shows up as a
  * correction. Anything beyond ~a few held ticks of movement is a real bug.
  * Driving scripts get more slack: enter/exit transitions and car-vs-car
- * contact are deliberately unpredicted (server-granted). */
-const CORRECTION_LIMIT_PX: Record<string, number> = { default: 32, joyride: 96, brawl: 96 };
+ * contact are deliberately unpredicted (server-granted).
+ *
+ * Brawl gets the most: a 30-kill brawl runs at four/five stars, and a cop
+ * cruiser ramming a bot at full speed is a server-granted shove the
+ * predictor deliberately does not guess at (prediction.ts's contract).
+ * The infinite-world arterials let cruisers actually reach full speed, so
+ * the worst shove grew — measured across runs: quiet bots 2.65 px, rammed
+ * bots 45–229 px, desyncs zero throughout. The limit exists to catch
+ * SYSTEMIC divergence (which shows on every bot), not the biggest single
+ * lawful shove. */
+const CORRECTION_LIMIT_PX: Record<string, number> = { default: 32, joyride: 96, brawl: 256 };
 /** Phase-7 gate: with 200 peds, each client must stay under 50 KB/s down. */
 const MAX_KBPS_IN = 50;
 

@@ -26,9 +26,10 @@ import { assignGoto, isAiDriver, stepTrafficPanic } from '../src/sim/traffic.js'
 import { CARDINALS, nearestCardinal, planRoute } from '../src/sim/roadgrid.js';
 import { junctionAt, signalColour, stopLineGap } from '../src/sim/signals.js';
 import { gangAt } from '../src/world/turf.js';
+import { straightEastLane } from './helpers.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
-import { T_BRIDGE, T_ROAD, TILE_SIZE } from '../src/world/types.js';
+import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE } from '../src/world/types.js';
 
 initTuning({
   player: playerTuning,
@@ -166,32 +167,17 @@ function census(seed: number, ticks = 2400): Census {
 }
 
 /**
- * A long straight eastbound stretch: returns the centre of the right-hand lane
- * at the west end, so a test car can be dropped on it and driven east.
+ * A long straight eastbound stretch: the centre of the right-hand lane at
+ * the west end of a junction-free street, so a test car can be dropped on
+ * it and driven east with nowhere to turn off.
  */
 function eastboundLane(minRunTiles = 14): { x: number; y: number } {
-  for (let ty = 6; ty < map.heightTiles - 6; ty++) {
-    for (let tx = 6; tx < map.widthTiles - 6; tx++) {
-      if (!isDrivable(tx, ty)) continue;
-      let run = 0;
-      for (let i = 1; i <= minRunTiles + 2; i++) {
-        if (!isDrivable(tx + i, ty)) break;
-        run++;
-      }
-      if (run < minRunTiles) continue;
-      // Two tiles of carriageway across, so there is a right-hand lane at all.
-      if (!isDrivable(tx, ty + 1) || isDrivable(tx, ty + 2)) continue;
-      if (isDrivable(tx, ty - 1)) continue;
-      // Deliberately NOT filtered for junctions. The city's blocks are about
-      // eight tiles, so a fourteen-tile straight always crosses at least one
-      // set of lights — there is no such thing here as a long stretch of open
-      // road, and asking for one finds nothing on any seed. Fixtures built on
-      // this helper have to account for a car that may be lawfully held.
-      // Eastbound keeps to the southern half.
-      return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 1.5) * TILE_SIZE };
-    }
-  }
-  throw new Error('no straight two-tile road on this map');
+  // Junction-free by construction — which, since signals landed, also means
+  // SIGNAL-free: no cross-street, no lights, so a car on this stretch is
+  // never lawfully held at a red mid-test. The unbounded world's cells make
+  // such stretches plentiful again (main's interim version had to tolerate
+  // junctions because the old map had no 14-tile gap between them).
+  return straightEastLane(map, minRunTiles);
 }
 
 /** Put an ambient driver at the wheel of a freshly spawned car. */
@@ -335,6 +321,54 @@ describe('ambient traffic', () => {
       hurt = state.players.byId[1]!.health < 100;
     }
     expect(hurt).toBe(true);
+  });
+
+  it('recovers at a drowned road end instead of wedging on the bank', () => {
+    // Spans wider than maxBridgeSpan interrupt an arterial: the road stops
+    // at the water and resumes on the far side. A driver sent up the stub
+    // must treat the bank like any wall — stuck-recovery backs it out and
+    // it picks another way — rather than idling nose-to-water forever.
+    // Staged on a found dead end, because that is now real geometry.
+    let end: { tx: number; ty: number } | null = null;
+    outer: for (let ty = 8; ty < map.heightTiles - 8; ty++) {
+      for (let tx = 8; tx < map.widthTiles - 8; tx++) {
+        if (!isDrivable(tx, ty)) continue;
+        // Water directly east, a straight drivable run-up behind.
+        if (map.tiles[ty * map.widthTiles + tx + 1] !== T_WATER) continue;
+        let run = true;
+        for (let i = 1; i <= 6 && run; i++) run = isDrivable(tx - i, ty);
+        if (!run) continue;
+        end = { tx, ty };
+        break outer;
+      }
+    }
+    if (!end) return; // this seed's window has no eastward drowned end — fine
+    const lane = { x: (end.tx - 5 + 0.5) * TILE_SIZE, y: (end.ty + 0.5) * TILE_SIZE };
+    let state = createGameState(404);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'w' }], map);
+    // Keep a player nearby so the ambient driver is not culled mid-test.
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 200 };
+    state = ambientCar(state, 920, lane);
+
+    let everInWater = false;
+    for (let i = 0; i < 450; i++) {
+      state = step(state, {}, [], map);
+      const car = state.vehicles.byId[920];
+      if (!car) break;
+      const ctx = Math.floor(car.pos.x / TILE_SIZE);
+      const cty = Math.floor(car.pos.y / TILE_SIZE);
+      if (map.tiles[cty * map.widthTiles + ctx] === T_WATER) everInWater = true;
+    }
+    expect(everInWater).toBe(false);
+    const car = state.vehicles.byId[920];
+    if (car) {
+      // Recovered: not still parked against the water it drove at.
+      const distFromEnd = Math.hypot(
+        car.pos.x - (end.tx + 0.5) * TILE_SIZE,
+        car.pos.y - (end.ty + 0.5) * TILE_SIZE,
+      );
+      expect(distFromEnd).toBeGreaterThan(TILE_SIZE * 2);
+    }
   });
 
   it('moves every tick, not three ticks at a time', () => {
@@ -1012,7 +1046,18 @@ describe('getting in and out of cars (J3)', () => {
     let state = createGameState(64);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'watcher' }], map);
     const lane = eastboundLane();
-    // A parked car, and somebody on the pavement beside it.
+    // The watcher stands AT the scene: the crowd manager culls peds no
+    // player is near, and a culled pedestrian boards nothing. (It also
+    // keeps the ambient build-up local, which is what leaves a slot under
+    // the traffic ceiling for the boarding draw to fill.)
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 200 };
+    // A parked car in the kerbside lane, and somebody on the PAVEMENT
+    // beside it. The lane point is the southern row of a three-wide
+    // street; the ped stands on the north sidewalk with the car parked in
+    // the row against that kerb — a pedestrian held mid-carriageway
+    // panics at oncoming traffic and a fleeing ped never boards anything.
+    const carAt = { x: lane.x, y: lane.y - 2 * TILE_SIZE };
+    const pedAt = { x: lane.x + 10, y: lane.y - 3 * TILE_SIZE };
     state = step(
       state,
       {},
@@ -1021,14 +1066,14 @@ describe('getting in and out of cars (J3)', () => {
           type: 'spawnVehicle',
           vehicleId: 900,
           kind: 'car',
-          x: lane.x,
-          y: lane.y,
+          x: carAt.x,
+          y: carAt.y,
           heading: 0,
         },
       ],
       map,
     );
-    const ped = createPed(9001, { x: lane.x + 10, y: lane.y - 12 }, 30);
+    const ped = createPed(9001, { x: pedAt.x, y: pedAt.y }, 30);
     ped.mode = 'walk';
     insertEntity(state.peds, ped);
     expect(state.vehicles.byId[900]!.driverId).toBeNull();
@@ -1036,7 +1081,10 @@ describe('getting in and out of cars (J3)', () => {
     // The draw is once per tick for the whole city, so give it a while.
     for (let i = 0; i < 400 && state.vehicles.byId[900]!.driverId === null; i++) {
       const p = state.peds.byId[9001];
-      if (p) p.pos = { x: lane.x + 10, y: lane.y - 12 }; // hold their ground
+      if (p) {
+        p.pos = { x: pedAt.x, y: pedAt.y }; // hold their ground
+        p.mode = 'walk';
+      }
       state = step(state, {}, [], map);
     }
     expect(isAiDriver(state.vehicles.byId[900]!.driverId)).toBe(true);

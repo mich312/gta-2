@@ -1,9 +1,12 @@
-import { nextFloat01, nextIntRange } from '../rng/prng.js';
+import { deriveSeed, nextFloat01, nextIntRange, seedRng } from '../rng/prng.js';
 import { HALF_PI, PI } from '../math/trig.js';
 import type { Vec2 } from '../math/vec.js';
+import { latticeHash } from './fields.js';
+import type { WorldCell } from './roads.js';
 import type { WorldgenParams } from './params.js';
 import {
   DISTRICT_TYPES,
+  T_BANK,
   T_BUILDING,
   T_FLOOR,
   T_LOT,
@@ -95,7 +98,13 @@ function carveInterior(
   b: Building,
   door: { x: number; y: number },
   wide: boolean,
-): { interior: { x: number; y: number; w: number; h: number }; entryX: number; entryY: number } | null {
+): {
+  interior: { x: number; y: number; w: number; h: number };
+  entryX: number;
+  entryY: number;
+  /** True when a requested two-tile garage door actually opened. */
+  gotWide: boolean;
+} | null {
   const interior = { x: b.x + 1, y: b.y + 1, w: b.w - 2, h: b.h - 2 };
   if (interior.w < 1 || interior.h < 1) return null;
 
@@ -143,6 +152,7 @@ function carveInterior(
 
   // A garage door is two tiles wide, because a car is wider than one tile and
   // a respray you cannot drive into is not a respray.
+  let gotWide = false;
   if (wide) {
     const nx = alongX ? entryX + 1 : entryX;
     const ny = alongX ? entryY : entryY + 1;
@@ -150,73 +160,119 @@ function carveInterior(
     // ...and only where the approach to that half is open ground rather than
     // the next building along.
     const outside = t(map, nx + outX, ny + outY);
-    if (inRoom && outside !== T_BUILDING && outside !== T_WATER && outside !== -1) set(nx, ny);
+    if (inRoom && outside !== T_BUILDING && outside !== T_WATER && outside !== -1) {
+      set(nx, ny);
+      gotWide = true;
+    }
   }
-  return { interior, entryX, entryY };
+  return { interior, entryX, entryY, gotWide };
 }
 
-export function placeShops(map: CityMap, params: WorldgenParams, rng: number): number {
-  for (const kind of ['gun', 'clothing', 'spray'] as const) {
-    const quota = params.shopQuota[kind];
-    const preferred = SHOP_DISTRICTS[kind];
-    // Candidates in preference order, then by index (deterministic). Roomy
-    // buildings first — a shop is a place you walk into now, and a 3x3
-    // footprint leaves a single tile of floor behind the counter. The small
-    // ones stay eligible so the quota is still met on a cramped map.
-    const candidates: number[] = [];
-    for (const minSize of [5, 3]) {
-      for (const d of preferred) {
-        for (let i = 0; i < map.buildings.length; i++) {
-          const b = map.buildings[i] as Building;
-          const size = Math.min(b.w, b.h);
-          if (b.district !== d || size < minSize) continue;
-          if (minSize === 3 && size >= 5) continue; // already in the first pass
-          candidates.push(i);
-        }
-      }
-    }
-    let placed = 0;
-    const used = new Set(map.shops.map((s) => s.buildingIndex));
-    // Pick from the roomy prefix while there is one, so the random draw cannot
-    // reach past it into the cramped tail while good sites remain.
-    let head = candidates.length;
-    for (let i = 0; i < candidates.length; i++) {
-      const b = map.buildings[candidates[i] as number] as Building;
-      if (Math.min(b.w, b.h) < 5) {
-        head = i;
-        break;
-      }
-    }
-    while (placed < quota && candidates.length > 0) {
-      let pick: number;
-      [pick, rng] = nextIntRange(rng, 0, head > 0 ? head : candidates.length);
-      const bi = candidates.splice(pick, 1)[0] as number;
-      if (head > 0) head--;
-      if (used.has(bi)) continue;
-      const building = map.buildings[bi] as Building;
-      const door = findDoorway(map, building);
-      if (!door) continue;
-      // Keep shops apart so districts share the wealth.
-      const tooClose = map.shops.some(
-        (s) => Math.abs(s.doorX - door.x) + Math.abs(s.doorY - door.y) < 20,
-      );
-      if (tooClose) continue;
-      const room = carveInterior(map, building, door, kind === 'spray');
-      if (!room) continue;
-      map.shops.push({
-        kind,
-        doorX: door.x,
-        doorY: door.y,
-        buildingIndex: bi,
-        interior: room.interior,
-        entryX: room.entryX,
-        entryY: room.entryY,
-      });
-      used.add(bi);
-      placed++;
+/** Undo carveInterior: the whole footprint goes back to being solid wall. */
+function fillSolid(map: CityMap, b: Building): void {
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      map.tiles[ty * map.widthTiles + tx] = T_BUILDING;
     }
   }
-  return rng;
+}
+
+/**
+ * The fraction of a nominal window one arterial cell covers — the exchange
+ * rate that turns per-window quotas ("3 gun shops", "4 hospitals") into
+ * per-cell probabilities, so density stays constant no matter how large a
+ * window is materialised or where it sits. A pure function of params only:
+ * window position must never change what exists.
+ */
+function cellQuotaFrac(params: WorldgenParams): number {
+  return (
+    (params.arterialSpacing * params.arterialSpacing) /
+    (params.widthTiles * params.heightTiles)
+  );
+}
+
+/** Fully inside the window: the bar for anything that carves or stamps. */
+function insideWindow(map: CityMap, x: number, y: number, w: number, h: number): boolean {
+  return x >= 0 && y >= 0 && x + w <= map.widthTiles && y + h <= map.heightTiles;
+}
+
+/**
+ * Shops, per cell (WORLDGEN.md §9.2 content layer, chunk-local): each kind
+ * attempts placement on its own coverage lattice — every Mth cell, where M
+ * comes from the per-window quota — rather than rolling a probability. A
+ * player anywhere in the unbounded world is a bounded number of cells from
+ * a gun shop by construction, not by luck; a probability roll made the
+ * quota a statistical hope and some windows opened with one gun shop.
+ * A cell straddling the window edge only carves buildings fully inside —
+ * the one edge effect, confined to the window rim by construction.
+ */
+export function placeShops(
+  map: CityMap,
+  params: WorldgenParams,
+  cellBuildings: Array<{ cell: WorldCell; start: number; end: number }>,
+  seed: number,
+): void {
+  const frac = cellQuotaFrac(params);
+  const SHOP_LATTICE_OFFSET: Record<'gun' | 'clothing' | 'spray', number> = {
+    gun: 0,
+    clothing: 2,
+    spray: 1,
+  };
+  for (const { cell, start, end } of cellBuildings) {
+    let rng = seedRng(deriveSeed(seed, `cell.shops.${cell.i}.${cell.j}`));
+    const used = new Set(map.shops.map((s) => s.buildingIndex));
+    for (const kind of ['gun', 'clothing', 'spray'] as const) {
+      const every = Math.max(1, Math.round(1 / (params.shopQuota[kind] * frac)));
+      if (mod(cell.i * 2 + cell.j * 3 + SHOP_LATTICE_OFFSET[kind], every) !== 0) continue;
+
+      const preferred = SHOP_DISTRICTS[kind];
+      // Candidates in preference order, roomy first — a 3x3 footprint
+      // leaves a single tile of floor behind the counter, so the small
+      // ones are the fallback, not the norm.
+      const candidates: number[] = [];
+      for (const minSize of [5, 3]) {
+        for (const d of preferred) {
+          for (let bi = start; bi < end; bi++) {
+            const b = map.buildings[bi] as Building;
+            const size = Math.min(b.w, b.h);
+            if (b.district !== d || size < minSize) continue;
+            if (minSize === 3 && size >= 5) continue; // already in the first pass
+            if (!insideWindow(map, b.x, b.y, b.w, b.h)) continue;
+            candidates.push(bi);
+          }
+        }
+      }
+      while (candidates.length > 0) {
+        let pick: number;
+        [pick, rng] = nextIntRange(rng, 0, candidates.length);
+        const bi = candidates.splice(pick, 1)[0] as number;
+        if (used.has(bi)) continue;
+        const building = map.buildings[bi] as Building;
+        const door = findDoorway(map, building);
+        if (!door) continue;
+        const room = carveInterior(map, building, door, kind === 'spray');
+        if (!room) continue;
+        // A respray you cannot drive into is not a respray: if the wide
+        // door failed to open on this building, wall it back up and try
+        // the next candidate rather than shipping a garage for pedestrians.
+        if (kind === 'spray' && !room.gotWide) {
+          fillSolid(map, building);
+          continue;
+        }
+        map.shops.push({
+          kind,
+          doorX: door.x,
+          doorY: door.y,
+          buildingIndex: bi,
+          interior: room.interior,
+          entryX: room.entryX,
+          entryY: room.entryY,
+        });
+        used.add(bi);
+        break; // one of each kind per cell at most
+      }
+    }
+  }
 }
 
 /** Parked-car spawn points along road edges (consumed by phase 3). */
@@ -607,12 +663,19 @@ export function placeBoatSpawns(map: CityMap): void {
         }
       }
       if (!roomy) continue;
-      // ...and dry land within reach, or nobody can get aboard.
+      // ...and dry land within reach, or nobody can get aboard. The quay
+      // is the natural mooring edge — that is what it is for.
       let bank = false;
       for (let dy = -3; dy <= 3 && !bank; dy++) {
         for (let dx = -3; dx <= 3; dx++) {
           const near = t(map, tx + dx, ty + dy);
-          if (near === T_SIDEWALK || near === T_ROAD || near === T_PARK || near === T_LOT) {
+          if (
+            near === T_BANK ||
+            near === T_SIDEWALK ||
+            near === T_ROAD ||
+            near === T_PARK ||
+            near === T_LOT
+          ) {
             bank = true;
             break;
           }
@@ -659,63 +722,96 @@ const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
   police: ['downtown', 'commercial', 'residential'],
 };
 
-/**
- * Landmarks: a handful of oversized, distinctly-shaped, NAMED structures.
- *
- * Every building on this map was an anonymous coloured rectangle, so there
- * was nothing to navigate by and nothing to arrange to meet at. Hospitals are
- * landmarks too, because respawning somewhere you can recognise is the
- * difference between a setback and a teleport.
- */
-export function placeLandmarks(map: CityMap, rng: number): number {
-  const wanted: Array<[LandmarkKind, number]> = [
-    ['hospital', 4],
-    ['police', 3],
-    ['tower', 2],
-    ['stadium', 1],
-    ['power', 1],
-  ];
-  const taken: Landmark[] = [];
+/** Weights for the rolled (non-coverage) landmark kinds, per nominal window. */
+const ROLLED_LANDMARKS: Array<[LandmarkKind, number]> = [
+  ['tower', 2],
+  ['stadium', 1],
+  ['power', 1],
+];
 
-  for (const [kind, count] of wanted) {
-    const [minW, minH] = LANDMARK_SIZE[kind];
-    // Candidate blocks: big enough, right district, far from the others.
-    const candidates: number[] = [];
-    for (const district of LANDMARK_DISTRICTS[kind]) {
-      for (let i = 0; i < map.blocks.length; i++) {
-        const b = map.blocks[i] as BlockRect;
-        if (b.district !== district) continue;
-        if (b.w < minW + 2 || b.h < minH + 2) continue;
-        candidates.push(i);
+/** ((n % m) + m) % m — lattice indices go negative in an unbounded world. */
+function mod(n: number, m: number): number {
+  return ((n % m) + m) % m;
+}
+
+/**
+ * Landmarks, per cell (chunk-local): oversized, distinctly-shaped, NAMED
+ * structures to navigate by.
+ *
+ * Hospitals and police stations are NOT rolled — they are placed on a
+ * coverage lattice (every second cell each way, offset so the two never
+ * collide), because they are respawn/release points: "you are never more
+ * than ~two cells from where you'll wake up" is a guarantee, not a
+ * probability (WORLDGEN.md §6.2). Towers, stadiums and power stations are
+ * flavour, and flavour rolls.
+ */
+export function placeLandmarks(
+  map: CityMap,
+  params: WorldgenParams,
+  cells: WorldCell[],
+  seed: number,
+): void {
+  const frac = cellQuotaFrac(params);
+
+  for (const cell of cells) {
+    let rng = seedRng(deriveSeed(seed, `cell.landmarks.${cell.i}.${cell.j}`));
+
+    // Coverage lattice first, roll for flavour otherwise. One landmark per
+    // cell at most — cells are an arterial pitch across, so spacing between
+    // landmarks emerges from the lattice instead of a min-distance scan.
+    let kind: LandmarkKind | null = null;
+    if (mod(cell.i, 2) === 0 && mod(cell.j, 2) === 0) kind = 'hospital';
+    else if (mod(cell.i, 2) === 1 && mod(cell.j, 2) === 1) kind = 'police';
+    else {
+      let roll: number;
+      [roll, rng] = nextFloat01(rng);
+      let acc = 0;
+      for (const [k, count] of ROLLED_LANDMARKS) {
+        // The coverage lattice claims half the cells, so the rolled kinds
+        // spread their per-window counts over the half that remains.
+        acc += count * frac * 2;
+        if (roll < acc) {
+          kind = k;
+          break;
+        }
       }
     }
-    let placed = 0;
-    let guard = candidates.length;
-    while (placed < count && candidates.length > 0 && guard-- > 0) {
+    if (kind === null) continue;
+
+    const [minW, minH] = LANDMARK_SIZE[kind];
+    const candidates: BlockRect[] = [];
+    for (const district of LANDMARK_DISTRICTS[kind]) {
+      for (const b of cell.blocks) {
+        if (b.district !== district) continue;
+        if (b.w < minW + 2 || b.h < minH + 2) continue;
+        // Stamping and doorways only work fully inside the window; a cell
+        // on the rim skips, and the same cell seen whole in another window
+        // places it — edge effects stay confined to the rim.
+        if (!insideWindow(map, b.x, b.y, b.w, b.h)) continue;
+        candidates.push(b);
+      }
+    }
+    while (candidates.length > 0) {
       let pick: number;
       [pick, rng] = nextIntRange(rng, 0, candidates.length);
-      const b = map.blocks[candidates.splice(pick, 1)[0] as number] as BlockRect;
-
+      const b = candidates.splice(pick, 1)[0] as BlockRect;
       const x = b.x + 1;
       const y = b.y + 1;
       const w = Math.min(minW, b.w - 2);
       const h = Math.min(minH, b.h - 2);
       if (w < 3 || h < 3) continue;
-      // Never on the river, and never on top of another landmark.
+      // Never on the water, and never on the quay that lines it.
       let clear = true;
       for (let ty = y; ty < y + h && clear; ty++) {
         for (let tx = x; tx < x + w; tx++) {
-          if (t(map, tx, ty) === T_WATER) {
+          const tile = t(map, tx, ty);
+          if (tile === T_WATER || tile === T_BANK) {
             clear = false;
             break;
           }
         }
       }
       if (!clear) continue;
-      const tooClose = taken.some(
-        (l) => Math.abs(l.x - x) + Math.abs(l.y - y) < 40,
-      );
-      if (tooClose) continue;
 
       // Stamp it as one solid structure and register it as a building so the
       // renderer and collision treat it like any other.
@@ -727,9 +823,9 @@ export function placeLandmarks(map: CityMap, rng: number): number {
       map.buildings.push({ x, y, w, h, district: b.district });
 
       const names = LANDMARK_NAMES[kind];
-      const name = names[(placed + taken.length) % names.length] as string;
+      const name = names[mod(cell.i * 7 + cell.j * 13, names.length)] as string;
       const door = findDoorway(map, { x, y, w, h, district: b.district });
-      const landmark: Landmark = {
+      map.landmarks.push({
         kind,
         name,
         x,
@@ -738,10 +834,8 @@ export function placeLandmarks(map: CityMap, rng: number): number {
         h,
         doorX: door ? (door.x + 0.5) * TILE_SIZE : (x + w / 2) * TILE_SIZE,
         doorY: door ? (door.y + 0.5) * TILE_SIZE : (y + h + 1) * TILE_SIZE,
-      };
-      taken.push(landmark);
-      map.landmarks.push(landmark);
-      placed++;
+      });
+      break;
     }
   }
 
@@ -751,8 +845,6 @@ export function placeLandmarks(map: CityMap, rng: number): number {
   map.policeStations = map.landmarks
     .filter((l) => l.kind === 'police')
     .map((l) => ({ x: l.doorX, y: l.doorY }));
-
-  return rng;
 }
 
 
@@ -872,8 +964,11 @@ export function placePayphones(map: CityMap): void {
   map.payphones = spots;
 }
 
-export function placeRamps(map: CityMap): void {
-  let n = 0;
+export function placeRamps(map: CityMap, params: WorldgenParams, seed: number): void {
+  // Hash-gated per GLOBAL position, not every-Nth-candidate: ramps mutate
+  // tiles, and a counter would make the tile a function of the window
+  // rather than of the world.
+  const rampSeed = deriveSeed(seed, 'ramps');
   for (let ty = 2; ty < map.heightTiles - 2; ty++) {
     for (let tx = 2; tx < map.widthTiles - 2; tx++) {
       if (t(map, tx, ty) !== T_LOT) continue;
@@ -881,8 +976,7 @@ export function placeRamps(map: CityMap): void {
       const runX = t(map, tx - 2, ty) === T_LOT && t(map, tx - 1, ty) === T_LOT;
       const runY = t(map, tx, ty - 2) === T_LOT && t(map, tx, ty - 1) === T_LOT;
       if (!runX && !runY) continue;
-      n++;
-      if (n % 90 !== 0) continue;
+      if (latticeHash(rampSeed, tx + params.windowX, ty + params.windowY) >= 1 / 90) continue;
       map.tiles[ty * map.widthTiles + tx] = T_RAMP;
     }
   }

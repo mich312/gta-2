@@ -22,6 +22,8 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { isSolidTile } from '../src/world/collide.js';
+import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
 import { clearSpot } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
@@ -79,11 +81,42 @@ describe('weapon noise (M2)', () => {
   });
 
   it('being heard by an officer costs heat; being quiet does not', () => {
+    // The officer must be in EARSHOT of anything loud but out of SIGHT:
+    // noticedBy is hearing OR line of sight, so an officer with a clear
+    // view is noticed by a silenced shot too — correctly. The old staging
+    // (a flat +60,+60 offset) passed only while a wall happened to sit on
+    // that diagonal. Find the wall deliberately: walk a cardinal from the
+    // shooter to the first building, then post the officer just past it.
+    const copSpotBehindWall = (p: { x: number; y: number }): { x: number; y: number } | null => {
+      const tx0 = Math.floor(p.x / TILE_SIZE);
+      const ty0 = Math.floor(p.y / TILE_SIZE);
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        for (let s = 2; s <= 10; s++) {
+          if (map.tiles[(ty0 + dy * s) * map.widthTiles + (tx0 + dx * s)] !== T_BUILDING) continue;
+          for (let s2 = s + 1; s2 <= s + 6 && s2 <= 13; s2++) {
+            const tx = tx0 + dx * s2;
+            const ty = ty0 + dy * s2;
+            const tile = map.tiles[ty * map.widthTiles + tx];
+            if (tile === T_BUILDING) continue;
+            if (isSolidTile(map, tx, ty, 'land')) break;
+            return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+          }
+          break;
+        }
+      }
+      return null;
+    };
     const cost = (weaponId: string): number => {
       const { state, aim } = armed(weaponId);
       const p = state.players.byId[1]!;
-      // An officer standing right there, in earshot of anything loud.
-      insertEntity(state.cops, createCop(700, { x: p.pos.x + 60, y: p.pos.y + 60 }, 50));
+      const spot = copSpotBehindWall(p.pos);
+      expect(spot, 'no wall to post the officer behind near this spawn').not.toBeNull();
+      insertEntity(state.cops, createCop(700, spot!, 50));
       const before = state.players.byId[1]!.heat;
       const after = fire(state, aim, 1);
       return after.players.byId[1]!.heat - before;

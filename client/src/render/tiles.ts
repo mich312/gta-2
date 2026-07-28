@@ -10,6 +10,7 @@ import {
   T_SIDEWALK,
   T_WATER,
   T_BRIDGE,
+  T_BANK,
   T_RAMP,
   T_FLOOR,
   TILE_SIZE,
@@ -366,6 +367,9 @@ export class TileLayer {
       case T_WATER:
         this.paintWater(ctx, tx, ty, x, y);
         break;
+      case T_BANK:
+        this.paintBank(ctx, tx, ty, x, y);
+        break;
       case T_BRIDGE:
         this.paintBridge(ctx, tx, ty, x, y);
         break;
@@ -411,6 +415,31 @@ export class TileLayer {
     if (this.tileAt(tx - 1, ty) !== T_WATER && this.tileAt(tx - 1, ty) !== T_BRIDGE) {
       ctx.fillRect(x, y, Math.max(1, (TD / 14) | 0), TD);
     }
+  }
+
+  /**
+   * Quay/embankment: flat waterfront stone with a lighter coping course
+   * along the water's edge, so the drop into the river reads at a glance.
+   */
+  private paintBank(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    ctx.fillStyle = palette.bank;
+    ctx.fillRect(x, y, TD, TD);
+    ctx.fillStyle = palette.bankEdge;
+    const lip = Math.max(1, (TD / 8) | 0);
+    const wet = (nx: number, ny: number): boolean => {
+      const t = this.tileAt(nx, ny);
+      return t === T_WATER || t === T_BRIDGE;
+    };
+    if (wet(tx, ty - 1)) ctx.fillRect(x, y, TD, lip);
+    if (wet(tx, ty + 1)) ctx.fillRect(x, y + TD - lip, TD, lip);
+    if (wet(tx - 1, ty)) ctx.fillRect(x, y, lip, TD);
+    if (wet(tx + 1, ty)) ctx.fillRect(x + TD - lip, y, lip, TD);
   }
 
   /** Bridge deck: road surface with a rail down each side. */

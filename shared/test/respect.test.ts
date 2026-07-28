@@ -21,6 +21,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { clearSpot } from './helpers.js';
 
 const worldgen = parseWorldgenParams(worldgenJson);
 const map = generateCity(777, worldgen);
@@ -51,7 +52,11 @@ function withGangMember(gangId: number, pedId = 40): GameState {
   const at = turfOf(gangId);
   let state = createGameState(777);
   state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
-  state.players.byId[1]!.pos = { x: at.x + 40, y: at.y };
+  // Along a CLEAR line from the ped, not a flat +x offset: hostile-gang
+  // tests need the member's shots to be able to reach the player, and a
+  // fixed offset parks the player inside whatever wall the map put there.
+  const spot = clearSpot(map, at, 40);
+  state.players.byId[1]!.pos = { x: spot.x, y: spot.y };
   state = step(state, {}, [{ type: 'spawnPed', pedId, x: at.x, y: at.y }], map);
   expect(state.peds.byId[pedId]!.gangId, 'that ped id should be a member').toBe(gangId);
   return state;
@@ -151,9 +156,15 @@ describe('respect (H2)', () => {
     const at = turfOf(1);
     let state = createGameState(777);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'friend' }], map);
-    state.players.byId[1]!.pos = { x: at.x + 30, y: at.y };
+    // Officer and fugitive along the same CLEAR line from the gang member,
+    // so the member's covering fire has an actual line to the officer.
+    const dir = clearSpot(map, at, 30);
+    state.players.byId[1]!.pos = { x: dir.x, y: dir.y };
     state = step(state, {}, [{ type: 'spawnPed', pedId: 40, x: at.x, y: at.y }], map);
-    insertEntity(state.cops, createCop(500, { x: at.x + 12, y: at.y }, 50));
+    insertEntity(
+      state.cops,
+      createCop(500, { x: at.x + Math.cos(dir.angle) * 12, y: at.y + Math.sin(dir.angle) * 12 }, 50),
+    );
     const healthBefore = state.cops.byId[500]!.health;
 
     for (let i = 0; i < 120; i++) {
