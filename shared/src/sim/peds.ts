@@ -90,6 +90,11 @@ export function stepPeds(
       continue;
     }
 
+    // Somebody you are meant to be protecting. Checked first and overriding
+    // everything: an escortee who wandered off because a car went past would
+    // fail the mission for reasons the player could do nothing about.
+    if (ped.escortOf !== null && stepEscortee(state, map, ped)) continue;
+
     // Gang members with a grudge, on their own ground. Checked before the
     // panic rules, and it overrides them: somebody who has decided to shoot
     // at you does not also run away from the noise.
@@ -253,6 +258,46 @@ function stepHostileGangMember(
   }
   return true;
 }
+
+/**
+ * Tagging along behind whoever you have been assigned to.
+ *
+ * A change of destination rather than a new walker: the same collision-aware
+ * step the crowd already uses, aimed at a player instead of at a wander
+ * heading. Falls back to standing still when close enough, so an escortee
+ * does not shove the person they are following around the pavement.
+ *
+ * Returns false when there is nobody to follow any more, which drops them
+ * back into the ordinary crowd rules rather than freezing them.
+ */
+function stepEscortee(state: GameState, map: CityMap, ped: PedState): boolean {
+  const lead = ped.escortOf === null ? undefined : state.players.byId[ped.escortOf];
+  if (!lead || lead.mode === 'dead') {
+    ped.escortOf = null;
+    ped.mode = 'walk';
+    return false;
+  }
+  ped.mode = 'following';
+  const dx = lead.pos.x - ped.pos.x;
+  const dy = lead.pos.y - ped.pos.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 0.001) return true;
+  ped.dirX = dx / d;
+  ped.dirY = dy / d;
+  // Close enough is close enough: pushing in reads as harassment.
+  if (d < ESCORT_KEEP) return true;
+  if ((state.tick + ped.id) % 3 !== 0) return true;
+  const t = getTuning().peds;
+  const speed = d > ESCORT_KEEP * 3 ? t.fleeSpeed : t.walkSpeed;
+  const vel = { x: ped.dirX * speed, y: ped.dirY * speed };
+  moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+  ped.pos.x = q8(ped.pos.x);
+  ped.pos.y = q8(ped.pos.y);
+  return true;
+}
+
+/** How close an escortee tries to stay, px. */
+const ESCORT_KEEP = 34;
 
 /** Shots and cars kill pedestrians; that's a crime with a heat price. */
 export function damagePed(

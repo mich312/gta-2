@@ -123,6 +123,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashString(h, ped.mode);
     h = hashNumber(h, ped.health);
     h = hashNumber(h, ped.timer);
+    h = hashNumber(h, ped.escortOf ?? -1);
   }
   for (const prop of snap.props) {
     h = hashNumber(h, prop.id);

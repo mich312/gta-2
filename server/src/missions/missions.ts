@@ -39,7 +39,9 @@ export type MissionKind =
   /** Hit an ordered list of markers before the clock does. */
   | 'race'
   /** Drive a bomb-fitted car to a target and set it off. */
-  | 'bomb';
+  | 'bomb'
+  /** Walk somebody across town without losing them. */
+  | 'escort';
 export type MissionTier = 'green' | 'yellow' | 'red';
 
 export interface MissionSpec {
@@ -56,6 +58,8 @@ export interface MissionSpec {
   needsStars?: number;
   /** escape: seconds you must stay clean at the marker. */
   holdSeconds?: number;
+  /** escort: how far you may get from them before they are lost, px. */
+  loseDistance?: number;
 }
 
 export interface ActiveMission {
@@ -74,6 +78,10 @@ export interface ActiveMission {
   route?: Vec2[];
   /** For an escape: tick the hold completes on, or null before it starts. */
   holdUntilTick?: number | null;
+  /** For an escort: the pedestrian in your care. */
+  escorteeId?: number;
+  /** For a delivery: the vehicle the job depends on, once you are in it. */
+  vehicleId?: number;
   /**
    * For an escape: have you ever actually been as hot as the job requires?
    *
@@ -113,6 +121,7 @@ const SPECS: MissionSpec[] = [
   { kind: 'race', tier: 'green', needs: -10, seconds: 95, count: 4, pay: 700 },
   { kind: 'race', tier: 'red', needs: 35, seconds: 110, count: 6, pay: 2400 },
   { kind: 'bomb', tier: 'red', needs: 35, seconds: 140, count: 1, pay: 2800 },
+  { kind: 'escort', tier: 'yellow', needs: 10, seconds: 160, count: 1, pay: 1400, loseDistance: 260 },
 ];
 
 /** How close counts as reaching a marker, px. */
@@ -135,6 +144,7 @@ export class Missions {
   private nextId = 1;
   /** Rotates which spec a given phone offers, so a phone is not one job forever. */
   private offerCursor = 0;
+  private pendingCommands: SimCommand[] = [];
 
   /** How close you have to be to answer. */
   private readonly reach = 40;
@@ -225,6 +235,15 @@ export class Missions {
     } else if (spec.kind === 'race') {
       mission.route = raceRoute(map, p.pos, spec.count, mission.id);
       mission.marker = mission.route[0] ?? null;
+    } else if (spec.kind === 'escort') {
+      // The nearest civilian on foot becomes your problem. Chosen here rather
+      // than spawned, because a person who appears out of nowhere to be
+      // escorted is a person the player has no reason to care about.
+      const pick = nearestCivilian(state, p.pos);
+      if (pick === null) return 'nobody here needs walking anywhere';
+      mission.escorteeId = pick;
+      mission.marker = homeOf(map, employer);
+      this.pendingCommands.push({ type: 'setEscort', pedId: pick, playerId });
     } else if (spec.kind === 'bomb') {
       // The target is a rival's home ground: a bomb job is a message.
       const rival = getTuning().gangs.gangs.find((g) => g.id === employer)?.rivals[0] ?? 0;
@@ -234,7 +253,18 @@ export class Missions {
     return null;
   }
 
+  /** Commands the take() above queued, drained by the caller. */
+  drainCommands(): SimCommand[] {
+    const out = this.pendingCommands;
+    this.pendingCommands = [];
+    return out;
+  }
+
   abandon(playerId: number): void {
+    const m = this.active.get(playerId);
+    if (m?.escorteeId !== undefined) {
+      this.pendingCommands.push({ type: 'setEscort', pedId: m.escorteeId, playerId: null });
+    }
     this.active.delete(playerId);
   }
 
@@ -325,6 +355,43 @@ export class Missions {
         }
       }
 
+      if (m.spec.kind === 'escort') {
+        const ped = m.escorteeId === undefined ? undefined : state.peds.byId[m.escorteeId];
+        if (!ped || ped.mode === 'downed') {
+          this.fail(out, playerId, 'they did not make it');
+          continue;
+        }
+        const gap = Math.hypot(ped.pos.x - p.pos.x, ped.pos.y - p.pos.y);
+        if (gap > (m.spec.loseDistance ?? 260)) {
+          this.fail(out, playerId, 'you lost them');
+          continue;
+        }
+        if (
+          m.marker &&
+          Math.abs(ped.pos.x - m.marker.x) < MARKER_REACH &&
+          Math.abs(ped.pos.y - m.marker.y) < MARKER_REACH
+        ) {
+          m.progress = m.spec.count;
+        }
+      }
+
+      // The car a job depends on, wrecked. Remembered the moment you get into
+      // the right one, so losing it is a failure rather than a shrug and a
+      // walk to find another.
+      if (m.spec.kind === 'delivery') {
+        if (m.vehicleId === undefined && p.mode === 'driving' && p.vehicleId !== null) {
+          const v = state.vehicles.byId[p.vehicleId];
+          if (v && v.kind === m.wantKind) m.vehicleId = v.id;
+        }
+        if (m.vehicleId !== undefined) {
+          const v = state.vehicles.byId[m.vehicleId];
+          if (!v || v.condition === 'wreck') {
+            this.fail(out, playerId, 'the car is a write-off');
+            continue;
+          }
+        }
+      }
+
       if (m.spec.kind === 'bomb' && m.marker) {
         for (const ev of events) {
           if (ev.type !== 'explosion') continue;
@@ -338,6 +405,7 @@ export class Missions {
       if (m.progress !== before) out.changed.add(playerId);
 
       if (m.progress >= m.spec.count) {
+        this.release(out, m);
         this.active.delete(playerId);
         creditGangFavour(p, m.employer, getTuning().respect.missionFavour);
         out.completed.push({ playerId, employer: m.employer, pay: m.spec.pay });
@@ -352,9 +420,20 @@ export class Missions {
   }
 
   private fail(out: MissionOutcome, playerId: number, why: string): void {
+    this.release(out, this.active.get(playerId));
     this.active.delete(playerId);
     out.notices.push({ playerId, text: `job failed — ${why}` });
     out.changed.add(playerId);
+  }
+
+  /**
+   * Hand an escortee back to the crowd. Called on every exit from a mission —
+   * success, failure, abandonment — because a person still following you
+   * after the job ended is a bug you notice ten minutes later.
+   */
+  private release(out: MissionOutcome, m: ActiveMission | undefined): void {
+    if (m?.escorteeId === undefined) return;
+    out.commands.push({ type: 'setEscort', pedId: m.escorteeId, playerId: null });
   }
 }
 
@@ -375,6 +454,8 @@ function describe(m: ActiveMission): string {
       return `${m.spec.count} checkpoints, in order`;
     case 'bomb':
       return 'put a bomb car on their doorstep';
+    case 'escort':
+      return 'walk them home, and keep them alive';
   }
 }
 
@@ -413,6 +494,22 @@ function nearestRoad(map: CityMap, want: Vec2): Vec2 | null {
     }
   }
   return null;
+}
+
+/** Nearest civilian on foot, by id order for ties. */
+function nearestCivilian(state: GameState, from: Vec2): number | null {
+  let best: number | null = null;
+  let bestD = Infinity;
+  for (const id of state.peds.ids) {
+    const ped = state.peds.byId[id];
+    if (!ped || ped.gangId !== 0 || ped.mode === 'downed' || ped.escortOf !== null) continue;
+    const d = (ped.pos.x - from.x) ** 2 + (ped.pos.y - from.y) ** 2;
+    if (d < bestD) {
+      bestD = d;
+      best = id;
+    }
+  }
+  return best;
 }
 
 function nearestCrane(map: CityMap, from: Vec2): Vec2 | null {

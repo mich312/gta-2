@@ -312,3 +312,129 @@ describe('three more mission kinds (N1)', () => {
     }
   });
 });
+
+describe('escort, and losing the car (N2)', () => {
+  /** A player at a phone with a crowd around them, and a forced mission kind. */
+  function withCrowd(kind: string): { missions: Missions; state: GameState } {
+    const { state: base } = atPhone();
+    let state = base;
+    const p = state.players.byId[1]!;
+    p.respect = p.respect.map(() => 60);
+    // Somebody to walk home.
+    const cmds = [];
+    for (let i = 0; i < 8; i++) {
+      cmds.push({
+        type: 'spawnPed' as const,
+        pedId: 4000 + i,
+        x: p.pos.x + 20 + i * 6,
+        y: p.pos.y + 12,
+      });
+    }
+    state = step(state, {}, cmds, map);
+    state.players.byId[1]!.pos = { x: p.pos.x, y: p.pos.y };
+
+    const missions = new Missions();
+    for (let i = 0; i < 40; i++) {
+      missions.abandon(1);
+      if (missions.take(1, state, map) !== null) continue;
+      if (missions.activeFor(1)?.spec.kind === kind) {
+        // Carry out whatever take() queued, e.g. assigning the escortee.
+        state = step(state, {}, missions.drainCommands(), map);
+        return { missions, state };
+      }
+    }
+    throw new Error(`board never offered a ${kind}`);
+  }
+
+  it('an escortee follows, and is somebody who was already there', () => {
+    const { missions, state: base } = withCrowd('escort');
+    let state = base;
+    const m = missions.activeFor(1)!;
+    expect(m.escorteeId).toBeDefined();
+    const ped = state.peds.byId[m.escorteeId!]!;
+    expect(ped.escortOf).toBe(1);
+    expect(ped.gangId).toBe(0); // a civilian, not somebody's soldier
+
+    // Walk away; they close the gap rather than wandering off.
+    const p = state.players.byId[1]!;
+    p.pos = { x: p.pos.x + 120, y: p.pos.y };
+    const before = Math.hypot(
+      state.peds.byId[m.escorteeId!]!.pos.x - p.pos.x,
+      state.peds.byId[m.escorteeId!]!.pos.y - p.pos.y,
+    );
+    for (let i = 0; i < 60; i++) state = step(state, {}, [], map);
+    const after = Math.hypot(
+      state.peds.byId[m.escorteeId!]!.pos.x - state.players.byId[1]!.pos.x,
+      state.peds.byId[m.escorteeId!]!.pos.y - state.players.byId[1]!.pos.y,
+    );
+    expect(after).toBeLessThan(before);
+    expect(state.peds.byId[m.escorteeId!]!.mode).toBe('following');
+  });
+
+  it('killing them fails it, and leaving them behind fails it', () => {
+    {
+      const { missions, state } = withCrowd('escort');
+      const m = missions.activeFor(1)!;
+      state.peds.byId[m.escorteeId!]!.mode = 'downed';
+      const out = missions.step([], state, map);
+      expect(out.notices.some((n) => /did not make it/.test(n.text))).toBe(true);
+      expect(missions.activeFor(1)).toBeUndefined();
+    }
+    {
+      const { missions, state } = withCrowd('escort');
+      const m = missions.activeFor(1)!;
+      state.players.byId[1]!.pos = { x: state.players.byId[1]!.pos.x + 4000, y: 0 };
+      const out = missions.step([], state, map);
+      expect(out.notices.some((n) => /lost them/.test(n.text))).toBe(true);
+    }
+  });
+
+  it('an escortee is handed back to the crowd when the job ends', () => {
+    // A person still following you after the job ended is a bug you notice
+    // ten minutes later.
+    const { missions, state } = withCrowd('escort');
+    const m = missions.activeFor(1)!;
+    state.players.byId[1]!.pos = { x: 4000, y: 0 };
+    const out = missions.step([], state, map);
+    expect(
+      out.commands.some(
+        (c) => c.type === 'setEscort' && c.pedId === m.escorteeId && c.playerId === null,
+      ),
+    ).toBe(true);
+  });
+
+  it('a delivery fails when the car is written off', () => {
+    const { missions, state: base } = withCrowd('delivery');
+    let state = base;
+    const m = missions.activeFor(1)!;
+    const p = state.players.byId[1]!;
+    // Get into the right kind of car...
+    state = step(
+      state,
+      {},
+      [
+        {
+          type: 'spawnVehicle',
+          vehicleId: 4100,
+          kind: m.wantKind ?? 'bus',
+          x: p.pos.x,
+          y: p.pos.y,
+          heading: 0,
+        },
+      ],
+      map,
+    );
+    const me = state.players.byId[1]!;
+    me.mode = 'driving';
+    me.vehicleId = 4100;
+    state.vehicles.byId[4100]!.driverId = 1;
+    missions.step([], state, map);
+    expect(missions.activeFor(1)!.vehicleId).toBe(4100);
+
+    // ...and lose it.
+    state.vehicles.byId[4100]!.condition = 'wreck';
+    const out = missions.step([], state, map);
+    expect(out.notices.some((n) => /write-off/.test(n.text))).toBe(true);
+    expect(missions.activeFor(1)).toBeUndefined();
+  });
+});

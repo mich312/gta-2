@@ -325,6 +325,19 @@ export function render(
   drawPickups(ctx, scene.remotes.pickups, dx, dy, lights, scene.nowMs);
 
   for (const pd of scene.remotes.peds) {
+    // Somebody in your care, marked. An unmarked NPC you must protect is a
+    // mission you fail without ever knowing which person mattered.
+    if (pd.ped.escortOf !== null) {
+      const mx = dx(pd.x);
+      const my = dy(pd.y) - (PLAYER_RADIUS + 7) * RENDER_SCALE;
+      ctx.fillStyle = '#ffd27a';
+      ctx.beginPath();
+      ctx.moveTo(mx, my + 4 * RENDER_SCALE);
+      ctx.lineTo(mx - 3 * RENDER_SCALE, my);
+      ctx.lineTo(mx + 3 * RENDER_SCALE, my);
+      ctx.closePath();
+      ctx.fill();
+    }
     const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
     const variant = pd.ped.id % PED_VARIANTS;
     drawCharacter(

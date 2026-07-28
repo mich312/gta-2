@@ -33,5 +33,15 @@ export type SimCommand =
   | { type: 'fitVehicle'; playerId: number; fitting: string; ammo: number }
   /** Patched up at a hospital counter. */
   | { type: 'healPlayer'; playerId: number; health: number; armour: number }
+  | {
+      /**
+       * Put a pedestrian in somebody's care, or take them out of it with a
+       * null playerId. Issued by the mission system, which chooses who — the
+       * sim only carries out the assignment.
+       */
+      type: 'setEscort';
+      pedId: number;
+      playerId: number | null;
+    }
   /** Into the back of an ambulance or a taxi: off the map until dropped off. */
   | { type: 'despawnPed'; pedId: number };

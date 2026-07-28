@@ -282,6 +282,14 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       }
       break;
     }
+    case 'setEscort': {
+      const ped = state.peds.byId[cmd.pedId];
+      if (ped) {
+        ped.escortOf = cmd.playerId;
+        if (cmd.playerId === null && ped.mode === 'following') ped.mode = 'walk';
+      }
+      break;
+    }
     case 'despawnPed': {
       removeEntity(state.peds, cmd.pedId);
       break;

@@ -110,7 +110,7 @@ const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
 // Append-only: the index is the wire format, so a new mode goes on the end.
-const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'fighting'] as const;
+const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'fighting', 'following'] as const;
 const PICKUP_KINDS = [
   'health',
   'armour',
@@ -521,6 +521,7 @@ const PED_CODECS: Array<FieldCodec<PedState>> = [
   f('mode', (w, p) => w.u8(PED_MODES.indexOf(p.mode)), (r, o) => (o['mode'] = PED_MODES[r.u8()])),
   f('health', (w, p) => w.f64(p.health), (r, o) => (o['health'] = r.f64())),
   f('timer', (w, p) => w.int(p.timer), (r, o) => (o['timer'] = r.int())),
+  f('escortOf', (w, p) => w.optInt(p.escortOf), (r, o) => (o['escortOf'] = r.optInt())),
 ];
 
 const PROP_CODECS: Array<FieldCodec<PropState>> = [

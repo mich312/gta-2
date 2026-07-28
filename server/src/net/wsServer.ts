@@ -115,6 +115,10 @@ export class GameServer {
     // Missions advance on the same tick as everything else they read.
     const outcome = this.missions.step(this.session.lastEvents, this.session.state, this.session.map);
     for (const cmd of outcome.commands) this.session.queueCommand(cmd);
+    // Anything take() or abandon() queued between ticks — assigning or
+    // releasing an escortee. Drained here so it reaches the sim through the
+    // same command path as everything else missions do.
+    for (const cmd of this.missions.drainCommands()) this.session.queueCommand(cmd);
     for (const n of outcome.notices) {
       this.byPlayer.get(n.playerId)?.send({
         type: 'event',

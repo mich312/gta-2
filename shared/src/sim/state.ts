@@ -124,6 +124,8 @@ export type PedMode =
   | 'hostile'
   /** Squaring up to a RIVAL GANG, on contested ground. See gangwar.ts. */
   | 'fighting'
+  /** Tagging along behind a player, because a mission said so. See peds.ts. */
+  | 'following'
   | 'downed';
 
 export interface PedState {
@@ -142,6 +144,12 @@ export interface PedState {
   health: number;
   /** Ticks until the next wander turn (walk) or until calming down (flee). */
   timer: number;
+  /**
+   * Who this pedestrian is following, or null. Set by a mission command and
+   * cleared when the job ends; one nullable id on one ped at a time, which is
+   * the cheapest way to have somebody to protect.
+   */
+  escortOf: number | null;
 }
 
 export type VehicleCondition = 'ok' | 'burning' | 'wreck';
@@ -371,7 +379,17 @@ export function cloneProp(p: PropState): PropState {
 }
 
 export function createPed(id: number, pos: Vec2, health: number, gangId = 0): PedState {
-  return { id, gangId, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
+  return {
+    id,
+    gangId,
+    pos: cloneVec(pos),
+    dirX: 1,
+    dirY: 0,
+    mode: 'walk',
+    health,
+    timer: 0,
+    escortOf: null,
+  };
 }
 
 export function clonePed(p: PedState): PedState {
