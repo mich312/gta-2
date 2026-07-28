@@ -15,6 +15,8 @@ export interface EconomyParams {
   multiplier: {
     max: number;
     frenzyGain: number;
+    /** Raised by a multiplier crate. Rare by design; see the pickup cycle. */
+    pickupGain: number;
     missionGain: number;
     /** Fraction of the multiplier kept when busted. 0.5 = halved. */
     bustPenalty: number;
@@ -72,6 +74,7 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
     multiplier: {
       max: m('max', 1),
       frenzyGain: m('frenzyGain', 0),
+    pickupGain: m('pickupGain', 0),
       missionGain: m('missionGain', 0),
       bustPenalty: m('bustPenalty', 0),
     },

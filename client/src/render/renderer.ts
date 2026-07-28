@@ -580,6 +580,8 @@ const PICKUP_COLORS: Record<string, string> = {
   damage: '#ff7a4a',
   invis: '#9fd8e8',
   reload: '#c39ce0',
+  // Gold, and alone in being gold: it is the rarest thing on the ground.
+  multi: '#ffd75e',
 };
 
 /**

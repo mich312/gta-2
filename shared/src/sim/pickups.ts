@@ -112,6 +112,14 @@ function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
       p.wantedLevel = 0;
       return true;
     }
+    case 'multi': {
+      // Nothing happens HERE, on purpose. The multiplier is server state —
+      // nothing in step() reads a multiplier (FEATURES.md invariant 8) — so
+      // this crate's whole effect is the pickupTaken event it emits, which
+      // the Economy handles through the same chokepoint a finished frenzy
+      // goes through. Taking it always succeeds; the cap is applied there.
+      return true;
+    }
     case 'jailcard': {
       if ((p.powerFlags & POWER_JAIL_CARD) !== 0) return false;
       p.powerFlags |= POWER_JAIL_CARD;

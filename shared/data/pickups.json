@@ -38,6 +38,10 @@
     "reload": {
       "value": 25,
       "respawnSec": 80
+    },
+    "multi": {
+      "value": 1,
+      "respawnSec": 180
     }
   },
   "spacing": 34,

@@ -503,6 +503,15 @@ const PICKUP_CYCLE = [
   'health',
   'jailcard',
   'ammo',
+  'health',
+  'armour',
+  'ammo',
+  // One in the whole cycle, and the cycle is long: a multiplier you can find
+  // often would make frenzies and missions — the two things the multiplier
+  // exists to reward — not worth doing.
+  'multi',
+  'health',
+  'ammo',
 ] as const;
 
 /**

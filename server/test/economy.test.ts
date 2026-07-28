@@ -259,6 +259,43 @@ describe('score multiplier', () => {
     expect(driveOnce(boosted.economy, boosted.state)).toBe(base * 3);
   });
 
+    it('a crate raises the multiplier through the same chokepoint a frenzy does', () => {
+      const { economy, state } = setup();
+      expect(economy.multiplierOf(1)).toBe(1);
+      economy.processTick(
+        [{ type: 'pickupTaken', tick: 1, kind: 'multi', playerId: 1, x: 0, y: 0 }],
+        state,
+        1_000_000,
+      );
+      expect(economy.multiplierOf(1)).toBe(1 + params.multiplier.pickupGain);
+    });
+
+    it('a crate cannot push past the cap', () => {
+      // A crate that hands out the ceiling makes frenzies and missions — the
+      // two things the multiplier exists to reward — not worth doing.
+      const { economy, state } = setup();
+      for (let i = 0; i < 40; i++) {
+        economy.processTick(
+          [{ type: 'pickupTaken', tick: i, kind: 'multi', playerId: 1, x: 0, y: 0 }],
+          state,
+          1_000_000 + i * 100,
+        );
+      }
+      expect(economy.multiplierOf(1)).toBe(params.multiplier.max);
+    });
+
+    it('every other crate leaves the multiplier alone', () => {
+      const { economy, state } = setup();
+      for (const kind of ['health', 'armour', 'ammo', 'bribe', 'jailcard', 'damage'] as const) {
+        economy.processTick(
+          [{ type: 'pickupTaken', tick: 1, kind, playerId: 1, x: 0, y: 0 }],
+          state,
+          1_000_000,
+        );
+      }
+      expect(economy.multiplierOf(1)).toBe(1);
+    });
+
   it('a completed frenzy raises the multiplier, and the cap holds', () => {
     const { economy, state } = setup();
     expect(economy.multiplierOf(1)).toBe(1);

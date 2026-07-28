@@ -58,7 +58,8 @@ export type PickupKind =
   | 'jailcard'
   | 'damage'
   | 'invis'
-  | 'reload';
+  | 'reload'
+  | 'multi';
 
 /**
  * Behaviour-altering power-ups, as bits rather than a field each.

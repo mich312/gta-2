@@ -14,7 +14,8 @@
     "max": 8,
     "frenzyGain": 1,
     "missionGain": 1,
-    "bustPenalty": 0.5
+    "bustPenalty": 0.5,
+    "pickupGain": 1
   },
   "crush": {
     "base": 120,

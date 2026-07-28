@@ -348,6 +348,13 @@ export class Economy {
         // finished is worth what it was worth, and the next one is worth more.
         this.raiseMultiplier(ev.playerId, this.params.multiplier.frenzyGain);
         changed.add(ev.playerId);
+      } else if (ev.type === 'pickupTaken' && ev.kind === 'multi') {
+        // The crate's entire effect. It lands here rather than in the sim
+        // because nothing in step() reads a multiplier, and it goes through
+        // raiseMultiplier so the cap applies to it exactly as it does to a
+        // finished frenzy — a crate that handed out the ceiling would make
+        // the two things the multiplier rewards not worth doing.
+        this.raiseMultiplier(ev.playerId, this.params.multiplier.pickupGain);
       } else if (ev.type === 'busted') {
         // The cost of an arrest is the run, not the trip. Death does not do
         // this — that asymmetry is the whole reason both exist.
