@@ -1,5 +1,10 @@
 # Car breakdown and damage — investigation
 
+> **Status: built.** R1–R8 and the two one-line fixes all landed. §6 at the
+> bottom records what shipped, the three regressions the work surfaced, and the
+> two places the estimates in this document turned out to be wrong.
+
+
 What the vehicle damage model does today, what is measurably wrong with it, and
 what I would change. Every number below was measured against the current tree
 by driving the sim, not read off the tuning file and assumed.
@@ -597,3 +602,65 @@ that can ride along with whichever change is nearest.
 Not recommended: rigid-body physics (G3). The arcade model is a deliberate,
 documented choice and prediction depends on how cheap it is. R1 and R2 recover
 most of what a rigid body would buy without touching that.
+
+---
+
+## 6. What was built
+
+All of §4 landed, in the order §5 proposed. `299 tests green`, 6-bot lockstep
+with `0 desyncs`, and a recorded session re-simulates to an identical hash.
+
+| # | Change | Where |
+|---|---|---|
+| R1 | Oriented body box, SAT, sized from both vehicles | `sim/vehicle.ts` `boxesOverlap` |
+| R2 | Mass in the shove, the heading deflection and the damage split | `sim/vehicle.ts` |
+| R3 | `collisionDamagePerSpeed` 0.055 → 0.21, contact debounce | `data/vehicles.json`, `GameState.vehicleHitTick` |
+| R4 | `zones[4]` + `broken` bitfield, breakage ladder, parts | `sim/vehicleDamage.ts`, `render/renderer.ts` |
+| R5 | `vehicleCollided` / `vehiclePartBroke` events, four sounds, HUD diagram | `sim/events.ts`, `data/audio.json`, `render/hud.ts` |
+| R6 | `panelbeat` / `rebuild`, condition-scaled crush payout | `data/shop.json`, `economy.ts` |
+| R7 | Integer health, varint on the wire | `sim/vehicleDamage.ts`, `net/binary.ts` |
+| R8 | Landing damage to the front zone, bail-out tumble | `sim/frenzy.ts`, `sim/vehicle.ts` |
+
+Protocol 4. There is a contact sheet at `/damage-sheet.html` that draws one car
+at every rung of the ladder through the real renderer — the quickest way to
+check the drawing after touching any of it.
+
+### Three regressions, all of them real bugs
+
+Landing R1 broke three existing tests. None of them was the test being wrong.
+
+1. **The traffic IDM measured gaps with `halfExtent`.** With a true-length body
+   the follower believed it had six pixels of room at the moment the bumpers
+   touched, so queues closed up until they collided and the wedged driver
+   reversed out. `scanAhead` now projects each obstacle's box onto the
+   follower's axes. The obstacle model has to agree with the contact model.
+2. **Reverting the whole move on any overlap.** Two interpenetrating vehicles
+   could never separate — every escape was undone. A move that increases the
+   distance between the centres is now always allowed, which is what "momentum
+   transfer, not a brick wall" was supposed to mean in the first place.
+3. **`motorise` gave a cruiser to every officer on the same spot.** Pairs of
+   them spent chases interpenetrating and shuffling apart at walking pace. The
+   officer without room stays on foot.
+
+### Where this document was wrong
+
+- **Wire cost.** §4.6 predicted the damage map would be net −1 byte, on the
+  assumption that quantising health would free seven. Measured: health as a
+  varint is +2 bytes where the f64 was +8, so it frees six, and `zones` +
+  `broken` cost eight. A damage patch is therefore about **+2 bytes** against
+  the health-only patch it replaces — and still nothing at all on a car that
+  has not been hit this tick. The conclusion (it is cheap) held; the arithmetic
+  did not.
+- **D7 was fixed by tuning, not by reordering.** The plan implied moving the
+  driver ejection relative to the blast. Raising `explosionDamage` from 85 to
+  110 is the honest fix: 85 against a 100 HP player is simply not lethal, and
+  110 is, while armour still saves you — which is what armour is for.
+
+### Still open
+
+- **G3, lateral and angular velocity.** Not attempted, as recommended. A shunt
+  still deflects a heading rather than imparting spin.
+- **G6, a burning car is invulnerable.** Unchanged: `damageVehicle` still
+  returns early unless `condition === 'ok'`, so a rocket into a row of burning
+  cars still does nothing.
+- **G7, a wreck cannot be shoved.** Unchanged.

@@ -639,24 +639,27 @@ function drawBodyDamage(
   ctx.translate(x, y);
   ctx.rotate(heading);
 
-  // Panels that are simply GONE are cut out of the sprite before anything is
-  // painted onto it — a missing bumper is a hole in the silhouette, not a
-  // dark patch on one.
-  ctx.globalCompositeOperation = 'destination-out';
+  // Panels that are simply GONE read as a dark gap in the bodywork, clipped
+  // to the sprite like everything else here.
+  //
+  // Not `destination-out`: erasing the sprite leaves a transparent hole, and
+  // the light pass then adds headlight glow into it with `lighter`, so a
+  // missing front bumper came out as a bright white bar — which looks like
+  // chrome that is still attached rather than chrome that has gone.
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.fillStyle = 'rgba(10, 9, 11, 0.9)';
   if ((broken & PART_BUMPER_F) !== 0) {
-    ctx.fillRect(fp.rx - 1.5 * RENDER_SCALE, -fp.ry * 0.62, 1.6 * RENDER_SCALE, fp.ry * 1.24);
+    ctx.fillRect(fp.rx - 1.6 * RENDER_SCALE, -fp.ry * 0.62, 1.7 * RENDER_SCALE, fp.ry * 1.24);
   }
   if ((broken & PART_BUMPER_R) !== 0) {
-    ctx.fillRect(-fp.rx - 0.1 * RENDER_SCALE, -fp.ry * 0.62, 1.6 * RENDER_SCALE, fp.ry * 1.24);
+    ctx.fillRect(-fp.rx - 0.1 * RENDER_SCALE, -fp.ry * 0.62, 1.7 * RENDER_SCALE, fp.ry * 1.24);
   }
   if ((broken & PART_DOOR_L) !== 0) {
-    ctx.fillRect(-fp.rx * 0.2, -fp.ry - 0.1 * RENDER_SCALE, fp.rx * 0.5, 1.5 * RENDER_SCALE);
+    ctx.fillRect(-fp.rx * 0.2, -fp.ry, fp.rx * 0.5, 1.5 * RENDER_SCALE);
   }
   if ((broken & PART_DOOR_R) !== 0) {
-    ctx.fillRect(-fp.rx * 0.2, fp.ry - 1.4 * RENDER_SCALE, fp.rx * 0.5, 1.5 * RENDER_SCALE);
+    ctx.fillRect(-fp.rx * 0.2, fp.ry - 1.5 * RENDER_SCALE, fp.rx * 0.5, 1.5 * RENDER_SCALE);
   }
-
-  ctx.globalCompositeOperation = 'source-atop';
   // Dents, per quadrant. Zone order is front, right, rear, left; each one is
   // painted inside its own third of the body so the damage is where the hit
   // was. Placement is hashed off (id, zone, index) — a given car's dents sit
@@ -727,7 +730,13 @@ function drawBodyDamage(
   ctx.restore();
 }
 
-function drawVehicle(
+/**
+ * Exported for the damage contact sheet (`debug/damageSheet.ts`), which draws
+ * one car at every rung of the breakage ladder side by side. The same idea as
+ * `pnpm sprites -- --preview`: some things you can only check by looking, and
+ * a sheet you can eyeball beats hunting for the state in a live game.
+ */
+export function drawVehicle(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   lights: LightPass,

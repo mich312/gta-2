@@ -623,6 +623,23 @@ function frame(now: number): void {
     carHealth: predictor.predictedVehicle?.health ?? null,
     carWear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : null,
     carBroken: predictor.predictedVehicle?.broken ?? null,
+    carZones: predictor.predictedVehicle?.zones ?? null,
+    // Nearest car you could get into, and how far. A harness driving the game
+    // has to be able to find one — walking in hopeful circles pressing the
+    // action key is how the first attempt at this failed.
+    nearestVehicle: (() => {
+      const me = predictor.predicted;
+      if (!me || !sync.latest) return null;
+      let best: { id: number; dx: number; dy: number; dist: number } | null = null;
+      for (const v of sync.latest.vehicles) {
+        if (v.driverId !== null || v.condition === 'wreck') continue;
+        const dx = v.pos.x - me.pos.x;
+        const dy = v.pos.y - me.pos.y;
+        const dist = Math.hypot(dx, dy);
+        if (!best || dist < best.dist) best = { id: v.id, dx, dy, dist };
+      }
+      return best;
+    })(),
     carCondition: predictor.predictedVehicle?.condition ?? null,
     fps: stats.fps,
     frameMs: stats.frameMs,
