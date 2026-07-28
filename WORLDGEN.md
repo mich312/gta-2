@@ -339,3 +339,172 @@ What this document deliberately does not recommend: L-system/tensor road
 networks, WFC, OSM import, and multi-level geometry — rejected in §3 for
 determinism, tile-substrate or scope reasons, and named here so they stay
 decisions rather than omissions.
+
+---
+
+## 8. Scaling up: from a city to a region
+
+Second wave of this research, for the bigger vision: a larger map, more and
+different districts, custom buildings, real industry, beaches, swimming,
+islands, hills, and nature outside the urban core. In one sentence: **the
+map stops being "a rectangle of city with a river through it" and becomes
+"a landmass with a city on it"** — and almost all of it is feasible inside
+the current architecture, with exactly two genuinely expensive items:
+swimming (sim/prediction) and population scaling (server spawning).
+
+### 8.1 The ceilings, measured
+
+Checked against the code, not assumed:
+
+- **Wire format: no size ceiling.** Positions are zigzag-LEB128 varints of
+  the sim's `q8` grid (`net/binary.ts:204`), not fixed-width — a coordinate
+  costs 3 bytes from 2 048 px up to ~262 000 px (16 384 tiles). Any map we
+  could ever want fits without touching the codec.
+- **Worldgen time: linear.** 56 ms at 240² tiles → ~220 ms at 480². Fine
+  even on the client, and `mapgen` can verify.
+- **Client rendering: already viewport-bound.** Tiles bake per-chunk into a
+  bounded cache (`client/src/render/tiles.ts:70`); map size doesn't change
+  frame cost, only the minimap needs a scale pass.
+- **The real ceiling: population is global.** `PED_COUNT=200`,
+  `MAX_VEHICLES=48` and `MAX_PROPS=400` are *per session*
+  (`server/src/session.ts`, `amenities.ts:36`). Double the map edge and
+  density quarters: the city empties. Interest management already filters
+  the wire per player (`INTEREST_RADIUS=600`), and `ROADMAP.md:141` already
+  designed ped top-up *outside* every player's interest radius — the fix is
+  to finish that pattern for peds AND traffic and make counts
+  density-near-players rather than session totals. **This is the gate for
+  any size increase**, and it's server-only (no prediction risk).
+- **The design ceiling nobody measures:** 4–8 players on 4× area is a
+  quieter game. `REVIEW.md:167` complained everything was 11 s away;
+  the inverse failure exists too. Recommendation: **360×360 (2.25× area)
+  with the spawner rework, 480×480 only after the region has content**
+  (islands, nature) that makes emptiness read as *landscape* rather than
+  as a bug.
+
+### 8.2 The features, each given a verdict
+
+**More/different districts — cheap, do freely.** `DISTRICT_TYPES`
+(`types.ts:23`) is a closed list consumed by block fill, shops, landmarks,
+props and palette. Adding `beach`, `harbour`, `oldtown`, `rural`, `nature`
+is mechanical: an entry in `worldgen.json` blockSize/districtSeeds, a case
+in `fillBlock` (`buildings.ts:132`), palette rows, and preference lists in
+`amenities.ts`. The one rule: a district must earn its slot with a distinct
+*fill strategy and amenity profile*, not just a colour — that was
+`REVIEW.md:158`'s complaint and it stays the bar.
+
+**Custom buildings — the §3.6 stamp system, now load-bearing.** At region
+scale, prefab stamps stop being landmark polish and become the identity of
+each district: harbour cranes over container rows, an oldtown church on a
+square, farm clusters in `rural`, a pier with a funfair on `beach`. Stamps
+are tile templates with an approach contract (§6.5), placed by the existing
+candidate-block machinery. Build the stamp *mechanism* once, then districts
+become content, not code.
+
+**Industry — a district upgrade, not a system.** Industrial already exists
+(slabs on lots, cranes, sparse lamps); what it lacks is *purpose and
+geography*. Move it onto the waterfront the coastline creates (it already
+hugs edges, `districts.ts:32`), stamp a container yard and a factory with a
+walled yard, and let the existing crane/job economy live there. Fenced
+yards with one gate are §5's chokepoint principle applied.
+
+**Beaches — cheap, high charm.** A `T_SAND` band wherever land meets
+sea/lake, 2–4 tiles wide from the same noise field that makes the coast
+(`palette.json` has had `sand` since the beginning; `ROADMAP.md:459`
+anticipated the tile). Walkable like `T_LOT`, no traffic routing, beach
+props (umbrellas, towels — new prop kinds in the ordinal scan), peds spawn
+there. No sim risk: sand is just ground.
+
+**Swimming — the one real sim feature, and a design decision first.**
+Mechanically it's the D1 water pattern again: a per-player swim state when
+standing tiles are water, slow movement, no weapons, threaded through
+`moveWithCollision` — inside the prediction hot loop, so it lands alone,
+with tests, like `ROADMAP.md:577` demanded for water. But the *design*
+question matters more: if everyone can swim everywhere, bridges stop being
+chokepoints for on-foot play and the river's whole reason (`roads.ts:70`)
+erodes. The recommendation: **split water into `T_SHALLOW` and deep.**
+Shallows appear as a band off beaches and around islands — swimmable,
+visibly lighter in palette; deep water stays boat-or-drown. Beaches become
+the region's soft edges, bridges keep their teeth, boats keep their
+monopoly on open water. One new tile, and the swim code only ever touches
+`T_SHALLOW`, which also caps its prediction blast radius.
+
+**Islands — the restructuring feature.** Everything else in this document
+is a pass added or upgraded; islands change the *frame*: generation must
+start from a *landmass mask* (low-frequency noise thresholded into one
+guaranteed main landmass plus 1–3 satellites), and roads, districts and
+blocks generate **per landmass** instead of over one rectangle. The
+subdivision machinery survives — it just runs inside each landmass's
+bounding regions with water clipping (which `fillBlock` and the amenity
+scans already respect, `buildings.ts:26`). Connectivity policy per island,
+decided by the archetype roll: causeway/bridge (drivable — an arterial
+extended across shallows), or **boat-only** — which finally gives boats a
+job, and gives the island whatever the map wants to gate: a gun shop with
+the best stock, a frenzy site, a gang home. Invariants shift from "every
+block reachable by road" to "every landmass reachable by road *or* has ≥ 2
+moorings, and every landmass's interior is one connected component".
+
+**Hills — adopt as input, keep rejecting as physics.** §3.8's rejection of
+multi-level geometry stands: no z in collision, no elevation in the
+prediction loop. But a **height field as a *generation* input** costs the
+sim nothing and buys the region its shape: one more noise field, consumed
+three ways — (1) land-use: steep tiles refuse city and become `nature`,
+flat coastal land attracts downtown, so the city nestles instead of
+tiling; (2) rendering: per-tile brightness/palette shift by height band,
+which reads as relief from above at zero sim cost; (3) **cliff lines**:
+where the height gradient crosses a threshold, a 1-tile solid `T_CLIFF`
+edge — hills gain gameplay meaning (barriers, switchback roads through the
+gaps, scenic dead-ends) using the same "solid tile" physics buildings
+already have. That is hills with zero new movement code.
+
+**Nature — the space between, made deliberate.** At region scale the map
+gains its first non-urban land use: forest (tree props dense enough to
+block driving lines, or a `T_FOREST` tile that slows nothing but blocks
+building), meadows (`T_FIELD` finally used — it's tile 0 and appears
+nowhere today), dirt tracks (narrow road-subdivision with a different
+palette connecting rural stamps to the arterial net), and the existing
+park fill promoted to open country. Nature is cheap on every budget —
+few entities, no interiors, ordinal-scan props — and it's what makes
+"bigger" feel like a place rather than more city. The one discipline:
+nature still needs *destinations* (a campground, a lighthouse, a quarry —
+stamps again) or it's dead air between fun.
+
+### 8.3 The region pipeline
+
+`generateCity`'s pass list, revised macro-first. Passes marked ★ are new;
+everything else is today's code running inside a mask:
+
+1. ★ Archetype roll (river / bay / archipelago, arterial counts, downtown
+   offset) — one early draw
+2. ★ Height field + landmass mask (noise; guarantee main landmass share)
+3. ★ Water classification: deep / `T_SHALLOW` / `T_SAND` bands; river
+   carved as today where the archetype has one
+4. ★ Land-use: weighted-Voronoi districts *modulated by* height and coast
+   (downtown flat+central, harbour/industry on water, nature on slopes)
+5. Roads per landmass (today's arterials+subdivision, clipped; ★ causeways
+   between bridged landmasses; ★ dirt tracks in rural)
+6. ★ Cliff lines from height gradient
+7. Blocks/buildings per district (today's `fillBlock` + ★ new district
+   cases)
+8. Landmarks → ★ stamps (harbour, oldtown, rural, beach set pieces)
+9. Shops, then all amenity scans (today's passes + ★ beach props,
+   ★ per-island mooring quotas)
+10. Turf (urban landmass only)
+
+### 8.4 Order of work
+
+Dependency-honest sequence; sim-risk items isolated as house rules demand:
+
+| # | Work | Layer | Risk |
+|---|---|---|---|
+| 1 | Stamp mechanism + 2 new districts (harbour, rural) on the current map | worldgen | low |
+| 2 | Height field + landmass mask + coast/`T_SAND` beaches (map still one landmass) | worldgen | low, seed-breaking |
+| 3 | Population spawner rework: density-near-players peds/traffic (finishes `ROADMAP.md:141`) | server | medium |
+| 4 | Map to 360×360; re-measure bandwidth + bot gates | config | low, gated on 3 |
+| 5 | `T_SHALLOW` + swimming, landed alone with prediction tests | **sim** | **high** |
+| 6 | Islands: per-landmass roads, causeways, boat-only policy, mooring invariants | worldgen | medium |
+| 7 | Cliff lines + nature content (forest, tracks, rural stamps) | worldgen | low |
+| 8 | 480×480 if the region's content earns it | config | low |
+
+Steps 1–2 need nothing from anyone and change how every seed looks; step 5
+is the only line in this table that can desync a client, and it ships the
+way D1's water did — alone.
