@@ -62,6 +62,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     cranes: [],
     payphones: [],
     junctions: { idOf: new Int16Array(0), count: 0, heads: [] },
+    dayLengthSec: params.dayLengthSec,
     turfCells: new Uint8Array(0),
     turfCellsWide: 0,
     turfCellTiles: 1,

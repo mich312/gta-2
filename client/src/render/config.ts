@@ -47,9 +47,25 @@ export const WALL_DEPTH = 5;
 export const SHADOW_DEPTH = 7;
 
 /**
- * Dusk grade multiplied over the finished scene, before the light pass. Kept
- * light on purpose: the grade exists to give the lamps and headlights somewhere
- * to land, not to hide the art the tile layer just spent its budget drawing.
+ * The grade multiplied over the finished scene, before the light pass, at
+ * midday and at midnight.
+ *
+ * Kept light at both ends on purpose: the grade exists to give the lamps and
+ * headlights somewhere to land, not to hide the art the tile layer just spent
+ * its budget drawing. Night is darker and much cooler; day is close to
+ * neutral with a warm cast.
+ *
+ * Interpolated smoothly by `nightAmount` rather than switched between four
+ * discrete phases — a step between keyframes reads as a seam across the whole
+ * screen, and dawn and dusk are the interesting part.
+ */
+export const GRADE_DAY = { r: 252, g: 246, b: 232, tint: 0.02, vignette: 0.18 };
+export const GRADE_NIGHT = { r: 150, g: 162, b: 200, tint: 0.16, vignette: 0.42 };
+
+/**
+ * The old fixed dusk, kept as the value the grade collapses to when the clock
+ * is unavailable — an evidence page, a test harness, anything that renders a
+ * frame without a tick.
  */
 export const AMBIENT = 'rgba(206, 212, 232, 1)';
 /** Cool tint applied on top, as a translucent overlay. */

@@ -11,9 +11,11 @@ import {
   RESPAWN_DELAY_TICKS,
   SNAPSHOT_RING_TICKS,
   createGameState,
+  crowdScale,
   generateCity,
   step,
   takeSnapshot,
+  timeOfDay,
 } from 'shared';
 
 const INPUT_QUEUE_MAX = 60;
@@ -263,7 +265,19 @@ export class Session {
    * are looking, and that is server knowledge.
    */
   private topUpPeds(): void {
-    const target = Math.min(this.options.pedCount, this.map.pedSpawns.length);
+    // The crowd thins overnight and fills again. This is the only thing the
+    // day/night clock changes outside the renderer, and it is deliberately a
+    // TARGET rather than a behaviour: it is read where the population was
+    // already being topped up, and it draws no random numbers, so the sim's
+    // determinism is untouched.
+    const scale = crowdScale(
+      timeOfDay(this.state.tick, this.worldgen.dayLengthSec),
+      this.worldgen.nightCrowdScale,
+    );
+    const target = Math.min(
+      Math.round(this.options.pedCount * scale),
+      this.map.pedSpawns.length,
+    );
     // Spawns already queued this tick have not reached the sim yet, so they
     // must count against the deficit or the crowd overshoots its target.
     const inFlight = this.pendingCommands.reduce(

@@ -46,5 +46,7 @@
   "turf": {
     "cellTiles": 12,
     "gangCount": 4
-  }
+  },
+  "dayLengthSec": 1440,
+  "nightCrowdScale": 0.55
 }

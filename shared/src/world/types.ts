@@ -162,6 +162,12 @@ export interface CityMap {
    * map from the seed, so both ends compute the same table for free.
    */
   junctions: JunctionMap;
+  /**
+   * Seconds in an in-game day, copied here from the worldgen params so the
+   * renderer can read the clock from the map it already has rather than
+   * threading a second parameter through every frame.
+   */
+  dayLengthSec: number;
   turfCells: Uint8Array;
   turfCellsWide: number;
   /** Turf cell size in tiles, so `gangAt` needs no tuning. */

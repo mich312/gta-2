@@ -6,6 +6,8 @@ import {
   type Vec2,
   type SignalColour,
   type WeaponTuning,
+  nightAmount,
+  timeOfDay,
   CARDINALS,
   PLAYER_RADIUS,
   TILE_SIZE,
@@ -268,6 +270,11 @@ export function render(
     return;
   }
 
+  // The hour, from the tick being rendered. A pure function of it, like the
+  // traffic signals: nothing about the clock is on the wire, and two players
+  // on the same corner see the same sky because they compute the same number.
+  lights.setNight(nightAmount(timeOfDay(scene.tick, dayLengthSec(map))));
+
   // One rounded origin for the whole frame. Every world position derives from
   // it, so the scene translates as a rigid body: no seams between cached
   // chunks, and no entities shivering against the ground by a pixel.
@@ -280,12 +287,15 @@ export function render(
   effects.update(scene.dt);
   effects.drawDecals(ctx, originX, originY);
 
-  // Street lighting, from the props the server already streams us.
+  // Street lighting, from the props the server already streams us. Fades in
+  // with the dusk: a lamp burning at noon is the one thing that gives away a
+  // scene with no clock behind it.
+  const lit = 0.15 + 0.85 * lights.nightAmount;
   for (const prop of scene.remotes.props) {
     if (prop.kind !== 'lamp' || !prop.intact) continue;
     // A touch of flicker, keyed off the prop id so lamps are out of phase.
     const flicker = 0.88 + 0.12 * Math.sin(scene.nowMs * 0.004 + prop.id * 2.3);
-    lights.point(dx(prop.pos.x), dy(prop.pos.y), 34 * RENDER_SCALE, 'lamp', 0.52 * flicker);
+    lights.point(dx(prop.pos.x), dy(prop.pos.y), 34 * RENDER_SCALE, 'lamp', 0.52 * flicker * lit);
   }
   for (const shop of map.shops) {
     const wx = (shop.doorX + 0.5) * TILE_SIZE;
@@ -293,7 +303,7 @@ export function render(
     if (wx < cam.x - 32 || wy < cam.y - 32 || wx > cam.x + VIEW_W + 32 || wy > cam.y + VIEW_H + 32) {
       continue;
     }
-    lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45);
+    lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45 * lit);
     // The room behind the door is lit too, or walking in is walking into a
     // dark hole in the middle of a lit street.
     const r = shop.interior;
@@ -453,6 +463,17 @@ export function render(
       dy(scene.localPos.y) - (PLAYER_RADIUS + 12) * RENDER_SCALE,
     );
   }
+}
+
+/**
+ * How long a day is for this city, in seconds.
+ *
+ * Carried on the map because it ships with the seed in the welcome message,
+ * so the client's clock and the server's are the same function of the tick
+ * without a second thing to keep in step.
+ */
+function dayLengthSec(map: CityMap): number {
+  return map.dayLengthSec > 0 ? map.dayLengthSec : 1440;
 }
 
 /** Traffic-signal colours, ordered so the array index is the lamp position. */
