@@ -31,6 +31,9 @@ import { hash2 } from './noise.js';
 import type { SpriteSheet } from './sprites.js';
 import { viewport } from './viewport.js';
 
+/** The proving ground's colour: deliberately unlike any shop's. */
+const DEPOT_ACCENT = '#5aa84e';
+
 const CHUNK_WORLD = CHUNK_TILES * TILE_SIZE;
 const CHUNK_DEVICE = CHUNK_WORLD * RENDER_SCALE;
 /** Device pixels per tile. */
@@ -514,12 +517,16 @@ export class TileLayer {
     ctx.fillRect(x, y, s, TD);
     if (!shop) return;
 
+    // The proving ground is not a shop and should not look like one: a
+    // green you will not mistake for a gun shop from across a junction.
     const accent =
       shop.kind === 'gun'
         ? palette.shopGun
         : shop.kind === 'clothing'
           ? palette.shopClothing
-          : palette.shopSpray;
+          : shop.kind === 'depot'
+            ? DEPOT_ACCENT
+            : palette.shopSpray;
     const r = shop.interior;
     const inRoom = tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h;
     if (!inRoom) {
@@ -533,7 +540,7 @@ export class TileLayer {
 
     // A respray is a garage: keep the floor clear so a car can be driven in,
     // and mark the bay out instead of furnishing it.
-    if (shop.kind === 'spray') {
+    if (shop.kind === 'spray' || shop.kind === 'depot') {
       ctx.fillStyle = shade(accent, 0.55);
       const stripe = Math.max(1, s);
       if (ty === r.y) ctx.fillRect(x, y + 3 * s, TD, stripe);
@@ -980,7 +987,12 @@ export class TileLayer {
       }
       const x = (shop.doorX - tx0) * TD;
       const y = (shop.doorY - ty0) * TD;
-      const accent = shop.kind === 'gun' ? palette.shopGun : palette.shopClothing;
+      const accent =
+        shop.kind === 'depot'
+          ? DEPOT_ACCENT
+          : shop.kind === 'gun'
+            ? palette.shopGun
+            : palette.shopClothing;
       const s = RENDER_SCALE;
 
       ctx.fillStyle = shade(accent, 0.45);

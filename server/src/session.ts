@@ -293,6 +293,17 @@ export class Session {
   }
 
   /** External (economy) command injection — the one sanctioned write-path. */
+  /**
+   * Allocate an entity id, from the same counter every other spawn uses.
+   *
+   * Exposed so the proving ground cannot get out of step with the session's
+   * own allocation — two counters would eventually collide and `insertEntity`
+   * throws on a duplicate id.
+   */
+  allocateEntityId(): number {
+    return this.nextId++;
+  }
+
   queueCommand(cmd: SimCommand): void {
     this.pendingCommands.push(cmd);
   }

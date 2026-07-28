@@ -11,7 +11,10 @@ import { createFileRecorder } from './replay/record.js';
 async function main(): Promise<void> {
   const config = loadConfig();
   loadSharedTuning();
-  const worldgen = loadWorldgenParams();
+  // The flag reaches the city through worldgen, and worldgen rides in the
+  // welcome message — so the client builds exactly the same map rather than
+  // disagreeing with the server about where the walls are.
+  const worldgen = { ...loadWorldgenParams(), provingGround: config.provingGround };
 
   const recorder = config.replayDir
     ? createFileRecorder(config.replayDir, {
@@ -36,6 +39,11 @@ async function main(): Promise<void> {
   // The harness greps for this exact prefix to know the server is up.
   const clientNote = config.clientDir ? ` (serving client from ${config.clientDir})` : '';
   console.log(`listening on ws://${config.host}:${config.port} seed=${config.seed}${clientNote}`);
+  if (config.provingGround) {
+    // Loud on purpose. Anybody who joins this session can help themselves to
+    // a tank, and that should never be a surprise to whoever started it.
+    console.log('PROVING GROUND ON — free vehicles and kit from the depot near spawn');
+  }
 
   const shutdown = (): void => {
     loop.stop();

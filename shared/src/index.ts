@@ -37,5 +37,6 @@ export * from './world/params.js';
 export * from './world/generate.js';
 export * from './world/collide.js';
 export * from './economy/catalog.js';
+export * from './economy/depot.js';
 export * from './sim/respect.js';
 export * from './world/turf.js';

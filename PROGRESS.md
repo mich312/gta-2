@@ -1,5 +1,65 @@
 # PROGRESS
 
+## A room to test in
+
+580 tests green (up from 564; 16 new). 8-bot joyride lockstep, 0 desyncs,
+replay re-simulates hash-identical. Off unless asked for.
+
+`PROVING_GROUND=1` puts one room in the city and starts you on its doorstep.
+Walk in and the shop keys hand over a tank, a car, six cars laid out in a row
+to drive down, a bus, a truck, every weapon, full health and $10,000 — free.
+The four vehicle rows are the four cases the crush rule has: something it
+flattens, a row of them, and the two sizes that stop it.
+
+**It changes nothing about the city.** `placeProvingGround` runs dead last in
+worldgen, after every pass that reads the tile grid, and draws no random
+number — so the same seed gives the same streets, buildings, parked cars,
+props and pickups with the room and without it. That property is the whole
+reason the room is trustworthy: a bug you find with it open is still there
+when you close it. Three seeds pin it, pass by pass, plus a tile-by-tile diff
+that allows changes only inside the room's own footprint. This file already
+had the scar tissue explaining why worldgen passes must not quietly feed each
+other (see `registerClinics`), and going last is the only placement that
+cannot.
+
+**It is a worldgen parameter, not a server flag.** The client builds the map
+itself from what the welcome message carries, so a server-side-only toggle
+would have the two hosts disagreeing about where the walls are. Verified over
+a live socket: the client's own `generateCity` produces the room.
+
+**The one thing it does change is where you start**, and deliberately.
+`pickSpawn` chooses uniformly from `playerSpawns` and the ordinary list is
+spread across the city, so "near spawn point zero" would have put you next to
+the room one time in however many spawns exist. The room exists to save time;
+a treasure hunt for it is the opposite.
+
+**Nothing of the economy is reused.** No price, no ledger line for the goods,
+no standings, no district. Threading "except when it's free" through the shop
+would have put a hole in the one system in the game that is about scarcity, so
+the depot answers first and on its own; the client borrows the shop panel and
+nothing else. What it hands out arrives as ordinary `SimCommand`s that already
+existed — `spawnVehicle`, `grantWeapon`, `healPlayer` — so nothing here can
+produce a state the ordinary game could not, and a proving-ground session
+still records and replays like any other.
+
+**The economy caught me.** Adding free cash tripped `no new earning path can
+bypass the chokepoint unnoticed` — a tripwire that enumerates every ledger
+write and fails on a new one until somebody decides. Exactly the right
+question to be asked. The cash is ledgered (money must never appear without a
+line saying where from, debug money included) and listed exempt from the score
+multiplier, because it is not earnings: the multiplier prices what you did,
+and nobody did anything.
+
+**Verification.** Sixteen new tests, and a live socket run of both paths: with
+the flag, the client builds the room, spawns on its doorstep and collects a
+tank, six cars, a bus and the cash; without it, a client asking for a tank on
+a normal server is told "no such item" and no tank appears.
+
+**Least confident about.** The room is a carved shop interior, so it is as big
+as the building that happened to be nearest — usable, but not a hangar. Free
+cars in a session anyone can join is a real hazard and the only thing standing
+in front of it is the env var being off by default and a loud line at startup.
+
 ## The tank drives over cars
 
 564 tests green (up from 542; 22 new). 8-bot brawl and joyride lockstep, 0

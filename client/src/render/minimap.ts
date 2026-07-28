@@ -191,7 +191,9 @@ export class Minimap {
       dot(
         (shop.doorX + 0.5) * TILE_SIZE,
         (shop.doorY + 0.5) * TILE_SIZE,
-        shop.kind === 'gun'
+        shop.kind === 'depot'
+          ? '#7ad46a'
+          : shop.kind === 'gun'
           ? '#c8583c'
           : shop.kind === 'spray'
             ? '#c8a03c'

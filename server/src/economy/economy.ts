@@ -237,6 +237,17 @@ export class Economy {
     }
   }
 
+  /**
+   * Free money from the proving ground. Ledgered like everything else — the
+   * ledger is append-only and the whole point of it is that money never
+   * appears without a line saying where from, debug cash included.
+   */
+  creditDebug(playerId: number, amount: number, ref: string): void {
+    const key = this.keyByPlayer.get(playerId);
+    if (!key || amount <= 0) return;
+    this.ledgerFor(key).append(key, amount, 'proving-ground', `depot:${key}:${ref}`);
+  }
+
   /** Where this player is known, and how well. */
   standingsOf(playerId: number): Record<string, number> {
     return this.standings.view(playerId);

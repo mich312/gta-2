@@ -1,4 +1,5 @@
 import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } from 'shared';
+import { DEPOT_ROWS } from 'shared';
 import { viewport } from './viewport.js';
 import {
   PART_HEADLIGHT_L,
@@ -164,6 +165,11 @@ export class Hud {
 
   /** Items for the shop the player is standing in, in stable order. */
   shopRows(catalog: Catalog, kind: ShopKind): Array<[string, number]> {
+    // The proving ground has no catalog and no prices — it is a debug room,
+    // not a shop, and the only thing it borrows is this panel.
+    if (kind === 'depot') {
+      return DEPOT_ROWS.slice(0, BUY_KEYS.length).map((r) => [r.id, 0]);
+    }
     return Object.entries(catalog)
       .filter(([, item]) => item.shop === kind)
       .slice(0, BUY_KEYS.length)
@@ -184,7 +190,9 @@ export class Hud {
           ? '#c8a03c'
           : kind === 'clinic'
             ? '#e06a6a'
-            : '#3ca0c8';
+            : kind === 'depot'
+              ? '#7ad46a'
+              : '#3ca0c8';
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     ctx.font = '8px monospace';
     ctx.fillStyle = '#e8f0e8';
@@ -195,13 +203,17 @@ export class Hud {
           ? "PAY'N'SPRAY"
           : kind === 'clinic'
             ? 'HOSPITAL'
-            : 'CLOTHING',
+            : kind === 'depot'
+              ? 'PROVING GROUND'
+              : 'CLOTHING',
       x + 5,
       y + 10,
     );
     rows.forEach(([id, price], i) => {
       ctx.fillStyle = '#c0cad0';
-      ctx.fillText(`[${BUY_KEYS[i]}] ${id} $${price}`, x + 5, y + 21 + i * 11);
+      // Nothing in the proving ground has a price, and printing "$0" against
+      // eight rows reads as a bug rather than as a gift.
+      ctx.fillText(`[${BUY_KEYS[i]}] ${id}${price > 0 ? ` $${price}` : ''}`, x + 5, y + 21 + i * 11);
     });
   }
 

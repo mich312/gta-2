@@ -8,6 +8,18 @@ import { DISTRICT_TYPES, type DistrictType } from './types.js';
  */
 export interface WorldgenParams {
   /**
+   * Put a proving ground in the city: one room, near the first player spawn,
+   * that hands out vehicles and kit for free so a change can be driven at
+   * rather than only argued about.
+   *
+   * A worldgen parameter and not a server flag, because the client builds the
+   * map itself from these — a server-side-only toggle would have the two
+   * hosts disagreeing about what is a wall. Placed dead last in generation
+   * and with no random draw, so turning it on changes nothing else about the
+   * city; the same seed gives the same streets either way.
+   */
+  provingGround: boolean;
+  /**
    * The world is unbounded: every pass is a pure function of (seed, global
    * tile coordinate). A session materialises a WINDOW of it — this origin
    * and size, in global tiles. Two windows of the same seed agree tile-for-
@@ -141,6 +153,9 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
   const quotaRaw = (r['shopQuota'] ?? {}) as Record<string, unknown>;
   const waterRaw = (r['water'] ?? {}) as Record<string, unknown>;
   return {
+    // Optional and default off: replay headers written before it existed
+    // still parse, and a session only gets one by asking.
+    provingGround: r['provingGround'] === true,
     windowX: coord(r['windowX'], 'windowX'),
     windowY: coord(r['windowY'], 'windowY'),
     widthTiles: num(r['widthTiles'], 'widthTiles'),

@@ -17,6 +17,7 @@ import {
   placeLandmarks,
   placePickups,
   placeCranes,
+  placeProvingGround,
   registerClinics,
   placePayphones,
   placeRamps,
@@ -198,6 +199,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   assignTurf(map, params);
   markGangCars(map);
   placePackages(map, params);
+  // Dead last of the placement passes, and only when asked for: see
+  // placeProvingGround on why it must not run before anything else.
+  if (params.provingGround) placeProvingGround(map);
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.

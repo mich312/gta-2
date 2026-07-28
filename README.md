@@ -50,7 +50,26 @@ the art on whole pixels.
 | `PED_COUNT` | `200` | pedestrians per session |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
+| `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |
+
+### Testing a physics change
+
+```bash
+PROVING_GROUND=1 node server/dist/index.js
+```
+
+You spawn on the doorstep of a proving ground: walk in and the shop keys
+(`Y U I O H J N P`) hand over a tank, a car, six cars laid out in a row to
+drive down, a bus, a truck, every weapon, full health, and $10,000 — free, and
+with no ledger, standings or district in the way. Green on the minimap.
+
+Turning it on changes nothing about the city: the same seed gives the same
+streets, buildings, parked cars, props and pickups with the room and without
+it, so a bug you find with it open is still there when you close it. The one
+thing it does change is where you start, which is the point. Everything it
+hands out arrives as an ordinary `SimCommand`, so the session still records and
+replays like any other.
 
 `node:sqlite` needs Node 22.5+ (22.5–22.12 also need `--experimental-sqlite`)
 from a build compiled with SQLite support. Where it is missing — the runtime
