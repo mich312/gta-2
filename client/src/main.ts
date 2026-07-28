@@ -257,8 +257,10 @@ function onGameEvent(event: GameEvent): void {
     audio.play('impact', hit.dist, hit.pan);
   } else if (event.type === 'runOver') {
     // A car connecting with somebody. Non-fatal hits used to have no outward
-    // sign at all — the victim's HUD flashed and nothing else happened.
-    effects.blood(event.x, event.y, event.angle);
+    // sign at all — the victim's HUD flashed and nothing else happened. The
+    // spray scales with the speed: being clipped at a walking pace and being
+    // hit by a bus at 300 px/s should not throw the same amount of blood.
+    effects.blood(event.x, event.y, event.angle, 1 + Math.min(1.4, event.speed / 190));
     const at = listen(event.x, event.y);
     audio.play('thud', at.dist, at.pan);
   } else if (event.type === 'propDown') {
@@ -323,10 +325,17 @@ function onGameEvent(event: GameEvent): void {
   } else if (event.type === 'pickupTaken') {
     const at = listen(event.x, event.y);
     audio.play('pickup', at.dist, at.pan);
+  } else if (event.type === 'pedDown' || event.type === 'copDown') {
+    // The commonest killing in the game, and until the event carried a
+    // position it was the only one that threw nothing: `shot` says where the
+    // round stopped, never whether it stopped in somebody.
+    effects.blood(event.x, event.y, Math.random() * Math.PI * 2, 1.15);
+    const at = listen(event.x, event.y);
+    audio.play('death', at.dist, at.pan);
   } else if (event.type === 'kill') {
     const victim = sync.latest?.players.find((p) => p.id === event.victimId);
     if (victim) {
-      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2, 1.35);
       const at = listen(victim.pos.x, victim.pos.y);
       audio.play('death', at.dist, at.pan);
     }
@@ -532,6 +541,7 @@ function frame(now: number): void {
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
         dt: frameMs / 1000,
         nowMs: now,
+        tick: sync.latest.tick,
       }
     : null;
   render(screen, map, scene, cam, sprites, tiles, effects, lights);

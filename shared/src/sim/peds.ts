@@ -420,7 +420,13 @@ export function damagePed(
   // Killing somebody's people is the loudest thing you can say to a gang,
   // and their rivals are listening.
   if (ped.gangId !== 0) creditGangKill(state, attackerId, ped.gangId, events);
-  events.push({ type: 'pedDown', tick: state.tick, killerId: attackerId });
+  events.push({
+    type: 'pedDown',
+    tick: state.tick,
+    killerId: attackerId,
+    x: Math.round(ped.pos.x),
+    y: Math.round(ped.pos.y),
+  });
 }
 
 export { PED_RADIUS };

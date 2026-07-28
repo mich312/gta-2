@@ -321,7 +321,13 @@ export function damageCop(
   const t = getTuning().police;
   dropWeapon(state, cop.pos, t.kinds[cop.kind]?.weapon ?? t.weapon, Math.round(getTuning().peds.dropAmmo));
   if (attacker) addHeat(attacker, t.heatPerCopKill);
-  events.push({ type: 'copDown', tick: state.tick, killerId: attackerId });
+  events.push({
+    type: 'copDown',
+    tick: state.tick,
+    killerId: attackerId,
+    x: Math.round(cop.pos.x),
+    y: Math.round(cop.pos.y),
+  });
 }
 
 /**

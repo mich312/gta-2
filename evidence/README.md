@@ -8,8 +8,9 @@ readily enough and never on cue.
 
 | file | what it shows |
 |---|---|
-| `street-ambulance.png` | An ambulance that turned itself out to a casualty, pulled up on the road beside the scene with its brake lights on. On the pavement to the left: an officer's body, a pedestrian's, the casualty it came for, and two dropped guns. |
-| `street-down.png` | The same corner at 4×. Top, an officer's body — flat, drained, still. Bottom left, the casualty — colour kept, and breathing, because an ambulance is coming for them and nothing is coming for the officer. Telling those two apart is the whole reason `drawBody` takes a flag. The grey bars are guns their owners dropped. |
+| `street-ambulance.png` | An ambulance that turned itself out to a casualty, pulled up on the road beside the scene with its brake lights on. On the pavement to the left: an officer's body, a pedestrian's, the casualty it came for, and two dropped guns. (Taken before the body and blood rework below, so the figures in it are the old flattened sprites.) |
+| `street-blood-1-spray.png` | A second after the shooting, at 4×. The droplets are down: each mark on the pavement is where one of them actually landed, so the arc on the ground is the arc the blood took. The figures are laid out along the ground — head, torso, legs — rather than standing sprites squashed towards the camera. |
+| `street-blood-2-pooled.png` | The same corner five seconds later. The pools have spread out from under each body and stopped; the spatter is still where it fell. One of those on the left is a casualty rather than a corpse — smaller, brighter pool, and it breathes. |
 
 ## Damage
 

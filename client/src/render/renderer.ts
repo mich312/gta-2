@@ -17,8 +17,11 @@ import {
   PART_TAILLIGHT_R,
   PART_WINDSCREEN,
   PLAYER_RADIUS,
+  RESPAWN_DELAY_TICKS,
+  TICK_RATE,
   TILE_SIZE,
   clamp,
+  getTuning,
   getVehicleTuning,
   getWeaponTuning,
   vehicleWear,
@@ -29,7 +32,7 @@ import { worldTransform } from './canvas.js';
 import type { RenderWorld } from '../net/interpolation.js';
 import type { SpriteSheet } from './sprites.js';
 import type { TileLayer } from './tiles.js';
-import type { Effects } from './effects.js';
+import { BLOOD_DROP, BLOOD_POOL, type Effects } from './effects.js';
 import type { LightPass } from './lighting.js';
 import { DEVICE_H, DEVICE_W, RENDER_SCALE, SUN_X, SUN_Y, VIEW_H, VIEW_W } from './config.js';
 
@@ -104,6 +107,15 @@ export interface Scene {
   dt: number;
   /** Wall-clock ms, for strobes and flicker. */
   nowMs: number;
+  /**
+   * Newest authoritative sim tick.
+   *
+   * Only the dead need it, and they genuinely do: how far a player's blood
+   * has spread is a function of how long they have been down, and the only
+   * clock on that is `respawnAtTick` counted back from now. Pedestrians and
+   * officers carry their own age in a field.
+   */
+  tick: number;
 }
 
 /** How far ahead of the player the camera leads, at full speed, in world px. */
@@ -325,18 +337,17 @@ export function render(
     // ambulance. See drawBody.
     const dying = pd.ped.mode === 'downed';
     if (dying || pd.ped.mode === 'dead') {
-      drawBody(
-        ctx,
-        sprites,
-        `ped_v${variant}_f0`,
-        dx(pd.x),
-        dy(pd.y),
-        facing,
-        tint,
-        dying,
-        scene.nowMs,
-        pd.ped.id,
-      );
+      // `timer` counts DOWN from the clock they are on, so what is left of it
+      // is what says how long they have been there.
+      const full = (dying ? getTuning().peds.bleedOutSec : getTuning().peds.corpseSec) * TICK_RATE;
+      drawBody(ctx, sprites, `ped_v${variant}_f0`, dx(pd.x), dy(pd.y), facing, tint, pd.x, pd.y, {
+        alive: dying,
+        ageSec: Math.max(0, full - pd.ped.timer) / TICK_RATE,
+        nowMs: scene.nowMs,
+        key: `d${pd.ped.id}`,
+        seed: pd.ped.id,
+        effects,
+      });
       continue;
     }
     const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
@@ -387,8 +398,17 @@ export function render(
     // tell what is chasing you without reading the star count.
     const tint = COP_TINT[c.cop.kind] ?? '#3a5fb0';
     // An officer at zero health is a body, not a pursuer — see damageCop.
+    // `idleTicks` counts UP from the moment they went down, which is exactly
+    // the age the blood wants.
     if (c.cop.health <= 0) {
-      drawBody(ctx, sprites, 'cop_f0', dx(c.x), dy(c.y), angle, tint);
+      drawBody(ctx, sprites, 'cop_f0', dx(c.x), dy(c.y), angle, tint, c.x, c.y, {
+        alive: false,
+        ageSec: c.cop.idleTicks / TICK_RATE,
+        nowMs: scene.nowMs,
+        key: `c${c.cop.id}`,
+        seed: c.cop.id,
+        effects,
+      });
       continue;
     }
     const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
@@ -397,7 +417,21 @@ export function render(
   for (const r of scene.remotes.players) {
     const key = `p${r.player.id}`;
     const frame = walkFrame(key, r.x, r.y);
-    drawPlayer(ctx, sprites, r.player, dx(r.x), dy(r.y), r.aimAngle, frame, false);
+    drawPlayer(
+      ctx,
+      sprites,
+      r.player,
+      dx(r.x),
+      dy(r.y),
+      r.aimAngle,
+      frame,
+      false,
+      r.x,
+      r.y,
+      scene.tick,
+      scene.nowMs,
+      effects,
+    );
   }
   if (scene.local && scene.localPos && scene.local.mode !== 'driving') {
     const frame = walkFrame('local', scene.localPos.x, scene.localPos.y);
@@ -414,6 +448,11 @@ export function render(
       aim,
       frame,
       true,
+      scene.localPos.x,
+      scene.localPos.y,
+      scene.tick,
+      scene.nowMs,
+      effects,
     );
   }
 
@@ -594,8 +633,38 @@ function drawCharacter(
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
-/** How flat a body reads against the pavement, as a fraction of standing. */
-const BODY_FLATTEN = 0.55;
+/**
+ * The shape of somebody lying on the floor.
+ *
+ * A body used to be the standing sprite squashed along the SCREEN's vertical
+ * axis, which is wrong in a way that is obvious once said out loud: which way
+ * the screen happens to be pointing has nothing to do with which way they
+ * fell. A body that went down facing east was squeezed across its own waist
+ * and just looked like a smaller person standing up.
+ *
+ * From above, a standing person is a compact blob — head, shoulders, the tops
+ * of the feet. Somebody on the ground is the same person seen along their
+ * whole length: half again as long head-to-toe, and a little narrower across,
+ * lying down the axis they fell along. So the stretch is applied in the body's
+ * own frame, not the screen's.
+ */
+const BODY_LONG = 1.5;
+const BODY_WIDE = 0.82;
+
+/** Seconds a fresh body keeps bleeding out onto the ground. */
+const BLEED_SEC = 4.5;
+/** How many marks that produces, spread over those seconds. */
+const BLEED_MARKS = 5;
+
+/**
+ * Marks already laid by each body, so the pool creeps rather than appearing.
+ *
+ * Entries are dropped once a body has finished bleeding, but a body that
+ * leaves the view mid-bleed never gets that far — so the map is also cleared
+ * outright if it ever grows past what a screenful of casualties could need.
+ */
+const bledMarks = new Map<string, number>();
+const MAX_BLEEDING = 64;
 
 /**
  * Somebody on the ground.
@@ -613,28 +682,90 @@ const BODY_FLATTEN = 0.55;
  * from the thing nobody can do anything about. A casualty keeps their colour
  * and breathes; a body is drained and still.
  */
+interface BodyOptions {
+  /** On the bleed-out clock rather than gone. Keeps its colour, and breathes. */
+  alive: boolean;
+  /** Seconds since they went down. Drives how far the blood has spread. */
+  ageSec: number;
+  nowMs: number;
+  /** Stable per-entity key: the bleed cadence and the pool's shape hang off it. */
+  key: string;
+  /** Entity id, for the pool's hashed irregularity and the breathing phase. */
+  seed: number;
+  /** Where the blood goes. Emitted here, so it needs no event to exist. */
+  effects: Effects;
+}
+
 function drawBody(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   name: string,
   x: number,
   y: number,
+  /** World angle they came to rest along. */
   angle: number,
   fallback: string,
-  alive = false,
-  nowMs = 0,
-  /** Phase offset so a row of casualties does not breathe in unison. */
-  phase = 0,
+  /** World position, for emitting decals — x/y above are device pixels. */
+  wx: number,
+  wy: number,
+  o: BodyOptions,
 ): void {
   const r = PLAYER_RADIUS * RENDER_SCALE;
+
+  // Blood runs out for the first few seconds, in marks laid down the body's
+  // own axis. These are ordinary decals, so they outlast the body: the street
+  // still shows where somebody was long after they have been cleared away.
+  if (!o.alive) {
+    const want = Math.min(BLEED_MARKS, Math.floor((o.ageSec / BLEED_SEC) * BLEED_MARKS) + 1);
+    const laid = bledMarks.get(o.key) ?? 0;
+    if (o.ageSec <= BLEED_SEC + 1 && want > laid) {
+      o.effects.bleed(wx, wy, angle, 3 + PLAYER_RADIUS * 0.8);
+      if (bledMarks.size >= MAX_BLEEDING) bledMarks.clear();
+      bledMarks.set(o.key, want);
+    } else if (o.ageSec > BLEED_SEC + 2 && laid > 0) {
+      bledMarks.delete(o.key); // done; do not keep the entry for ever
+    }
+  }
+
+  // The pool directly beneath, which unlike the decals tracks the body and is
+  // guaranteed present — a corpse that comes into view a minute after it was
+  // made must not arrive on clean tarmac. Three overlapping blobs, hashed off
+  // the id: a single ellipse is the shape of a thing that was printed, not
+  // the shape of a thing that leaked.
+  const spread = o.alive
+    ? 0.55 + 0.25 * Math.min(1, o.ageSec / 8)
+    : 0.35 + 0.65 * Math.min(1, o.ageSec / BLEED_SEC);
   ctx.save();
-  // Still bleeding, not bled out: a smaller, fresher pool.
-  ctx.fillStyle = alive ? 'rgba(132, 22, 26, 0.38)' : 'rgba(96, 14, 18, 0.5)';
-  ctx.beginPath();
-  ctx.ellipse(x, y + r * 0.3, r * (alive ? 1.1 : 1.5), r * (alive ? 0.7 : 0.9), 0, 0, Math.PI * 2);
-  ctx.fill();
   ctx.translate(x, y);
-  ctx.scale(1, BODY_FLATTEN);
+  ctx.rotate(angle);
+  ctx.fillStyle = o.alive ? BLOOD_DROP : BLOOD_POOL;
+  for (let i = 0; i < 3; i++) {
+    const h = hash3(o.seed, i, 7);
+    const along = (h % 1) * 2 - 1;
+    const across = ((h * 3.7) % 1) * 2 - 1;
+    const size = 0.55 + ((h * 11.3) % 1) * 0.55;
+    ctx.beginPath();
+    ctx.ellipse(
+      along * r * 0.85 * spread,
+      across * r * 0.4 * spread,
+      r * 1.25 * spread * size,
+      r * 0.75 * spread * size,
+      0,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // The body. Stretched along the axis it fell down and narrowed across it —
+  // in the body's frame, then unrotated so the sprite keeps its own baked
+  // rotation rather than being rotated twice.
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  ctx.scale(BODY_LONG, BODY_WIDE);
+  ctx.rotate(-angle);
   if (!sprites.draw(ctx, name, 0, 0, angle)) {
     ctx.fillStyle = fallback;
     ctx.fillRect(-r, -r, r * 2, r * 2);
@@ -642,15 +773,17 @@ function drawBody(
   ctx.restore();
 
   ctx.save();
-  if (alive) {
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  if (o.alive) {
     // Breathing. A slow, shallow glow is the cheapest possible "there is
     // still someone in there", and it is the only cue that says an ambulance
     // would not be wasted on them.
-    const breath = 0.5 + 0.5 * Math.sin(nowMs * 0.0035 + phase);
+    const breath = 0.5 + 0.5 * Math.sin(o.nowMs * 0.0035 + o.seed);
     ctx.globalAlpha = 0.12 + 0.16 * breath;
     ctx.fillStyle = '#e8d4b0';
     ctx.beginPath();
-    ctx.ellipse(x, y, r * (0.9 + 0.15 * breath), r * (0.6 + 0.1 * breath), 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, r * (1.2 + 0.2 * breath), r * (0.55 + 0.1 * breath), 0, 0, Math.PI * 2);
     ctx.fill();
   } else {
     // Drained of colour: a body is the one thing on the street that has
@@ -658,7 +791,7 @@ function drawBody(
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = '#1a1a20';
     ctx.beginPath();
-    ctx.ellipse(x, y, r * 1.1, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, r * 1.5, r * 0.6, 0, 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.restore();
@@ -674,13 +807,28 @@ function drawPlayer(
   aim: number,
   frame: number,
   isLocal: boolean,
+  /** World position and the scene clock, for a body's blood. */
+  wx = 0,
+  wy = 0,
+  tick = 0,
+  nowMs = 0,
+  effects: Effects | null = null,
 ): void {
   const variant = Math.abs(p.cosmeticId) % PLAYER_VARIANTS;
   const fallback = isLocal ? LOCAL_COLOR : (REMOTE_COLORS[p.id % REMOTE_COLORS.length] as string);
   // Dead is dead: no walk cycle, no aim tick, and a body on the tarmac for
   // the three seconds before the ambulance-shaped respawn timer runs out.
-  if (p.mode === 'dead') {
-    drawBody(ctx, sprites, `player_v${variant}_f0`, x, y, aim, fallback);
+  if (p.mode === 'dead' && effects) {
+    // The respawn clock counts down, so what has elapsed of it is the age.
+    const left = p.respawnAtTick === null ? 0 : p.respawnAtTick - tick;
+    drawBody(ctx, sprites, `player_v${variant}_f0`, x, y, aim, fallback, wx, wy, {
+      alive: false,
+      ageSec: Math.max(0, RESPAWN_DELAY_TICKS - left) / TICK_RATE,
+      nowMs,
+      key: `p${p.id}`,
+      seed: p.id,
+      effects,
+    });
     return;
   }
   // Empty hands look like empty hands. The avatar used to hold a pistol

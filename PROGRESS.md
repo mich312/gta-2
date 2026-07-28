@@ -1,5 +1,53 @@
 # PROGRESS
 
+## What a body looks like, and what the blood does
+
+Two questions about the same picture. 332 tests green; this is all renderer,
+no sim behaviour changed except one event gaining a position.
+
+**A body was the wrong shape.** It was the standing sprite squashed along the
+SCREEN's vertical axis, which is wrong in a way that is obvious once said out
+loud: which way the screen happens to be pointing has nothing to do with which
+way somebody fell. A body that went down facing east was squeezed across its
+own waist and just looked like a smaller person standing up. From above, a
+standing person is a compact blob — head, shoulders, the tops of the feet —
+and somebody on the ground is that same person seen along their whole length.
+So the stretch is applied in the BODY's frame now: half again as long
+head-to-toe, a little narrower across, lying down the axis they fell along.
+The sprite still uses its own baked rotation; the context is rotated, scaled
+and unrotated around it so nothing is rotated twice.
+`evidence/street-blood-1-spray.png` is the difference.
+
+**The blood didn't do anything.** Ten droplets sprayed out and evaporated in
+mid-air while three stains appeared instantly on the ground beneath them,
+unrelated to any of the droplets and at full size from the first frame. Three
+changes, each cheap:
+
+- Particles can now `settle` — a droplet lays a small mark where it comes to
+  rest, so the arc of stains on the ground IS the arc the blood took. The
+  ones thrown hardest travel furthest and leave the finest marks.
+- Decals can now `spreadSec` — a stain eases out to full size instead of
+  being stamped. Blood spreads; a mark that is already finished when it
+  appears reads as texture that was always there.
+- The pool under a body grows with the body's AGE, which every kind of body
+  already carries: a pedestrian's `timer` counts down, an officer's
+  `idleTicks` counts up, a player's `respawnAtTick` counts down. Deriving it
+  means a corpse that comes into view a minute after it was made arrives with
+  a finished pool rather than starting to bleed on sight. It is three hashed,
+  overlapping blobs down the body's axis rather than one ellipse — a single
+  ellipse is the shape of a thing that was printed, not one that leaked.
+
+**And the commonest killing in the game threw no blood at all.** `shot` says
+where a round stopped, never whether it stopped in a person or a wall, so
+shooting a pedestrian produced sparks off stone and nothing else — only
+player kills and run-overs ever bled. `pedDown` and `copDown` now carry the
+position they went down at. Protocol 7.
+
+**Least confident about.** The pools are on the generous side at play zoom —
+three bodies together make a sizeable red mass — and `MAX_DECALS` went from
+220 to 460 to stop a firefight evicting every tyre mark in the district,
+which is headroom bought rather than a problem solved.
+
 ## The ambulance turns out
 
 The city had an ambulance JOB and no ambulance SERVICE. One pedestrian "kill"

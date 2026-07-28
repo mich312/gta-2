@@ -31,8 +31,14 @@ export type SimEvent =
       playerId: number;
       copId: number;
     }
-  | { type: 'copDown'; tick: number; killerId: number }
-  | { type: 'pedDown'; tick: number; killerId: number }
+  /**
+   * Somebody went down. The position is here so the client can throw blood:
+   * without it, the commonest killing in the game — shooting a pedestrian —
+   * produced no spray at all, because `shot` reports where the round STOPPED
+   * without saying whether it stopped in a person or a wall.
+   */
+  | { type: 'copDown'; tick: number; killerId: number; x: number; y: number }
+  | { type: 'pedDown'; tick: number; killerId: number; x: number; y: number }
   | {
       /** The ambulance got there in time and somebody got back up. The other
        *  outcome has no event of its own: the bleed-out clock simply runs out

@@ -13,8 +13,10 @@
  * tuning gained the armed-civilian and corpse numbers.
  * 6: the tuning payload gained an `ambulance` section — the dispatch service
  * that answers casualties.
+ * 7: `pedDown` and `copDown` carry the position they went down at, so the
+ * client can throw blood for the commonest killing in the game.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;
