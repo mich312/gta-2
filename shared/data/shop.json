@@ -130,6 +130,18 @@
       "price": 420,
       "health": 0,
       "armour": 50
+    },
+    "silenced": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 450,
+      "ammo": 60
+    },
+    "electro": {
+      "kind": "weapon",
+      "shop": "gun",
+      "price": 1100,
+      "ammo": 30
     }
   }
 }

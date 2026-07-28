@@ -23,6 +23,10 @@ export interface InputIntent {
    * out of the window with a pistol and work the guns at the same time.
    */
   fitting: boolean;
+  /**
+   * Leaning on the horn. Free on the wire: the input byte had a spare bit.
+   */
+  horn: boolean;
   /** Requested weapon slot; -1 = keep current. Still an intent, never state. */
   slot: number;
 }
@@ -38,6 +42,7 @@ export const NULL_INPUT: InputIntent = {
   aimAngle: 0,
   action: false,
   fitting: false,
+  horn: false,
   slot: -1,
 };
 
@@ -66,6 +71,7 @@ export function sanitizeIntent(raw: unknown): InputIntent | null {
     aimAngle,
     action: r['action'] === true,
     fitting: r['fitting'] === true,
+    horn: r['horn'] === true,
     slot:
       typeof r['slot'] === 'number' && Number.isInteger(r['slot']) && r['slot'] >= 0 && r['slot'] < 8
         ? r['slot']

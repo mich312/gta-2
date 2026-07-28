@@ -4,7 +4,7 @@ import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTrafficTuning, getTuning, getVehicleTuning, type TrafficTuning } from '../tuning.js';
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
 import { createPed, createVehicle } from './state.js';
-import { insertEntity } from './entities.js';
+import { insertEntity, removeEntity } from './entities.js';
 import { boxInSolid } from '../world/collide.js';
 import { PED_RADIUS } from './peds.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -19,6 +19,7 @@ import {
 } from './roadgrid.js';
 import { PLAYER_RADIUS } from '../constants.js';
 import { rayWallDistance } from './weapons.js';
+import { stopLineGap } from './signals.js';
 import { driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
 
@@ -119,7 +120,7 @@ export function isAiDriver(driverId: number | null): boolean {
 
 /** A calm ambient driver about to set off in a direction. */
 function freshDriver(dir: number): TrafficDriver {
-  return { dir, stuck: 0, panic: 0, mission: 'cruise', route: null, routeIdx: 0 };
+  return { dir, stuck: 0, panic: 0, mission: 'cruise', route: null, routeIdx: 0, trip: 0 };
 }
 
 /**
@@ -473,7 +474,7 @@ function laneControl(
   map: CityMap,
   v: VehicleState,
   driver: TrafficDriver,
-): { throttle: number; steer: number; personBlocked: boolean } {
+): { throttle: number; steer: number; personBlocked: boolean; heldAtSignal: boolean } {
   const t = getTrafficTuning();
   const dirIdx = driver.dir >= 0 ? driver.dir : nearestCardinal(v.heading);
   const [dx, dy] = CARDINALS[dirIdx] as readonly [number, number];
@@ -550,6 +551,36 @@ function laneControl(
   // the end, so the same request means the same thing whatever the car's
   // engine and brakes happen to be worth.
   const ahead = scanAhead(state, map, v, t.scanHorizon);
+
+  // A red light is a car that will never move. Folding it into the same Ahead
+  // the car-following model already consumes means the driver eases to a halt
+  // at the line and everybody behind queues behind it, using the braking
+  // curve this model was tuned for — rather than a second, separate stopping
+  // rule of the kind the gap-acceptance experiment above found so expensive.
+  //
+  // Panic overrides it. A driver fleeing gunfire does not wait at a red, and
+  // one that did would look broken rather than frightened.
+  let heldAtSignal = false;
+  if (driver.panic === 0) {
+    const line = stopLineGap(
+      map,
+      v.pos.x,
+      v.pos.y,
+      dirIdx,
+      Math.abs(v.speed),
+      getVehicleTuning(v.kind).halfExtent,
+      state.tick,
+      t.signals,
+      t.comfortBrake,
+    );
+    if (line < ahead.gap) {
+      ahead.gap = line;
+      ahead.leadSpeed = 0;
+      ahead.person = false;
+    }
+    heldAtSignal = line < Infinity;
+  }
+
   const accel = idmAccel(v.speed, desired, ahead, t);
   const veh = getVehicleTuning(v.kind);
   const throttle =
@@ -559,7 +590,12 @@ function laneControl(
   // acceleration means asking for reverse, and a queue of ambient cars slowly
   // reversing into each other is worse than any jam.
   const held = throttle < 0 && v.speed <= 0 ? 0 : throttle;
-  return { throttle: held, steer, personBlocked: ahead.person && ahead.gap < STOP_GAP };
+  return {
+    throttle: held,
+    steer,
+    personBlocked: ahead.person && ahead.gap < STOP_GAP,
+    heldAtSignal,
+  };
 }
 
 /**
@@ -714,6 +750,7 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
       state.trafficDrivers[id] = driver;
     }
     if (driver.panic > 0) driver.panic--;
+    driver.trip++;
 
     // Stopped on the job. A tending driver has arrived at whatever it was
     // sent to and is busy: no routing, no turn lottery, pedals off, and it
@@ -767,16 +804,40 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
 
     // Wheel, pedals and physics: every tick, steering recomputed each time so
     // the car tracks its lane instead of holding a stale wheel for 100 ms.
-    const { throttle, steer, personBlocked } = laneControl(state, map, v, driver);
+    const { throttle, steer, personBlocked, heldAtSignal } = laneControl(state, map, v, driver);
     driveVehicle(v, throttle, steer, map, state, state, events, false, 1);
 
     // Wedged? Count it, and past the limit back out. A driver waiting for
     // somebody to finish crossing gets three times the patience of one nosed
     // into a wall: people move on their own, and a car reversing away from a
     // pedestrian looks deranged.
+    //
+    // Waiting at a red is not being wedged at all, and must not accumulate.
+    // A red runs 114 ticks against a patience of 90, so before this a car
+    // that arrived just as the light changed would decide it was stuck and
+    // REVERSE out of the queue — which is both absurd to watch and the thing
+    // that made every lane behind it worse.
+    if (heldAtSignal) {
+      if (driver.stuck > 0) driver.stuck--;
+      continue;
+    }
     const patience = personBlocked ? t.blockedTimeoutTicks * 3 : t.blockedTimeoutTicks;
     if (Math.abs(v.speed) < WEDGED_SPEED) {
       driver.stuck++;
+      // Held up by a PERSON, for long enough to be annoyed about it. Only a
+      // person: leaning on the horn at a wall is not a thing drivers do, and
+      // it would fire constantly in the alleys. Once per press, not once per
+      // tick, or a blocked street becomes an air raid.
+      if (personBlocked && driver.stuck === t.hornAfterTicks) {
+        events.push({
+          type: 'horn',
+          tick: state.tick,
+          x: Math.round(v.pos.x),
+          y: Math.round(v.pos.y),
+          kind: v.kind,
+          playerId: null,
+        });
+      }
       if (driver.stuck >= patience) driver.stuck = -t.reverseTicks;
     } else if (driver.stuck > 0) {
       driver.stuck--;
@@ -789,6 +850,118 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
  * what they can see, despawn what they have left far behind. A flat global
  * count would put two cars in view across a 114-screen city.
  */
+/**
+ * People getting into cars, and out of them again.
+ *
+ * Traffic used to spring into existence with its driver already aboard, and a
+ * car that stopped being driven simply coasted — nobody was ever seen getting
+ * in or out, which is the single biggest reason the crowd and the traffic read
+ * as two unrelated simulations sharing a street.
+ *
+ * Three rules keep this from being expensive:
+ *
+ *  1. **One rng draw per tick for the whole pool**, not one per candidate.
+ *     The draw picks an index into the eligible list, exactly the way
+ *     `pickKind` spends one value per spawn.
+ *  2. **Collect, then apply.** Boarding removes a ped and alighting inserts
+ *     one, both while the other table is being read. Doing either inline
+ *     would make the outcome depend on iteration order — the discipline
+ *     `stepVehicleDamage` already follows for its detonation list.
+ *  3. **Boarding is capped by the traffic target.** Without it, every ped who
+ *     got into a car pushed the ambient-driver count past its ceiling and the
+ *     population inflated: the spawner only ever counts UP to the target, and
+ *     `session.ts` tops the crowd back up behind it.
+ */
+export function stepBoarding(state: GameState, map: CityMap): void {
+  const t = getTrafficTuning();
+
+  // --- who is getting out -------------------------------------------------
+  //
+  // A driver whose journey has run its course, stopped, AT A PARKING SPOT.
+  // That last condition is the whole rule. Without it the first thing that
+  // brings a car to a halt after its trip timer expires is a red light — so
+  // drivers got out in the queue, left the car standing in the lane, and
+  // everything behind them jammed. Traffic under way measured 0.54 down to
+  // 0.44 before the spot was required.
+  //
+  // Parking spots are also where the parked stock the crowd gets INTO lives,
+  // so the exchange is symmetric: people get out where cars park, and get in
+  // where cars are parked.
+  const alighting: number[] = [];
+  let aiCount = 0;
+  const spotReach = t.boardRadius * t.boardRadius;
+  for (const id of state.vehicles.ids) {
+    const v = state.vehicles.byId[id];
+    if (!v || !isAiDriver(v.driverId)) continue;
+    aiCount++;
+    const driver = state.trafficDrivers[id];
+    if (!driver || driver.mission !== 'cruise' || driver.panic > 0) continue;
+    if (driver.trip < t.tripTicks) continue;
+    if (Math.abs(v.speed) > 6) continue;
+    let parkable = false;
+    for (const spot of map.parkingSpots) {
+      const dx = spot.x - v.pos.x;
+      const dy = spot.y - v.pos.y;
+      if (dx * dx + dy * dy <= spotReach) {
+        parkable = true;
+        break;
+      }
+    }
+    if (!parkable) continue;
+    alighting.push(id);
+  }
+
+  // --- who is getting in --------------------------------------------------
+  // Parked, empty, intact, and somebody civilian standing at the door.
+  const boarding: Array<{ pedId: number; vehicleId: number }> = [];
+  if (aiCount - alighting.length < t.count) {
+    const reach = t.boardRadius * t.boardRadius;
+    const pairs: Array<{ pedId: number; vehicleId: number }> = [];
+    for (const pedId of state.peds.ids) {
+      const ped = state.peds.byId[pedId];
+      if (!ped || ped.mode !== 'walk' || ped.gangId !== 0) continue;
+      for (const vid of state.vehicles.ids) {
+        const v = state.vehicles.byId[vid];
+        if (!v || v.driverId !== null || v.condition !== 'ok') continue;
+        const dx = v.pos.x - ped.pos.x;
+        const dy = v.pos.y - ped.pos.y;
+        if (dx * dx + dy * dy > reach) continue;
+        pairs.push({ pedId, vehicleId: vid });
+        break; // one car per person; the nearest by id order will do
+      }
+    }
+    if (pairs.length > 0) {
+      let roll: number;
+      [roll, state.rng] = nextFloat01(state.rng);
+      // One boarding at most per tick, and only sometimes: a whole street
+      // climbing into cars at once is not a city, it is a fire drill.
+      if (roll < t.boardChance) {
+        let pick: number;
+        [pick, state.rng] = nextIntRange(state.rng, 0, pairs.length);
+        boarding.push(pairs[pick] as { pedId: number; vehicleId: number });
+      }
+    }
+  }
+
+  // --- apply, in that order ----------------------------------------------
+  for (const id of alighting) {
+    const v = state.vehicles.byId[id];
+    if (!v) continue;
+    if (!ejectDriver(state, map, v, null)) continue;
+    v.driverId = null;
+    v.speed = 0;
+    delete state.trafficDrivers[id];
+  }
+  for (const b of boarding) {
+    const ped = state.peds.byId[b.pedId];
+    const v = state.vehicles.byId[b.vehicleId];
+    if (!ped || !v || v.driverId !== null) continue;
+    removeEntity(state.peds, b.pedId);
+    v.driverId = -(1000 + v.id); // the same negative-id convention as spawning
+    state.trafficDrivers[v.id] = freshDriver(nearestCardinal(v.heading));
+  }
+}
+
 export function stepTrafficPopulation(state: GameState, map: CityMap): void {
   const t = getTrafficTuning();
   const spawns = map.vehicleSpawns;
@@ -1015,6 +1188,69 @@ export function stepTrafficPanic(
 }
 
 /**
+ * Where a person stands when they get out of a car, or null if neither door
+ * opens onto anywhere they could stand.
+ *
+ * Kerb side first, then the other one. A car wedged hard against walls has
+ * neither, and squeezing somebody out anyway would push them inside the
+ * collision geometry.
+ */
+function doorSpot(map: CityMap, v: VehicleState): { x: number; y: number; side: number } | null {
+  const across = v.heading + HALF_PI;
+  const doorDist = getVehicleTuning(v.kind).halfExtent + PED_RADIUS + 2;
+  for (const side of [1, -1]) {
+    // q8 at birth: they stand still until their first step, and an off-grid
+    // position on the wire is a standing hash desync (see the same note on
+    // roadblock cars in police.ts).
+    const spot = {
+      x: q8(v.pos.x + dCos(across) * side * doorDist),
+      y: q8(v.pos.y + dSin(across) * side * doorDist),
+    };
+    if (boxInSolid(map, spot, PED_RADIUS)) continue;
+    return { ...spot, side };
+  }
+  return null;
+}
+
+/**
+ * Put the driver of `v` on the pavement as a pedestrian, and take their
+ * driver record away.
+ *
+ * `fleeFrom` is somebody to run from — a carjacker — or null for an ordinary
+ * end-of-journey, where they simply walk off. Both directions of the
+ * ped/vehicle exchange go through this and `boardVehicle` below, so there is
+ * one definition of where a body goes when it changes table.
+ */
+export function ejectDriver(
+  state: GameState,
+  map: CityMap,
+  v: VehicleState,
+  fleeFrom: { x: number; y: number } | null,
+): boolean {
+  const door = doorSpot(map, v);
+  if (!door) return false;
+  const across = v.heading + HALF_PI;
+  const ped = createPed(state.nextEntityId++, door, getTuning().peds.health);
+  if (fleeFrom) {
+    const dx = door.x - fleeFrom.x;
+    const dy = door.y - fleeFrom.y;
+    const d = Math.hypot(dx, dy);
+    ped.dirX = d > 0.001 ? dx / d : dCos(across) * door.side;
+    ped.dirY = d > 0.001 ? dy / d : dSin(across) * door.side;
+    ped.mode = 'flee';
+    ped.timer = getTuning().peds.fleeTicks;
+  } else {
+    // Off to whatever they were doing before they got in.
+    ped.dirX = dCos(across) * door.side;
+    ped.dirY = dSin(across) * door.side;
+    ped.mode = 'walk';
+    ped.timer = getTuning().peds.turnMinTicks;
+  }
+  insertEntity(state.peds, ped);
+  return true;
+}
+
+/**
  * Drag an AI driver out and take the wheel. THE verb the genre is named
  * after, and it could not previously be expressed at all: no vehicle had an
  * occupant, so the only theft in the game was lifting an empty parked car.
@@ -1054,29 +1290,7 @@ export function tryCarjack(
   // the kerb side first, then the other door, and stay unspawned only if the
   // car is wedged so hard against walls that neither door opens — squeezing a
   // person into a wall would push them inside the collision geometry.
-  const across = best.heading + HALF_PI;
-  const doorDist = getVehicleTuning(best.kind).halfExtent + PED_RADIUS + 2;
-  for (const side of [1, -1]) {
-    // q8 at birth: they stand still until their first flee step, and an
-    // off-grid position on the wire is a standing hash desync (see the same
-    // note on roadblock cars in police.ts).
-    const door = {
-      x: q8(best.pos.x + dCos(across) * side * doorDist),
-      y: q8(best.pos.y + dSin(across) * side * doorDist),
-    };
-    if (boxInSolid(map, door, PED_RADIUS)) continue;
-    const ped = createPed(state.nextEntityId++, door, getTuning().peds.health);
-    // Flee straight away from the carjacker, or failing that out the door.
-    const dx = door.x - p.pos.x;
-    const dy = door.y - p.pos.y;
-    const d = Math.hypot(dx, dy);
-    ped.dirX = d > 0.001 ? dx / d : dCos(across) * side;
-    ped.dirY = d > 0.001 ? dy / d : dSin(across) * side;
-    ped.mode = 'flee';
-    ped.timer = getTuning().peds.fleeTicks;
-    insertEntity(state.peds, ped);
-    break;
-  }
+  ejectDriver(state, map, best, { x: p.pos.x, y: p.pos.y });
 
   p.mode = 'driving';
   p.vehicleId = best.id;

@@ -28,12 +28,33 @@ export interface MissionView {
   target: number;
   secondsLeft: number;
   marker: { x: number; y: number } | null;
+  /** Remaining checkpoints for a race; the first of them is `marker`. */
+  route?: Array<{ x: number; y: number }>;
+  /** Position in the employer's chain, 0/0 when this is off-chain work. */
+  chainStep?: number;
+  chainOf?: number;
 }
 
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
 /** Gang colours, in gang-id order. Mirrors shared/data/gangs.json. */
-const GANG_COLORS = ['#c8543c', '#4aa86a', '#4a7ac8', '#a86ac8'];
-const GANG_NAMES = ['Kessler Row', 'Sunnyside', 'The Quay', 'Halloran'];
+const GANG_COLORS = [
+  '#c8543c',
+  '#4aa86a',
+  '#4a7ac8',
+  '#a86ac8',
+  '#c8a03c',
+  '#3cc8b4',
+  '#c85a8c',
+];
+const GANG_NAMES = [
+  'Kessler Row',
+  'Sunnyside',
+  'The Quay',
+  'Halloran',
+  'Marrow Street',
+  'The Vaults',
+  'Ostrey',
+];
 
 interface FeedLine {
   text: string;
@@ -57,6 +78,8 @@ export class Hud {
   accountName: string | null = null;
   /** Named landmark the player is at, shown so the city is legible. */
   place: string | null = null;
+  /** District the player is standing in, for the standing readout. */
+  district: string | null = null;
   /** What the garage bolted to the car the player is currently in. */
   fitting = '';
   fittingAmmo = 0;
@@ -97,9 +120,13 @@ export class Hud {
     while (this.feed.length > 5) this.feed.shift();
   }
 
+  /** Lifetime earned per district: how well each one knows you (L3). */
+  private standing: Record<string, number> = {};
+
   /** A `wallet` message landed. Announce the multiplier only when it moves. */
-  setWallet(cash: number, multiplier: number): void {
+  setWallet(cash: number, multiplier: number, standing: Record<string, number> = {}): void {
     this.cash = cash;
+    this.standing = standing;
     if (multiplier !== this.multiplier) {
       const up = multiplier > this.multiplier;
       // The first climb off ×1 is the one worth explaining; after that the
@@ -121,6 +148,11 @@ export class Hud {
   /** Marker the renderer should point at, if any. */
   get missionMarker(): { x: number; y: number } | null {
     return this.mission?.active ? this.mission.marker : null;
+  }
+
+  /** The rest of a race's checkpoints, drawn dim behind the next one. */
+  get missionRoute(): Array<{ x: number; y: number }> {
+    return this.mission?.active ? (this.mission.route ?? []) : [];
   }
 
   /** The crushers' shopping list changed. */
@@ -191,6 +223,15 @@ export class Hud {
       this.notice(`${GANG_NAMES[event.gangId - 1] ?? 'a gang'} wants you off their streets`);
     }
     if (event.type === 'jailCardUsed') this.notice('you walk — card spent');
+    // A firefight two streets away is worth knowing about: it is the clearest
+    // sign the city has business of its own. Rate-limited by the feed itself,
+    // which keeps five lines and drops the oldest.
+    if (event.type === 'gangFight') {
+      const a = GANG_NAMES[event.gangId - 1] ?? 'a gang';
+      const b = GANG_NAMES[event.rivalId - 1] ?? 'a gang';
+      const line = `${a} and ${b} are at it`;
+      if (this.feed[this.feed.length - 1]?.text !== line) this.notice(line);
+    }
   }
 
   /**
@@ -378,7 +419,9 @@ export class Hud {
       ctx.font = '8px monospace';
       ctx.fillStyle =
         m.tier === 'red' ? '#e07a6a' : m.tier === 'yellow' ? '#e0c86a' : '#8fd6a0';
-      ctx.fillText(`${m.employer.toUpperCase()} — ${m.text}`, INTERNAL_WIDTH / 2, 34);
+      const chain =
+        m.chainOf && m.chainStep ? `  [${m.chainStep}/${m.chainOf}]` : '';
+      ctx.fillText(`${m.employer.toUpperCase()} — ${m.text}${chain}`, INTERNAL_WIDTH / 2, 34);
       ctx.fillStyle = m.secondsLeft <= 15 ? '#e05555' : '#c0cad0';
       ctx.fillText(
         `${m.progress}/${m.target}   ${m.secondsLeft}s`,
@@ -395,8 +438,12 @@ export class Hud {
     // On its own backing panel because the first version drew 3px bars
     // straight onto the road and was, in practice, invisible.
     if (me.respect.length > 0) {
-      const bw = 26;
-      const gap = 4;
+      // Narrower bars rather than fewer of them. Seven at the old 26px is
+      // 220px of a 480px screen; showing only the nearby gangs would fit, but
+      // the panel's whole reason for existing is that pleasing one gang
+      // displeases another, and hiding four of them hides the mechanic.
+      const bw = me.respect.length > 4 ? 14 : 26;
+      const gap = me.respect.length > 4 ? 3 : 4;
       const panelW = me.respect.length * (bw + gap) + 10;
       const panelH = 20;
       const panelX = INTERNAL_WIDTH / 2 - panelW / 2;
@@ -451,6 +498,15 @@ export class Hud {
       ctx.font = '8px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(this.place, INTERNAL_WIDTH - 6, 90);
+      // How well this district knows you, under its name. Standing is
+      // invisible otherwise, and an invisible gate is indistinguishable from
+      // a broken shop: the first thing it does is refuse to sell you a
+      // rocket, and you have to be able to see why.
+      if (this.district) {
+        const earned = this.standing[this.district] ?? 0;
+        ctx.fillStyle = '#7f93a8';
+        ctx.fillText(`${this.district} · known $${earned}`, INTERNAL_WIDTH - 6, 100);
+      }
       ctx.textAlign = 'left';
     }
 
@@ -464,6 +520,10 @@ export class Hud {
       if ((me.powerFlags & 2) !== 0) lit.push(`INVISIBLE ${secs}`);
       if ((me.powerFlags & 4) !== 0) lit.push(`FAST RELOAD ${secs}`);
       if ((me.powerFlags & 8) !== 0) lit.push('GET OUT OF JAIL FREE');
+      // Without this, being stunned is indistinguishable from the game
+      // having stopped listening to you — which is the worst thing a
+      // multiplayer game can look like.
+      if ((me.powerFlags & 16) !== 0) lit.push('STUNNED');
       ctx.textAlign = 'center';
       lit.forEach((text, i) => {
         ctx.fillStyle = i === lit.length - 1 && (me.powerFlags & 8) !== 0 ? '#e8e0c0' : '#ff9a5a';

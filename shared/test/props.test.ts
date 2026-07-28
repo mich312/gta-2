@@ -17,7 +17,26 @@ import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { roadLane } from './helpers.js';
-import { rayWallDistance } from '../src/sim/weapons.js';
+import { damageProp, rayWallDistance } from '../src/sim/weapons.js';
+import { districtAt, TILE_SIZE } from '../src/world/types.js';
+import { clearSpot } from './helpers.js';
+
+/** A player with a barrel and an ordinary bin planted in clear ground. */
+function withBarrel(): { state: GameState; barrelId: number; binId: number } {
+  let state = createGameState(5150);
+  state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+  const at = clearSpot(map, state.players.byId[1]!.pos, 200);
+  state = step(
+    state,
+    {},
+    [
+      { type: 'spawnProp', propId: 600, kind: 'barrel', x: at.x, y: at.y, orient: 0 },
+      { type: 'spawnProp', propId: 601, kind: 'bin', x: at.x + 200, y: at.y, orient: 0 },
+    ],
+    map,
+  );
+  return { state, barrelId: 600, binId: 601 };
+}
 
 const map = generateCity(9009, parseWorldgenParams(worldgenJson));
 
@@ -274,6 +293,124 @@ describe('the world replenishes', () => {
       state.players.byId[1]!.pos = { x: map.widthPx - 40, y: map.heightPx - 40 };
       for (let i = 0; i < 60 * 30; i++) state = step(state, {}, [], map);
       return hashState(state);
+    };
+    expect(run()).toBe(run());
+  });
+});
+
+describe('explosive barrels (K2)', () => {
+  it('worldgen puts barrels in every city, and only against industrial walls', () => {
+    for (const seed of [777, 808, 2024, 6006]) {
+      const m = generateCity(seed, parseWorldgenParams(worldgenJson));
+      const barrels = m.propSpawns.filter((p) => p.kind === 'barrel');
+      // Reserved out of the prop cap on purpose: the furniture list is
+      // decimated to a ceiling, and a plain decimation left two barrels in
+      // one city and none at all in another.
+      expect(barrels.length, `seed ${seed}`).toBeGreaterThan(0);
+      for (const b of barrels) {
+        const tx = Math.floor(b.x / TILE_SIZE);
+        const ty = Math.floor(b.y / TILE_SIZE);
+        expect(districtAt(m, tx, ty)).toBe('industrial');
+      }
+    }
+  });
+
+  it('a barrel goes off, and hurts whoever is standing beside it', () => {
+    const { state: base, barrelId } = withBarrel();
+    let s = base;
+    const near = s.props.byId[barrelId]!;
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'bystander' }], map);
+    s.players.byId[2]!.pos = { x: near.pos.x + 10, y: near.pos.y };
+    // ...and one well clear, to prove the blast has an edge.
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 3, name: 'far' }], map);
+    s.players.byId[3]!.pos = { x: near.pos.x + 400, y: near.pos.y };
+
+    const events: SimEvent[] = [];
+    damageProp(s, s.props.byId[barrelId]!, 1000, events, 1);
+    expect(s.props.byId[barrelId]!.intact).toBe(false);
+    // It does NOT go off on the same tick: blast() calls damageProp, so an
+    // inline detonation would recurse to a depth two hosts must agree on.
+    expect(events.some((e) => e.type === 'explosion')).toBe(false);
+
+    for (let i = 0; i < 4; i++) s = step(s, {}, [], map, events);
+    expect(events.some((e) => e.type === 'explosion')).toBe(true);
+    expect(s.players.byId[2]!.health).toBeLessThan(100);
+    expect(s.players.byId[3]!.health).toBe(100);
+    // And it leaves nothing behind flying around.
+    expect(s.projectiles.ids.length).toBe(0);
+  });
+
+  it('an ordinary bin breaks without going off', () => {
+    const { state: base, binId } = withBarrel();
+    let s = base;
+    const events: SimEvent[] = [];
+    damageProp(s, s.props.byId[binId]!, 1000, events, 1);
+    for (let i = 0; i < 5; i++) s = step(s, {}, [], map, events);
+    expect(events.some((e) => e.type === 'propDown')).toBe(true);
+    expect(events.some((e) => e.type === 'explosion')).toBe(false);
+    expect(s.projectiles.ids.length).toBe(0);
+  });
+
+  it('the arsonist owns the blast, not the barrel', () => {
+    const { state: base, barrelId } = withBarrel();
+    let s = base;
+    const spot = s.props.byId[barrelId]!.pos;
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'victim' }], map);
+    s.players.byId[2]!.pos = { x: spot.x + 8, y: spot.y };
+    const events: SimEvent[] = [];
+    damageProp(s, s.props.byId[barrelId]!, 1000, events, 1);
+    for (let i = 0; i < 4; i++) s = step(s, {}, [], map, events);
+    const kill = events.find((e) => e.type === 'kill');
+    if (kill && kill.type === 'kill') expect(kill.killerId).toBe(1);
+    expect(s.players.byId[2]!.health).toBeLessThan(100);
+  });
+
+  it('a row of barrels chains, one link per tick, and terminates', () => {
+    let s = createGameState(4242);
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    const at = clearSpot(map, s.players.byId[1]!.pos, 200);
+    const cmds: SimCommand[] = [];
+    for (let i = 0; i < 5; i++) {
+      cmds.push({
+        type: 'spawnProp',
+        propId: 700 + i,
+        kind: 'barrel',
+        x: at.x + i * 30,
+        y: at.y,
+        orient: 0,
+      });
+    }
+    s = step(s, {}, cmds, map);
+    const events: SimEvent[] = [];
+    damageProp(s, s.props.byId[700]!, 1000, events, 1);
+    for (let i = 0; i < 60; i++) s = step(s, {}, [], map, events);
+    const booms = events.filter((e) => e.type === 'explosion').length;
+    // The whole row went, and the run ended: no projectile left cooking.
+    expect(booms).toBe(5);
+    expect(s.projectiles.ids.length).toBe(0);
+    for (let i = 0; i < 5; i++) expect(s.props.byId[700 + i]!.intact).toBe(false);
+  });
+
+  it('barrels are deterministic, chain and all', () => {
+    const run = (): number => {
+      let s = createGameState(31);
+      s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+      const at = clearSpot(map, s.players.byId[1]!.pos, 200);
+      const cmds: SimCommand[] = [];
+      for (let i = 0; i < 4; i++) {
+        cmds.push({
+          type: 'spawnProp',
+          propId: 800 + i,
+          kind: 'barrel',
+          x: at.x + i * 28,
+          y: at.y,
+          orient: 0,
+        });
+      }
+      s = step(s, {}, cmds, map);
+      damageProp(s, s.props.byId[800]!, 1000, [], 1);
+      for (let i = 0; i < 40; i++) s = step(s, {}, [], map);
+      return hashState(s);
     };
     expect(run()).toBe(run());
   });

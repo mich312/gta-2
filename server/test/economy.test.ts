@@ -14,6 +14,7 @@ import {
   type SimEvent,
   TILE_SIZE,
   createGameState,
+  districtAt,
   generateCity,
   initTuning,
   parseCatalog,
@@ -259,6 +260,74 @@ describe('score multiplier', () => {
     expect(driveOnce(boosted.economy, boosted.state)).toBe(base * 3);
   });
 
+    it('a crate raises the multiplier through the same chokepoint a frenzy does', () => {
+      const { economy, state } = setup();
+      expect(economy.multiplierOf(1)).toBe(1);
+      economy.processTick(
+        [{ type: 'pickupTaken', tick: 1, kind: 'multi', playerId: 1, x: 0, y: 0 }],
+        state,
+        1_000_000,
+      );
+      expect(economy.multiplierOf(1)).toBe(1 + params.multiplier.pickupGain);
+    });
+
+    it('a crate cannot push past the cap', () => {
+      // A crate that hands out the ceiling makes frenzies and missions — the
+      // two things the multiplier exists to reward — not worth doing.
+      const { economy, state } = setup();
+      for (let i = 0; i < 40; i++) {
+        economy.processTick(
+          [{ type: 'pickupTaken', tick: i, kind: 'multi', playerId: 1, x: 0, y: 0 }],
+          state,
+          1_000_000 + i * 100,
+        );
+      }
+      expect(economy.multiplierOf(1)).toBe(params.multiplier.max);
+    });
+
+    it('every other crate leaves the multiplier alone', () => {
+      const { economy, state } = setup();
+      for (const kind of ['health', 'armour', 'ammo', 'bribe', 'jailcard', 'damage'] as const) {
+        economy.processTick(
+          [{ type: 'pickupTaken', tick: 1, kind, playerId: 1, x: 0, y: 0 }],
+          state,
+          1_000_000,
+        );
+      }
+      expect(economy.multiplierOf(1)).toBe(1);
+    });
+
+  it('district standing accrues where the work was done, and nowhere else', () => {
+    // The shared-world answer to score-gated districts: the geography stays
+    // open and the SERVICES are what you earn. Respect is who trusts you;
+    // standing is where you are known.
+    const { economy, state, map } = setup();
+    const spotIn = (want: string): { x: number; y: number } | null => {
+      for (let ty = 4; ty < map.heightTiles - 4; ty += 2) {
+        for (let tx = 4; tx < map.widthTiles - 4; tx += 2) {
+          if (districtAt(map, tx, ty) === want) {
+            return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+          }
+        }
+      }
+      return null;
+    };
+    const industrial = spotIn('industrial');
+    expect(industrial).not.toBeNull();
+    state.players.byId[1]!.pos = { x: industrial!.x, y: industrial!.y };
+    economy.processTick(
+      [{ type: 'frenzyEnded', tick: 1, playerId: 1, kills: 5, target: 5, completed: true }],
+      state,
+      1_000_000,
+      map,
+    );
+    const standing = economy.standingsOf(1);
+    expect(standing['industrial']).toBeGreaterThan(0);
+    for (const [d, v] of Object.entries(standing)) {
+      if (d !== 'industrial') expect(v, d).toBe(0);
+    }
+  });
+
   it('a completed frenzy raises the multiplier, and the cap holds', () => {
     const { economy, state } = setup();
     expect(economy.multiplierOf(1)).toBe(1);
@@ -349,6 +418,12 @@ describe('score multiplier', () => {
       "acctLedger.append(key, this.params.startingCash", // opening balance
       'ledger.append(key, -item.price', // a purchase is a debit
       'ledger.append(key, item.price', // its refund
+      // A hidden-package reward (L2), deliberately unmultiplied. The
+      // multiplier says what the NEXT thing you do is worth; a package
+      // threshold is a fixed prize for a fixed number of finds, and scaling
+      // it by whatever streak you happened to be on would make the same
+      // hundredth package worth ten times as much to one player as another.
+      'ledgerFor(key).append(key, amount, `package:',
     ];
     for (const e of exempt) expect(src, `exempt site missing: ${e}`).toContain(e);
     // exempt sites + the single credit() site
@@ -529,5 +604,159 @@ describe('car crusher and the export list (G1)', () => {
     expect(seen.size).toBeGreaterThan(params.crush.listSize);
     // A police cruiser is never a legitimate export.
     expect(seen.has('copcar')).toBe(false);
+  });
+});
+
+describe('district standing gates services, not geography (L3)', () => {
+  const params2 = parseEconomyParams(economyJson);
+
+  function gateSetup() {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, params2);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'earner' }], map);
+    economy.bindGuest(1);
+    return { map, economy, state };
+  }
+
+  /** Put the player in the doorway of the first gun shop, and say where it is. */
+  function atGunShop(state: GameState, map: ReturnType<typeof generateCity>): string {
+    const shop = map.shops.find((s) => s.kind === 'gun');
+    if (!shop) throw new Error('no gun shop on this seed');
+    const p = state.players.byId[1]!;
+    p.pos = { x: (shop.doorX + 0.5) * TILE_SIZE, y: (shop.doorY + 0.5) * TILE_SIZE };
+    return districtAt(map, shop.doorX, shop.doorY);
+  }
+
+  it('an unknown district will not sell you the upper shelf, and says why', () => {
+    const { economy, state, map } = gateSetup();
+    atGunShop(state, map);
+    // No need to top the wallet up: the gate is checked before the price is,
+    // which is the right order — being told you cannot afford something you
+    // are not allowed to buy is the wrong answer twice over.
+    const res = economy.buy(1, 'rocket', state, map);
+    expect(res.ok).toBe(false);
+    // A refusal with a reason, not a silent no-op: an invisible gate is
+    // indistinguishable from a broken shop.
+    expect(res.message).toMatch(/know/i);
+  });
+
+  it('...and sells you the ordinary shelf regardless', () => {
+    const { economy, state, map } = gateSetup();
+    atGunShop(state, map);
+    const res = economy.buy(1, 'pistol', state, map);
+    expect(res.ok).toBe(true);
+  });
+
+  it('earning in that district opens the shelf there', () => {
+    const { economy, state, map } = gateSetup();
+    const district = atGunShop(state, map);
+    // Earn past the threshold standing where the shop is.
+    for (let i = 0; i < 200; i++) {
+      economy.processTick(
+        [{ type: 'frenzyEnded', tick: i, playerId: 1, kills: 5, target: 5, completed: true }],
+        state,
+        1_000_000 + i * 1000,
+        map,
+      );
+    }
+    expect(economy.standingsOf(1)[district]).toBeGreaterThanOrEqual(params2.districts.shelfAt);
+    const res = economy.buy(1, 'rocket', state, map);
+    expect(res.ok, res.message).toBe(true);
+  });
+
+  it('the leaderboard still ranks on cash, not on standing', () => {
+    // Standing is a relationship, not a score. Replacing the rank with it
+    // would quietly undo F1.
+    const { economy } = gateSetup();
+    expect(typeof economy.cashOf(1)).toBe('number');
+    expect(economy.leaderboard()[0]?.cash).toBeDefined();
+  });
+});
+
+describe('money you can find, and a till you can empty (O1)', () => {
+  const p2 = parseEconomyParams(economyJson);
+
+  function robSetup() {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, p2);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'robber' }], map);
+    economy.bindGuest(1);
+    const shop = map.shops[0]!;
+    const p = state.players.byId[1]!;
+    p.pos = { x: (shop.doorX + 0.5) * TILE_SIZE, y: (shop.doorY + 0.5) * TILE_SIZE };
+    p.weapons = [{ weaponId: 'pistol', ammo: 30 }];
+    p.activeWeapon = 0;
+    return { map, economy, state, shop };
+  }
+
+  it('a hold-up takes time, pays once, and shuts the shop', () => {
+    const { map, economy, state, shop } = robSetup();
+    const before = economy.cashOf(1);
+    let done = 0;
+    for (let i = 0; i < p2.rob.ticks + 5; i++) {
+      if (economy.robTick(1, state, map, 1_000_000).done) done++;
+    }
+    expect(done).toBe(1);
+    expect(economy.cashOf(1)).toBe(before + p2.rob.take);
+    expect(economy.isShut(shop, 1_000_000)).toBe(true);
+    // ...and it opens again later.
+    expect(economy.isShut(shop, 1_000_000 + p2.rob.reopenSec * 1000 + 1)).toBe(false);
+  });
+
+  it('a shut shop refuses to serve you, with a reason', () => {
+    const { map, economy, state, shop } = robSetup();
+    for (let i = 0; i < p2.rob.ticks; i++) economy.robTick(1, state, map, Date.now());
+    expect(economy.isShut(shop, Date.now())).toBe(true);
+    const res = economy.buy(1, 'pistol', state, map);
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/robbed/);
+  });
+
+  it('you cannot hold up a counter with your bare hands', () => {
+    const { map, economy, state } = robSetup();
+    state.players.byId[1]!.weapons = [{ weaponId: 'fists', ammo: 0 }];
+    for (let i = 0; i < p2.rob.ticks + 5; i++) {
+      expect(economy.robTick(1, state, map, 1_000_000).holding).toBe(false);
+    }
+  });
+
+  it('walking away resets it, so a hold-up has to be held', () => {
+    const { map, economy, state } = robSetup();
+    for (let i = 0; i < p2.rob.ticks - 5; i++) economy.robTick(1, state, map, 1_000_000);
+    const p = state.players.byId[1]!;
+    const was = { x: p.pos.x, y: p.pos.y };
+    p.pos = { x: was.x + 500, y: was.y };
+    economy.robTick(1, state, map, 1_000_000);
+    p.pos = was;
+    // Back at the counter, but starting again.
+    let done = false;
+    for (let i = 0; i < p2.rob.ticks - 1; i++) {
+      if (economy.robTick(1, state, map, 1_000_000).done) done = true;
+    }
+    expect(done).toBe(false);
+  });
+
+  it('shooting pedestrians for ten minutes loses to one mission', () => {
+    // THE anti-farm test. Cash drops route through the same capped,
+    // decaying chokepoint as everything else, which is the difference between
+    // flavour and an exploit.
+    const { map, economy, state } = robSetup();
+    void map;
+    let farmed = 0;
+    for (let minute = 0; minute < 10; minute++) {
+      const before = economy.cashOf(1);
+      for (let i = 0; i < 200; i++) {
+        economy.processTick(
+          [{ type: 'pickupTaken', tick: i, kind: 'cash', playerId: 1, x: 0, y: 0 }],
+          state,
+          1_000_000 + minute * 60_000 + i * 100,
+        );
+      }
+      farmed += economy.cashOf(1) - before;
+    }
+    const mission = 2600; // the red-tier hit, from the mission board
+    expect(farmed).toBeLessThan(mission);
   });
 });

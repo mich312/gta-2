@@ -66,6 +66,7 @@ const PLAYER_FIELDS = [
   // lastInputSeq is deliberately NOT diffed: remote clients never use it and
   // it changes every tick; own reconciliation rides on the message's ackSeq.
   'actionHeld',
+  'hornHeld',
   'fireCooldown',
   'carHitCooldown',
   'heat',
@@ -82,6 +83,7 @@ const PLAYER_FIELDS = [
   'respect',
   'powerFlags',
   'powerUntilTick',
+  'stunnedUntilTick',
 ] as const;
 
 const VEHICLE_FIELDS = [
@@ -93,6 +95,9 @@ const VEHICLE_FIELDS = [
   'health',
   'condition',
   'fuseAtTick',
+  'igniterId',
+  'spreadUsed',
+  'gangId',
   // Hashed, therefore they MUST be diffed — the airDist note above is what
   // happens when a hashed field is left out of this list.
   'zones',

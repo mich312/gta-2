@@ -14,7 +14,8 @@
     "max": 8,
     "frenzyGain": 1,
     "missionGain": 1,
-    "bustPenalty": 0.5
+    "bustPenalty": 0.5,
+    "pickupGain": 1
   },
   "crush": {
     "base": 120,
@@ -27,12 +28,55 @@
       "bus": 380,
       "firetruck": 420,
       "copcar": 500,
-      "boat": 200
+      "boat": 200,
+      "limo": 340,
+      "garbage": 300,
+      "icecream": 220,
+      "digger": 400,
+      "gangcar": 280,
+      "tank": 1200
     },
     "exportBonus": 3,
     "listSize": 3,
     "refreshSec": 420,
     "equipmentChance": 0.34,
     "radius": 46
+  },
+  "districts": {
+    "shelfAt": 6000,
+    "crusherAt": 12000,
+    "crusherBonus": 1.35,
+    "gatedItems": [
+      "rocket",
+      "flamethrower",
+      "mines"
+    ]
+  },
+  "secrets": {
+    "reach": 26,
+    "rewards": [
+      {
+        "at": 10,
+        "cash": 2000
+      },
+      {
+        "at": 25,
+        "cash": 6000
+      },
+      {
+        "at": 50,
+        "cash": 18000
+      },
+      {
+        "at": 100,
+        "cash": 60000
+      }
+    ]
+  },
+  "rob": {
+    "ticks": 90,
+    "take": 900,
+    "reopenSec": 120,
+    "heat": 180
   }
 }

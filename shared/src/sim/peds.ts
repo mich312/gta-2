@@ -78,12 +78,15 @@ export function stepPeds(
   const t = getTuning().peds;
 
   // Panic sources from this tick: gunshots and deaths.
-  const scares: Array<[number, number]> = [];
+  // Each scare carries its own reach now: a shotgun clears a street that a
+  // silenced pistol does not disturb at all (M2). A death still uses the
+  // crowd's own radius — seeing a body is not a question of how loud it was.
+  const scares: Array<[number, number, number]> = [];
   for (const ev of tickEvents) {
-    if (ev.type === 'shot') scares.push([ev.x0, ev.y0]);
+    if (ev.type === 'shot') scares.push([ev.x0, ev.y0, ev.noise]);
     else if (ev.type === 'death') {
       const p = state.players.byId[ev.playerId];
-      if (p) scares.push([p.pos.x, p.pos.y]);
+      if (p) scares.push([p.pos.x, p.pos.y, t.fleeRadius]);
     }
   }
 
@@ -101,12 +104,19 @@ export function stepPeds(
     }
 
     // Down but not out: they lie there while the clock runs, and either an
-    // ambulance turns up or it does not.
+    // ambulance turns up or it does not. Before everything else, including
+    // the escort rules — somebody bleeding on the pavement is not following
+    // anybody anywhere.
     if (ped.mode === 'downed') {
       if (ped.timer > 0) ped.timer--;
       else leaveBody(state, ped);
       continue;
     }
+
+    // Somebody you are meant to be protecting. Overrides the crowd rules: an
+    // escortee who wandered off because a car went past would fail the
+    // mission for reasons the player could do nothing about.
+    if (ped.escortOf !== null && stepEscortee(state, map, ped)) continue;
 
     // People with a reason to shoot at you, checked before the panic rules and
     // overriding them: somebody who has decided to shoot at you does not also
@@ -115,11 +125,11 @@ export function stepPeds(
     if (stepArmedPed(state, map, ped, tickEvents)) continue;
 
     // Panic check (nearest scare inside radius wins).
-    for (const [sx, sy] of scares) {
+    for (const [sx, sy, reach] of scares) {
       const dx = ped.pos.x - sx;
       const dy = ped.pos.y - sy;
       const d2 = dx * dx + dy * dy;
-      if (d2 < t.fleeRadius * t.fleeRadius && d2 > 0.0001) {
+      if (d2 < reach * reach && d2 > 0.0001) {
         const d = Math.sqrt(d2);
         ped.dirX = dx / d;
         ped.dirY = dy / d;
@@ -136,6 +146,12 @@ export function stepPeds(
       for (const vid of state.vehicles.ids) {
         const v = state.vehicles.byId[vid];
         if (!v) continue;
+        // A parked, empty car is street furniture, not a threat. Before this
+        // it scared people off the pavement beside it, which among other
+        // things meant nobody could ever stand close enough to get IN one
+        // (J3): boarding wants a walking pedestrian, and this made every
+        // pedestrian near a parked car a fleeing one.
+        if (v.driverId === null && v.speed === 0) continue;
         const loud = Math.abs(v.speed) >= 84;
         const dx = ped.pos.x - v.pos.x;
         const dy = ped.pos.y - v.pos.y;
@@ -332,6 +348,7 @@ function stepArmedPed(
         y0: Math.round(ped.pos.y),
         x1: Math.round(ped.pos.x + ped.dirX * Math.min(wall, d)),
         y1: Math.round(ped.pos.y + ped.dirY * Math.min(wall, d)),
+        noise: weapon.noiseRadius,
       });
       if (wall >= d) {
         applyDamage(state, target, weapon.damage, -1, holdingGrudge ? 'ped' : 'gang', events);
@@ -341,6 +358,46 @@ function stepArmedPed(
   }
   return true;
 }
+
+/**
+ * Tagging along behind whoever you have been assigned to.
+ *
+ * A change of destination rather than a new walker: the same collision-aware
+ * step the crowd already uses, aimed at a player instead of at a wander
+ * heading. Falls back to standing still when close enough, so an escortee
+ * does not shove the person they are following around the pavement.
+ *
+ * Returns false when there is nobody to follow any more, which drops them
+ * back into the ordinary crowd rules rather than freezing them.
+ */
+function stepEscortee(state: GameState, map: CityMap, ped: PedState): boolean {
+  const lead = ped.escortOf === null ? undefined : state.players.byId[ped.escortOf];
+  if (!lead || lead.mode === 'dead') {
+    ped.escortOf = null;
+    ped.mode = 'walk';
+    return false;
+  }
+  ped.mode = 'following';
+  const dx = lead.pos.x - ped.pos.x;
+  const dy = lead.pos.y - ped.pos.y;
+  const d = Math.hypot(dx, dy);
+  if (d < 0.001) return true;
+  ped.dirX = dx / d;
+  ped.dirY = dy / d;
+  // Close enough is close enough: pushing in reads as harassment.
+  if (d < ESCORT_KEEP) return true;
+  if ((state.tick + ped.id) % 3 !== 0) return true;
+  const t = getTuning().peds;
+  const speed = d > ESCORT_KEEP * 3 ? t.fleeSpeed : t.walkSpeed;
+  const vel = { x: ped.dirX * speed, y: ped.dirY * speed };
+  moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+  ped.pos.x = q8(ped.pos.x);
+  ped.pos.y = q8(ped.pos.y);
+  return true;
+}
+
+/** How close an escortee tries to stay, px. */
+const ESCORT_KEEP = 34;
 
 /** Turn a pedestrian into a body on the pavement, on the corpse clock. */
 function leaveBody(state: GameState, ped: PedState): void {
@@ -415,6 +472,17 @@ export function damagePed(
   // still fires exactly once, on the tick they went down.
   leaveBody(state, ped);
   if (pedIsArmed(ped.id)) dropWeapon(state, ped.pos, t.weapon, Math.round(t.dropAmmo));
+  // What they were carrying, on the ground beside them. A crate rather than
+  // a number, because money is not sim state: the server prices it off the
+  // pickupTaken event, through the same capped chokepoint every other earning
+  // path goes through — which is what stops this becoming the farm. Only for
+  // a killer who exists: a car that ran somebody over on its own robs nobody.
+  if (attackerId >= 0) {
+    insertEntity(
+      state.pickups,
+      createPickup(state.nextEntityId++, 'cash', { x: ped.pos.x, y: ped.pos.y }),
+    );
+  }
   const attacker = state.players.byId[attackerId];
   if (attacker) addHeat(attacker, t.heatPerPedKill);
   // Killing somebody's people is the loudest thing you can say to a gang,

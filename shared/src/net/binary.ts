@@ -109,8 +109,10 @@ const TAG_FULL = 2;
 const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
-// Append-only, both of them: the index IS the wire value.
-const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'dead'] as const;
+// Append-only, both of them: the index IS the wire value. Two branches each
+// appended to this list; the one already on main keeps its indices and the
+// other two go after it.
+const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'dead', 'fighting', 'following'] as const;
 const PICKUP_KINDS = [
   'health',
   'armour',
@@ -121,7 +123,10 @@ const PICKUP_KINDS = [
   'damage',
   'invis',
   'reload',
+  // Append-only: the index is the wire format.
   'weapon',
+  'multi',
+  'cash',
 ] as const;
 const VEHICLE_CONDITIONS = ['ok', 'burning', 'wreck'] as const;
 
@@ -377,6 +382,7 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
     (r, o) => (o['respawnAtTick'] = r.optInt()),
   ),
   f('actionHeld', (w, p) => w.bool(p.actionHeld), (r, o) => (o['actionHeld'] = r.bool())),
+  f('hornHeld', (w, p) => w.bool(p.hornHeld), (r, o) => (o['hornHeld'] = r.bool())),
   f('fireCooldown', (w, p) => w.int(p.fireCooldown), (r, o) => (o['fireCooldown'] = r.int())),
   f(
     'carHitCooldown',
@@ -415,6 +421,7 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
   f('fittingCooldown', (w, p) => w.int(p.fittingCooldown), (r, o) => (o['fittingCooldown'] = r.int())),
   f('powerFlags', (w, p) => w.u8(p.powerFlags), (r, o) => (o['powerFlags'] = r.u8())),
   f('powerUntilTick', (w, p) => w.big(p.powerUntilTick), (r, o) => (o['powerUntilTick'] = r.big())),
+  f('stunnedUntilTick', (w, p) => w.big(p.stunnedUntilTick), (r, o) => (o['stunnedUntilTick'] = r.big())),
   f(
     'lastInputSeq',
     (w, p) => w.big(p.lastInputSeq),
@@ -445,6 +452,9 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
     (r, o) => (o['condition'] = VEHICLE_CONDITIONS[r.u8()]),
   ),
   f('fuseAtTick', (w, v) => w.optInt(v.fuseAtTick), (r, o) => (o['fuseAtTick'] = r.optInt())),
+  f('igniterId', (w, v) => w.optInt(v.igniterId), (r, o) => (o['igniterId'] = r.optInt())),
+  f('spreadUsed', (w, v) => w.int(v.spreadUsed), (r, o) => (o['spreadUsed'] = r.int())),
+  f('gangId', (w, v) => w.int(v.gangId), (r, o) => (o['gangId'] = r.int())),
   f(
     'zones',
     (w, v) => {
@@ -530,6 +540,7 @@ const PED_CODECS: Array<FieldCodec<PedState>> = [
   f('mode', (w, p) => w.u8(PED_MODES.indexOf(p.mode)), (r, o) => (o['mode'] = PED_MODES[r.u8()])),
   f('health', (w, p) => w.f64(p.health), (r, o) => (o['health'] = r.f64())),
   f('timer', (w, p) => w.int(p.timer), (r, o) => (o['timer'] = r.int())),
+  f('escortOf', (w, p) => w.optInt(p.escortOf), (r, o) => (o['escortOf'] = r.optInt())),
   f('targetId', (w, p) => w.optInt(p.targetId), (r, o) => (o['targetId'] = r.optInt())),
 ];
 
@@ -724,7 +735,8 @@ function writeIntent(w: Writer, i: InputIntent): void {
     (i.right ? 8 : 0) |
     (i.fire ? 16 : 0) |
     (i.action ? 32 : 0) |
-    (i.fitting ? 64 : 0);
+    (i.fitting ? 64 : 0) |
+    (i.horn ? 128 : 0);
   w.u8(bits);
   w.q256(i.aimAngle);
   w.int(i.slot);
@@ -744,6 +756,7 @@ function readIntent(r: Reader): InputIntent {
     fire: (bits & 16) !== 0,
     action: (bits & 32) !== 0,
     fitting: (bits & 64) !== 0,
+    horn: (bits & 128) !== 0,
     aimAngle: r.q256(),
     slot: r.int(),
   };

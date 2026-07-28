@@ -8,6 +8,8 @@ import propsJson from '../data/props.json';
 import pickupsJson from '../data/pickups.json';
 import gangsJson from '../data/gangs.json';
 import worldgenJson from '../data/worldgen.json';
+import { MAX_GANGS } from '../src/constants.js';
+import { newRespect } from '../src/sim/respect.js';
 import { getTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
@@ -113,5 +115,52 @@ describe('turf (H1)', () => {
     for (const m of members) expect(m.gangId).toBe(gangAt(map, m.pos.x, m.pos.y));
     // Most of the street is still ordinary people.
     expect(members.length).toBeLessThan(state.peds.ids.length / 2);
+  });
+});
+
+describe('seven gangs (M3)', () => {
+  it('all seven hold ground, and the whole map still belongs to somebody', () => {
+    const map = generateCity(777, worldgen);
+    const gangs = getTuning().gangs.gangs;
+    expect(gangs.length).toBe(7);
+    const held = new Set<number>();
+    for (const cell of map.turfCells) if (cell !== 0) held.add(cell as number);
+    for (const g of gangs) expect(held, g.name).toContain(g.id);
+    // No unclaimed ground.
+    for (const cell of map.turfCells) expect(cell).toBeGreaterThan(0);
+  });
+
+  it('rivalry is still mutual, all the way round', () => {
+    // Asymmetric rivalry means a gang that shoots at you while you are
+    // welcome on their doorstep. The data file is hand-written, so this is
+    // the assertion that keeps it honest as it grows.
+    const gangs = getTuning().gangs.gangs;
+    for (const g of gangs) {
+      for (const rivalId of g.rivals) {
+        const rival = gangs.find((x) => x.id === rivalId);
+        expect(rival, `gang ${g.id} names ${rivalId}`).toBeDefined();
+        expect(rival!.rivals, `${rival!.name} vs ${g.name}`).toContain(g.id);
+      }
+    }
+  });
+
+  it('everybody has somebody to fall out with', () => {
+    for (const g of getTuning().gangs.gangs) {
+      expect(g.rivals.length, g.name).toBeGreaterThan(0);
+      expect(g.rivals, g.name).not.toContain(g.id);
+    }
+  });
+
+  it('respect is as wide as the roster, so nobody is unrepresentable', () => {
+    // The respect array is fixed-width on the wire. A gang with no slot is a
+    // gang whose opinion of you cannot be stored.
+    expect(MAX_GANGS).toBeGreaterThanOrEqual(getTuning().gangs.gangs.length);
+    const p = newRespect();
+    expect(p.length).toBe(MAX_GANGS);
+  });
+
+  it('colours are distinct, because the turf map is how you read the city', () => {
+    const colors = getTuning().gangs.gangs.map((g) => g.color);
+    expect(new Set(colors).size).toBe(colors.length);
   });
 });

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   type Catalog,
   type CityMap,
+  type DistrictType,
   type GameState,
   type SimCommand,
   type SimEvent,
@@ -11,6 +12,7 @@ import {
   PART_TYRE_RL,
   PART_TYRE_RR,
   TILE_SIZE,
+  districtAt,
   getTuning,
   getVehicleTuning,
   stuntReward,
@@ -18,6 +20,8 @@ import {
 import { Ledger } from './ledger.js';
 import { Accounts } from './accounts.js';
 import { AwardTracker, type EconomyParams } from './awards.js';
+import { Standings } from './districts.js';
+import { Secrets, parseSecretParams } from './secrets.js';
 import { MemoryStore, type PersistenceStore } from './store.js';
 
 /**
@@ -58,11 +62,21 @@ export interface BuyResult {
 }
 
 /** Everything the HUD needs about a player's standing, in one shot. */
+export interface RobResult {
+  holding: boolean;
+  /** 0..1 while the hold-up runs, for the HUD bar. */
+  progress: number;
+  done: boolean;
+  take: number;
+}
+
 export interface Wallet {
   cash: number;
   multiplier: number;
   /** Total ever earned this session. Flavour — the rank is cash. */
   lifetime: number;
+  /** Lifetime earned per district: how well each one knows you (L3). */
+  standing: Record<string, number>;
 }
 
 /**
@@ -77,6 +91,17 @@ export class Economy {
   private readonly guestLedger = new Ledger(new MemoryStore());
   readonly accounts: Accounts;
   private readonly awards: AwardTracker;
+  /** Where each player is known, and what that buys them. See districts.ts. */
+  private readonly standings: Standings;
+  /** Who has found which hidden packages. See secrets.ts. */
+  readonly secrets: Secrets;
+  /** Ticks each player has been holding up a counter. */
+  private readonly robProgress = new Map<number, number>();
+  /** Shops closed by a hold-up, by door, until this wall-clock time. */
+  private readonly shutUntilMs = new Map<string, number>();
+  /** Latest state/map, stashed by processTick so `credit` knows where you are. */
+  private currentState: GameState | null = null;
+  private currentMap: CityMap | null = null;
   /** playerId -> accountKey (guest:<uuid> or acct:<username>) */
   private readonly keyByPlayer = new Map<number, string>();
   private readonly usernameByPlayer = new Map<number, string>();
@@ -96,6 +121,8 @@ export class Economy {
     this.acctLedger = new Ledger(store);
     this.accounts = new Accounts(store);
     this.awards = new AwardTracker(params);
+    this.standings = new Standings(params.districts);
+    this.secrets = new Secrets(params.secrets);
   }
 
   private ledgerFor(accountKey: string): Ledger {
@@ -123,6 +150,8 @@ export class Economy {
     this.keyByPlayer.delete(playerId);
     this.usernameByPlayer.delete(playerId);
     this.multiplierByPlayer.delete(playerId);
+    this.standings.forget(playerId);
+    this.secrets.forget(playerId);
     this.lifetimeByPlayer.delete(playerId);
   }
 
@@ -135,12 +164,91 @@ export class Economy {
     return this.multiplierByPlayer.get(playerId) ?? 1;
   }
 
+  /**
+   * Holding up a shop.
+   *
+   * Server-side entirely, including the shop's closed state: one more refusal
+   * in code that already refuses, rather than a field on the wire for a door.
+   *
+   * The heat is deliberately large. A robbery is the most located, most
+   * defended earning path in the game — you cannot do it and drive away in
+   * the same second — and it is the one that gives the police something to
+   * arrive at.
+   */
+  robTick(playerId: number, state: GameState, map: CityMap, nowMs: number): RobResult {
+    const idle: RobResult = { holding: false, progress: 0, done: false, take: 0 };
+    const p = state.players.byId[playerId];
+    if (!p || p.mode !== 'foot') {
+      this.robProgress.delete(playerId);
+      return idle;
+    }
+    const shop = map.shops.find((s) => {
+      const cx = (s.doorX + 0.5) * TILE_SIZE;
+      const cy = (s.doorY + 0.5) * TILE_SIZE;
+      return (
+        Math.abs(p.pos.x - cx) < DOORWAY_RADIUS_PX && Math.abs(p.pos.y - cy) < DOORWAY_RADIUS_PX
+      );
+    });
+    // Unarmed, or not at a counter, or this one is already shut: no hold-up.
+    const armed = (p.weapons[p.activeWeapon]?.weaponId ?? 'fists') !== 'fists';
+    if (!shop || !armed || this.isShut(shop, nowMs)) {
+      this.robProgress.delete(playerId);
+      return idle;
+    }
+
+    const t = this.params.rob;
+    const at = (this.robProgress.get(playerId) ?? 0) + 1;
+    if (at < t.ticks) {
+      this.robProgress.set(playerId, at);
+      return { holding: true, progress: at / t.ticks, done: false, take: 0 };
+    }
+    this.robProgress.delete(playerId);
+    this.shutUntilMs.set(`${shop.doorX},${shop.doorY}`, nowMs + t.reopenSec * 1000);
+    // Through `credit`, so the till is multiplied and capped like everything
+    // else — a robbery is work, not a windfall outside the economy.
+    this.credit(playerId, t.take, `rob:${shop.doorX},${shop.doorY}`);
+    return { holding: true, progress: 1, done: true, take: t.take };
+  }
+
+  /** What emptying a till costs you with the police. */
+  get robHeat(): number {
+    return this.params.rob.heat;
+  }
+
+  /** Is this shop shut because somebody just robbed it? */
+  isShut(shop: { doorX: number; doorY: number }, nowMs: number): boolean {
+    return (this.shutUntilMs.get(`${shop.doorX},${shop.doorY}`) ?? 0) > nowMs;
+  }
+
+  /**
+   * Pay for crossing a hidden-package threshold.
+   *
+   * Straight through the same ledger as everything else, but NOT through
+   * `credit` — a package reward must not be multiplied. The multiplier says
+   * what the next thing you do is worth; a find is a fixed prize for a fixed
+   * number of them, and scaling it by a streak you happened to be on would
+   * make the same hundredth package worth ten times as much to one player.
+   */
+  creditSecret(playerId: number, amount: number, at: number): void {
+    const key = this.keyByPlayer.get(playerId);
+    if (!key || amount <= 0) return;
+    if (this.ledgerFor(key).append(key, amount, `package:${at}`, `package:${key}:${at}`)) {
+      this.lifetimeByPlayer.set(playerId, (this.lifetimeByPlayer.get(playerId) ?? 0) + amount);
+    }
+  }
+
+  /** Where this player is known, and how well. */
+  standingsOf(playerId: number): Record<string, number> {
+    return this.standings.view(playerId);
+  }
+
   /** Cash, multiplier and lifetime earnings — what the `wallet` message carries. */
   walletOf(playerId: number): Wallet {
     return {
       cash: this.cashOf(playerId),
       multiplier: this.multiplierOf(playerId),
       lifetime: this.lifetimeByPlayer.get(playerId) ?? 0,
+      standing: this.standings.view(playerId),
     };
   }
 
@@ -227,6 +335,29 @@ export class Economy {
       );
     });
     if (!inShop) return fail(`find a ${item.shop} shop`);
+    const robbed = map.shops.find(
+      (s) => s.kind === item.shop && this.isShut(s, Date.now()),
+    );
+    if (robbed) {
+      const cx = (robbed.doorX + 0.5) * TILE_SIZE;
+      const cy = (robbed.doorY + 0.5) * TILE_SIZE;
+      const here =
+        Math.abs(player.pos.x - cx) < DOORWAY_RADIUS_PX * 2 &&
+        Math.abs(player.pos.y - cy) < DOORWAY_RADIUS_PX * 2;
+      if (here) return fail('shut — somebody robbed the place');
+    }
+
+    // The upper shelf is what a district decides it trusts you with. Refused
+    // with a reason rather than silently, because a shop that ignores you is
+    // a bug from the far side of the screen.
+    const district = districtAt(
+      map,
+      Math.floor(player.pos.x / TILE_SIZE),
+      Math.floor(player.pos.y / TILE_SIZE),
+    );
+    if (!this.standings.mayBuy(playerId, district, itemId)) {
+      return fail(`${district} does not know you well enough for that yet`);
+    }
 
     const ledger = this.ledgerFor(key);
     const ref = `buy:${randomUUID()}`;
@@ -340,8 +471,18 @@ export class Economy {
     for (const part of MECHANICAL_PARTS) {
       if ((v.broken & part) !== 0) condition -= CRUSH_PART_PENALTY;
     }
+    // A crusher that knows you pays better than one that does not. The
+    // district's standing is where the car is delivered, not where it was
+    // stolen — the yard is the business you have a relationship with. It
+    // multiplies the condition rather than replacing it: knowing the buyer
+    // gets you a better price for the car you actually brought, not a better
+    // price for a wreck.
+    const rate = this.standings.crusherRate(
+      playerId,
+      districtAt(map, Math.floor(v.pos.x / TILE_SIZE), Math.floor(v.pos.y / TILE_SIZE)),
+    );
     const amount = Math.floor(
-      base * (wanted ? t.exportBonus : 1) * Math.max(CRUSH_MIN_SHARE, condition),
+      base * (wanted ? t.exportBonus : 1) * Math.max(CRUSH_MIN_SHARE, condition) * rate,
     );
     out.push({ type: 'crushVehicle', vehicleId: v.id });
     this.credit(playerId, amount, `crush:${v.kind}`);
@@ -369,6 +510,10 @@ export class Economy {
     map?: CityMap,
     outCommands?: SimCommand[],
   ): Set<number> {
+    // Stashed so `credit` can attribute an award to where it happened. The
+    // whole of district standing hangs off this one line.
+    this.currentState = state;
+    this.currentMap = map ?? this.currentMap;
     const changed = new Set<number>();
     for (const ev of events) {
       if (ev.type === 'kill' && ev.killerId >= 0) {
@@ -386,6 +531,22 @@ export class Economy {
         // finished is worth what it was worth, and the next one is worth more.
         this.raiseMultiplier(ev.playerId, this.params.multiplier.frenzyGain);
         changed.add(ev.playerId);
+      } else if (ev.type === 'pickupTaken' && ev.kind === 'cash') {
+        // What a body was carrying. Through `credit` and therefore through
+        // the per-minute cap and the repeat-decay, which is the difference
+        // between a bit of flavour and a farm: ten minutes of shooting
+        // pedestrians must lose to one mission, and there is a test.
+        const amount = this.awards.killAward(ev.playerId, -1, nowMs);
+        if (amount > 0 && this.credit(ev.playerId, Math.round(amount * 0.35), 'cash')) {
+          changed.add(ev.playerId);
+        }
+      } else if (ev.type === 'pickupTaken' && ev.kind === 'multi') {
+        // The crate's entire effect. It lands here rather than in the sim
+        // because nothing in step() reads a multiplier, and it goes through
+        // raiseMultiplier so the cap applies to it exactly as it does to a
+        // finished frenzy — a crate that handed out the ceiling would make
+        // the two things the multiplier rewards not worth doing.
+        this.raiseMultiplier(ev.playerId, this.params.multiplier.pickupGain);
       } else if (ev.type === 'busted') {
         // The cost of an arrest is the run, not the trip. Death does not do
         // this — that asymmetry is the whole reason both exist.
@@ -471,8 +632,23 @@ export class Economy {
     const ok = this.ledgerFor(key).append(key, scaled, reason, `award:${randomUUID()}`);
     if (ok) {
       this.lifetimeByPlayer.set(playerId, (this.lifetimeByPlayer.get(playerId) ?? 0) + scaled);
+      this.standings.credit(playerId, this.districtOfPlayer(playerId), scaled);
     }
     return ok;
+  }
+
+  /**
+   * Which district a player is standing in right now, for attributing what
+   * they just earned. Read here rather than passed by every caller: there is
+   * one chokepoint and it already knows who, so it may as well know where.
+   */
+  private districtOfPlayer(playerId: number): DistrictType | null {
+    const state = this.currentState;
+    const map = this.currentMap;
+    if (!state || !map) return null;
+    const p = state.players.byId[playerId];
+    if (!p) return null;
+    return districtAt(map, Math.floor(p.pos.x / TILE_SIZE), Math.floor(p.pos.y / TILE_SIZE));
   }
 }
 

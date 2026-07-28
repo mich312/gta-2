@@ -11,9 +11,11 @@ import {
   RESPAWN_DELAY_TICKS,
   SNAPSHOT_RING_TICKS,
   createGameState,
+  crowdScale,
   generateCity,
   step,
   takeSnapshot,
+  timeOfDay,
 } from 'shared';
 
 const INPUT_QUEUE_MAX = 60;
@@ -130,6 +132,8 @@ export class Session {
   private pedSpawnCursor = 0;
   /** Events emitted by the most recent tick (kills, shots, deaths). */
   lastEvents: SimEvent[] = [];
+  /** Intents applied on the last tick, by player id. */
+  lastIntents: Record<number, InputIntent | undefined> = {};
   private pendingRespawns: Array<{
     playerId: number;
     dueTick: number;
@@ -163,6 +167,12 @@ export class Session {
     const spots = this.map.parkingSpots;
     const parkStride = Math.max(1, Math.floor(spots.length / MAX_VEHICLES));
     const spawns = spots.filter((_, i) => i % parkStride === 0).slice(0, MAX_VEHICLES);
+    // The tank never survives a stride that samples one spot in six, and it
+    // is the one piece of parked stock that is a destination rather than
+    // scenery — so it is added back explicitly.
+    for (const s of spots) {
+      if (s.kind === 'tank' && !spawns.includes(s)) spawns.push(s);
+    }
     for (const s of spawns) {
       this.pendingCommands.push({
         type: 'spawnVehicle',
@@ -171,6 +181,7 @@ export class Session {
         x: s.x,
         y: s.y,
         heading: s.heading,
+        gangId: s.gangId ?? 0,
       });
     }
 
@@ -309,7 +320,19 @@ export class Session {
    * are looking, and that is server knowledge.
    */
   private topUpPeds(): void {
-    const target = Math.min(this.options.pedCount, this.map.pedSpawns.length);
+    // The crowd thins overnight and fills again. This is the only thing the
+    // day/night clock changes outside the renderer, and it is deliberately a
+    // TARGET rather than a behaviour: it is read where the population was
+    // already being topped up, and it draws no random numbers, so the sim's
+    // determinism is untouched.
+    const scale = crowdScale(
+      timeOfDay(this.state.tick, this.worldgen.dayLengthSec),
+      this.worldgen.nightCrowdScale,
+    );
+    const target = Math.min(
+      Math.round(this.options.pedCount * scale),
+      this.map.pedSpawns.length,
+    );
     // Spawns already queued this tick have not reached the sim yet, so they
     // must count against the deficit or the crowd overshoots its target.
     const inFlight = this.pendingCommands.reduce(
@@ -406,6 +429,9 @@ export class Session {
     const events: SimEvent[] = [];
     this.state = step(this.state, inputs, commands, this.map, events);
     this.lastEvents = events;
+    // Kept for anything server-side that needs to know what a player was
+    // holding this tick — a hold-up (O1) is a held key, not an event.
+    this.lastIntents = inputs;
 
     // Deaths schedule a respawn. The WEAPONS_LOST_ON_DEATH design flag lives
     // HERE, not in sim code: it only changes what loadout the respawn

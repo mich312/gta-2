@@ -776,9 +776,12 @@ export class TileLayer {
       ctx.fillStyle = palette.lotStripe;
       ctx.fillRect(x + 2 * RENDER_SCALE, y + 2 * RENDER_SCALE, RENDER_SCALE, TD - 4 * RENDER_SCALE);
     }
-    if (hash2(tx, ty, 23) > 0.94 && this.sprites.has('barrel')) {
-      this.sprites.draw(ctx, 'barrel', x + TD * 0.6, y + TD * 0.5, 0);
-    } else if (hash2(tx, ty, 24) > 0.95 && this.sprites.has('crate')) {
+    // No barrels here any more. They used to be painted into the cached tile
+    // layer as scenery, with nothing behind them; they are real props now
+    // (K2), streamed like every other prop and drawn by the renderer, and
+    // painting a second set here would put an undamageable twin beside every
+    // one you can shoot.
+    if (hash2(tx, ty, 24) > 0.95 && this.sprites.has('crate')) {
       this.sprites.draw(ctx, 'crate', x + TD * 0.4, y + TD * 0.6, 0);
     }
   }

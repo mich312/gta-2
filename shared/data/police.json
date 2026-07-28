@@ -13,6 +13,9 @@
   "heatPerDamage": 0.8,
   "heatPerKill": 60,
   "heatPerTheft": 15,
+  "heatPerNoise": 3,
+  "heatPerVehicleKill": 40,
+  "heatPerOccupiedVehicleKill": 70,
   "heatPerCopKill": 120,
   "heatDecayPerSec": 5,
   "despawnTicks": 450,
@@ -25,12 +28,35 @@
   "sprayCost": 400,
   "bustRadius": 22,
   "bustSpeedMax": 40,
-  "tiers": ["patrol", "patrol", "patrol", "swat", "fed", "army"],
+  "tiers": [
+    "patrol",
+    "patrol",
+    "patrol",
+    "swat",
+    "fed",
+    "army"
+  ],
   "kinds": {
-    "patrol": { "health": 50, "weapon": "copPistol", "moveSpeed": 73 },
-    "swat": { "health": 90, "weapon": "copShotgun", "moveSpeed": 79 },
-    "fed": { "health": 120, "weapon": "copSmg", "moveSpeed": 88 },
-    "army": { "health": 220, "weapon": "copRifle", "moveSpeed": 77 }
+    "patrol": {
+      "health": 50,
+      "weapon": "copPistol",
+      "moveSpeed": 73
+    },
+    "swat": {
+      "health": 90,
+      "weapon": "copShotgun",
+      "moveSpeed": 79
+    },
+    "fed": {
+      "health": 120,
+      "weapon": "copSmg",
+      "moveSpeed": 88
+    },
+    "army": {
+      "health": 220,
+      "weapon": "copRifle",
+      "moveSpeed": 77
+    }
   },
   "dismountDist": 150
 }

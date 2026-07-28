@@ -1,4 +1,5 @@
-import { assignTurf } from './turf.js';
+import { labelJunctions } from '../sim/signals.js';
+import { assignTurf, markGangCars } from './turf.js';
 import { seedRng } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
 import { placeDistrictSeeds, districtLookup } from './districts.js';
@@ -6,6 +7,8 @@ import { carveRiver, generateRoads } from './roads.js';
 import { fillBlock } from './buildings.js';
 import {
   placeParking,
+  placePackages,
+  placeTank,
   placePedSpawns,
   placePlayerSpawns,
   placeProps,
@@ -60,6 +63,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     policeStations: [],
     cranes: [],
     payphones: [],
+    junctions: { idOf: new Int16Array(0), count: 0, heads: [] },
+    dayLengthSec: params.dayLengthSec,
+    packages: [],
     turfCells: new Uint8Array(0),
     turfCellsWide: 0,
     turfCellTiles: 1,
@@ -105,6 +111,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   rng = placeVehicleSpawns(map, params, rng);
   rng = placePlayerSpawns(map, params, rng);
   placeParking(map);
+  placeTank(map);
   placePedSpawns(map);
   placeProps(map);
   placePickups(map);
@@ -113,6 +120,12 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeCranes(map);
   placePayphones(map);
   assignTurf(map, params);
+  markGangCars(map);
+  placePackages(map, params);
+  // Last, and after every pass that can carve or close a road: the labels are
+  // derived from the finished tile grid, so anything that moves a road tile
+  // afterwards would leave a junction labelled where there is none.
+  map.junctions = labelJunctions(map);
 
   return map;
 }

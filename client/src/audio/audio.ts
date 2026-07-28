@@ -125,7 +125,13 @@ export class Audio {
    * to nothing past the audible radius so a firefight across the city stays
    * inaudible. `pan` is -1..1.
    */
-  play(name: string, dist = 0, pan = 0): void {
+  /**
+   * `pitch` multiplies the tonal body only, so one sound spec can serve a
+   * family: a bus and a hatchback share the horn's shape and differ in the
+   * note, which is what makes a street of traffic sound like more than one
+   * vehicle without a second of authored audio.
+   */
+  play(name: string, dist = 0, pan = 0, pitch = 1): void {
     const ctx = this.ctx;
     const master = this.master;
     if (!ctx || !master || this.muted) return;
@@ -174,10 +180,10 @@ export class Audio {
     if (spec.tone > 0 && spec.toneGain > 0) {
       const osc = ctx.createOscillator();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(spec.tone, now);
+      osc.frequency.setValueAtTime(spec.tone * pitch, now);
       if (spec.sweepTo !== undefined) {
         osc.frequency.exponentialRampToValueAtTime(
-          Math.max(20, spec.sweepTo),
+          Math.max(20, spec.sweepTo * pitch),
           now + spec.toneDecay,
         );
       }

@@ -115,6 +115,50 @@ export class GameServer {
     // Missions advance on the same tick as everything else they read.
     const outcome = this.missions.step(this.session.lastEvents, this.session.state, this.session.map);
     for (const cmd of outcome.commands) this.session.queueCommand(cmd);
+    // Anything take() or abandon() queued between ticks — assigning or
+    // releasing an escortee. Drained here so it reaches the sim through the
+    // same command path as everything else missions do.
+    for (const cmd of this.missions.drainCommands()) this.session.queueCommand(cmd);
+
+    // Hold-ups. Driven off the same held key the garage uses, which is free
+    // and unambiguous: you cannot be in a car and at a counter at once.
+    for (const [playerId, conn] of this.byPlayer) {
+      const holding = this.session.lastIntents[playerId]?.fitting === true;
+      const res = holding
+        ? this.economy.robTick(playerId, this.session.state, this.session.map, Date.now())
+        : this.economy.robTick(-1, this.session.state, this.session.map, Date.now());
+      if (!holding || !res.done) continue;
+      this.session.queueCommand({ type: 'addHeat', playerId, amount: this.economy.robHeat });
+      conn.send({
+        type: 'event',
+        tick: this.session.state.tick,
+        event: { type: 'notice', text: `till emptied — $${res.take}` },
+      });
+      conn.send({ type: 'wallet', ...this.economy.walletOf(playerId) });
+    }
+
+    // Hidden packages: proximity, server-side, touching nothing in the sim.
+    for (const find of this.economy.secrets.step(this.session.state, this.session.map)) {
+      if (find.reward > 0) this.economy.creditSecret(find.playerId, find.reward, find.found);
+      const conn = this.byPlayer.get(find.playerId);
+      conn?.send({
+        type: 'event',
+        tick: this.session.state.tick,
+        event: {
+          type: 'notice',
+          text:
+            find.reward > 0
+              ? `package ${find.found} of ${find.total} — $${find.reward}`
+              : `package ${find.found} of ${find.total}`,
+        },
+      });
+      conn?.send({
+        type: 'secrets',
+        found: this.economy.secrets.indicesOf(find.playerId),
+        total: find.total,
+      });
+      if (find.reward > 0) conn?.send({ type: 'wallet', ...this.economy.walletOf(find.playerId) });
+    }
     for (const n of outcome.notices) {
       this.byPlayer.get(n.playerId)?.send({
         type: 'event',

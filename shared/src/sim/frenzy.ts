@@ -121,6 +121,9 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
             v,
             ((impact - LANDING_SAFE_VZ) * LANDING_DAMAGE_PER_VZ) / t.mass,
             events,
+            // Landing badly is your own doing, but it is not a crime, and
+            // charging the driver for it would make every stunt heat.
+            null,
             v.pos.x + dCos(v.heading) * t.halfLength,
             v.pos.y + dSin(v.heading) * t.halfLength,
           );

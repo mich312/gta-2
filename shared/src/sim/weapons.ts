@@ -11,9 +11,17 @@ import type {
   PropState,
   VehicleState,
 } from './state.js';
-import { addHeat, createProjectile, POWER_DOUBLE_DAMAGE, POWER_FAST_RELOAD, POWER_JAIL_CARD } from './state.js';
-import { insertEntity } from './entities.js';
+import {
+  addHeat,
+  createProjectile,
+  POWER_DOUBLE_DAMAGE,
+  POWER_FAST_RELOAD,
+  POWER_JAIL_CARD,
+  POWER_STUNNED,
+} from './state.js';
+import { insertEntity, removeEntity } from './entities.js';
 import { damagePed, dropWeapon } from './peds.js';
+import { noticedBy } from './police.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
@@ -238,6 +246,7 @@ function fireOnce(
     }
   }
 
+  const weapon = getWeaponTuning(weaponId);
   events.push({
     type: 'shot',
     tick: state.tick,
@@ -247,18 +256,31 @@ function fireOnce(
     y0: Math.round(oy),
     x1: Math.round(ox + dirX * hitDist),
     y1: Math.round(oy + dirY * hitDist),
+    noise: weapon?.noiseRadius ?? 170,
   });
 
+  // Being HEARD is its own small crime, on top of whatever the round hit.
+  //
+  // Deliberately additive rather than a gate on the damage heat. Gating was
+  // the first attempt and it is wrong: killing somebody in an empty alley is
+  // still murder, the originals never modelled witnesses, and it quietly made
+  // the whole police system optional — four tests said so. What a silencer
+  // buys is that the patrol round the corner does not look up, so a loud
+  // weapon near an officer costs extra and a quiet one costs nothing.
+  if (noticedBy(state, map, shooter, weapon?.noiseRadius ?? 170)) {
+    addHeat(shooter, getTuning().police.heatPerNoise);
+  }
   if (hitPlayer) {
     applyDamage(state, hitPlayer, damage, shooter.id, weaponId, events);
+    if (weapon && weapon.stunTicks > 0) stunPlayer(hitPlayer, state.tick, weapon.stunTicks);
   } else if (hitCop) {
     damageCop(state, hitCop, damage, shooter.id, events);
   } else if (hitPed) {
     damagePed(state, hitPed, damage, shooter.id, events);
   } else if (hitProp) {
-    damageProp(state, hitProp, damage, events);
+    damageProp(state, hitProp, damage, events, shooter.id);
   } else if (hitVehicle) {
-    damageVehicle(state, hitVehicle, damage, events);
+    damageVehicle(state, hitVehicle, damage, events, shooter.id);
   }
 }
 
@@ -268,6 +290,7 @@ export function damageProp(
   prop: PropState,
   damage: number,
   events: SimEvent[],
+  attackerId = -1,
 ): void {
   if (!prop.intact) return;
   prop.hp -= damage;
@@ -282,6 +305,27 @@ export function damageProp(
     x: Math.round(prop.pos.x),
     y: Math.round(prop.pos.y),
   });
+
+  // A prop that goes off when it breaks does NOT blast from here. `blast`
+  // calls `damageProp`, so detonating inline would recurse to a depth both
+  // hosts would have to agree on — the same trap `vehicleDamage.ts` avoids by
+  // igniting neighbours rather than detonating them. Instead it leaves a
+  // fused object behind, which is what the projectile table already is: the
+  // codebase's one mechanism for "go off, but next tick". A chain of barrels
+  // therefore propagates one link per tick and terminates.
+  if (getTuning().props.kinds[prop.kind]?.blast) {
+    insertEntity(
+      state.projectiles,
+      createProjectile(
+        state.nextEntityId++,
+        `prop:${prop.kind}`,
+        prop.pos,
+        { x: 0, y: 0 },
+        attackerId,
+        state.tick + 1,
+      ),
+    );
+  }
 }
 
 /** An officer who is a body rather than a pursuer. See damageCop. */
@@ -378,6 +422,26 @@ export function clearWanted(state: GameState, p: PlayerState): void {
   }
 }
 
+/**
+ * Put somebody on the floor for a moment.
+ *
+ * Does not stack: a second hit while already stunned does not extend it past
+ * the cap. Being unable to act is the least fun state in any game, so this is
+ * a tool for escaping or closing, never for winning — which is a tuning
+ * stance, and this line is where it is enforced.
+ */
+export function stunPlayer(p: PlayerState, tick: number, ticks: number): void {
+  const until = tick + ticks;
+  if ((p.powerFlags & POWER_STUNNED) !== 0 && p.stunnedUntilTick >= until) return;
+  p.powerFlags |= POWER_STUNNED;
+  p.stunnedUntilTick = until;
+}
+
+/** Has the clock run out on a stun? Cleared centrally, in stepWeapons. */
+export function isStunned(p: PlayerState, tick: number): boolean {
+  return (p.powerFlags & POWER_STUNNED) !== 0 && tick < p.stunnedUntilTick;
+}
+
 export function applyDamage(
   state: GameState,
   victim: PlayerState,
@@ -447,8 +511,21 @@ export function stepWeapons(
     if (!p) continue;
     if (p.fireCooldown > 0) p.fireCooldown--;
     if (p.carHitCooldown > 0) p.carHitCooldown--;
+    // The stun lifts centrally, on its own clock, at the top of the one pass
+    // that runs for every player every tick — so it cannot be forgotten by a
+    // code path that happens not to fire.
+    if ((p.powerFlags & POWER_STUNNED) !== 0 && state.tick >= p.stunnedUntilTick) {
+      p.powerFlags &= ~POWER_STUNNED;
+      p.stunnedUntilTick = 0;
+    }
     const input = inputs[id];
     if (!input || p.mode === 'dead') continue;
+    // A stunned body cannot shoot back. Weapon switching is allowed: it costs
+    // nothing and being unable to do anything at all reads as a lost frame.
+    if (isStunned(p, state.tick)) {
+      if (input.slot >= 0 && input.slot < p.weapons.length) p.activeWeapon = input.slot;
+      continue;
+    }
 
     if (input.slot >= 0 && input.slot < p.weapons.length) {
       p.activeWeapon = input.slot;
@@ -649,7 +726,9 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         if (!prop || !prop.intact) continue;
         const r = (propsT.kinds[prop.kind]?.radius ?? 4) + half;
         if (Math.abs(prop.pos.x - v.pos.x) < r && Math.abs(prop.pos.y - v.pos.y) < r) {
-          damageProp(state, prop, 1000, events);
+          // Driving into a barrel is a way of setting one off, and the
+          // driver owns what follows.
+          damageProp(state, prop, 1000, events, v.driverId ?? -1);
           v.speed = q8(v.speed * propsT.crashSpeedLoss);
         }
       }

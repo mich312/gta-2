@@ -59,6 +59,8 @@ export type PickupKind =
   | 'damage'
   | 'invis'
   | 'reload'
+  | 'multi'
+  | 'cash'
   /**
    * A gun lying where its owner fell. Unlike every other kind this one is not
    * worldgen furniture: it is created when somebody armed dies, it does not
@@ -83,6 +85,16 @@ export const POWER_DOUBLE_DAMAGE = 1;
 export const POWER_INVISIBLE = 2;
 export const POWER_FAST_RELOAD = 4;
 export const POWER_JAIL_CARD = 8;
+/**
+ * Stunned by an electro round: cannot move, cannot fire, waits it out.
+ *
+ * It lives in the power-up bitfield rather than in a field of its own —
+ * invariant 10 from FEATURES.md, batch the clocks — and it is deliberately
+ * NOT one of POWER_TIMED, because taking a power-up must not cure a stun and
+ * being stunned must not cancel your double damage. It has its own short
+ * clock in `stunnedUntilTick`.
+ */
+export const POWER_STUNNED = 16;
 /** Everything the clock governs. */
 export const POWER_TIMED = POWER_DOUBLE_DAMAGE | POWER_INVISIBLE | POWER_FAST_RELOAD;
 
@@ -121,7 +133,19 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed' | 'dead';
+export type PedMode =
+  | 'walk'
+  | 'flee'
+  /** Squaring up to the PLAYER, on their own turf. See peds.ts. */
+  | 'hostile'
+  /** Squaring up to a RIVAL GANG, on contested ground. See gangwar.ts. */
+  | 'fighting'
+  /** Tagging along behind a player, because a mission said so. See peds.ts. */
+  | 'following'
+  /** Bleeding out, and an ambulance may or may not arrive. See ambulance.ts. */
+  | 'downed'
+  /** A body on the pavement, for `corpseSec`. */
+  | 'dead';
 
 export interface PedState {
   id: number;
@@ -145,6 +169,12 @@ export interface PedState {
    */
   timer: number;
   /**
+   * Who this pedestrian is following, or null. Set by a mission command and
+   * cleared when the job ends; one nullable id on one ped at a time, which is
+   * the cheapest way to have somebody to protect.
+   */
+  escortOf: number | null;
+  /**
    * Who this one is shooting at, or null. Only ever a player id: a grudge is
    * something you hold against somebody who shot you, and the only shooters
    * a pedestrian can tell apart are players.
@@ -166,6 +196,32 @@ export interface VehicleState {
   condition: VehicleCondition;
   /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
   fuseAtTick: number | null;
+  /**
+   * Who set it alight, or null when nobody did — a shunt in ambient traffic
+   * lights cars too, and that is an accident, not a crime. Written once, at
+   * ignition, and read on the far side of the fuse so the blast is credited
+   * to the arsonist rather than to whoever was at the wheel. Carries down a
+   * chain reaction, so burning a car park is one person's fire throughout.
+   *
+   * It rides the wire, which it would not have to if `takeSnapshot` projected
+   * fields — it clones whole entities, so anything on a table is in the
+   * snapshot whether the codec encodes it or not, and a field the codec
+   * silently dropped would fail the round-trip test. The cost is near zero in
+   * practice: it changes exactly once in a vehicle's life, so the delta path
+   * never carries it twice.
+   */
+  igniterId: number | null;
+  /**
+   * How many neighbours this car has already set alight. Bounded by
+   * `fire.spreadBudget`, which is what stops one molotov taking the city.
+   */
+  spreadUsed: number;
+  /**
+   * Whose car this is, or 0 for anybody's. Set at spawn from the turf it
+   * appears on and never changed — one small field, written once, that pays
+   * for a livery, a place to find one, and a reason not to take it.
+   */
+  gangId: number;
   /**
    * Damage accumulated per body zone: [front, right, rear, left], 0-255 each.
    *
@@ -227,6 +283,12 @@ export interface TrafficDriver {
   route: number[] | null;
   /** Offset of the corner currently being driven at. Always even. */
   routeIdx: number;
+  /**
+   * Ticks this driver has been at the wheel. Past `traffic.tripTicks` they
+   * look for a kerb, park, and get out as a pedestrian — the other half of
+   * somebody getting in. Off the wire like the rest of this record.
+   */
+  trip: number;
 }
 
 /**
@@ -275,6 +337,8 @@ export interface PlayerState {
   lastInputSeq: number;
   /** Edge detection for the action button (enter/exit/buy). */
   actionHeld: boolean;
+  /** Ditto for the horn: a held key is one press, not thirty a second. */
+  hornHeld: boolean;
   /** Ticks until the active weapon may fire again. */
   fireCooldown: number;
   /** Ticks of run-over immunity so a car doesn't grind 30 hits/s. */
@@ -302,6 +366,8 @@ export interface PlayerState {
   powerFlags: number;
   /** Tick the timed powers lapse on. Meaningless when no timed bit is set. */
   powerUntilTick: number;
+  /** Tick a stun lifts on. Its own clock: see POWER_STUNNED. */
+  stunnedUntilTick: number;
 }
 
 /**
@@ -412,6 +478,7 @@ export function createPed(id: number, pos: Vec2, health: number, gangId = 0): Pe
     mode: 'walk',
     health,
     timer: 0,
+    escortOf: null,
     targetId: null,
   };
 }
@@ -445,6 +512,7 @@ export function createVehicle(
   kind: string,
   pos: Vec2,
   heading: number,
+  gangId = 0,
 ): VehicleState {
   // Quantised at birth. Steering already q256s the heading every tick, but a
   // parked car that never turns would otherwise keep the raw HALF_PI it was
@@ -459,10 +527,17 @@ export function createVehicle(
     health: getVehicleTuning(kind).health,
     condition: 'ok',
     fuseAtTick: null,
+    igniterId: null,
+    spreadUsed: 0,
+    gangId,
     zones: [0, 0, 0, 0],
     broken: 0,
-    fitting: '',
-    fittingAmmo: 0,
+    // A tank is not special-cased anywhere: it is a chassis that comes out of
+    // the yard with the guns the garage already sells, and effectively
+    // limitless belts. If that ever needs its own code path, the fittings
+    // system (FEATURES.md G2) was not built generally enough.
+    fitting: kind === 'tank' ? 'guns' : '',
+    fittingAmmo: kind === 'tank' ? 9999 : 0,
   };
 }
 
@@ -490,6 +565,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respawnAtTick: null,
     lastInputSeq: 0,
     actionHeld: false,
+    hornHeld: false,
     fireCooldown: 0,
     carHitCooldown: 0,
     heat: 0,
@@ -503,6 +579,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respect: newRespect(),
     powerFlags: 0,
     powerUntilTick: 0,
+    stunnedUntilTick: 0,
   };
 }
 
@@ -581,6 +658,7 @@ function cloneTrafficDrivers(
         mission: d.mission,
         route: d.route ? d.route.slice() : null,
         routeIdx: d.routeIdx,
+        trip: d.trip,
       };
     }
   }

@@ -16,6 +16,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { turretAngle } from '../src/sim/fittings.js';
 import { roadLane } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
@@ -34,7 +35,11 @@ beforeAll(() => {
 });
 
 /** A player at the wheel of a car with `fitting` bolted on. */
-function fitted(fitting: string, ammo = 10): { state: GameState; lane: ReturnType<typeof roadLane> } {
+function fitted(
+  fitting: string,
+  ammo = 10,
+  kind = 'car',
+): { state: GameState; lane: ReturnType<typeof roadLane> } {
   const lane = roadLane(map, 300);
   let state = createGameState(515);
   state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
@@ -46,7 +51,7 @@ function fitted(fitting: string, ammo = 10): { state: GameState; lane: ReturnTyp
       {
         type: 'spawnVehicle',
         vehicleId: 20,
-        kind: 'car',
+        kind,
         x: lane.x,
         y: lane.y,
         heading: lane.heading,
@@ -187,6 +192,48 @@ describe('car fittings (G2)', () => {
       expect(delta).toBeLessThan(0.1);
     }
     expect(after.vehicles.byId[20]!.fittingAmmo).toBe(19);
+  });
+
+  it('a turret is the exception: it follows the mouse, not the hull', () => {
+    const { state } = fitted('guns', 20, 'tank');
+    const events: SimEvent[] = [];
+    const carAngle = state.vehicles.byId[20]!.heading;
+    const aim = carAngle + Math.PI / 2;
+    const after = step(
+      state,
+      { 1: { ...NULL_INPUT, seq: 1, tick: state.tick, fitting: true, aimAngle: aim } },
+      [],
+      map,
+      events,
+    );
+    const shot = events.find((e) => e.type === 'shot');
+    expect(shot).toBeDefined();
+    if (shot && shot.type === 'shot') {
+      const angle = Math.atan2(shot.y1 - shot.y0, shot.x1 - shot.x0);
+      const off = (a: number): number => Math.abs(Math.atan2(Math.sin(angle - a), Math.cos(angle - a)));
+      expect(off(aim)).toBeLessThan(0.1); // down the barrel...
+      expect(off(carAngle)).toBeGreaterThan(1); // ...and nowhere near the bonnet
+    }
+    // A tank comes with its own gun, so the round comes off whatever it
+    // rolled out of the factory with rather than off the 20 asked for.
+    expect(after.vehicles.byId[20]!.fittingAmmo).toBe(state.vehicles.byId[20]!.fittingAmmo - 1);
+  });
+
+  it('the turret rests along the hull when nobody is driving', () => {
+    const { state } = fitted('guns', 20, 'tank');
+    const v = state.vehicles.byId[20]!;
+    const driver = state.players.byId[1]!;
+    driver.aimAngle = v.heading + Math.PI / 2;
+    expect(turretAngle(state, v)).toBeCloseTo(driver.aimAngle, 6);
+    v.driverId = null;
+    expect(turretAngle(state, v)).toBe(v.heading);
+  });
+
+  it('a vehicle without a turret ignores the aim entirely', () => {
+    const { state } = fitted('guns', 20);
+    const v = state.vehicles.byId[20]!;
+    state.players.byId[1]!.aimAngle = v.heading + 1.2;
+    expect(turretAngle(state, v)).toBe(v.heading);
   });
 
   it('a bomb arms rather than detonating in your lap', () => {

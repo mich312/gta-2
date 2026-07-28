@@ -38,6 +38,14 @@
     "reload": {
       "value": 25,
       "respawnSec": 80
+    },
+    "multi": {
+      "value": 1,
+      "respawnSec": 180
+    },
+    "cash": {
+      "value": 1,
+      "respawnSec": 1
     }
   },
   "spacing": 34,

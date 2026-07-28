@@ -16,6 +16,7 @@ import {
   partsSteerPull,
   vehiclePower,
 } from './vehicleDamage.js';
+import { creditGangKill } from './respect.js';
 import { anyCopSees } from './police.js';
 import { applyDamage } from './weapons.js';
 
@@ -189,6 +190,9 @@ function integrateVehicle(
         v,
         (collisionDamage(v.kind, closing) * WALL_SHARE) / t.mass,
         events ?? [],
+        // A wall is nobody's fault. Same reasoning as a car-to-car shunt: the
+        // impact point is known, the culprit is not.
+        null,
         wx,
         wy,
       );
@@ -260,12 +264,27 @@ function integrateVehicle(
       sim.vehicleHitTick[other.id] = sim.tick;
       // Each takes what the OTHER dealt, divided by its own mass. The striker
       // is discounted: the end pointing at the impact is the end built for it.
-      damageVehicle(sim, other, collisionDamage(v.kind, closing) / to.mass, events ?? [], hit.x, hit.y);
+      //
+      // No attacker on either call: a collision is an accident as far as the
+      // police are concerned, and nothing here can tell a deliberate ram from
+      // a bad line through a junction. Charging for it would make every
+      // scrape in ambient traffic a crime and turn the wanted system into
+      // noise. The impact point is known; the culprit is not.
+      damageVehicle(
+        sim,
+        other,
+        collisionDamage(v.kind, closing) / to.mass,
+        events ?? [],
+        null,
+        hit.x,
+        hit.y,
+      );
       damageVehicle(
         sim,
         v,
         (collisionDamage(other.kind, closing) / t.mass) * STRIKER_SHARE,
         events ?? [],
+        null,
         hit.x,
         hit.y,
       );
@@ -406,7 +425,12 @@ export function stepVehicleCoasting(
 const MAX_BOARDING_SPEED = 24;
 
 /** Try to put a player into the nearest free, near-stationary vehicle. */
-export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap): boolean {
+export function tryEnterVehicle(
+  state: GameState,
+  p: PlayerState,
+  map: CityMap,
+  events?: SimEvent[],
+): boolean {
   let best: VehicleState | null = null;
   let bestD = Infinity;
   for (const id of state.vehicles.ids) {
@@ -429,6 +453,13 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   // with NPC drivers (roadmap C2), where the jack becomes an explicit action.
   if (anyCopSees(state, map, p)) {
     addHeat(p, getTuning().police.heatPerTheft);
+  }
+  // The police are not the only ones who mind. Taking a gang's car is a
+  // slight against them and a favour to whoever they are at odds with,
+  // through exactly the same arithmetic as killing one of their people —
+  // which is the point of having them own cars at all.
+  if (best.gangId !== 0) {
+    creditGangKill(state, p.id, best.gangId, events ?? []);
   }
   best.driverId = p.id;
   p.mode = 'driving';

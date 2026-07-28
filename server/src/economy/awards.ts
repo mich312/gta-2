@@ -1,3 +1,5 @@
+import { parseDistrictParams, type DistrictParams } from './districts.js';
+import { parseSecretParams, type SecretParams } from './secrets.js';
 export interface EconomyParams {
   startingCash: number;
   killAward: number;
@@ -15,6 +17,8 @@ export interface EconomyParams {
   multiplier: {
     max: number;
     frenzyGain: number;
+    /** Raised by a multiplier crate. Rare by design; see the pickup cycle. */
+    pickupGain: number;
     missionGain: number;
     /** Fraction of the multiplier kept when busted. 0.5 = halved. */
     bustPenalty: number;
@@ -23,6 +27,12 @@ export interface EconomyParams {
    * The car crusher: what the city pays for a stolen vehicle, and what it
    * sometimes pays in instead of cash.
    */
+  /** District standing thresholds; see economy/districts.ts. */
+  districts: DistrictParams;
+  /** Hidden-package reach and rewards; see economy/secrets.ts. */
+  secrets: SecretParams;
+  /** Holding up a shop: how long it takes, what it pays, what it costs. */
+  rob: { ticks: number; take: number; reopenSec: number; heat: number };
   crush: {
     base: number;
     byKind: Record<string, number>;
@@ -72,10 +82,28 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
     multiplier: {
       max: m('max', 1),
       frenzyGain: m('frenzyGain', 0),
+    pickupGain: m('pickupGain', 0),
       missionGain: m('missionGain', 0),
       bustPenalty: m('bustPenalty', 0),
     },
     crush: parseCrush(r['crush']),
+  districts: parseDistrictParams(r['districts']),
+  secrets: parseSecretParams(r['secrets']),
+  rob: parseRob(r['rob']),
+  };
+}
+
+function parseRob(raw: unknown): EconomyParams['rob'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string, fallback: number): number => {
+    const v = r[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback;
+  };
+  return {
+    ticks: n('ticks', 90),
+    take: n('take', 900),
+    reopenSec: n('reopenSec', 120),
+    heat: n('heat', 180),
   };
 }
 

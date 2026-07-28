@@ -76,14 +76,14 @@ describe('the damage map', () => {
     const { state, car } = loneCar();
     const events: SimEvent[] = [];
     // Hit square on the nose. The car points +x, so that is +x of its centre.
-    damageVehicle(state, car, 20, events, car.pos.x + 12, car.pos.y);
+    damageVehicle(state, car, 20, events, null, car.pos.x + 12, car.pos.y);
     expect(car.zones[ZONE_FRONT]).toBe(20);
     expect(car.zones[ZONE_REAR]).toBe(0);
     expect(car.zones[ZONE_LEFT]).toBe(0);
     expect(car.zones[ZONE_RIGHT]).toBe(0);
 
     // ...and one in the back goes in the back.
-    damageVehicle(state, car, 9, events, car.pos.x - 12, car.pos.y);
+    damageVehicle(state, car, 9, events, null, car.pos.x - 12, car.pos.y);
     expect(car.zones[ZONE_REAR]).toBe(9);
     expect(car.zones[ZONE_FRONT]).toBe(20);
   });
@@ -91,7 +91,7 @@ describe('the damage map', () => {
   it('turns with the car: the same world point hits a different end', () => {
     const { state, car } = loneCar();
     car.heading = Math.PI; // now pointing -x
-    damageVehicle(state, car, 12, [], car.pos.x + 12, car.pos.y);
+    damageVehicle(state, car, 12, [], null, car.pos.x + 12, car.pos.y);
     // The point is still to the +x of the centre, but that is now the BACK.
     expect(car.zones[ZONE_REAR]).toBe(12);
     expect(car.zones[ZONE_FRONT]).toBe(0);
@@ -103,18 +103,18 @@ describe('the damage map', () => {
     const nose = (): [number, number] => [car.pos.x + 12, car.pos.y];
 
     // 4% takes the bumper and nothing else.
-    damageVehicle(state, car, max * 0.05, [], ...nose());
+    damageVehicle(state, car, max * 0.05, [], null, ...nose());
     expect(car.broken & PART_BUMPER_F).toBeTruthy();
     expect(car.broken & PART_HEADLIGHT_L).toBeFalsy();
 
     // Past 7%: one lamp. This is the state the model could never express —
     // every light on a car used to be a single boolean.
-    damageVehicle(state, car, max * 0.03, [], ...nose());
+    damageVehicle(state, car, max * 0.03, [], null, ...nose());
     expect(car.broken & PART_HEADLIGHT_L).toBeTruthy();
     expect(car.broken & PART_HEADLIGHT_R).toBeFalsy();
 
     // Past 11%: the pair.
-    damageVehicle(state, car, max * 0.05, [], ...nose());
+    damageVehicle(state, car, max * 0.05, [], null, ...nose());
     expect(car.broken & PART_HEADLIGHT_R).toBeTruthy();
     // ...and nothing at the back has been touched by any of it.
     expect(car.broken & PART_TAILLIGHT_L).toBeFalsy();
@@ -123,7 +123,15 @@ describe('the damage map', () => {
   it('announces each part as it goes, so the client can put glass on it', () => {
     const { state, car } = loneCar();
     const events: SimEvent[] = [];
-    damageVehicle(state, car, getVehicleTuning('car').health * 0.2, events, car.pos.x + 12, car.pos.y);
+    damageVehicle(
+      state,
+      car,
+      getVehicleTuning('car').health * 0.2,
+      events,
+      null,
+      car.pos.x + 12,
+      car.pos.y,
+    );
     const broke = events.filter((e) => e.type === 'vehiclePartBroke');
     expect(broke.length).toBeGreaterThanOrEqual(3); // bumper, both lamps, bonnet
     expect(broke.every((e) => e.type === 'vehiclePartBroke' && e.vehicleId === car.id)).toBe(true);
@@ -132,7 +140,7 @@ describe('the damage map', () => {
   it('a hit on a wheel flattens that tyre', () => {
     const { state, car } = loneCar();
     // Near-side front wheel sits at body-local (8, -5).
-    damageVehicle(state, car, 5, [], car.pos.x + 8, car.pos.y - 5);
+    damageVehicle(state, car, 5, [], null, car.pos.x + 8, car.pos.y - 5);
     expect(car.broken & PART_TYRE_FL).toBeTruthy();
     expect(car.broken & PART_TYRE_FR).toBeFalsy();
   });

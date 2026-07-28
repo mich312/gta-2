@@ -4,7 +4,12 @@ import {
   type PlayerState,
   type PropState,
   type Vec2,
+  type SignalColour,
   type WeaponTuning,
+  nightAmount,
+  timeOfDay,
+  CARDINALS,
+  getTrafficTuning,
   PART_BONNET,
   PART_BUMPER_F,
   PART_BUMPER_R,
@@ -24,6 +29,7 @@ import {
   getTuning,
   getVehicleTuning,
   getWeaponTuning,
+  signalColour,
   vehicleWear,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -45,6 +51,9 @@ const GANG_TINT: Record<number, string> = {
   2: '#4aa86a',
   3: '#4a7ac8',
   4: '#a86ac8',
+  5: '#c8a03c',
+  6: '#3cc8b4',
+  7: '#c85a8c',
 };
 
 /**
@@ -59,8 +68,32 @@ const GANG_TINT: Record<number, string> = {
  * Anything with a sprite of its own uses it; the generic car is the only kind
  * that comes in colours, so it is the only one that varies by id.
  */
-export function vehicleSpriteName(kind: string, id: number): string {
+export function vehicleSpriteName(kind: string, id: number, gangId = 0): string {
+  // A gang car wears its gang's colours, not a colour off the rank: the whole
+  // reason it exists is that you can tell whose street you are on by what is
+  // parked on it.
+  // Four liveries for seven gangs: the colours wrap. A body shell is not the
+  // identifier — the tint, the turf wash and the respect bar all carry the
+  // gang, and minting three more near-identical car sprites would cost sheet
+  // space to say something already said three ways.
+  if (kind === 'gangcar') return `gangcar_v${Math.max(0, gangId - 1) % 4}`;
   return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+}
+
+/**
+ * The interpolated aim of whoever is at the wheel, or null if nobody is.
+ *
+ * This is the renderer's half of `turretAngle` in the sim: the same rule —
+ * a turret points where its driver points — read off the smoothed view
+ * instead of off the authoritative state, so the barrel moves at frame rate
+ * rather than in 30 Hz steps. An empty tank rests its gun along the hull,
+ * which is what `drawVehicle` falls back to when this returns null.
+ */
+function aimOf(scene: Scene, driverId: number | null): number | null {
+  if (driverId === null) return null;
+  if (scene.local && scene.local.id === driverId) return scene.localPos?.angle ?? scene.local.aimAngle;
+  for (const r of scene.remotes.players) if (r.player.id === driverId) return r.aimAngle;
+  return null;
 }
 
 /** Uniform per force, so what is chasing you is legible at a glance. */
@@ -100,20 +133,24 @@ export interface Scene {
     broken: number;
     /** Height off the ground; nonzero only mid-stunt. */
     z: number;
+    /** Whose car it is; picks the livery for a gang car. */
+    gangId: number;
   } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
+  /** Hidden packages this player has found; the rest are still worth taking. */
+  foundPackages?: ReadonlySet<number>;
   /** Seconds since the previous frame, for effects. */
   dt: number;
   /** Wall-clock ms, for strobes and flicker. */
   nowMs: number;
   /**
-   * Newest authoritative sim tick.
+   * Newest authoritative sim tick. Two things want it, for unrelated reasons.
    *
-   * Only the dead need it, and they genuinely do: how far a player's blood
-   * has spread is a function of how long they have been down, and the only
-   * clock on that is `respawnAtTick` counted back from now. Pedestrians and
-   * officers carry their own age in a field.
+   * Traffic signals are a pure function of it, so a light is computed rather
+   * than sent. And how far a dead player's blood has spread is a function of
+   * how long they have been down, whose only clock is `respawnAtTick` counted
+   * back from now. Pedestrians and officers carry their own age in a field.
    */
   tick: number;
 }
@@ -289,6 +326,11 @@ export function render(
     return;
   }
 
+  // The hour, from the tick being rendered. A pure function of it, like the
+  // traffic signals: nothing about the clock is on the wire, and two players
+  // on the same corner see the same sky because they compute the same number.
+  lights.setNight(nightAmount(timeOfDay(scene.tick, dayLengthSec(map))));
+
   // One rounded origin for the whole frame. Every world position derives from
   // it, so the scene translates as a rigid body: no seams between cached
   // chunks, and no entities shivering against the ground by a pixel.
@@ -301,12 +343,15 @@ export function render(
   effects.update(scene.dt);
   effects.drawDecals(ctx, originX, originY);
 
-  // Street lighting, from the props the server already streams us.
+  // Street lighting, from the props the server already streams us. Fades in
+  // with the dusk: a lamp burning at noon is the one thing that gives away a
+  // scene with no clock behind it.
+  const lit = 0.15 + 0.85 * lights.nightAmount;
   for (const prop of scene.remotes.props) {
     if (prop.kind !== 'lamp' || !prop.intact) continue;
     // A touch of flicker, keyed off the prop id so lamps are out of phase.
     const flicker = 0.88 + 0.12 * Math.sin(scene.nowMs * 0.004 + prop.id * 2.3);
-    lights.point(dx(prop.pos.x), dy(prop.pos.y), 34 * RENDER_SCALE, 'lamp', 0.52 * flicker);
+    lights.point(dx(prop.pos.x), dy(prop.pos.y), 34 * RENDER_SCALE, 'lamp', 0.52 * flicker * lit);
   }
   for (const shop of map.shops) {
     const wx = (shop.doorX + 0.5) * TILE_SIZE;
@@ -314,7 +359,7 @@ export function render(
     if (wx < cam.x - 32 || wy < cam.y - 32 || wx > cam.x + VIEW_W + 32 || wy > cam.y + VIEW_H + 32) {
       continue;
     }
-    lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45);
+    lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45 * lit);
     // The room behind the door is lit too, or walking in is walking into a
     // dark hole in the middle of a lit street.
     const r = shop.interior;
@@ -324,10 +369,26 @@ export function render(
     lights.point(dx(cx), dy(cy), reach * RENDER_SCALE, 'shop', 0.5);
   }
 
+  drawPackages(ctx, map, cam, scene, dx, dy, lights);
+  drawSignals(ctx, map, cam, scene.tick, dx, dy, lights);
+
   drawProps(ctx, sprites, scene.remotes.props, dx, dy);
   drawPickups(ctx, scene.remotes.pickups, dx, dy, lights, scene.nowMs);
 
   for (const pd of scene.remotes.peds) {
+    // Somebody in your care, marked. An unmarked NPC you must protect is a
+    // mission you fail without ever knowing which person mattered.
+    if (pd.ped.escortOf !== null) {
+      const mx = dx(pd.x);
+      const my = dy(pd.y) - (PLAYER_RADIUS + 7) * RENDER_SCALE;
+      ctx.fillStyle = '#ffd27a';
+      ctx.beginPath();
+      ctx.moveTo(mx, my + 4 * RENDER_SCALE);
+      ctx.lineTo(mx - 3 * RENDER_SCALE, my);
+      ctx.lineTo(mx + 3 * RENDER_SCALE, my);
+      ctx.closePath();
+      ctx.fill();
+    }
     const variant = pd.ped.id % PED_VARIANTS;
     const facing = Math.atan2(pd.ped.dirY, pd.ped.dirX);
     // Gang members wear their colours. Being able to read a street at a
@@ -479,6 +540,12 @@ export function render(
       dx,
       dy,
       scene.nowMs,
+      0,
+      rv.vehicle.gangId,
+      // A turret points where its driver is aiming, and the driver's aim is
+      // already interpolated for their body, so the barrel is exactly as
+      // smooth as everything else on screen.
+      aimOf(scene, rv.vehicle.driverId),
     );
   }
   if (scene.localVehicle) {
@@ -503,6 +570,10 @@ export function render(
       dy,
       scene.nowMs,
       scene.localVehicle.z,
+      scene.localVehicle.gangId,
+      // Your own turret comes off your own smoothed aim, not off the wire, so
+      // it answers the mouse on the frame you move it.
+      scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
     );
   }
 
@@ -524,6 +595,119 @@ export function render(
     );
   }
 }
+
+/**
+ * How long a day is for this city, in seconds.
+ *
+ * Carried on the map because it ships with the seed in the welcome message,
+ * so the client's clock and the server's are the same function of the tick
+ * without a second thing to keep in step.
+ */
+function dayLengthSec(map: CityMap): number {
+  return map.dayLengthSec > 0 ? map.dayLengthSec : 1440;
+}
+
+/**
+ * Hidden packages, drawn where the map says they are.
+ *
+ * Never streamed: the client generated the same city from the same seed, so
+ * the positions are already here and the only thing the server has to say is
+ * which ones YOU have found. One found is drawn dim and pays nothing; your
+ * neighbour's find is still there for you. That is the whole design.
+ */
+function drawPackages(
+  ctx: CanvasRenderingContext2D,
+  map: CityMap,
+  cam: Vec2,
+  scene: Scene,
+  dx: (x: number) => number,
+  dy: (y: number) => number,
+  lights: LightPass,
+): void {
+  const found = scene.foundPackages;
+  const R = RENDER_SCALE;
+  for (let i = 0; i < map.packages.length; i++) {
+    const at = map.packages[i] as Vec2;
+    if (
+      at.x < cam.x - 20 ||
+      at.y < cam.y - 20 ||
+      at.x > cam.x + VIEW_W + 20 ||
+      at.y > cam.y + VIEW_H + 20
+    ) {
+      continue;
+    }
+    const taken = found?.has(i) === true;
+    const x = dx(at.x);
+    const y = dy(at.y);
+    // A slow glint rather than the pickups' bob: it should read as something
+    // left behind, not as something laid out for you.
+    const pulse = taken ? 0 : 0.5 + 0.5 * Math.sin(scene.nowMs * 0.002 + i);
+    ctx.fillStyle = taken ? 'rgba(120, 130, 145, 0.35)' : '#f0e2a0';
+    ctx.fillRect(x - 2 * R, y - 2 * R, 4 * R, 4 * R);
+    if (!taken) lights.point(x, y, (6 + pulse * 4) * R, 'shop', 0.25 + pulse * 0.2);
+  }
+}
+
+/** Traffic-signal colours, ordered so the array index is the lamp position. */
+const SIGNAL_COLORS: Record<SignalColour, string> = {
+  red: '#ff5a4a',
+  amber: '#ffc23c',
+  green: '#5ce08a',
+};
+
+/**
+ * The lights at every junction arm in view.
+ *
+ * Read from `signalColour` — the same function the drivers consult — with the
+ * tick being rendered, so what the player sees and what the traffic obeys
+ * cannot drift apart. Nothing about signals is on the wire; both ends compute
+ * the phase from the tick they already have.
+ *
+ * Drawn here rather than baked into the tile layer on purpose: the colour
+ * changes every few seconds, and a cached chunk that had to be rebuilt on
+ * every phase change would turn a free feature into a performance problem.
+ */
+function drawSignals(
+  ctx: CanvasRenderingContext2D,
+  map: CityMap,
+  cam: Vec2,
+  tick: number,
+  dx: (x: number) => number,
+  dy: (y: number) => number,
+  lights: LightPass,
+): void {
+  const heads = map.junctions?.heads;
+  if (!heads) return;
+  const timing = getTrafficTuning().signals;
+  const R = RENDER_SCALE;
+  for (const head of heads) {
+    if (
+      head.x < cam.x - 24 ||
+      head.y < cam.y - 24 ||
+      head.x > cam.x + VIEW_W + 24 ||
+      head.y > cam.y + VIEW_H + 24
+    ) {
+      continue;
+    }
+    const colour = signalColour(head.junctionId, head.dirIdx, tick, timing);
+    // Stand the head at the kerb on the driver's right, facing back down the
+    // arm — where a real one is, and out of the carriageway the car uses.
+    const ax = CARDINALS[head.dirIdx]![0]!;
+    const ay = CARDINALS[head.dirIdx]![1]!;
+    const px = head.x + ax * 5 - ay * RIGHT_OFFSET;
+    const py = head.y + ay * 5 + ax * RIGHT_OFFSET;
+    const sx = dx(px);
+    const sy = dy(py);
+    ctx.fillStyle = '#1b2028';
+    ctx.fillRect(sx - 2 * R, sy - 2 * R, 4 * R, 4 * R);
+    ctx.fillStyle = SIGNAL_COLORS[colour];
+    ctx.fillRect(sx - 1 * R, sy - 1 * R, 2 * R, 2 * R);
+    lights.point(sx, sy, 7 * R, colour === 'green' ? 'lamp' : 'red', 0.3);
+  }
+}
+
+/** How far off the centre of the arm a signal head stands, in world px. */
+const RIGHT_OFFSET = 9;
 
 function drawProps(
   ctx: CanvasRenderingContext2D,
@@ -559,6 +743,10 @@ const PICKUP_COLORS: Record<string, string> = {
   damage: '#ff7a4a',
   invis: '#9fd8e8',
   reload: '#c39ce0',
+  // Gold, and alone in being gold: it is the rarest thing on the ground.
+  multi: '#ffd75e',
+  // Green, and the only green that is not health: it is money.
+  cash: '#8fe07a',
   // Gunmetal, and deliberately not part of the crate family: this one was
   // dropped by somebody, not placed by the city.
   weapon: '#b9bcc4',
@@ -1018,16 +1206,33 @@ export function drawVehicle(
   dy: (n: number) => number,
   nowMs: number,
   z = 0,
+  gangId = 0,
+  /** Where the turret points, or null on anything without one. */
+  turret: number | null = null,
 ): void {
   // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
   // the ground where it belongs. The gap between the two is what sells it.
   const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
   const y = dy(wy) - lift;
-  const name = vehicleSpriteName(kind, id);
+  const name = vehicleSpriteName(kind, id, gangId);
   const fp = sprites.footprint(name);
   const shrink = z > 0 ? 0.75 : 1;
   drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);
+
+  // A turret is the one part of a vehicle that does not turn with the body,
+  // so it cannot be a baked rotation frame of the hull sprite: it is its own
+  // sprite, pivoted on the ring, drawn at its own angle. The ring is offset
+  // along the hull, so the pivot has to be carried round with the heading.
+  // A wreck still has its barrel, it just stops traversing — drawn inside the
+  // wreck's own save/restore so the scorching lands on it too.
+  const off = getVehicleTuning(kind).turretOffset;
+  const drawTurret = (): void => {
+    if (off === null) return;
+    const tx = dx(wx + Math.cos(heading) * off);
+    const ty = dy(wy + Math.sin(heading) * off) - lift;
+    sprites.draw(ctx, `${name}_turret`, tx, ty, condition === 'wreck' ? heading : (turret ?? heading));
+  };
 
   // A wreck is drawn dark and never lit; a burning car throws its own light
   // and sheds flame until it goes.
@@ -1035,9 +1240,13 @@ export function drawVehicle(
     ctx.save();
     ctx.globalAlpha = 0.85;
     sprites.draw(ctx, name, x, y, heading);
+    drawTurret();
     ctx.globalCompositeOperation = 'source-atop';
     ctx.fillStyle = 'rgba(18, 16, 18, 0.72)';
-    ctx.fillRect(x - fp.rx, y - fp.ry, fp.rx * 2, fp.ry * 2);
+    // Wide enough to cover a barrel lying across the hull as well as the hull.
+    const rx = off === null ? fp.rx : fp.rx * 2;
+    const ry = off === null ? fp.ry : fp.ry * 2;
+    ctx.fillRect(x - rx, y - ry, rx * 2, ry * 2);
     ctx.restore();
     // A burnt-out shell has every panel off it. Detonation sets all the bits,
     // so this is the same code path as any other damage — the wreck used to
@@ -1056,7 +1265,10 @@ export function drawVehicle(
     ctx.restore();
   }
 
+  // Damage goes on the hull, then the turret rides over it: a scrape on the
+  // tracks should not be painted across the gun.
   drawBodyDamage(ctx, id, x, y, heading, fp, zones, broken, maxHealth, wear);
+  drawTurret();
 
   // Smoke before fire. This is the warning the burn fuse never gave: a car
   // showing grey off the bonnet is one you should think about swapping, and

@@ -1,3 +1,4 @@
+import { POWER_STUNNED } from './state.js';
 import { DT, PLAYER_RADIUS } from '../constants.js';
 import { approach, q8, q256 } from '../math/vec.js';
 import { dCos, dSin } from '../math/trig.js';
@@ -18,7 +19,11 @@ export function stepPlayerMovement(
   p: PlayerState,
   input: InputIntent | undefined,
   map: CityMap,
+  tick = 0,
 ): void {
+  // Stunned: the aim still tracks, because a frozen camera reads as a
+  // dropped connection rather than as being hit. Only the legs stop.
+  const frozen = (p.powerFlags & POWER_STUNNED) !== 0 && tick < p.stunnedUntilTick;
   if (input) {
     p.lastInputSeq = input.seq;
     // Quantised HERE, not merely trusted to arrive quantised. sanitizeIntent
@@ -47,7 +52,10 @@ export function stepPlayerMovement(
   // Screen y points down, so `up` is negative y.
   let dx = 0;
   let dy = 0;
-  if (input) {
+  // Stunned: fall through with no input rather than returning early, so the
+  // usual deceleration brings them to a stop. Returning here left whoever
+  // was running when they were hit sliding across the road at full speed.
+  if (input && !frozen) {
     dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
     // Two keys at once must not be faster than one.

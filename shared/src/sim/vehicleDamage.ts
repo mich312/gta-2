@@ -2,6 +2,7 @@ import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { dCos, dSin } from '../math/trig.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, VehicleState } from './state.js';
+import { addHeat } from './state.js';
 import { removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import { applyDamage, damageCop, damageProp } from './weapons.js';
@@ -213,12 +214,25 @@ export function kerbStrike(
  * can hurt a car knows this — a bullet has a hit point, a blast has a centre,
  * a collision has a contact point — and passing it is what turns a health
  * subtraction into damage you can see.
+ *
+ * `attackerId` is who did it, or null when nobody did — an ambient shunt in
+ * traffic is not arson, and charging for it would make every journey a crime.
+ * It is remembered on the vehicle (`igniterId`) rather than used and dropped,
+ * because the two things that need it happen later: the police price the
+ * crime here, and the blast on the far side of the fuse has to be credited to
+ * the arsonist rather than to whoever happened to be at the wheel.
+ *
+ * The two are independent on purpose: WHERE a car was hit and WHO hit it
+ * answer different questions, and plenty of damage knows one without the
+ * other. A kerb knows the corner and nobody to blame; a bomb under the floor
+ * knows the arsonist and no corner at all.
  */
 export function damageVehicle(
   state: GameState,
   v: VehicleState,
   amount: number,
   events: SimEvent[],
+  attackerId: number | null = null,
   impactX?: number,
   impactY?: number,
 ): void {
@@ -260,7 +274,9 @@ export function damageVehicle(
 
   v.health = 0;
   v.condition = 'burning';
+  v.igniterId = attackerId;
   v.fuseAtTick = state.tick + Math.round(getVehicleTuning(v.kind).burnSeconds * TICK_RATE);
+  chargeForArson(state, v, attackerId);
   events.push({
     type: 'vehicleBurning',
     tick: state.tick,
@@ -268,6 +284,23 @@ export function damageVehicle(
     x: Math.round(v.pos.x),
     y: Math.round(v.pos.y),
   });
+}
+
+/**
+ * What the police think of setting a car alight.
+ *
+ * Priced at ignition, not at detonation: this is the only moment the culprit
+ * is known for certain, and it is also the moment a witness would react. An
+ * occupied car costs more because the deaths that follow are yours — those
+ * are charged separately by the blast, so this is only the arson itself.
+ */
+function chargeForArson(state: GameState, v: VehicleState, attackerId: number | null): void {
+  if (attackerId === null) return;
+  const arsonist = state.players.byId[attackerId];
+  if (!arsonist) return;
+  const t = getTuning().police;
+  const occupied = v.driverId !== null && v.driverId !== attackerId;
+  addHeat(arsonist, occupied ? t.heatPerOccupiedVehicleKill : t.heatPerVehicleKill);
 }
 
 /**
@@ -329,23 +362,39 @@ export function blast(
     const prop = state.props.byId[propId];
     if (!prop || !prop.intact) continue;
     const dmg = falloff(prop.pos.x - cx, prop.pos.y - cy);
-    if (dmg > 0) damageProp(state, prop, dmg, events);
+    if (dmg > 0) damageProp(state, prop, dmg, events, attackerId);
   }
   for (const vid of state.vehicles.ids) {
     if (vid === exceptVehicleId) continue;
     const other = state.vehicles.byId[vid];
     if (!other || other.condition !== 'ok') continue;
     const dmg = falloff(other.pos.x - cx, other.pos.y - cy);
-    // The blast centre IS the impact point: a bomb going off by your near-side
+    // A blast that lights the next car along is still the first arsonist's
+    // fire — that is what stops a chain reaction laundering the crime. And the
+    // blast centre IS the impact point: a bomb going off by your near-side
     // front wing takes the near-side front wing off.
-    if (dmg > 0) damageVehicle(state, other, dmg, events, cx, cy);
+    if (dmg > 0) {
+      damageVehicle(state, other, dmg, events, attackerId >= 0 ? attackerId : null, cx, cy);
+    }
   }
 }
 
 function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
   const t = getVehicleTuning(v.kind);
-  // The driver goes with it, and whoever was at the wheel owns the deaths.
-  blast(state, v.pos.x, v.pos.y, t.explosionRadius, t.explosionDamage, v.driverId ?? -1, events, v.id);
+  // Whoever lit it owns the deaths. Falling back to the driver reads well for
+  // a crash — you drove it into a wall, the casualties are yours — but it is
+  // exactly backwards for arson: torch a bus at a crowded stop and the driver
+  // was being charged with the bodies while the arsonist walked away.
+  blast(
+    state,
+    v.pos.x,
+    v.pos.y,
+    t.explosionRadius,
+    t.explosionDamage,
+    v.igniterId ?? v.driverId ?? -1,
+    events,
+    v.id,
+  );
 
   v.condition = 'wreck';
   v.speed = 0;
@@ -367,8 +416,87 @@ function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
   }
 }
 
+/**
+ * Fire travelling from a burning car to what is parked beside it.
+ *
+ * The blast at the end of the fuse already ignites neighbours; what did not
+ * happen before this was fire spreading BEFORE the explosion, so a burning
+ * car in a packed street was a countdown rather than a developing situation.
+ *
+ * No rng: the nearest eligible neighbour wins, ties broken by ascending id,
+ * evaluated in ascending burning-vehicle id, collected then applied. Three
+ * brakes stop it running away, because spread is exponential by nature and
+ * this map has car parks — a budget of one ignition per car, a city-wide
+ * ceiling on simultaneous fires, and the reach itself.
+ *
+ * Attribution carries: the neighbour inherits the original arsonist from K1,
+ * so a fire you start is a fire you are wanted for however far it travels.
+ * That is why this item depends on K1 rather than merely following it.
+ */
+function stepFireSpread(state: GameState, events: SimEvent[]): void {
+  const t = getTuning().fire;
+  if (t.spreadBudget <= 0 || t.maxConcurrent <= 0) return;
+
+  let burning = 0;
+  const sources: VehicleState[] = [];
+  for (const id of state.vehicles.ids) {
+    const v = state.vehicles.byId[id];
+    if (!v || v.condition !== 'burning') continue;
+    burning++;
+    if (v.spreadUsed >= t.spreadBudget) continue;
+    // Staggered by id so the whole street does not try to spread on one tick.
+    if ((state.tick + id) % t.spreadIntervalTicks !== 0) continue;
+    sources.push(v);
+  }
+  if (sources.length === 0 || burning >= t.maxConcurrent) return;
+
+  const r2 = t.spreadRadius * t.spreadRadius;
+  const lighting: Array<{ from: VehicleState; to: number }> = [];
+  for (const src of sources) {
+    if (burning + lighting.length >= t.maxConcurrent) break;
+    let best: number | null = null;
+    let bestD2 = r2;
+    for (const id of state.vehicles.ids) {
+      const other = state.vehicles.byId[id];
+      if (!other || other.id === src.id || other.condition !== 'ok') continue;
+      if (lighting.some((l) => l.to === id)) continue;
+      const dx = other.pos.x - src.pos.x;
+      const dy = other.pos.y - src.pos.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = id;
+      }
+    }
+    if (best !== null) lighting.push({ from: src, to: best });
+  }
+
+  for (const l of lighting) {
+    const victim = state.vehicles.byId[l.to];
+    if (!victim || victim.condition !== 'ok') continue;
+    l.from.spreadUsed++;
+    // Straight to burning rather than through damageVehicle: fire does not
+    // shoot a car, it sets it alight, and routing through the damage path
+    // would charge the arsonist a second time for the same crime.
+    victim.condition = 'burning';
+    victim.health = 0;
+    victim.igniterId = l.from.igniterId;
+    victim.fuseAtTick =
+      state.tick + Math.round(getVehicleTuning(victim.kind).burnSeconds * TICK_RATE);
+    events.push({
+      type: 'vehicleBurning',
+      tick: state.tick,
+      vehicleId: victim.id,
+      x: Math.round(victim.pos.x),
+      y: Math.round(victim.pos.y),
+    });
+  }
+}
+
 /** Burn-down, detonation and wreck clearing. One pass, fixed order. */
 export function stepVehicleDamage(state: GameState, events: SimEvent[]): void {
+  stepFireSpread(state, events);
+
   // Frozen before any damage lands: explosions ignite other vehicles, and a
   // list built while that happens would depend on iteration order.
   const detonating: number[] = [];

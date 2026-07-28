@@ -1,0 +1,97 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>hud</title>
+<style>
+  body { margin: 0; background: #0b0d12; color: #cfd8e6; font: 11px ui-monospace, monospace; }
+  .panel { padding: 10px 12px 2px; }
+  .panel h3 { margin: 0 0 6px; font: 600 12px ui-monospace, monospace; color: #8fd6ff; letter-spacing: .06em; }
+  canvas { image-rendering: pixelated; border: 1px solid #2a303c; border-radius: 3px; display: block; }
+</style>
+<div id="out"></div>
+<script type="module">
+import {
+  INTERNAL_WIDTH, INTERNAL_HEIGHT, initTuning, createGameState, takeSnapshot,
+  generateCity, step,
+} from 'shared';
+import playerJson from 'shared/data/player.json';
+import vehiclesJson from 'shared/data/vehicles.json';
+import weaponsJson from 'shared/data/weapons.json';
+import policeJson from 'shared/data/police.json';
+import pedsJson from 'shared/data/peds.json';
+import propsJson from 'shared/data/props.json';
+import pickupsJson from 'shared/data/pickups.json';
+import worldgenJson from 'shared/data/worldgen.json';
+import shopJson from 'shared/data/shop.json';
+import gangsJson from 'shared/data/gangs.json';
+import respectJson from 'shared/data/respect.json';
+import fittingsJson from 'shared/data/fittings.json';
+import { Hud } from '../src/render/hud.js';
+import { parseWorldgenParams } from 'shared';
+
+initTuning({
+  player: playerJson, vehicles: vehiclesJson, weapons: weaponsJson, police: policeJson,
+  peds: pedsJson, props: propsJson, pickups: pickupsJson, gangs: gangsJson,
+  respect: respectJson, fittings: fittingsJson,
+}, { lenient: true });
+
+const map = generateCity(777, parseWorldgenParams(worldgenJson));
+let state = createGameState(777);
+state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'evidence', loadout: [
+  { weaponId: 'pistol', ammo: 47 }, { weaponId: 'shotgun', ammo: 18 },
+] }], map);
+const snapshot = takeSnapshot(state);
+const base = JSON.parse(JSON.stringify(snapshot.players[0]));
+
+function panel(title, fn, clip, scale = 2) {
+  const [cx, cy, cw, ch] = clip ?? [0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT];
+  const full = document.createElement('canvas');
+  full.width = INTERNAL_WIDTH; full.height = INTERNAL_HEIGHT;
+  const fctx = full.getContext('2d');
+  fctx.imageSmoothingEnabled = false;
+  fctx.fillStyle = '#171a21';
+  fctx.fillRect(0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT);
+  fn(fctx);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'panel';
+  const head = document.createElement('h3');
+  head.textContent = title;
+  wrap.appendChild(head);
+  const c = document.createElement('canvas');
+  c.width = cw * scale; c.height = ch * scale;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(full, cx, cy, cw, ch, 0, 0, cw * scale, ch * scale);
+  wrap.appendChild(c);
+  document.getElementById('out').appendChild(wrap);
+}
+
+const CASES = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+
+for (const cs of CASES) {
+  const hud = new Hud();
+  const me = { ...base, ...(cs.player ?? {}) };
+  const snap = { ...snapshot, players: [me] };
+  hud.cash = cs.cash ?? 0;
+  hud.multiplier = cs.multiplier ?? 1;
+  hud.place = cs.place ?? null;
+  if (cs.fitting) { hud.fitting = cs.fitting; hud.fittingAmmo = cs.fittingAmmo ?? 0; }
+  if (cs.exports) hud.setExports(cs.exports, cs.exportBonus ?? 2);
+  if (cs.mission) hud.setMission(cs.mission);
+  if (cs.busted) hud.onEvent({ type: 'busted', tick: 0, playerId: 1 }, () => 'x');
+  for (const n of cs.notices ?? []) hud.notice(n);
+  if (cs.settleMs) {
+    // The death overlay eases in over half a second from the first frame it
+    // sees you down, so give it that half second before photographing it.
+    const warm = document.createElement('canvas');
+    warm.width = INTERNAL_WIDTH; warm.height = INTERNAL_HEIGHT;
+    hud.draw(warm.getContext('2d'), me, snap, { x: 0, y: 0 }, 0);
+    await new Promise((r) => setTimeout(r, cs.settleMs));
+  }
+  panel(cs.title, (ctx) => {
+    hud.draw(ctx, me, { ...snap, tick: cs.tick ?? snap.tick }, { x: me.pos.x - INTERNAL_WIDTH / 2, y: me.pos.y - INTERNAL_HEIGHT / 2 }, cs.speed ?? 0);
+    if (cs.shop) hud.drawShop(ctx, cs.shop, hud.shopRows(shopJson.items, cs.shop));
+  }, cs.clip);
+}
+document.title = 'ready';
+</script>

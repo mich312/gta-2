@@ -1,5 +1,13 @@
 import palette from 'shared/data/palette.json';
-import { AMBIENT, AMBIENT_TINT, DEVICE_H, DEVICE_W, VIGNETTE } from './config.js';
+import {
+  AMBIENT,
+  AMBIENT_TINT,
+  DEVICE_H,
+  DEVICE_W,
+  GRADE_DAY,
+  GRADE_NIGHT,
+  VIGNETTE,
+} from './config.js';
 
 export type LightKind = 'lamp' | 'head' | 'red' | 'blue' | 'muzzle' | 'shop';
 
@@ -44,6 +52,8 @@ interface ConeLight {
  * textures are baked once at construction.
  */
 export class LightPass {
+  private grade: { r: number; g: number; b: number; tint: number; vignette: number } | null = null;
+  private night = 0.5;
   private readonly textures = new Map<LightKind, HTMLCanvasElement>();
   private readonly cones = new Map<LightKind, HTMLCanvasElement>();
   private readonly vignette: HTMLCanvasElement;
@@ -67,6 +77,28 @@ export class LightPass {
   }
 
   /** Device-pixel position and radius. */
+  /**
+   * Set the hour, 0 (full day) to 1 (deep night). Left unset, the pass falls
+   * back to the fixed dusk it used before there was a clock.
+   */
+  setNight(amount: number): void {
+    const n = Math.max(0, Math.min(1, amount));
+    const mix = (a: number, b: number): number => Math.round(a + (b - a) * n);
+    this.grade = {
+      r: mix(GRADE_DAY.r, GRADE_NIGHT.r),
+      g: mix(GRADE_DAY.g, GRADE_NIGHT.g),
+      b: mix(GRADE_DAY.b, GRADE_NIGHT.b),
+      tint: GRADE_DAY.tint + (GRADE_NIGHT.tint - GRADE_DAY.tint) * n,
+      vignette: GRADE_DAY.vignette + (GRADE_NIGHT.vignette - GRADE_DAY.vignette) * n,
+    };
+    this.night = n;
+  }
+
+  /** How dark it is now, for callers that fade lamps in with the dusk. */
+  get nightAmount(): number {
+    return this.night;
+  }
+
   point(x: number, y: number, radius: number, kind: LightKind, alpha = 1): void {
     if (x < -radius || y < -radius || x > DEVICE_W + radius || y > DEVICE_H + radius) return;
     this.points.push({ x, y, radius, kind, alpha });
@@ -86,12 +118,13 @@ export class LightPass {
 
     // Grade first: darken and cool the whole scene so the lights have somewhere
     // to land. One multiply plus one translucent overlay.
+    const g = this.grade;
     ctx.save();
     ctx.globalCompositeOperation = 'multiply';
-    ctx.fillStyle = AMBIENT;
+    ctx.fillStyle = g ? `rgb(${g.r}, ${g.g}, ${g.b})` : AMBIENT;
     ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
     ctx.globalCompositeOperation = 'source-over';
-    ctx.fillStyle = AMBIENT_TINT;
+    ctx.fillStyle = g ? `rgba(24, 34, 58, ${g.tint.toFixed(3)})` : AMBIENT_TINT;
     ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
 
     ctx.globalCompositeOperation = 'lighter';
@@ -115,7 +148,9 @@ export class LightPass {
 
     // Vignette last, so it darkens the lights too and the frame reads as one
     // exposure rather than a stack of layers.
+    ctx.globalAlpha = g ? g.vignette : VIGNETTE;
     ctx.drawImage(this.vignette, 0, 0);
+    ctx.globalAlpha = 1;
     this.reset();
   }
 }
@@ -183,7 +218,10 @@ function makeVignette(): HTMLCanvasElement {
     Math.max(DEVICE_W, DEVICE_H) * 0.72,
   );
   grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, `rgba(3, 6, 12, ${VIGNETTE})`);
+  // Baked at full strength and modulated with globalAlpha at draw time: the
+  // hour changes it every frame, and rebuilding a full-screen radial gradient
+  // per frame would turn a free feature into a performance problem.
+  grad.addColorStop(1, 'rgba(3, 6, 12, 1)');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
   return canvas;
