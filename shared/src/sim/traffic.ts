@@ -15,6 +15,7 @@ import {
   drivableAt,
   drivableTile,
   nearestCardinal,
+  planRoute,
 } from './roadgrid.js';
 import { PLAYER_RADIUS } from '../constants.js';
 import { rayWallDistance } from './weapons.js';
@@ -114,6 +115,11 @@ const STOP_GAP = 30;
 /** AI drivers are negative ids; -1 is reserved for "the streets". */
 export function isAiDriver(driverId: number | null): boolean {
   return driverId !== null && driverId < -1;
+}
+
+/** A calm ambient driver about to set off in a direction. */
+function freshDriver(dir: number): TrafficDriver {
+  return { dir, stuck: 0, panic: 0, mission: 'cruise', route: null, routeIdx: 0 };
 }
 
 /**
@@ -528,6 +534,111 @@ function laneControl(
 }
 
 /**
+ * Within this Chebyshev distance a corner counts as reached. Generous on
+ * purpose: the car drives a LANE, offset up to a tile and a half from the
+ * route's centre-line corners, and a reach smaller than that offset leaves a
+ * driver circling a corner it can never touch. Advancing a corner early is
+ * harmless — the next corner is further along the same road.
+ */
+const CORNER_REACH = TILE_SIZE * 1.75;
+/**
+ * Manhattan distance from the current corner past which the plan is judged
+ * lost — shunted off course, or recovered somewhere else entirely — and is
+ * recomputed from wherever the car actually is.
+ */
+const REPATH_DIST = TILE_SIZE * 8;
+
+/** The errand is over; melt back into the traffic. */
+function endMission(driver: TrafficDriver): void {
+  driver.mission = 'cruise';
+  driver.route = null;
+  driver.routeIdx = 0;
+}
+
+/**
+ * One routing decision for a driver on an errand: advance past any corners
+ * already reached, then point `driver.dir` down the open cardinal that leads
+ * to the next one. The wheel, the pedals, the lane-keeping and the stuck
+ * recovery are all the ordinary machinery in laneControl — a mission changes
+ * which way the car means to go, never how it drives.
+ *
+ * Arrival reverts the driver to cruise: the primitive's contract is "get
+ * there", and what happens there belongs to whatever assigned the errand
+ * (see assignGoto). A driver knocked far off the plan re-plans from where it
+ * is, and gives the errand up only if no road connects any more.
+ */
+function followRoute(map: CityMap, v: VehicleState, driver: TrafficDriver): void {
+  const route = driver.route as number[];
+  while (driver.routeIdx < route.length) {
+    const cx = route[driver.routeIdx] as number;
+    const cy = route[driver.routeIdx + 1] as number;
+    if (Math.abs(v.pos.x - cx) >= CORNER_REACH || Math.abs(v.pos.y - cy) >= CORNER_REACH) break;
+    driver.routeIdx += 2;
+  }
+  if (driver.routeIdx >= route.length) {
+    endMission(driver);
+    return;
+  }
+
+  const cx = route[driver.routeIdx] as number;
+  const cy = route[driver.routeIdx + 1] as number;
+  const dx = cx - v.pos.x;
+  const dy = cy - v.pos.y;
+  if (Math.abs(dx) + Math.abs(dy) > REPATH_DIST) {
+    const destX = route[route.length - 2] as number;
+    const destY = route[route.length - 1] as number;
+    const fresh = planRoute(map, v.pos.x, v.pos.y, destX, destY);
+    if (fresh) {
+      driver.route = fresh;
+      driver.routeIdx = 0;
+    } else {
+      endMission(driver);
+    }
+    return;
+  }
+
+  // The dominant axis first, the other as fallback — but only down open road.
+  // With both closed the driver holds its heading and the junction-traversal
+  // and recovery machinery carry it until one opens again.
+  const primary = Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? 0 : 2) : (dy >= 0 ? 1 : 3);
+  const secondary = Math.abs(dx) >= Math.abs(dy) ? (dy >= 0 ? 1 : 3) : (dx >= 0 ? 0 : 2);
+  if (dirIsOpen(map, v.pos.x, v.pos.y, primary)) driver.dir = primary;
+  else if (dirIsOpen(map, v.pos.x, v.pos.y, secondary)) driver.dir = secondary;
+}
+
+/**
+ * Send an AI-driven vehicle somewhere: the errand-driving primitive.
+ *
+ * Nothing in ambient traffic calls this — cruise is a random walk on purpose.
+ * It exists for everything that needs a car to arrive: service vehicles
+ * answering a casualty, gang cars heading home, mission targets making for a
+ * getaway. Returns false when the vehicle is not AI-driven, is a wreck, or no
+ * road connects it to the destination; true means the errand is accepted and
+ * the driver will revert to 'cruise' at the destination.
+ */
+export function assignGoto(
+  state: GameState,
+  map: CityMap,
+  vehicleId: number,
+  x: number,
+  y: number,
+): boolean {
+  const v = state.vehicles.byId[vehicleId];
+  if (!v || !isAiDriver(v.driverId) || v.condition !== 'ok') return false;
+  const route = planRoute(map, v.pos.x, v.pos.y, x, y);
+  if (!route) return false;
+  let driver = state.trafficDrivers[vehicleId];
+  if (!driver) {
+    driver = freshDriver(nearestCardinal(v.heading));
+    state.trafficDrivers[vehicleId] = driver;
+  }
+  driver.mission = 'goto';
+  driver.route = route;
+  driver.routeIdx = 0;
+  return true;
+}
+
+/**
  * One tick of ambient traffic. Runs before player movement is integrated so
  * an AI car and a player car resolve their overlap the same way any two
  * vehicles do.
@@ -547,7 +658,7 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
 
     let driver = state.trafficDrivers[id];
     if (!driver) {
-      driver = { dir: nearestCardinal(v.heading), stuck: 0, panic: 0 };
+      driver = freshDriver(nearestCardinal(v.heading));
       state.trafficDrivers[id] = driver;
     }
     if (driver.panic > 0) driver.panic--;
@@ -567,6 +678,12 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
     // then at a junction. This is the only part that is allowed to be coarse —
     // it decides which way the car is going, not where it is.
     if ((state.tick + id) % 3 === 0) {
+      // An errand outranks wandering, but not fear: a panicked driver flees
+      // wherever the road takes it and picks the route back up on calming
+      // down — the repath rule covers however far the flight carried it.
+      if (driver.panic === 0 && driver.mission === 'goto' && driver.route) {
+        followRoute(map, v, driver);
+      }
       if (driver.dir < 0 || !dirIsOpen(map, v.pos.x, v.pos.y, driver.dir)) {
         driver.dir = chooseDir(
           state,
@@ -574,9 +691,14 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
           v,
           driver.dir < 0 ? nearestCardinal(v.heading) : driver.dir,
         );
-      } else if (driver.panic === 0 && (state.tick + id) % t.decisionCadenceTicks < 3) {
-        // A panicked driver does not window-shop for turns: it holds its flee
-        // heading flat out and only turns when the road ahead runs out.
+      } else if (
+        driver.panic === 0 &&
+        driver.mission === 'cruise' &&
+        (state.tick + id) % t.decisionCadenceTicks < 3
+      ) {
+        // A panicked driver does not window-shop for turns, and neither does
+        // one with somewhere to be: the turn lottery is what makes CRUISE
+        // circulate. Both hold their heading and turn only when they must.
         driver.dir = chooseDir(state, map, v, driver.dir);
       }
     }
@@ -622,7 +744,11 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
       if (!p) continue;
       nearest = Math.min(nearest, Math.hypot(p.pos.x - v.pos.x, p.pos.y - v.pos.y));
     }
-    if (nearest > t.despawnDist) doomed.push(id);
+    // A car on an errand is not set dressing: it despawns when the errand
+    // ends, not when nobody happens to be watching it drive there.
+    if (nearest > t.despawnDist && state.trafficDrivers[id]?.mission !== 'goto') {
+      doomed.push(id);
+    }
   }
   // Cull first so the count below reflects the cull.
   for (const id of doomed) {
@@ -687,7 +813,7 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     const v = createVehicle(id, pickKind(state), { x: q8(x), y: q8(y) }, CARDINAL_ANGLE[dirIdx] as number);
     v.speed = q8(t.cruiseSpeed * 0.6);
     v.driverId = -1000 - id; // negative => AI, and never -1
-    state.trafficDrivers[id] = { dir: dirIdx, stuck: 0, panic: 0 };
+    state.trafficDrivers[id] = freshDriver(dirIdx);
     state.vehicles.ids.push(id);
     state.vehicles.ids.sort((a, b) => a - b);
     state.vehicles.byId[id] = v;
