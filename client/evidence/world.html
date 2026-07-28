@@ -1,0 +1,167 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>world</title>
+<style>
+  body { margin: 0; background: #0b0d12; color: #cfd8e6; font: 11px ui-monospace, monospace; }
+  .panel { padding: 10px 12px 2px; }
+  .panel h3 { margin: 0 0 6px; font: 600 12px ui-monospace, monospace; color: #8fd6ff; letter-spacing: .06em; }
+  canvas { image-rendering: pixelated; border: 1px solid #2a303c; border-radius: 3px; display: block; }
+</style>
+<div id="out"></div>
+<script type="module">
+import {
+  INTERNAL_WIDTH, INTERNAL_HEIGHT, initTuning, createGameState, takeSnapshot,
+  generateCity, step, parseWorldgenParams, insertEntity, createCop, createPed,
+  createVehicle, createPickup, createProjectile, NULL_INPUT,
+} from 'shared';
+import playerJson from 'shared/data/player.json';
+import vehiclesJson from 'shared/data/vehicles.json';
+import weaponsJson from 'shared/data/weapons.json';
+import policeJson from 'shared/data/police.json';
+import pedsJson from 'shared/data/peds.json';
+import propsJson from 'shared/data/props.json';
+import pickupsJson from 'shared/data/pickups.json';
+import worldgenJson from 'shared/data/worldgen.json';
+import gangsJson from 'shared/data/gangs.json';
+import respectJson from 'shared/data/respect.json';
+import fittingsJson from 'shared/data/fittings.json';
+import trafficJson from 'shared/data/traffic.json';
+import { setupCanvas } from '../src/render/canvas.js';
+import { RENDER_SCALE } from '../src/render/config.js';
+import { computeCamera, render } from '../src/render/renderer.js';
+import { SpriteSheet } from '../src/render/sprites.js';
+import { TileLayer } from '../src/render/tiles.js';
+import { Effects } from '../src/render/effects.js';
+import { LightPass } from '../src/render/lighting.js';
+import { Minimap } from '../src/render/minimap.js';
+
+initTuning({
+  player: playerJson, vehicles: vehiclesJson, weapons: weaponsJson, police: policeJson,
+  peds: pedsJson, props: propsJson, pickups: pickupsJson, gangs: gangsJson,
+  respect: respectJson, fittings: fittingsJson, traffic: trafficJson,
+}, { lenient: true });
+
+const map = generateCity(777, parseWorldgenParams(worldgenJson));
+
+const hidden = document.createElement('canvas');
+document.body.appendChild(hidden);
+hidden.style.position = 'absolute';
+hidden.style.left = '-10000px';
+const screen = setupCanvas(hidden);
+const sprites = new SpriteSheet();
+const tiles = new TileLayer(sprites);
+const effects = new Effects();
+const lights = new LightPass();
+await sprites.load();
+tiles.setMap(map);
+tiles.invalidate();
+
+function worldFrom(snap, excludeId) {
+  return {
+    players: snap.players.filter((p) => p.id !== excludeId).map((p) => ({ player: p, x: p.pos.x, y: p.pos.y, aimAngle: p.aimAngle })),
+    vehicles: snap.vehicles.map((v) => ({ vehicle: v, x: v.pos.x, y: v.pos.y, heading: v.heading })),
+    cops: snap.cops.map((c) => ({ cop: c, x: c.pos.x, y: c.pos.y })),
+    peds: snap.peds.map((p) => ({ ped: p, x: p.pos.x, y: p.pos.y })),
+    props: snap.props,
+    pickups: snap.pickups,
+    projectiles: snap.projectiles.map((p) => ({ projectile: p, x: p.pos.x, y: p.pos.y })),
+  };
+}
+
+/**
+ * The widest stretch of road nearest a point: scenes staged on a one-lane
+ * back street have their cars half in the kerb.
+ */
+function roadNear(x0, y0) {
+  const road = (tx, ty) =>
+    tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles &&
+    map.tiles[ty * map.widthTiles + tx] === 1;
+  let best = null;
+  for (let ty = 2; ty < map.heightTiles - 2; ty++) {
+    for (let tx = 2; tx < map.widthTiles - 2; tx++) {
+      if (!road(tx, ty)) continue;
+      let open = 0;
+      for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) if (road(tx + i, ty + j)) open++;
+      if (open < 22) continue; // a junction or a dual carriageway, not an alley
+      const x = tx * 16 + 8, y = ty * 16 + 8;
+      const d = Math.hypot(x - x0, y - y0);
+      if (!best || d < best.d) best = { x, y, d };
+    }
+  }
+  return best ?? { x: x0, y: y0, d: 0 };
+}
+
+const CASES = JSON.parse(decodeURIComponent(location.hash.slice(1)));
+const out = document.getElementById('out');
+
+for (const cs of CASES) {
+  let state = createGameState(777);
+  const cmds = [{ type: 'spawnPlayer', playerId: 1, name: 'evidence', loadout: cs.loadout ?? [{ weaponId: 'pistol', ammo: 40 }] }];
+  state = step(state, {}, cmds, map);
+  const me = state.players.byId[1];
+  // Stage the scene on the nearest road to the player, so vehicles sit on tarmac.
+  const anchor = roadNear(cs.at?.[0] ?? map.widthPx / 2, cs.at?.[1] ?? map.heightPx / 2);
+  me.pos = { x: anchor.x, y: anchor.y };
+  if (cs.stage) {
+    // eslint-disable-next-line no-new-func
+    const staged = new Function(
+      'state', 'map', 'me', 'anchor', 'step', 'insertEntity',
+      'createCop', 'createPed', 'createVehicle', 'createPickup', 'createProjectile',
+      cs.stage,
+    )(state, map, me, anchor, step, insertEntity,
+      createCop, createPed, createVehicle, createPickup, createProjectile);
+    if (staged) state = staged;
+  }
+  for (let i = 0; i < (cs.ticks ?? 1); i++) {
+    state = step(state, { 1: { ...NULL_INPUT, seq: i + 1, tick: state.tick, ...(cs.input ?? {}) } }, [], map);
+  }
+  const live = state.players.byId[1];
+  const snap = takeSnapshot(state);
+  const cam = computeCamera(map, live.pos);
+  const scene = {
+    local: live,
+    localPos: { x: live.pos.x, y: live.pos.y, angle: live.aimAngle },
+    localVehicle: null,
+    remotes: worldFrom(snap, 1),
+    dt: 1 / 30,
+    nowMs: 1000,
+  };
+  if (live.mode === 'driving' && live.vehicleId != null) {
+    const v = state.vehicles.byId[live.vehicleId];
+    scene.localVehicle = { kind: v.kind, pos: { ...v.pos }, heading: v.heading, speed: 0, condition: v.condition ?? 'ok', wear: 0, z: 0 };
+    scene.remotes.vehicles = scene.remotes.vehicles.filter((rv) => rv.vehicle.id !== v.id);
+  }
+  render(screen, map, scene, cam, sprites, tiles, effects, lights);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'panel';
+  const head = document.createElement('h3');
+  head.textContent = cs.title;
+  wrap.appendChild(head);
+  const shown = document.createElement('canvas');
+  const [cx, cy, cw, ch] = cs.clip ?? [0, 0, INTERNAL_WIDTH, INTERNAL_HEIGHT];
+  const S = cs.scale ?? 2;
+  shown.width = cw * S; shown.height = ch * S;
+  const sctx = shown.getContext('2d');
+  sctx.imageSmoothingEnabled = false;
+  sctx.drawImage(hidden, cx * RENDER_SCALE, cy * RENDER_SCALE, cw * RENDER_SCALE, ch * RENDER_SCALE, 0, 0, cw * S, ch * S);
+  wrap.appendChild(shown);
+  if (cs.minimap) {
+    const mm = new Minimap();
+    mm.setMap(map);
+    mm.marker = cs.marker ?? null;
+    const S2 = 4;
+    const mc = document.createElement('canvas');
+    const P = 120; // the panel is 112px square at the top right of a 480-wide HUD
+    mc.width = P * S2; mc.height = P * S2;
+    const mctx = mc.getContext('2d');
+    mctx.imageSmoothingEnabled = false;
+    mctx.scale(S2, S2);
+    mctx.translate(-(INTERNAL_WIDTH - P), 0);
+    mm.draw(mctx, live, live.pos, snap);
+    wrap.appendChild(mc);
+  }
+  out.appendChild(wrap);
+}
+document.title = 'ready';
+</script>
