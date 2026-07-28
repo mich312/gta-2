@@ -10,7 +10,33 @@ files, determinism constraints, prediction impact, new tunables, bandwidth,
 effort, risk, dependencies, and a verification gate. Effort key: **S** ≤ 1 day
 · **M** 1–3 days · **L** ≥ 1 week.
 
-**Status: planned, nothing built.**
+**Status: all sixteen items are built.** Each landed as its own commit with
+its own gate; `PROGRESS.md` has the per-item log and the surprises. What
+follows is the plan as written, kept as the record of what was intended and
+why — where the build diverged, the notes below and `PROGRESS.md` say so.
+
+Six things the build changed about the plan, all of them measured rather than
+argued:
+
+- **J1's stop line had to be bumper-relative.** `Ahead.gap` is bumper-to-bumper
+  everywhere else in the traffic model, and a centre-relative line parked
+  stationary cars with their noses in the box, where they blocked the cross
+  axis. Junction dwell went from 4% of samples to 20% before it was fixed.
+- **J1 also made cars reverse out of red lights.** A red runs 114 ticks
+  against a wedged-patience of 90, so a car arriving as the light changed
+  decided it was stuck. J3 found it.
+- **M2's noise had to be additive, not a gate.** Gating all heat on a witness
+  made the police system optional; four tests said so. Being *heard* is its
+  own small crime on top of whatever the round hit.
+- **J3's boardRadius was geometrically impossible at 22px.** Peds walk on
+  pavements and cars park in bays; the closest a walking civilian came to a
+  parked car was 32px, 1.3% of samples.
+- **N1's escape needed a `primed` flag.** Without it you could take the job,
+  drive to the marker clean, and wait.
+- **N3 turned up a real bug in `take()`**: a job that could not be set up
+  right now was refused outright, so a chain whose next link was an escort
+  left a player on an empty street unable to get work from that gang ever
+  again.
 
 ---
 

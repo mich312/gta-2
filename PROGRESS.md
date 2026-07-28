@@ -1,5 +1,78 @@
 # PROGRESS
 
+## Waves J–O: the whole of GAPS.md, sixteen items
+
+Every gap `AUDIT.md` found, closed. 402 tests green (up from 294), 8 bots
+lockstep with 0 desyncs at ~14.6 KB/s per client against the 50 KB/s gate,
+`persistCheck` passes. The audit's second pass reads 163 built / 10 partial /
+1 not built, from 126 / 17 / 32.
+
+The plan is in `GAPS.md` and is kept as written; this is what the build
+learned that the plan did not know.
+
+**Anything that can be a formula over `tick` should be.** Traffic signals
+(J1) and the day/night clock (L1) hold no state at all: the phase and the
+hour are pure functions of a tick that is already shared, already hashed and
+already in every snapshot. Zero wire bytes, nothing to desync, and two
+players stopped at the same junction see the same red because they compute
+the same number rather than being told it. This is now the first thing to
+reach for when a new system needs a value everybody agrees on.
+
+**Presenting a new constraint to an existing model beats adding a rule.** A
+red light is handed to the car-following model as a stationary obstacle at
+the stop line, not as a second braking rule — which is why it did not repeat
+the gap-acceptance experiment recorded in `traffic.ts`. The same shape
+recurs: barrels (K2) reuse the projectile table as a deferred detonation, and
+a tank (M1) is a chassis carrying the `guns` fitting the garage already
+sells. If a tank had needed its own code path, G2 was not built generally
+enough; it did not.
+
+**Units are load-bearing, and measurement is the only way to find out.**
+`Ahead.gap` is bumper-to-bumper everywhere in the traffic model, and J1 first
+returned a centre-relative stop line. Cars parked with their noses in the
+box, blocked the cross axis, and deadlocked the junction: dwell on junction
+tiles went 4% → 20% of samples. Nothing about the code looked wrong.
+
+**A metric written before a feature can stop measuring what it meant.** The
+traffic census caught wedged cars by the proxy "most cars are moving", and
+signals broke it — they add two lawful reasons to be stationary, and the
+second (queuing behind somebody at a red) is invisible from outside the car.
+It measures wedging directly now, from the sim's own patience counter. The
+temptation was to lower the threshold; the honest fix was to measure the
+thing the test was written for.
+
+**Three tests caught design errors rather than bugs.** N1's escape mission
+would have let you drive to the marker clean and wait — it needed a `primed`
+flag, so getting hot is part of the job. M2's first version gated *all* heat
+on a witness, which quietly made the police system optional; four existing
+tests refused it, and noise became additive instead. And the ledger-chokepoint
+guard in `economy.test.ts` caught L2's package reward bypassing the
+multiplier — deliberate, but it forced the reason onto the record.
+
+**Attribution turned out to be the recurring theme.** K1 found that a car's
+blast was credited to whoever was at the wheel, so torching a bus at a stop
+charged the driver with the bodies. K3 carries the arsonist down a chain, so
+a fire cannot launder itself. J4's most important test is that a gang member
+shot by another gang member credits *nobody* — otherwise standing in the
+right postcode is an earning strategy. O1's cash drops route through the same
+capped chokepoint as everything else, and the test that matters is that ten
+minutes of shooting pedestrians loses to one mission.
+
+**Three shared-world calls that the originals never had to make.** Hidden
+packages are per-account, not per-world (L2), or every one is found in the
+first hour. Districts gate services rather than geography (L3), because
+locking a district locks it for whoever is standing next to somebody already
+inside it. And mission chains are per (player, gang) and four links long,
+because a twenty-mission chain is a commitment a persistent world cannot let
+you pause.
+
+**Ordering traps, twice more.** Parking is placed before turf exists, so
+marking gang cars there marked every car as nobody's; it happens inside
+`assignTurf` now. And the prop list is decimated to a ceiling, which does not
+know that barrels are gameplay and lamp posts are decoration — the first
+attempt left two barrels in one city and none in another.
+
+
 ## Car AI: drivers that react, and cars that can be sent somewhere
 
 The top two recommendations of `CAR-AI.md` §7, plus the desync its
