@@ -14,7 +14,8 @@ import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState, type VehicleState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
-import { isAiDriver } from '../src/sim/traffic.js';
+import { assignGoto, isAiDriver, stepTrafficPanic } from '../src/sim/traffic.js';
+import { planRoute } from '../src/sim/roadgrid.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE } from '../src/world/types.js';
@@ -161,7 +162,14 @@ function ambientCar(state: GameState, id: number, at: { x: number; y: number }):
   const v = next.vehicles.byId[id]!;
   v.driverId = -1000 - id;
   v.speed = getTrafficTuning().cruiseSpeed;
-  next.trafficDrivers[id] = { dir: 0, stuck: 0 };
+  next.trafficDrivers[id] = {
+    dir: 0,
+    stuck: 0,
+    panic: 0,
+    mission: 'cruise',
+    route: null,
+    routeIdx: 0,
+  };
   return next;
 }
 
@@ -374,6 +382,72 @@ describe('ambient traffic', () => {
   });
 });
 
+describe('driver panic', () => {
+  /** A synthetic gunshot at a point, the same event stepWeapons would emit. */
+  const shotAt = (x: number, y: number) =>
+    ({ type: 'shot', tick: 0, playerId: 1, x0: x, y0: y, x1: x, y1: y }) as const;
+
+  it('a gunshot nearby scares a driver; one across town does not', () => {
+    const lane = eastboundLane();
+    let state = createGameState(501);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 200 };
+    state = ambientCar(state, 920, lane);
+
+    stepTrafficPanic(state, map, [shotAt(lane.x + 2000, lane.y)]);
+    expect(state.trafficDrivers[920]!.panic).toBe(0);
+
+    stepTrafficPanic(state, map, [shotAt(lane.x + 60, lane.y)]);
+    expect(state.trafficDrivers[920]!.panic).toBe(getTrafficTuning().panicTicks);
+  });
+
+  it('flees away from the bang, faster than cruise, then calms down', () => {
+    const lane = eastboundLane();
+    let state = createGameState(502);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    state.players.byId[1]!.pos = { x: lane.x + 300, y: lane.y - 200 };
+    state = ambientCar(state, 921, lane);
+    // Let it settle to cruise first, so the speed change is attributable.
+    for (let i = 0; i < 60; i++) state = step(state, {}, [], map);
+
+    // Bang behind it (to the west): flight is east, the way it already faces.
+    const car = state.vehicles.byId[921]!;
+    stepTrafficPanic(state, map, [shotAt(car.pos.x - 40, car.pos.y)]);
+    expect(state.trafficDrivers[921]!.dir).toBe(0); // east, away
+
+    let top = 0;
+    for (let i = 0; i < 90; i++) {
+      state = step(state, {}, [], map);
+      const v = state.vehicles.byId[921];
+      if (!v) break;
+      top = Math.max(top, v.speed);
+      // Keep the player abreast so the car is never culled mid-test.
+      state.players.byId[1]!.pos = { x: v.pos.x, y: v.pos.y - 200 };
+    }
+    // Faster than a calm driver is ever asked to go.
+    expect(top).toBeGreaterThan(getTrafficTuning().cruiseSpeed * 1.2);
+
+    // And it does not last: panic runs down and the driver record says so.
+    for (let i = 0; i < getTrafficTuning().panicTicks; i++) {
+      state = step(state, {}, [], map);
+      const v = state.vehicles.byId[921];
+      if (v) state.players.byId[1]!.pos = { x: v.pos.x, y: v.pos.y - 200 };
+    }
+    const driver = state.trafficDrivers[921];
+    if (driver) expect(driver.panic).toBe(0);
+  });
+
+  it('panic draws no random numbers: the rng stream is untouched', () => {
+    const lane = eastboundLane();
+    let state = createGameState(503);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    state = ambientCar(state, 922, lane);
+    const before = state.rng;
+    stepTrafficPanic(state, map, [shotAt(lane.x, lane.y)]);
+    expect(state.rng).toBe(before);
+  });
+});
+
 describe('carjacking', () => {
   it('drags an AI driver out, takes the wheel, and counts as a crime', () => {
     let state = withTraffic(9, 700);
@@ -400,6 +474,34 @@ describe('carjacking', () => {
     expect(me.heat).toBeGreaterThan(getTrafficTuning().jackHeat - 1);
   });
 
+  it('the ejected driver lands beside the car and runs', () => {
+    let state = withTraffic(12, 700);
+    const target = state.vehicles.ids
+      .map((id) => state.vehicles.byId[id]!)
+      .find((v) => isAiDriver(v.driverId));
+    expect(target).toBeDefined();
+    const pedsBefore = state.peds.ids.length;
+
+    const p = state.players.byId[1]!;
+    p.pos = { x: target!.pos.x, y: target!.pos.y };
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    expect(state.players.byId[1]!.mode).toBe('driving');
+
+    // Somebody new is on the pavement, fleeing, next to the scene.
+    expect(state.peds.ids.length).toBe(pedsBefore + 1);
+    const newest = state.peds.byId[Math.max(...state.peds.ids)]!;
+    expect(newest.mode).toBe('flee');
+    const car = state.vehicles.byId[state.players.byId[1]!.vehicleId!]!;
+    // Within a couple of car widths — they came out of THIS car, and one
+    // flee-speed step may already have run this tick.
+    expect(Math.hypot(newest.pos.x - car.pos.x, newest.pos.y - car.pos.y)).toBeLessThan(60);
+    // And on the wire grid: an off-grid standing position is a permanent
+    // hash desync for every client in range (see the roadblock note in
+    // police.ts).
+    expect(newest.pos.x * 8).toBeCloseTo(Math.round(newest.pos.x * 8), 9);
+    expect(newest.pos.y * 8).toBeCloseTo(Math.round(newest.pos.y * 8), 9);
+  });
+
   it('an occupied car cannot simply be opened', () => {
     const state = withTraffic(10, 700);
     // tryEnterVehicle skips anything with a driver, which is what makes the
@@ -410,6 +512,111 @@ describe('carjacking', () => {
         expect(v.driverId).toBeLessThan(-1);
       }
     }
+  });
+});
+
+describe('errand driving (goto)', () => {
+  /** Two kerbside points a real journey apart, from the map's own spawn list. */
+  function journey(minDist = 800, maxDist = 1600): { from: { x: number; y: number }; to: { x: number; y: number } } {
+    const spawns = map.vehicleSpawns;
+    for (const a of spawns) {
+      for (const b of spawns) {
+        const d = Math.hypot(b.x - a.x, b.y - a.y);
+        if (d >= minDist && d <= maxDist) return { from: a, to: b };
+      }
+    }
+    throw new Error('no spawn pair a journey apart on this map');
+  }
+
+  it('plans a route between distant kerbs, every corner on road', () => {
+    const { from, to } = journey();
+    const route = planRoute(map, from.x, from.y, to.x, to.y);
+    expect(route).not.toBeNull();
+    expect(route!.length % 2).toBe(0);
+    for (let i = 0; i < route!.length; i += 2) {
+      const tx = Math.floor(route![i]! / TILE_SIZE);
+      const ty = Math.floor(route![i + 1]! / TILE_SIZE);
+      expect(isDrivable(tx, ty)).toBe(true);
+    }
+    // The last corner is the destination, give or take the snap to road.
+    const lx = route![route!.length - 2]!;
+    const ly = route![route!.length - 1]!;
+    expect(Math.hypot(lx - to.x, ly - to.y)).toBeLessThan(TILE_SIZE * 4);
+  });
+
+  it('refuses a destination nowhere near a road', () => {
+    expect(planRoute(map, 100, 100, -400, -400)).toBeNull();
+  });
+
+  it('drives the errand to the far side of town, then melts back into traffic', () => {
+    const { from, to } = journey();
+    let state = createGameState(601);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    // The player waits at the destination; the car comes to them from well
+    // outside their despawn ring, which is the whole use of the primitive.
+    state.players.byId[1]!.pos = { x: to.x, y: to.y };
+    state = ambientCar(state, 930, from);
+    expect(assignGoto(state, map, 930, to.x, to.y)).toBe(true);
+    expect(state.trafficDrivers[930]!.mission).toBe('goto');
+
+    let arrivedAt: { x: number; y: number } | null = null;
+    for (let i = 0; i < 3600 && !arrivedAt; i++) {
+      state.players.byId[1]!.pos = { x: to.x, y: to.y }; // hold the corner
+      state = step(state, {}, [], map);
+      const driver = state.trafficDrivers[930];
+      const v = state.vehicles.byId[930];
+      expect(v).toBeDefined(); // never culled mid-errand
+      if (driver && driver.mission === 'cruise' && v) arrivedAt = { x: v.pos.x, y: v.pos.y };
+    }
+    expect(arrivedAt).not.toBeNull();
+    // Arrival means arrived: within the corner reach plus a lane's offset of
+    // the destination, not "gave up somewhere and reverted".
+    expect(Math.hypot(arrivedAt!.x - to.x, arrivedAt!.y - to.y)).toBeLessThan(TILE_SIZE * 5);
+  });
+
+  it('a car on an errand outlives the despawn ring; idle traffic does not', () => {
+    const lane = eastboundLane();
+    let state = createGameState(602);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    // Park the player at the kerb across the map, outside the despawn ring.
+    let far = map.vehicleSpawns[0]!;
+    for (const s of map.vehicleSpawns) {
+      if (
+        Math.hypot(s.x - lane.x, s.y - lane.y) > Math.hypot(far.x - lane.x, far.y - lane.y)
+      ) {
+        far = s;
+      }
+    }
+    expect(Math.hypot(far.x - lane.x, far.y - lane.y)).toBeGreaterThan(
+      getTrafficTuning().despawnDist,
+    );
+    state.players.byId[1]!.pos = { x: far.x, y: far.y };
+    state = ambientCar(state, 940, lane);
+    state = ambientCar(state, 941, { x: lane.x + 40, y: lane.y });
+    expect(assignGoto(state, map, 941, far.x, far.y)).toBe(true);
+
+    for (let i = 0; i < 30; i++) {
+      state.players.byId[1]!.pos = { x: far.x, y: far.y };
+      state = step(state, {}, [], map);
+    }
+    // The idle car was demoted to street furniture; the errand car drives on.
+    expect(isAiDriver(state.vehicles.byId[940]!.driverId)).toBe(false);
+    expect(isAiDriver(state.vehicles.byId[941]!.driverId)).toBe(true);
+    expect(state.trafficDrivers[941]!.mission).toBe('goto');
+  });
+
+  it('errands are deterministic like everything else', () => {
+    const { from, to } = journey();
+    const run = (): number => {
+      let s = createGameState(603);
+      s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+      s.players.byId[1]!.pos = { x: to.x, y: to.y };
+      s = ambientCar(s, 950, from);
+      assignGoto(s, map, 950, to.x, to.y);
+      for (let i = 0; i < 600; i++) s = step(s, {}, [], map);
+      return hashState(s);
+    };
+    expect(run()).toBe(run());
   });
 });
 

@@ -427,14 +427,18 @@ function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
     const c = spawns[(offset + i) % spawns.length];
     if (!c) continue;
     if (dist(c.x, c.y, ax, ay) > 90) continue;
-    // Across the road, not along it.
+    // Across the road, not along it. Quantised at birth: a roadblock car
+    // parks and never moves, so nothing downstream ever q8s its position —
+    // and an off-grid value on the wire is a permanent hash desync for every
+    // client that can see it (the codec's whole contract is that the sim
+    // only ships grid values).
     const across = heading + HALF_PI;
     for (const side of [-1, 1]) {
       const id = state.nextEntityId++;
       const v = createVehicle(
         id,
         'copcar',
-        { x: c.x + dCos(across) * side * 14, y: c.y + dSin(across) * side * 14 },
+        { x: q8(c.x + dCos(across) * side * 14), y: q8(c.y + dSin(across) * side * 14) },
         across,
       );
       insertEntity(state.vehicles, v);

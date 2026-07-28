@@ -202,6 +202,12 @@ export interface TrafficTuning {
   reverseTicks: number;
   decisionCadenceTicks: number;
   turnChance: number;
+  /** What a panicked driver accelerates to on the straight, px/s. */
+  panicSpeed: number;
+  /** How long a scare lasts, in sim ticks. */
+  panicTicks: number;
+  /** How close a gunshot or explosion has to be to scare a driver, px. */
+  panicRadius: number;
   spawnMinDist: number;
   spawnMaxDist: number;
   despawnDist: number;
@@ -656,6 +662,9 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     reverseTicks: n('reverseTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
     turnChance: n('turnChance'),
+    panicSpeed: n('panicSpeed'),
+    panicTicks: n('panicTicks'),
+    panicRadius: n('panicRadius'),
     spawnMinDist: n('spawnMinDist'),
     spawnMaxDist: n('spawnMaxDist'),
     despawnDist: n('despawnDist'),
@@ -685,6 +694,9 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   reverseTicks: 30,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
+  panicSpeed: 150,
+  panicTicks: 210,
+  panicRadius: 150,
   spawnMinDist: 420,
   spawnMaxDist: 760,
   despawnDist: 1100,

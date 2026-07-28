@@ -163,9 +163,30 @@ export interface TrafficDriver {
   /**
    * Wedged-tick counter. Counts UP while the car cannot move, then runs down
    * from a negative value while it reverses out. Bounded either way, which is
-   * what stops a blocked car from reversing across the city.
+   * what stops a blocked car from reversing away across the city.
    */
   stuck: number;
+  /**
+   * Ticks of panic left, 0 when calm. Set by gunfire and explosions nearby
+   * (see stepTrafficPanic); while it runs the driver floors it away from the
+   * scare and stops making leisurely route decisions.
+   */
+  panic: number;
+  /**
+   * What this driver is doing with its day. 'cruise' is ambient circulation —
+   * the random walk that makes streets read as inhabited. 'goto' follows a
+   * planned route to a destination, then reverts to cruise on arrival. The
+   * genre's other two car missions already live elsewhere: pursuit is the
+   * police system, and flight is `panic` above.
+   */
+  mission: 'cruise' | 'goto';
+  /**
+   * The goto route: corner points, flat [x0,y0, x1,y1, ...] px, last pair =
+   * destination (see roadgrid.planRoute). Null whenever mission is 'cruise'.
+   */
+  route: number[] | null;
+  /** Offset of the corner currently being driven at. Always even. */
+  routeIdx: number;
 }
 
 export interface PlayerState {
@@ -429,7 +450,16 @@ function cloneTrafficDrivers(
   for (const key of Object.keys(src)) {
     const id = Number(key);
     const d = src[id];
-    if (d) out[id] = { dir: d.dir, stuck: d.stuck };
+    if (d) {
+      out[id] = {
+        dir: d.dir,
+        stuck: d.stuck,
+        panic: d.panic,
+        mission: d.mission,
+        route: d.route ? d.route.slice() : null,
+        routeIdx: d.routeIdx,
+      };
+    }
   }
   return out;
 }

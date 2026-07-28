@@ -1,5 +1,66 @@
 # PROGRESS
 
+## Car AI: drivers that react, and cars that can be sent somewhere
+
+The top two recommendations of `CAR-AI.md` §7, plus the desync its
+verification flushed out. 294 tests green (up from 288), brawl and joyride
+harness runs lockstep with 0 desyncs at ~11–15 KB/s per client against the
+50 KB/s gate, replay re-simulates hash-identical.
+
+**Panic.** Gunfire and explosions now scare every ambient driver within
+`panicRadius`: they floor it down the open cardinal pointing most nearly away
+from the bang and stop taking the turn lottery until `panicTicks` runs down.
+The stimulus pass runs after every system that can make a noise (traffic
+itself steps before weapons, so a driver reacts one tick after the shot —
+reflex delay by construction, not accident). Panic draws no random numbers
+and lives in `trafficDrivers`, off the wire; a test pins both properties.
+
+**The carjack victim exists.** `tryCarjack` now puts the ejected driver on
+the pavement at whichever door opens, fleeing the carjacker — ROADMAP C2
+specified it and it had never been built; the genre's headline verb played as
+theft from an empty chair.
+
+**Errand driving.** `TrafficDriver` gains a mission — `cruise` (the ambient
+random walk) or `goto` (follow a planned route, then melt back into
+traffic). `planRoute` (`roadgrid.ts`) is A* over drivable tiles with the open
+list keyed on (f, tile index) packed into one integer, so ties resolve
+identically on every host; routes come out as corner waypoints with bounded
+spacing, because pure corners made every long straight read as "off the
+plan" and re-planned the route into a livelock — caught by tracing the first
+integration test, and the bounded spacing is the fix. The follower only sets
+`driver.dir`; lane-keeping, IDM, junction traversal and stuck recovery are
+untouched. Errand cars are exempt from the despawn ring, and panic outranks
+the route (flee first, re-plan from wherever flight ended). `assignGoto` is
+the API; nothing ambient calls it. This is the primitive the F–I entry below
+lists under "deliberately not built" as the blocker for AI ambulances — that
+notion now exists, and the consumers (ambulance, gang cars, mission targets)
+remain unbuilt.
+
+**The desync the harness caught.** First brawl run after panic landed: up to
+26 hash desyncs per bot. Diagnosis: roadblock cruisers (C3, months old)
+spawn at `c ± cos(across)·14` un-quantised and then never move, so nothing
+ever rounds them onto the q8 grid the binary codec ships positions on — the
+client's decoded copy disagrees with the server's by a fraction of a pixel,
+permanently, and every hashed snapshot containing the car counts a desync.
+Panic didn't cause it; panic escalated brawls to four stars reliably enough
+to *expose* it (the pre-change baseline passes by luck — its runs never
+threw a roadblock). Fixed at the spawn, same fix applied to the ejected
+driver's door position, both pinned by grid tests. The lesson, stated for
+the next spawn path someone writes: **anything that stands still is a wire
+bug waiting to happen** — moving entities re-quantise every tick, parked
+ones keep their birth coordinates forever.
+
+**Replay note** (per the risk table): panic changes driver behaviour and the
+rng draw pattern (panicked drivers skip `chooseDir` draws), so replays
+recorded before this wave no longer re-simulate to their recorded hashes.
+Expected, deliberate, stated.
+
+**Least confident about.** Panic tuning is untested by play: 118 px/s for
+seven seconds is plausible, not playtested. And `goto` has one integration
+test driving 1.5 km of city; real consumers will find the cases it doesn't —
+the repath threshold (8 tiles) in particular is a first guess.
+
+
 ## Waves F–I: the whole of FEATURES.md, twelve items
 
 Score, arrest, escalation, the arsenal, vehicle classes, crushers, fittings,
