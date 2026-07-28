@@ -5,7 +5,7 @@ import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
-import type { CityMap } from '../world/types.js';
+import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
 import type { EntityTable } from './entities.js';
 import type { SimEvent } from './events.js';
@@ -447,6 +447,45 @@ const BAILOUT_DAMAGE_PER_SPEED = 0.2;
 /** Ticks you spend picking yourself up, unable to shoot. */
 const BAILOUT_STUN_TICKS = 18;
 
+/**
+ * How far ashore a passenger will wade when stepping off a boat, in tiles.
+ *
+ * A mooring is a tile of open water in every direction by construction, and
+ * only guarantees dry land somewhere in the surrounding 7x7 (see
+ * placeBoatSpawns) — while a boat's own hull keeps its centre 11 px off any
+ * bank. So all three spots a car steps into land in the river, and getting
+ * out of a boat was flatly impossible: pressing E aboard did nothing, ever.
+ * You could sail away from the quay and never set foot on land again.
+ *
+ * Four tiles covers that 7x7 from the middle of it.
+ */
+const DISEMBARK_REACH_TILES = 4;
+
+/**
+ * Where somebody stepping off a boat may end up, nearest first.
+ *
+ * TILE CENTRES, not a ring of bearings around the hull. A player box is 12 px
+ * across and a tile is 16, so the centre of any non-solid tile is a spot the
+ * player provably fits in — which a polar search does not give you: it can
+ * thread a bearing between two candidate tiles and report the whole bank as
+ * blocked. Ordered by true distance, with the scan order breaking ties (sort
+ * is stable), so every host picks the same bank.
+ */
+function disembarkSpots(v: VehicleState): Array<[number, number]> {
+  const tx0 = Math.floor(v.pos.x / TILE_SIZE);
+  const ty0 = Math.floor(v.pos.y / TILE_SIZE);
+  const out: Array<[number, number, number]> = [];
+  for (let ty = ty0 - DISEMBARK_REACH_TILES; ty <= ty0 + DISEMBARK_REACH_TILES; ty++) {
+    for (let tx = tx0 - DISEMBARK_REACH_TILES; tx <= tx0 + DISEMBARK_REACH_TILES; tx++) {
+      const ox = (tx + 0.5) * TILE_SIZE - v.pos.x;
+      const oy = (ty + 0.5) * TILE_SIZE - v.pos.y;
+      out.push([ox * ox + oy * oy, ox, oy]);
+    }
+  }
+  out.sort((a, b) => (a[0] as number) - (b[0] as number));
+  return out.map(([, ox, oy]) => [ox, oy] as [number, number]);
+}
+
 /** Try to exit: first free spot beside (then behind) the car wins. */
 export function tryExitVehicle(
   state: GameState,
@@ -459,11 +498,16 @@ export function tryExitVehicle(
   if (!v) return false;
   const t = getVehicleTuning(v.kind);
   const side = t.halfExtent + PLAYER_RADIUS + 3;
-  const candidates: Array<[number, number]> = [
-    [dCos(v.heading + HALF_PI) * side, dSin(v.heading + HALF_PI) * side],
-    [dCos(v.heading - HALF_PI) * side, dSin(v.heading - HALF_PI) * side],
-    [dCos(v.heading + PI) * (side + 8), dSin(v.heading + PI) * (side + 8)],
-  ];
+  const candidates: Array<[number, number]> =
+    t.medium === 'water'
+      ? // Off a boat you wade for the nearest bank rather than looking for a
+        // gap beside the hull: beside the hull is always more river.
+        disembarkSpots(v)
+      : [
+          [dCos(v.heading + HALF_PI) * side, dSin(v.heading + HALF_PI) * side],
+          [dCos(v.heading - HALF_PI) * side, dSin(v.heading - HALF_PI) * side],
+          [dCos(v.heading + PI) * (side + 8), dSin(v.heading + PI) * (side + 8)],
+        ];
   for (const [ox, oy] of candidates) {
     const spot = { x: v.pos.x + ox, y: v.pos.y + oy };
     // Land check regardless of the vehicle's medium: stepping off a boat

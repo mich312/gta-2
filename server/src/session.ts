@@ -38,8 +38,17 @@ const PED_RESPAWN_PER_SEC = 2;
 const PED_RESPAWN_MIN_DIST = 700;
 /** Max consecutive ticks a missing client keeps "holding" their last keys. */
 const MAX_HELD_TICKS = 6;
-/** Max backlog of unapplied intents before we fast-forward through them. */
+/** Hard ceiling on the backlog. Past this we fast-forward, jitter or no jitter. */
 const MAX_INPUT_LAG_TICKS = 8;
+/**
+ * How deep the per-client jitter buffer is meant to sit, in ticks.
+ *
+ * One spare intent absorbs a single late packet without the server running
+ * dry; two would just be latency nobody asked for.
+ */
+const TARGET_INPUT_DEPTH = 1;
+/** How long a window the drain measures the buffer's low-water mark over. */
+const DRAIN_WINDOW_TICKS = 30;
 
 export interface PlayerSlot {
   playerId: number;
@@ -56,6 +65,12 @@ export interface PlayerSlot {
   lastQueuedSeq: number;
   /** Last seq actually folded into the sim; echoed as ackSeq. */
   lastInputSeq: number;
+  /** Lowest backlog seen so far this measuring window. See measureBacklog. */
+  depthLowWater: number;
+  /** Ticks left in the current window. */
+  depthWindowLeft: number;
+  /** Surplus intents the drain still means to skip, one per tick. */
+  drainDebt: number;
   /** Last snapshot tick the client acked; deltas are computed against it. */
   lastAckTick: number;
   /** Ring of FILTERED snapshots actually sent to this client (interest mgmt). */
@@ -64,6 +79,34 @@ export interface PlayerSlot {
 
 export interface ReplayWriter {
   record(rec: ReplayTickRecord): void;
+}
+
+/**
+ * Keep the input jitter buffer from silting up.
+ *
+ * A client produces one intent per tick and the server consumes at most one
+ * per tick, so the two rates are equal — but they are not synchronised. Every
+ * time jitter leaves the queue empty the server consumes nothing that tick
+ * and holds the last keys instead, while the intent it was waiting for turns
+ * up and sits behind the next one. The backlog is a random walk with a floor
+ * at zero and no ceiling below MAX_INPUT_LAG_TICKS, so it only ever ratchets
+ * upward: within a minute or two of ordinary jitter the buffer is pinned at
+ * the cap and the server is simulating that player a quarter of a second in
+ * the past — which is exactly the "server lags behind the client physics"
+ * symptom, and, at the cap, drops intents the client has already predicted.
+ *
+ * The fix is the standard one: watch the buffer's LOW-WATER mark over a
+ * window. A buffer that never emptied was never needed at that depth, so the
+ * surplus is pure latency and gets drained one intent per tick. A buffer that
+ * did run dry is doing its job and is left alone.
+ */
+function measureBacklog(slot: PlayerSlot): void {
+  if (slot.queue.length < slot.depthLowWater) slot.depthLowWater = slot.queue.length;
+  if (--slot.depthWindowLeft > 0) return;
+  const surplus = slot.depthLowWater - TARGET_INPUT_DEPTH;
+  if (Number.isFinite(surplus) && surplus > 0) slot.drainDebt = surplus;
+  slot.depthLowWater = Infinity;
+  slot.depthWindowLeft = DRAIN_WINDOW_TICKS;
 }
 
 /**
@@ -191,6 +234,9 @@ export class Session {
       heldTicks: 0,
       lastQueuedSeq: 0,
       lastInputSeq: 0,
+      depthLowWater: Infinity,
+      depthWindowLeft: DRAIN_WINDOW_TICKS,
+      drainDebt: 0,
       lastAckTick: -1,
       sentRing: new Map(),
     };
@@ -304,12 +350,19 @@ export class Session {
     const inputs: Record<number, InputIntent> = {};
     for (const [id, slot] of this.slots) {
       let intent: InputIntent | null = null;
+      measureBacklog(slot);
       if (slot.queue.length > 0) {
         // One intent per tick, in seq order — required for reconciliation:
         // the server must apply every seq exactly once. If a client bursts
         // (network jitter delivered several at once), drain the backlog down
         // to a small bound so its sim time doesn't lag real time.
         while (slot.queue.length > MAX_INPUT_LAG_TICKS) {
+          intent = slot.queue.shift() as InputIntent;
+        }
+        // Standing backlog, as opposed to a burst: skip one extra intent per
+        // tick until the buffer is back at its target depth.
+        if (slot.drainDebt > 0 && slot.queue.length > 1) {
+          slot.drainDebt--;
           intent = slot.queue.shift() as InputIntent;
         }
         intent = slot.queue.shift() as InputIntent;

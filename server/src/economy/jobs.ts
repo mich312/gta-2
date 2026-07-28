@@ -169,6 +169,7 @@ export class Jobs {
           // 'walk'`: a pedestrian standing next to a car is already in
           // `flee`, so that test never matched a single fare.
           if (!ped || ped.mode === 'downed' || ped.mode === 'hostile') continue;
+          if (ped.mode === 'dead') continue; // no fares from the mortuary
           if (ped.gangId !== 0) continue;
           if (!within(ped.pos, v.pos, this.params.pickupRadius)) continue;
           if (Math.abs(v.speed) > 30) continue;

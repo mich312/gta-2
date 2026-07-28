@@ -1,5 +1,85 @@
 # PROGRESS
 
+## Five reported bugs: colliders, boats, stars, bodies, and people who shoot back
+
+Five things reported from play, fixed together because three of them are the
+same complaint — the world does not keep what happens to it. 324 tests green
+(up from 310), 8-bot brawl lockstep with 0 desyncs at ~13 KB/s per client
+against the 50 KB/s gate, replay re-simulates hash-identical.
+
+**Colliders were on a different clock from the sprites.** Remote entities are
+drawn `INTERP_DELAY_TICKS` (~100 ms) in the past so they interpolate smoothly,
+but the predictor collided the local car against `sync.latest` — the newest
+snapshot, three ticks ahead of the sprite it belonged to. Every moving car's
+collider therefore sat over half a car length down the road from the car you
+could see: you crashed into empty tarmac and drove through the one in front.
+`Interpolator.vehiclesAsDrawn()` now hands the predictor the same positions
+the renderer is about to use. Parked cars — most of what anyone hits — are
+identical on both timelines, which is why this survived so long.
+
+**The server's input buffer only ever grew.** A client makes one intent a tick
+and the server eats at most one a tick, so the rates match but the phases do
+not: a tick that finds the queue empty consumes nothing (the last keys are
+held) while the intent it was waiting for arrives and queues behind the next.
+There was no path back down, so the buffer settled at the worst jitter the
+link had EVER shown and stayed there — a fifth of a second of standing
+latency, and at the `MAX_INPUT_LAG_TICKS` cap it silently dropped intents the
+client had already predicted. `measureBacklog` watches the buffer's low-water
+mark over a one-second window: depth that never got used is latency nobody
+asked for, and it drains one intent per tick. A buffer that did run dry is
+doing its job and is left alone.
+
+**Getting out of a boat was impossible.** Not hard — impossible. A mooring is
+a tile of open water in every direction by construction, a boat's hull holds
+its centre 11 px off any bank, and the three spots a car steps into are all
+inside `halfExtent + PLAYER_RADIUS + 11`. Every one of them was river, so
+pressing E aboard did nothing, ever. Water craft now search tile CENTRES out
+to four tiles, nearest first: a player box is 12 px across and a tile is 16,
+so the centre of any non-solid tile is a spot you provably fit in — which a
+ring of bearings does not give you, because it can thread between two
+candidate tiles and report the whole bank as blocked.
+
+**The wanted level survived your own death.** It was always per-player state
+(`heat` on `PlayerState`, `wantedLevel` derived from it), but nothing cleared
+it when that player died, so you woke up at the hospital still four-starred
+with the same force re-acquiring on the spawn tick. `clearWanted` is now one
+function used by the arrest, the respray and dying, and it releases the
+officers already pointed at you as well as the stars.
+
+**Bodies stay.** A pedestrian shot dead used to be erased on the frame it
+happened; so did an officer. Both now lie where they fell for `corpseSec`.
+Peds carry a `dead` mode; an officer needs no new field at all, because
+`health <= 0` already rides the wire and is already hashed. A body is
+scenery: shots pass through it, cars do not re-run it over thirty times a
+second, traffic does not queue behind it, and it witnesses no crimes — that
+last one mattered, since a corpse was reporting car thefts from the pavement.
+
+**Some of the crowd shoot back, and their gun stays behind.** One pedestrian
+in `armedOneIn` is carrying — a pure function of the id, like gang membership,
+so it costs nothing on the wire. Shoot one and they do not flee: they hold a
+grudge against whoever pulled the trigger for `grudgeTicks`, close, and fire.
+The gang-hostility path and this one are now one shooter with two ways of
+acquiring a target. Anybody armed who dies drops their weapon as a new
+`weapon` pickup that can be picked up once and rots off the street; so do
+police, which is what makes shooting back at them worth doing.
+
+**Verification.** New tests: the boat exit across twelve moorings (ashore,
+dry, within wading distance); wanted level per-player and wiped by death
+through to respawn; armed peds returning fire while everyone else runs;
+grudges lapsing; the dropped gun being collectable once and expiring; bodies
+stopping no bullets; the interpolated collision world matching the drawn
+world to the pixel; and the input buffer draining after a jitter storm — that
+last one fails on the old code with the buffer pinned at 5 ticks for ever.
+
+**Least confident about.** The rendering of bodies and dropped guns is drawn
+rather than sprited (the same character sprite squashed towards the ground
+over a pool, and a gunmetal bar) and has not been eyeballed in a real
+browser — the sim behaviour is pinned by tests, the look is not. Colliding on
+the render timeline is the right call for "you hit what you see", but it
+trades against the server's own timeline: a fast head-on closing pair will
+still correct, just in the other direction from before. `armedOneIn: 7` with
+`gangPistol` is a first guess at how dangerous a street should feel.
+
 ## Car AI: drivers that react, and cars that can be sent somewhere
 
 The top two recommendations of `CAR-AI.md` §7, plus the desync its

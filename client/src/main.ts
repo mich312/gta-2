@@ -193,10 +193,11 @@ function vehiclePoseNow(): { x: number; y: number; angle: number } | null {
 function onStateUpdated(ackSeq: number | null): void {
   if (!sync.latest || !map) return;
   interp.push(sync.latest);
-  // Collision prediction reads the newest authoritative positions, not the
-  // ~100 ms interpolated ones: for the parked cars that make up most of what
-  // you hit, the snapshot is exact.
-  predictor.setWorld(sync.latest.vehicles);
+  // Collision prediction reads the positions the renderer is about to DRAW,
+  // not the newest ones off the wire — see Interpolator.vehiclesAsDrawn. For
+  // the parked cars that make up most of what you hit the two are identical;
+  // for anything moving, the snapshot is three ticks ahead of its own sprite.
+  predictor.setWorld(interp.vehiclesAsDrawn());
   const me = sync.latest.players.find((p) => p.id === playerId);
   if (me) {
     const myVehicle =

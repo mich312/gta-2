@@ -143,6 +143,26 @@ export interface PedTuning {
   fleeRadius: number;
   fleeTicks: number;
   heatPerPedKill: number;
+  /**
+   * One pedestrian in this many is carrying, and shoots back when shot at.
+   * The whole crowd running away from every gunshot made the street a
+   * backdrop rather than a place with opinions about you.
+   */
+  armedOneIn: number;
+  /** What they carry — and therefore what their body leaves on the pavement. */
+  weapon: string;
+  /** Rounds in the gun they drop. */
+  dropAmmo: number;
+  armedSightRange: number;
+  armedFireRange: number;
+  armedFireCooldownTicks: number;
+  armedChaseSpeed: number;
+  /** Ticks an armed civilian keeps a grudge after losing sight of you. */
+  grudgeTicks: number;
+  /** Seconds a body lies in the street before it is cleared away. */
+  corpseSec: number;
+  /** Seconds a dropped gun lies where its owner fell. */
+  dropLifeSec: number;
 }
 
 export interface PropKindTuning {
@@ -457,6 +477,16 @@ function parsePedTuning(raw: unknown): PedTuning {
     fleeRadius: n('fleeRadius'),
     fleeTicks: n('fleeTicks'),
     heatPerPedKill: n('heatPerPedKill'),
+    armedOneIn: n('armedOneIn'),
+    weapon: typeof r['weapon'] === 'string' && r['weapon'] ? r['weapon'] : DEFAULT_PEDS.weapon,
+    dropAmmo: n('dropAmmo'),
+    armedSightRange: n('armedSightRange'),
+    armedFireRange: n('armedFireRange'),
+    armedFireCooldownTicks: n('armedFireCooldownTicks'),
+    armedChaseSpeed: n('armedChaseSpeed'),
+    grudgeTicks: n('grudgeTicks'),
+    corpseSec: n('corpseSec'),
+    dropLifeSec: n('dropLifeSec'),
   };
 }
 
@@ -746,6 +776,16 @@ const DEFAULT_PEDS: PedTuning = {
   fleeRadius: 170,
   fleeTicks: 105,
   heatPerPedKill: 80,
+  armedOneIn: 7,
+  weapon: 'gangPistol',
+  dropAmmo: 24,
+  armedSightRange: 190,
+  armedFireRange: 160,
+  armedFireCooldownTicks: 30,
+  armedChaseSpeed: 84,
+  grudgeTicks: 240,
+  corpseSec: 40,
+  dropLifeSec: 45,
 };
 
 const DEFAULT_POLICE: PoliceTuning = {

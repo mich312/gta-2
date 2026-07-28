@@ -112,9 +112,18 @@ const COP_FIELDS = [
   'vehicleId',
   'stuckTicks',
 ] as const;
-const PED_FIELDS = ['gangId', 'pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
+const PED_FIELDS = [
+  'gangId',
+  'pos',
+  'dirX',
+  'dirY',
+  'mode',
+  'health',
+  'timer',
+  'targetId',
+] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
-const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick'] as const;
+const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick', 'weaponId', 'ammo'] as const;
 // vel rides along so the client can extrapolate between snapshots; a rocket
 // moves 14 px per tick and would otherwise stutter across the screen.
 const PROJECTILE_FIELDS = ['kind', 'pos', 'vel', 'ownerId', 'fuseAtTick'] as const;

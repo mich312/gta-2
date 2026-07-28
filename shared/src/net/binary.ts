@@ -109,7 +109,8 @@ const TAG_FULL = 2;
 const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
-const PED_MODES = ['walk', 'flee', 'hostile', 'downed'] as const;
+// Append-only, both of them: the index IS the wire value.
+const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'dead'] as const;
 const PICKUP_KINDS = [
   'health',
   'armour',
@@ -120,6 +121,7 @@ const PICKUP_KINDS = [
   'damage',
   'invis',
   'reload',
+  'weapon',
 ] as const;
 const VEHICLE_CONDITIONS = ['ok', 'burning', 'wreck'] as const;
 
@@ -528,6 +530,7 @@ const PED_CODECS: Array<FieldCodec<PedState>> = [
   f('mode', (w, p) => w.u8(PED_MODES.indexOf(p.mode)), (r, o) => (o['mode'] = PED_MODES[r.u8()])),
   f('health', (w, p) => w.f64(p.health), (r, o) => (o['health'] = r.f64())),
   f('timer', (w, p) => w.int(p.timer), (r, o) => (o['timer'] = r.int())),
+  f('targetId', (w, p) => w.optInt(p.targetId), (r, o) => (o['targetId'] = r.optInt())),
 ];
 
 const PROP_CODECS: Array<FieldCodec<PropState>> = [
@@ -570,6 +573,10 @@ const PICKUP_CODECS: Array<FieldCodec<PickupState>> = [
     (w, p) => w.optInt(p.respawnAtTick),
     (r, o) => (o['respawnAtTick'] = r.optInt()),
   ),
+  // Empty on every worldgen crate, so per-field diffing means the fixed
+  // furniture pays for these once, at creation, and never again.
+  f('weaponId', (w, p) => w.str(p.weaponId), (r, o) => (o['weaponId'] = r.str())),
+  f('ammo', (w, p) => w.int(p.ammo), (r, o) => (o['ammo'] = r.int())),
 ];
 
 // ------------------------------------------------------------ table codecs

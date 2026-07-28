@@ -338,7 +338,7 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
   }
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
-    if (!ped) continue;
+    if (!ped || ped.mode === 'dead') continue; // traffic does not queue behind a body
     consider(ped.pos.x, ped.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   for (const id of state.players.ids) {

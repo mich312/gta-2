@@ -58,7 +58,13 @@ export type PickupKind =
   | 'jailcard'
   | 'damage'
   | 'invis'
-  | 'reload';
+  | 'reload'
+  /**
+   * A gun lying where its owner fell. Unlike every other kind this one is not
+   * worldgen furniture: it is created when somebody armed dies, it does not
+   * come back when taken, and it rots off the street on a timer.
+   */
+  | 'weapon';
 
 /**
  * Behaviour-altering power-ups, as bits rather than a field each.
@@ -86,8 +92,17 @@ export interface PickupState {
   pos: Vec2;
   /** False while on cooldown; the sprite is hidden and it cannot be taken. */
   active: boolean;
-  /** Tick it returns on, or null while active. */
+  /**
+   * Tick it returns on, or null while active — except on a dropped `weapon`,
+   * where it is the tick the gun rots off the street. A dropped gun never
+   * comes back, so the field would otherwise be dead weight on the one kind
+   * of pickup that needs a clock most.
+   */
   respawnAtTick: number | null;
+  /** Which gun, on a `weapon` pickup. Empty on every other kind. */
+  weaponId: string;
+  /** Rounds it comes with, on a `weapon` pickup. Zero on every other kind. */
+  ammo: number;
 }
 
 /**
@@ -106,7 +121,7 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed';
+export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed' | 'dead';
 
 export interface PedState {
   id: number;
@@ -122,8 +137,19 @@ export interface PedState {
   dirY: number;
   mode: PedMode;
   health: number;
-  /** Ticks until the next wander turn (walk) or until calming down (flee). */
+  /**
+   * Ticks until the next wander turn (walk), until calming down (flee), until
+   * the next shot (hostile), until they bleed out (downed) or until the body
+   * is cleared away (dead). One counter, five meanings — 200 pedestrians pay
+   * for every field, and no two of those modes ever need it at once.
+   */
   timer: number;
+  /**
+   * Who this one is shooting at, or null. Only ever a player id: a grudge is
+   * something you hold against somebody who shot you, and the only shooters
+   * a pedestrian can tell apart are players.
+   */
+  targetId: number | null;
 }
 
 export type VehicleCondition = 'ok' | 'burning' | 'wreck';
@@ -303,8 +329,14 @@ export function createGameState(seed: number): GameState {
   };
 }
 
-export function createPickup(id: number, kind: PickupKind, pos: Vec2): PickupState {
-  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null };
+export function createPickup(
+  id: number,
+  kind: PickupKind,
+  pos: Vec2,
+  weaponId = '',
+  ammo = 0,
+): PickupState {
+  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null, weaponId, ammo };
 }
 
 export function clonePickup(p: PickupState): PickupState {
@@ -341,7 +373,17 @@ export function cloneProp(p: PropState): PropState {
 }
 
 export function createPed(id: number, pos: Vec2, health: number, gangId = 0): PedState {
-  return { id, gangId, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
+  return {
+    id,
+    gangId,
+    pos: cloneVec(pos),
+    dirX: 1,
+    dirY: 0,
+    mode: 'walk',
+    health,
+    timer: 0,
+    targetId: null,
+  };
 }
 
 export function clonePed(p: PedState): PedState {

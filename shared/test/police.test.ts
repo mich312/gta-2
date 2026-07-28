@@ -16,12 +16,14 @@ import {
   type GameState,
 } from '../src/sim/state.js';
 import { insertEntity } from '../src/sim/entities.js';
+import { applyDamage } from '../src/sim/weapons.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
 import { clearSpot, roadLane } from './helpers.js';
+import { TICK_RATE } from '../src/constants.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -69,7 +71,8 @@ function commitCrimes(targetLevel: number): GameState {
     const aim = Math.atan2(p2.pos.y - p1.pos.y, p2.pos.x - p1.pos.x);
     const cmds: Array<{ type: 'respawnPlayer'; playerId: number; loadout: typeof PISTOL }> = [];
     // The cops WILL kill the crook mid-spree; respawn both parties so the
-    // spree continues (heat survives death by design).
+    // spree continues. Dying now wipes the crook's own wanted level, so the
+    // loop simply has to climb the ladder again from wherever it left off.
     if (p2.mode === 'dead' && p2.respawnAtTick !== null && state.tick >= p2.respawnAtTick) {
       cmds.push({ type: 'respawnPlayer', playerId: 2, loadout: [] });
     }
@@ -86,6 +89,61 @@ describe('wanted + police', () => {
     const state = commitCrimes(1);
     expect(wantedLevelOf(state.players.byId[1]!)).toBeGreaterThanOrEqual(1);
     expect(state.players.byId[1]!.wantedLevel).toBe(wantedLevelOf(state.players.byId[1]!));
+  });
+
+  it('the wanted level belongs to one player, not to the session', () => {
+    let state = createGameState(77);
+    state = step(
+      state,
+      {},
+      [
+        { type: 'spawnPlayer', playerId: 1, name: 'crook' },
+        { type: 'spawnPlayer', playerId: 2, name: 'bystander' },
+      ],
+      map,
+    );
+    addHeat(state.players.byId[1]!, 320);
+    state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.wantedLevel).toBe(3);
+    expect(state.players.byId[2]!.wantedLevel).toBe(0);
+    expect(state.players.byId[2]!.heat).toBe(0);
+  });
+
+  it('dying wipes your wanted level and the tail that came with it', () => {
+    let state = createGameState(78);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    const p = state.players.byId[1]!;
+    addHeat(p, 450);
+    // Officers already on the case, pointed at this player.
+    const t = getTuning().police;
+    for (const id of [80, 81]) {
+      const cop = createCop(id, { x: p.pos.x + 40, y: p.pos.y }, t.copHealth);
+      cop.targetId = 1;
+      insertEntity(state.cops, cop);
+    }
+    state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.wantedLevel).toBeGreaterThanOrEqual(4);
+
+    // Shot dead by the streets: heat, stars and pursuit all go with it. This
+    // used to survive death, so you woke up at the hospital still four-starred
+    // with the same force re-acquiring on the spawn tick.
+    const events: SimEvent[] = [];
+    applyDamage(state, state.players.byId[1]!, 1000, -1, 'police', events);
+    expect(state.players.byId[1]!.mode).toBe('dead');
+    expect(state.players.byId[1]!.heat).toBe(0);
+    expect(state.players.byId[1]!.wantedLevel).toBe(0);
+    expect(wantedLevelOf(state.players.byId[1]!)).toBe(0);
+    for (const id of state.cops.ids) expect(state.cops.byId[id]!.targetId).toBeNull();
+
+    // ...and it stays gone through the respawn.
+    state = step(
+      state,
+      {},
+      [{ type: 'respawnPlayer', playerId: 1, loadout: [], atStation: false }],
+      map,
+    );
+    expect(state.players.byId[1]!.mode).toBe('foot');
+    expect(state.players.byId[1]!.wantedLevel).toBe(0);
   });
 
   /** Player 1 in a car parked on top of them, ready to drive. Returns the state. */
@@ -165,15 +223,20 @@ describe('wanted + police', () => {
 
     // Sustained contact does finish the job, and it is reported as a cop down.
     const kill: SimEvent[] = [];
-    for (let i = 0; i < 120 && state.cops.byId[90]; i++) {
+    for (let i = 0; i < 120 && (state.cops.byId[90]?.health ?? 0) > 0; i++) {
       const c = state.cops.byId[90];
       const drive = state.vehicles.byId[2]!;
       drive.speed = 300;
       if (c) c.pos = { x: drive.pos.x, y: drive.pos.y };
       state = step(state, {}, [], map, kill);
     }
-    expect(state.cops.byId[90]).toBeUndefined();
+    // The officer stays put as a body for the corpse span, then is cleared.
+    expect(state.cops.byId[90]!.health).toBe(0);
     expect(kill.some((e) => e.type === 'copDown')).toBe(true);
+    for (let i = 0; i < getTuning().peds.corpseSec * TICK_RATE + 2; i++) {
+      state = step(state, {}, [], map);
+    }
+    expect(state.cops.byId[90]).toBeUndefined();
   });
 
   it('cops arrive on a ramp, not a wall', () => {

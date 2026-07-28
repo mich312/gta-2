@@ -14,7 +14,7 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
-import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { clearWanted, stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
@@ -172,6 +172,10 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       p.carHitCooldown = 0;
       p.weapons = cmd.loadout.map((w) => ({ ...w }));
       p.activeWeapon = p.weapons.length > 0 ? 0 : -1;
+      // You come back clean. Death already wipes the wanted level (see
+      // applyDamage); doing it here too means a player who was made dead by
+      // any other route still wakes up without a tail.
+      clearWanted(state, p);
       break;
     }
     case 'grantWeapon': {
@@ -197,12 +201,7 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       // not merely a discount.
       const p = getEntity(state.players, cmd.playerId);
       if (!p) return;
-      p.heat = 0;
-      p.wantedLevel = 0;
-      for (const cid of state.cops.ids) {
-        const cop = state.cops.byId[cid];
-        if (cop && cop.targetId === cmd.playerId) cop.targetId = null;
-      }
+      clearWanted(state, p);
       break;
     }
     case 'despawnPlayer': {

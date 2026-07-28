@@ -316,19 +316,18 @@ export function render(
   drawPickups(ctx, scene.remotes.pickups, dx, dy, lights, scene.nowMs);
 
   for (const pd of scene.remotes.peds) {
-    const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
     const variant = pd.ped.id % PED_VARIANTS;
-    drawCharacter(
-      ctx,
-      sprites,
-      `ped_v${variant}_f${frame}`,
-      dx(pd.x),
-      dy(pd.y),
-      Math.atan2(pd.ped.dirY, pd.ped.dirX),
-      // Gang members wear their colours. Being able to read a street at a
-      // glance is the whole reason turf exists.
-      GANG_TINT[pd.ped.gangId] ?? '#7a7f6d',
-    );
+    const facing = Math.atan2(pd.ped.dirY, pd.ped.dirX);
+    // Gang members wear their colours. Being able to read a street at a
+    // glance is the whole reason turf exists.
+    const tint = GANG_TINT[pd.ped.gangId] ?? '#7a7f6d';
+    const down = pd.ped.mode === 'dead' || pd.ped.mode === 'downed';
+    if (down) {
+      drawBody(ctx, sprites, `ped_v${variant}_f0`, dx(pd.x), dy(pd.y), facing, tint);
+      continue;
+    }
+    const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
+    drawCharacter(ctx, sprites, `ped_v${variant}_f${frame}`, dx(pd.x), dy(pd.y), facing, tint);
   }
   // Projectiles: small, bright, and drawn over everything on the ground so a
   // rocket coming at you is the most legible thing on screen.
@@ -369,12 +368,18 @@ export function render(
   }
 
   for (const c of scene.remotes.cops) {
-    const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
     const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
     // The uniform says which force you have brought down on yourself. Police
     // blue, SWAT charcoal, federal navy, army olive — you should be able to
     // tell what is chasing you without reading the star count.
-    drawCharacter(ctx, sprites, `cop_f${frame}`, dx(c.x), dy(c.y), angle, COP_TINT[c.cop.kind] ?? '#3a5fb0');
+    const tint = COP_TINT[c.cop.kind] ?? '#3a5fb0';
+    // An officer at zero health is a body, not a pursuer — see damageCop.
+    if (c.cop.health <= 0) {
+      drawBody(ctx, sprites, 'cop_f0', dx(c.x), dy(c.y), angle, tint);
+      continue;
+    }
+    const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
+    drawCharacter(ctx, sprites, `cop_f${frame}`, dx(c.x), dy(c.y), angle, tint);
   }
   for (const r of scene.remotes.players) {
     const key = `p${r.player.id}`;
@@ -502,6 +507,9 @@ const PICKUP_COLORS: Record<string, string> = {
   damage: '#ff7a4a',
   invis: '#9fd8e8',
   reload: '#c39ce0',
+  // Gunmetal, and deliberately not part of the crate family: this one was
+  // dropped by somebody, not placed by the city.
+  weapon: '#b9bcc4',
 };
 
 /**
@@ -521,6 +529,20 @@ function drawPickups(
   for (const pu of pickups) {
     if (!pu.active) continue;
     const color = PICKUP_COLORS[pu.kind] ?? '#c0c0c0';
+    // A dropped gun lies where its owner fell: it does not float or bob, and
+    // it should read as litter you can pick up rather than as a crate the
+    // level designer put there.
+    if (pu.kind === 'weapon') {
+      const gx = dx(pu.pos.x);
+      const gy = dy(pu.pos.y);
+      const len = 4 * RENDER_SCALE;
+      drawShadow(ctx, gx, gy, len, len * 0.5, 1);
+      ctx.fillStyle = color;
+      ctx.fillRect(gx - len, gy - RENDER_SCALE, len * 2, RENDER_SCALE * 2);
+      ctx.fillRect(gx - len * 0.3, gy, RENDER_SCALE * 2, RENDER_SCALE * 2);
+      lights.point(gx, gy, 7 * RENDER_SCALE, 'head', 0.16);
+      continue;
+    }
     const bob = Math.sin(nowMs * 0.004 + pu.id) * 1.5 * RENDER_SCALE;
     const x = dx(pu.pos.x);
     const y = dy(pu.pos.y) + bob;
@@ -559,6 +581,51 @@ function drawCharacter(
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
 }
 
+/** How flat a body reads against the pavement, as a fraction of standing. */
+const BODY_FLATTEN = 0.55;
+
+/**
+ * Somebody who is not getting up.
+ *
+ * The sim leaves the dead in the world now — a pedestrian's body for forty
+ * seconds, an officer's for the same, a player's until they respawn — and
+ * before this they were drawn walking about like everyone else. Same sprite,
+ * squashed towards the ground, greyed, over a pool: no new art, and legible
+ * at 480 x 270 from across the street.
+ */
+function drawBody(
+  ctx: CanvasRenderingContext2D,
+  sprites: SpriteSheet,
+  name: string,
+  x: number,
+  y: number,
+  angle: number,
+  fallback: string,
+): void {
+  const r = PLAYER_RADIUS * RENDER_SCALE;
+  ctx.save();
+  ctx.fillStyle = 'rgba(96, 14, 18, 0.5)';
+  ctx.beginPath();
+  ctx.ellipse(x, y + r * 0.3, r * 1.5, r * 0.9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.translate(x, y);
+  ctx.scale(1, BODY_FLATTEN);
+  if (!sprites.draw(ctx, name, 0, 0, angle)) {
+    ctx.fillStyle = fallback;
+    ctx.fillRect(-r, -r, r * 2, r * 2);
+  }
+  ctx.restore();
+  // Drained of colour: a body is the one thing on the street that has stopped
+  // being a participant, and it should stop drawing the eye like one.
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#1a1a20';
+  ctx.beginPath();
+  ctx.ellipse(x, y, r * 1.1, r * 0.7, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
 function drawPlayer(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
@@ -572,6 +639,12 @@ function drawPlayer(
 ): void {
   const variant = Math.abs(p.cosmeticId) % PLAYER_VARIANTS;
   const fallback = isLocal ? LOCAL_COLOR : (REMOTE_COLORS[p.id % REMOTE_COLORS.length] as string);
+  // Dead is dead: no walk cycle, no aim tick, and a body on the tarmac for
+  // the three seconds before the ambulance-shaped respawn timer runs out.
+  if (p.mode === 'dead') {
+    drawBody(ctx, sprites, `player_v${variant}_f0`, x, y, aim, fallback);
+    return;
+  }
   // Empty hands look like empty hands. The avatar used to hold a pistol
   // whatever was selected, so a fist fight was two men pointing guns at each
   // other and a punch came out of the barrel.

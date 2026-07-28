@@ -8,8 +8,11 @@
  * comfortBrake/scanHorizon). 4: vehicle tuning gained halfLength/halfWidth/
  * mass, and VehicleState gained the damage map (zones/broken) while health
  * became an integer varint rather than a float.
+ * 5: pedestrians gained a `dead` mode (a body that stays in the street) and a
+ * `targetId`; pickups gained a `weapon` kind with `weaponId`/`ammo`; ped
+ * tuning gained the armed-civilian and corpse numbers.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;
