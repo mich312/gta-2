@@ -1,9 +1,12 @@
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { clamp, q8 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
-import { getTrafficTuning, getVehicleTuning, type TrafficTuning } from '../tuning.js';
+import { getTrafficTuning, getTuning, getVehicleTuning, type TrafficTuning } from '../tuning.js';
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
-import { createVehicle } from './state.js';
+import { createPed, createVehicle } from './state.js';
+import { insertEntity } from './entities.js';
+import { boxInSolid } from '../world/collide.js';
+import { PED_RADIUS } from './peds.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
 import {
   CARDINALS,
@@ -499,8 +502,13 @@ function laneControl(
   const err = wrapAngle(dAtan2(targetY - v.pos.y, targetX - v.pos.x) - v.heading);
   const steer = clamp(err * t.steerGain, -1, 1);
 
-  // Corner speed: `turnSpeed` through a bend, cruise on the straight.
-  const desired = Math.abs(err) > TURN_ERROR ? t.turnSpeed : t.cruiseSpeed;
+  // Corner speed: `turnSpeed` through a bend, cruise on the straight — and a
+  // scared driver's straight is a lot faster than a calm one's. Corners stay
+  // at `turnSpeed` either way: panic floors the accelerator, it does not
+  // repeal the steering physics, and a driver that corners at double speed
+  // leaves the road on every bend, which reads as broken rather than scared.
+  const straight = driver.panic > 0 ? t.panicSpeed : t.cruiseSpeed;
+  const desired = Math.abs(err) > TURN_ERROR ? t.turnSpeed : straight;
 
   // How hard to press which pedal, from one continuous model of what is in
   // front. Requested as an ACCELERATION and converted to a pedal position at
@@ -539,9 +547,10 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
 
     let driver = state.trafficDrivers[id];
     if (!driver) {
-      driver = { dir: nearestCardinal(v.heading), stuck: 0 };
+      driver = { dir: nearestCardinal(v.heading), stuck: 0, panic: 0 };
       state.trafficDrivers[id] = driver;
     }
+    if (driver.panic > 0) driver.panic--;
 
     if (driver.stuck < 0) {
       // Backing out of somewhere. Bounded: it ends, and the driver then picks
@@ -565,7 +574,9 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
           v,
           driver.dir < 0 ? nearestCardinal(v.heading) : driver.dir,
         );
-      } else if ((state.tick + id) % t.decisionCadenceTicks < 3) {
+      } else if (driver.panic === 0 && (state.tick + id) % t.decisionCadenceTicks < 3) {
+        // A panicked driver does not window-shop for turns: it holds its flee
+        // heading flat out and only turns when the road ahead runs out.
         driver.dir = chooseDir(state, map, v, driver.dir);
       }
     }
@@ -676,11 +687,68 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     const v = createVehicle(id, pickKind(state), { x: q8(x), y: q8(y) }, CARDINAL_ANGLE[dirIdx] as number);
     v.speed = q8(t.cruiseSpeed * 0.6);
     v.driverId = -1000 - id; // negative => AI, and never -1
-    state.trafficDrivers[id] = { dir: dirIdx, stuck: 0 };
+    state.trafficDrivers[id] = { dir: dirIdx, stuck: 0, panic: 0 };
     state.vehicles.ids.push(id);
     state.vehicles.ids.sort((a, b) => a - b);
     state.vehicles.byId[id] = v;
     return;
+  }
+}
+
+/**
+ * Panic pass: gunfire and explosions this tick scare every ambient driver
+ * within earshot into flooring it away from the noise.
+ *
+ * Runs AFTER the shooting systems (see step.ts ordering), because traffic
+ * itself steps before weapons fire — so a driver reacts on the tick after the
+ * bang, exactly one tick of reflex delay. The alternative, reordering traffic
+ * after weapons, would let this tick's shots move this tick's cars — and every
+ * car the player is following would react to the player's own gun before the
+ * tracer had been drawn.
+ *
+ * Same stimulus model as the pedestrians (peds.ts): collect scare points from
+ * the tick's events, nearest scare inside the radius wins. Drivers keep their
+ * panic in `trafficDrivers`, so it costs the wire nothing.
+ */
+export function stepTrafficPanic(
+  state: GameState,
+  map: CityMap,
+  tickEvents: readonly SimEvent[],
+): void {
+  const t = getTrafficTuning();
+  let scares: Array<[number, number]> | null = null;
+  for (const ev of tickEvents) {
+    if (ev.type === 'shot') (scares ??= []).push([ev.x0, ev.y0]);
+    else if (ev.type === 'explosion') (scares ??= []).push([ev.x, ev.y]);
+  }
+  if (!scares) return;
+
+  for (const id of state.vehicles.ids) {
+    const v = state.vehicles.byId[id];
+    if (!v || !isAiDriver(v.driverId)) continue;
+    const driver = state.trafficDrivers[id];
+    if (!driver) continue;
+    for (const [sx, sy] of scares) {
+      const dx = v.pos.x - sx;
+      const dy = v.pos.y - sy;
+      if (dx * dx + dy * dy >= t.panicRadius * t.panicRadius) continue;
+      driver.panic = t.panicTicks;
+      // Flee along the open cardinal pointing most nearly away from the
+      // scare. Strict improvement keeps the tie-break on the lowest index,
+      // so every host picks the same way out. No rng: panic must not shift
+      // the draw stream for everything stepping after it.
+      let bestDot = -Infinity;
+      for (let i = 0; i < 4; i++) {
+        if (!dirIsOpen(map, v.pos.x, v.pos.y, i)) continue;
+        const [cx, cy] = CARDINALS[i] as readonly [number, number];
+        const dot = cx * dx + cy * dy;
+        if (dot > bestDot) {
+          bestDot = dot;
+          driver.dir = i;
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -696,7 +764,6 @@ export function tryCarjack(
   map: CityMap,
   playerId: number,
 ): VehicleState | null {
-  void map;
   const p = state.players.byId[playerId];
   if (!p || p.mode !== 'foot') return null;
 
@@ -717,6 +784,35 @@ export function tryCarjack(
   best.driverId = playerId;
   delete state.trafficDrivers[best.id];
   best.speed = q8(best.speed * 0.4); // the scramble in costs you momentum
+
+  // The person you dragged from the wheel exists: they land on the ground
+  // beside the car and run. ROADMAP.md C2 specified this ("AI driver ejected
+  // (becomes a fleeing ped)") and until now the driver simply vanished — the
+  // headline verb of the genre played as theft from an empty chair. They try
+  // the kerb side first, then the other door, and stay unspawned only if the
+  // car is wedged so hard against walls that neither door opens — squeezing a
+  // person into a wall would push them inside the collision geometry.
+  const across = best.heading + HALF_PI;
+  const doorDist = getVehicleTuning(best.kind).halfExtent + PED_RADIUS + 2;
+  for (const side of [1, -1]) {
+    const door = {
+      x: best.pos.x + dCos(across) * side * doorDist,
+      y: best.pos.y + dSin(across) * side * doorDist,
+    };
+    if (boxInSolid(map, door, PED_RADIUS)) continue;
+    const ped = createPed(state.nextEntityId++, door, getTuning().peds.health);
+    // Flee straight away from the carjacker, or failing that out the door.
+    const dx = door.x - p.pos.x;
+    const dy = door.y - p.pos.y;
+    const d = Math.hypot(dx, dy);
+    ped.dirX = d > 0.001 ? dx / d : dCos(across) * side;
+    ped.dirY = d > 0.001 ? dy / d : dSin(across) * side;
+    ped.mode = 'flee';
+    ped.timer = getTuning().peds.fleeTicks;
+    insertEntity(state.peds, ped);
+    break;
+  }
+
   p.mode = 'driving';
   p.vehicleId = best.id;
   p.vel.x = 0;

@@ -14,7 +14,7 @@ import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState, type VehicleState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
-import { isAiDriver } from '../src/sim/traffic.js';
+import { isAiDriver, stepTrafficPanic } from '../src/sim/traffic.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE } from '../src/world/types.js';
@@ -161,7 +161,7 @@ function ambientCar(state: GameState, id: number, at: { x: number; y: number }):
   const v = next.vehicles.byId[id]!;
   v.driverId = -1000 - id;
   v.speed = getTrafficTuning().cruiseSpeed;
-  next.trafficDrivers[id] = { dir: 0, stuck: 0 };
+  next.trafficDrivers[id] = { dir: 0, stuck: 0, panic: 0 };
   return next;
 }
 
@@ -374,6 +374,72 @@ describe('ambient traffic', () => {
   });
 });
 
+describe('driver panic', () => {
+  /** A synthetic gunshot at a point, the same event stepWeapons would emit. */
+  const shotAt = (x: number, y: number) =>
+    ({ type: 'shot', tick: 0, playerId: 1, x0: x, y0: y, x1: x, y1: y }) as const;
+
+  it('a gunshot nearby scares a driver; one across town does not', () => {
+    const lane = eastboundLane();
+    let state = createGameState(501);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 200 };
+    state = ambientCar(state, 920, lane);
+
+    stepTrafficPanic(state, map, [shotAt(lane.x + 2000, lane.y)]);
+    expect(state.trafficDrivers[920]!.panic).toBe(0);
+
+    stepTrafficPanic(state, map, [shotAt(lane.x + 60, lane.y)]);
+    expect(state.trafficDrivers[920]!.panic).toBe(getTrafficTuning().panicTicks);
+  });
+
+  it('flees away from the bang, faster than cruise, then calms down', () => {
+    const lane = eastboundLane();
+    let state = createGameState(502);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    state.players.byId[1]!.pos = { x: lane.x + 300, y: lane.y - 200 };
+    state = ambientCar(state, 921, lane);
+    // Let it settle to cruise first, so the speed change is attributable.
+    for (let i = 0; i < 60; i++) state = step(state, {}, [], map);
+
+    // Bang behind it (to the west): flight is east, the way it already faces.
+    const car = state.vehicles.byId[921]!;
+    stepTrafficPanic(state, map, [shotAt(car.pos.x - 40, car.pos.y)]);
+    expect(state.trafficDrivers[921]!.dir).toBe(0); // east, away
+
+    let top = 0;
+    for (let i = 0; i < 90; i++) {
+      state = step(state, {}, [], map);
+      const v = state.vehicles.byId[921];
+      if (!v) break;
+      top = Math.max(top, v.speed);
+      // Keep the player abreast so the car is never culled mid-test.
+      state.players.byId[1]!.pos = { x: v.pos.x, y: v.pos.y - 200 };
+    }
+    // Faster than a calm driver is ever asked to go.
+    expect(top).toBeGreaterThan(getTrafficTuning().cruiseSpeed * 1.2);
+
+    // And it does not last: panic runs down and the driver record says so.
+    for (let i = 0; i < getTrafficTuning().panicTicks; i++) {
+      state = step(state, {}, [], map);
+      const v = state.vehicles.byId[921];
+      if (v) state.players.byId[1]!.pos = { x: v.pos.x, y: v.pos.y - 200 };
+    }
+    const driver = state.trafficDrivers[921];
+    if (driver) expect(driver.panic).toBe(0);
+  });
+
+  it('panic draws no random numbers: the rng stream is untouched', () => {
+    const lane = eastboundLane();
+    let state = createGameState(503);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    state = ambientCar(state, 922, lane);
+    const before = state.rng;
+    stepTrafficPanic(state, map, [shotAt(lane.x, lane.y)]);
+    expect(state.rng).toBe(before);
+  });
+});
+
 describe('carjacking', () => {
   it('drags an AI driver out, takes the wheel, and counts as a crime', () => {
     let state = withTraffic(9, 700);
@@ -398,6 +464,29 @@ describe('carjacking', () => {
     // decays once in the same tick (stepPolice runs after the action edge),
     // so allow for that one tick rather than asserting the raw figure.
     expect(me.heat).toBeGreaterThan(getTrafficTuning().jackHeat - 1);
+  });
+
+  it('the ejected driver lands beside the car and runs', () => {
+    let state = withTraffic(12, 700);
+    const target = state.vehicles.ids
+      .map((id) => state.vehicles.byId[id]!)
+      .find((v) => isAiDriver(v.driverId));
+    expect(target).toBeDefined();
+    const pedsBefore = state.peds.ids.length;
+
+    const p = state.players.byId[1]!;
+    p.pos = { x: target!.pos.x, y: target!.pos.y };
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    expect(state.players.byId[1]!.mode).toBe('driving');
+
+    // Somebody new is on the pavement, fleeing, next to the scene.
+    expect(state.peds.ids.length).toBe(pedsBefore + 1);
+    const newest = state.peds.byId[Math.max(...state.peds.ids)]!;
+    expect(newest.mode).toBe('flee');
+    const car = state.vehicles.byId[state.players.byId[1]!.vehicleId!]!;
+    // Within a couple of car widths — they came out of THIS car, and one
+    // flee-speed step may already have run this tick.
+    expect(Math.hypot(newest.pos.x - car.pos.x, newest.pos.y - car.pos.y)).toBeLessThan(60);
   });
 
   it('an occupied car cannot simply be opened', () => {

@@ -163,9 +163,15 @@ export interface TrafficDriver {
   /**
    * Wedged-tick counter. Counts UP while the car cannot move, then runs down
    * from a negative value while it reverses out. Bounded either way, which is
-   * what stops a blocked car from reversing across the city.
+   * what stops a blocked car from reversing away across the city.
    */
   stuck: number;
+  /**
+   * Ticks of panic left, 0 when calm. Set by gunfire and explosions nearby
+   * (see stepTrafficPanic); while it runs the driver floors it away from the
+   * scare and stops making leisurely route decisions.
+   */
+  panic: number;
 }
 
 export interface PlayerState {
@@ -429,7 +435,7 @@ function cloneTrafficDrivers(
   for (const key of Object.keys(src)) {
     const id = Number(key);
     const d = src[id];
-    if (d) out[id] = { dir: d.dir, stuck: d.stuck };
+    if (d) out[id] = { dir: d.dir, stuck: d.stuck, panic: d.panic };
   }
   return out;
 }
