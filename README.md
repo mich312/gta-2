@@ -41,6 +41,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | `SEED` | random | city + session seed |
 | `WEAPONS_LOST_ON_DEATH` | `true` | death costs your guns (design flag) |
 | `PED_COUNT` | `200` | pedestrians per session |
+| `ROAM` | `1` | the window follows the players — the world is infinite in all directions (`0` pins it) |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |

@@ -78,6 +78,8 @@ const scripts: Record<string, BotScript> = {
    * one identically or the harness's desync counter says so.
    */
   roam: () => ({ ...NONE, right: true }),
+  /** Walk north-west, forever: negative window origins, live. */
+  roamnw: () => ({ ...NONE, left: true, up: true }),
 
   /** Wander in a heading that rotates slowly, offset per bot. */
   cruise: cruiseKeys,

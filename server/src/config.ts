@@ -18,7 +18,8 @@ export interface ServerConfig {
    */
   persistPath: string;
   pedCount: number;
-  /** ROAM=1: the session window follows the players (WORLDGEN.md §11.2). */
+  /** The session window follows the players (WORLDGEN.md §11.2). Default
+   * ON — the world is infinite in all directions; ROAM=0 pins the window. */
   roam: boolean;
   /** Interest-management radius (px): entities beyond it aren't sent. */
   interestRadius: number;
@@ -47,7 +48,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     replayDir: env['REPLAY'] === '0' ? null : (env['REPLAY_DIR'] ?? 'replays'),
     persistPath: env['PERSIST_PATH'] ?? 'data/persist.db',
     pedCount: envInt(env['PED_COUNT'], 200),
-    roam: env['ROAM'] === '1',
+    roam: env['ROAM'] !== '0',
     interestRadius: envInt(env['INTEREST_RADIUS'], 600),
     clientDir: env['CLIENT_DIR'] ?? null,
   };
