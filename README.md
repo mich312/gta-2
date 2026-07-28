@@ -80,6 +80,11 @@ start: it prints a warning and persists to the sibling `.json` file via the
 file store instead. Set `PERSIST_PATH=data/persist.json` to choose that
 deliberately and silence the warning.
 
+Every kind of vehicle can be found somewhere: an ambulance at a hospital, a
+digger at the quarry, a pickup at the farm, the tank behind a police station.
+Those homes are marked on the minimap, and there is a test that walks the
+whole roster rather than spot-checking it.
+
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
 weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette)
 — restart the server to apply; clients receive tunables in the welcome message.

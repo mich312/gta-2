@@ -825,8 +825,12 @@ describe('vehicle classes (G0)', () => {
   });
 
   it('every city has exactly one tank, and it is not ambient traffic', () => {
-    const tanks = map.parkingSpots.filter((s) => s.kind === 'tank');
+    // It moved from `parkingSpots` to `vehicleHomes` with R3. The point of
+    // that list is that it is never sampled away and never rewritten — which
+    // is what the tank's old special case in the session was doing by hand.
+    const tanks = map.vehicleHomes.filter((s) => s.kind === 'tank');
     expect(tanks.length).toBe(1);
+    expect(map.parkingSpots.some((s) => s.kind === 'tank')).toBe(false);
     expect(getTrafficTuning().mix.some((m) => m.kind === 'tank')).toBe(false);
   });
 

@@ -207,6 +207,13 @@ export class Minimap {
         1.5,
       );
     }
+    // Where a given KIND of vehicle lives. A home you cannot find is not a
+    // home, and "where is a fire engine" should have an answer that does not
+    // involve driving in circles. Deliberately dim and small: these are
+    // standing facts about the map, not errands, and they must not compete
+    // with the shops or the job board above.
+    for (const h of map.vehicleHomes) dot(h.x, h.y, '#9aa6b4', 1);
+
     if (snapshot) {
       for (const pu of snapshot.pickups) {
         if (!pu.active) continue;

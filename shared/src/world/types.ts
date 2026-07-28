@@ -183,6 +183,20 @@ export interface CityMap {
   vehicleSpawns: VehicleSpawn[];
   /** Where cars are left standing: at the kerb, out of the way of traffic. */
   parkingSpots: VehicleSpawn[];
+  /**
+   * Where a given KIND of vehicle can reliably be found: the ambulance at the
+   * hospital, the digger at the quarry, the tank behind the station.
+   *
+   * A list of its own rather than more `parkingSpots`, for two reasons that
+   * are both bugs waiting to happen. The session samples parking by a stride
+   * (`length / MAX_VEHICLES`) and keeps roughly one spot in six — `placeTank`
+   * already had to be special-cased back in because of it — and `markGangCars`
+   * rewrites the kind of every seventh parking spot, so a fire station whose
+   * engine turned into a gang car one seed in seven is not a home.
+   *
+   * Homes are spawned in full and never rewritten. See GTA.md R3.
+   */
+  vehicleHomes: VehicleSpawn[];
   playerSpawns: Vec2[];
   /** Dense sidewalk points for pedestrian spawning (phase 7). */
   pedSpawns: Vec2[];

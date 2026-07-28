@@ -595,20 +595,161 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
 const PARKED_CYCLE = ['car', 'car', 'car', 'van', 'car', 'taxi', 'car', 'truck', 'car', 'car'] as const;
 
 /**
- * Where the tanks are. Not ambient traffic and not for sale: one per city,
- * behind the fence of the police station that has the most of it, which is
- * as close to "you have to go and get it" as a generated map can manage.
+ * Where each kind of vehicle lives.
+ *
+ * "Every type of vehicle can be found somewhere in the world" was nominally
+ * already true and practically was not. Four kinds came off `PARKED_CYCLE`;
+ * the rest were a weighted roll in ambient traffic, where a digger was one in
+ * a hundred on a spawn that despawns at 1100 px — findable in the sense that
+ * a lottery ticket is winnable. And the tank existed only because
+ * `placeTank` was special-cased back into the session after the parking
+ * stride dropped it.
+ *
+ * So: a home is a place you can drive to. Two sources, in order.
+ *
+ *  1. **Thematic**, off what the city already generates — the ambulance at a
+ *     hospital, the limo outside a tower, the bus at the stadium, the digger
+ *     at the quarry, the pickup at the farm. This is the half worth having:
+ *     it makes the map legible, because knowing what a building is tells you
+ *     what is parked outside it.
+ *  2. **A backstop.** Anything on the roster that found no anchor in this
+ *     window is put at a kerbside point chosen by hashing its name, so the
+ *     completeness rule holds on every seed and every window rather than
+ *     usually. A city with no tower is not a city with no limousine.
+ *
+ * Deterministic and rng-free, like `placeParking`: derived from tiles and
+ * landmarks, so no seed's city changes shape because a home was added.
  */
-export function placeTank(map: CityMap): void {
+const LANDMARK_VEHICLES: Partial<Record<LandmarkKind, string[]>> = {
+  hospital: ['ambulance'],
+  police: ['copcar'],
+  tower: ['limo'],
+  stadium: ['bus'],
+  power: ['truck'],
+  farm: ['pickup'],
+  quarry: ['digger'],
+  campground: ['icecream'],
+};
+
+/**
+ * Kinds that must exist somewhere in every window, in priority order.
+ *
+ * Not simply "every kind in vehicles.json": the ones already common in
+ * traffic need no help, and a police cruiser or a gang car turns up because
+ * of who is driving it rather than because of where it is parked.
+ */
+const HOME_ROSTER = [
+  'ambulance',
+  'firetruck',
+  'bus',
+  'garbage',
+  'truck',
+  'digger',
+  'limo',
+  'icecream',
+  'pickup',
+  'moto',
+  'bicycle',
+  'tank',
+];
+
+/**
+ * A drivable tile near a point that nothing else has already claimed.
+ *
+ * `taken` is not optional politeness: the station yard is the home of both a
+ * cruiser and the tank, and without it they were handed the same tile — two
+ * vehicles on one spot interpenetrate and shuffle apart at walking pace,
+ * which is the failure `motorise` already had to learn about. A test caught
+ * it on the first run.
+ */
+function drivableNear(map: CityMap, at: Vec2, taken: Vec2[], clearPx: number, reach = 7): Vec2 | null {
+  const tx = Math.floor(at.x / TILE_SIZE);
+  const ty = Math.floor(at.y / TILE_SIZE);
+  let best: Vec2 | null = null;
+  let bestD = Infinity;
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      const tile = t(map, tx + dx, ty + dy);
+      // Road, lot or pavement: somewhere a car can be left and driven off.
+      if (tile !== T_ROAD && tile !== T_LOT && tile !== T_SIDEWALK) continue;
+      const d = dx * dx + dy * dy;
+      if (d >= bestD) continue;
+      const x = (tx + dx + 0.5) * TILE_SIZE;
+      const y = (ty + dy + 0.5) * TILE_SIZE;
+      let clash = false;
+      for (const o of taken) {
+        if (Math.hypot(o.x - x, o.y - y) < clearPx) {
+          clash = true;
+          break;
+        }
+      }
+      if (clash) continue;
+      bestD = d;
+      best = { x, y };
+    }
+  }
+  return best;
+}
+
+/** Stable per-name offset into a list, so a backstop lands in one place. */
+function nameOffset(name: string, len: number): number {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) {
+    h ^= name.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return len > 0 ? (h >>> 0) % len : 0;
+}
+
+export function placeVehicleHomes(map: CityMap): void {
+  const homes: VehicleSpawn[] = [];
+  const placed = new Set<string>();
+
+  // Every home needs room for its own body plus the longest thing that might
+  // be parked beside it. A flat clearance off the largest vehicle in the game
+  // is simpler than a per-pair test and errs the safe way.
+  const CLEARANCE = 3 * TILE_SIZE;
+  const taken: Vec2[] = [];
+  const add = (kind: string, at: Vec2, heading: number): void => {
+    const spot = drivableNear(map, at, taken, CLEARANCE);
+    if (!spot) return;
+    taken.push(spot);
+    homes.push({ x: spot.x, y: spot.y, heading, kind, gangId: 0 });
+    placed.add(kind);
+  };
+
+  // 1. Thematic, off the landmarks the city already has.
+  for (const l of map.landmarks) {
+    for (const kind of LANDMARK_VEHICLES[l.kind] ?? []) {
+      add(kind, { x: l.doorX, y: l.doorY }, HALF_PI);
+    }
+  }
+  // The tank keeps its old home — behind the first station — and now rides
+  // in the list that cannot be sampled away instead of being re-added by
+  // hand in the session.
   const yard = map.policeStations[0];
-  if (!yard) return;
-  map.parkingSpots.push({
-    x: yard.x,
-    y: yard.y + TILE_SIZE * 2,
-    heading: 0,
-    kind: 'tank',
-    gangId: 0,
-  });
+  if (yard) add('tank', { x: yard.x, y: yard.y + TILE_SIZE * 2 }, 0);
+
+  // 2. The backstop, so the rule holds on every window and not merely on the
+  //    generous ones.
+  const spawns = map.vehicleSpawns;
+  if (spawns.length > 0) {
+    for (const kind of HOME_ROSTER) {
+      if (placed.has(kind)) continue;
+      const from = nameOffset(kind, spawns.length);
+      // Walk from the hashed offset to the first point that takes it: a
+      // kerbside spawn is on a road by construction, so this rarely walks.
+      for (let i = 0; i < spawns.length; i++) {
+        const c = spawns[(from + i) % spawns.length];
+        if (!c) continue;
+        const before = homes.length;
+        add(kind, { x: c.x, y: c.y }, c.heading);
+        if (homes.length > before) break;
+      }
+    }
+  }
+
+  map.vehicleHomes = homes;
 }
 
 const PICKUP_CYCLE = [
