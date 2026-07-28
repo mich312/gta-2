@@ -1,3 +1,4 @@
+import { parseDistrictParams, type DistrictParams } from './districts.js';
 export interface EconomyParams {
   startingCash: number;
   killAward: number;
@@ -25,6 +26,8 @@ export interface EconomyParams {
    * The car crusher: what the city pays for a stolen vehicle, and what it
    * sometimes pays in instead of cash.
    */
+  /** District standing thresholds; see economy/districts.ts. */
+  districts: DistrictParams;
   crush: {
     base: number;
     byKind: Record<string, number>;
@@ -79,6 +82,7 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
       bustPenalty: m('bustPenalty', 0),
     },
     crush: parseCrush(r['crush']),
+  districts: parseDistrictParams(r['districts']),
   };
 }
 

@@ -14,6 +14,7 @@ import {
   type SimEvent,
   TILE_SIZE,
   createGameState,
+  districtAt,
   generateCity,
   initTuning,
   parseCatalog,
@@ -296,6 +297,37 @@ describe('score multiplier', () => {
       expect(economy.multiplierOf(1)).toBe(1);
     });
 
+  it('district standing accrues where the work was done, and nowhere else', () => {
+    // The shared-world answer to score-gated districts: the geography stays
+    // open and the SERVICES are what you earn. Respect is who trusts you;
+    // standing is where you are known.
+    const { economy, state, map } = setup();
+    const spotIn = (want: string): { x: number; y: number } | null => {
+      for (let ty = 4; ty < map.heightTiles - 4; ty += 2) {
+        for (let tx = 4; tx < map.widthTiles - 4; tx += 2) {
+          if (districtAt(map, tx, ty) === want) {
+            return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+          }
+        }
+      }
+      return null;
+    };
+    const industrial = spotIn('industrial');
+    expect(industrial).not.toBeNull();
+    state.players.byId[1]!.pos = { x: industrial!.x, y: industrial!.y };
+    economy.processTick(
+      [{ type: 'frenzyEnded', tick: 1, playerId: 1, kills: 5, target: 5, completed: true }],
+      state,
+      1_000_000,
+      map,
+    );
+    const standing = economy.standingsOf(1);
+    expect(standing['industrial']).toBeGreaterThan(0);
+    for (const [d, v] of Object.entries(standing)) {
+      if (d !== 'industrial') expect(v, d).toBe(0);
+    }
+  });
+
   it('a completed frenzy raises the multiplier, and the cap holds', () => {
     const { economy, state } = setup();
     expect(economy.multiplierOf(1)).toBe(1);
@@ -566,5 +598,72 @@ describe('car crusher and the export list (G1)', () => {
     expect(seen.size).toBeGreaterThan(params.crush.listSize);
     // A police cruiser is never a legitimate export.
     expect(seen.has('copcar')).toBe(false);
+  });
+});
+
+describe('district standing gates services, not geography (L3)', () => {
+  const params2 = parseEconomyParams(economyJson);
+
+  function gateSetup() {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, params2);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'earner' }], map);
+    economy.bindGuest(1);
+    return { map, economy, state };
+  }
+
+  /** Put the player in the doorway of the first gun shop, and say where it is. */
+  function atGunShop(state: GameState, map: ReturnType<typeof generateCity>): string {
+    const shop = map.shops.find((s) => s.kind === 'gun');
+    if (!shop) throw new Error('no gun shop on this seed');
+    const p = state.players.byId[1]!;
+    p.pos = { x: (shop.doorX + 0.5) * TILE_SIZE, y: (shop.doorY + 0.5) * TILE_SIZE };
+    return districtAt(map, shop.doorX, shop.doorY);
+  }
+
+  it('an unknown district will not sell you the upper shelf, and says why', () => {
+    const { economy, state, map } = gateSetup();
+    atGunShop(state, map);
+    // No need to top the wallet up: the gate is checked before the price is,
+    // which is the right order — being told you cannot afford something you
+    // are not allowed to buy is the wrong answer twice over.
+    const res = economy.buy(1, 'rocket', state, map);
+    expect(res.ok).toBe(false);
+    // A refusal with a reason, not a silent no-op: an invisible gate is
+    // indistinguishable from a broken shop.
+    expect(res.message).toMatch(/know/i);
+  });
+
+  it('...and sells you the ordinary shelf regardless', () => {
+    const { economy, state, map } = gateSetup();
+    atGunShop(state, map);
+    const res = economy.buy(1, 'pistol', state, map);
+    expect(res.ok).toBe(true);
+  });
+
+  it('earning in that district opens the shelf there', () => {
+    const { economy, state, map } = gateSetup();
+    const district = atGunShop(state, map);
+    // Earn past the threshold standing where the shop is.
+    for (let i = 0; i < 200; i++) {
+      economy.processTick(
+        [{ type: 'frenzyEnded', tick: i, playerId: 1, kills: 5, target: 5, completed: true }],
+        state,
+        1_000_000 + i * 1000,
+        map,
+      );
+    }
+    expect(economy.standingsOf(1)[district]).toBeGreaterThanOrEqual(params2.districts.shelfAt);
+    const res = economy.buy(1, 'rocket', state, map);
+    expect(res.ok, res.message).toBe(true);
+  });
+
+  it('the leaderboard still ranks on cash, not on standing', () => {
+    // Standing is a relationship, not a score. Replacing the rank with it
+    // would quietly undo F1.
+    const { economy } = gateSetup();
+    expect(typeof economy.cashOf(1)).toBe('number');
+    expect(economy.leaderboard()[0]?.cash).toBeDefined();
   });
 });

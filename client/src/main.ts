@@ -11,6 +11,7 @@ import {
   INTERNAL_WIDTH,
   TICK_MS,
   TILE_SIZE,
+  districtAt,
   generateCity,
   getWeaponTuning,
   initTuning,
@@ -378,7 +379,7 @@ function handleServerMessage(msg: ServerMessage): void {
         }
         break;
       case 'wallet':
-        hud.setWallet(msg.cash, msg.multiplier);
+        hud.setWallet(msg.cash, msg.multiplier, msg.standing);
         break;
       case 'exports':
         hud.setExports(msg.kinds, msg.bonus);
@@ -518,6 +519,13 @@ function frame(now: number): void {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
   hud.place = currentLandmark();
+  {
+    const me = predictor.predicted;
+    hud.district =
+      map && me
+        ? districtAt(map, Math.floor(me.pos.x / TILE_SIZE), Math.floor(me.pos.y / TILE_SIZE))
+        : null;
+  }
   // The fitting lives on the car, so the HUD reads it off whatever the local
   // player is sitting in — predicted, like everything else about that car.
   const myCar = predictor.predictedVehicle;

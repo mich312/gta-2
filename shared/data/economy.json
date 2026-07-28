@@ -41,5 +41,15 @@
     "refreshSec": 420,
     "equipmentChance": 0.34,
     "radius": 46
+  },
+  "districts": {
+    "shelfAt": 6000,
+    "crusherAt": 12000,
+    "crusherBonus": 1.35,
+    "gatedItems": [
+      "rocket",
+      "flamethrower",
+      "mines"
+    ]
   }
 }

@@ -2,16 +2,19 @@ import { randomUUID } from 'node:crypto';
 import {
   type Catalog,
   type CityMap,
+  type DistrictType,
   type GameState,
   type SimCommand,
   type SimEvent,
   TILE_SIZE,
+  districtAt,
   getTuning,
   stuntReward,
 } from 'shared';
 import { Ledger } from './ledger.js';
 import { Accounts } from './accounts.js';
 import { AwardTracker, type EconomyParams } from './awards.js';
+import { Standings } from './districts.js';
 import { MemoryStore, type PersistenceStore } from './store.js';
 
 /**
@@ -44,6 +47,8 @@ export interface Wallet {
   multiplier: number;
   /** Total ever earned this session. Flavour — the rank is cash. */
   lifetime: number;
+  /** Lifetime earned per district: how well each one knows you (L3). */
+  standing: Record<string, number>;
 }
 
 /**
@@ -58,6 +63,11 @@ export class Economy {
   private readonly guestLedger = new Ledger(new MemoryStore());
   readonly accounts: Accounts;
   private readonly awards: AwardTracker;
+  /** Where each player is known, and what that buys them. See districts.ts. */
+  private readonly standings: Standings;
+  /** Latest state/map, stashed by processTick so `credit` knows where you are. */
+  private currentState: GameState | null = null;
+  private currentMap: CityMap | null = null;
   /** playerId -> accountKey (guest:<uuid> or acct:<username>) */
   private readonly keyByPlayer = new Map<number, string>();
   private readonly usernameByPlayer = new Map<number, string>();
@@ -77,6 +87,7 @@ export class Economy {
     this.acctLedger = new Ledger(store);
     this.accounts = new Accounts(store);
     this.awards = new AwardTracker(params);
+    this.standings = new Standings(params.districts);
   }
 
   private ledgerFor(accountKey: string): Ledger {
@@ -104,6 +115,7 @@ export class Economy {
     this.keyByPlayer.delete(playerId);
     this.usernameByPlayer.delete(playerId);
     this.multiplierByPlayer.delete(playerId);
+    this.standings.forget(playerId);
     this.lifetimeByPlayer.delete(playerId);
   }
 
@@ -116,12 +128,18 @@ export class Economy {
     return this.multiplierByPlayer.get(playerId) ?? 1;
   }
 
+  /** Where this player is known, and how well. */
+  standingsOf(playerId: number): Record<string, number> {
+    return this.standings.view(playerId);
+  }
+
   /** Cash, multiplier and lifetime earnings — what the `wallet` message carries. */
   walletOf(playerId: number): Wallet {
     return {
       cash: this.cashOf(playerId),
       multiplier: this.multiplierOf(playerId),
       lifetime: this.lifetimeByPlayer.get(playerId) ?? 0,
+      standing: this.standings.view(playerId),
     };
   }
 
@@ -207,6 +225,18 @@ export class Economy {
       );
     });
     if (!inShop) return fail(`find a ${item.shop} shop`);
+
+    // The upper shelf is what a district decides it trusts you with. Refused
+    // with a reason rather than silently, because a shop that ignores you is
+    // a bug from the far side of the screen.
+    const district = districtAt(
+      map,
+      Math.floor(player.pos.x / TILE_SIZE),
+      Math.floor(player.pos.y / TILE_SIZE),
+    );
+    if (!this.standings.mayBuy(playerId, district, itemId)) {
+      return fail(`${district} does not know you well enough for that yet`);
+    }
 
     const ledger = this.ledgerFor(key);
     const ref = `buy:${randomUUID()}`;
@@ -304,7 +334,14 @@ export class Economy {
 
     const wanted = this.exports(nowMs).includes(v.kind);
     const base = t.byKind[v.kind] ?? t.base;
-    const amount = Math.floor(base * (wanted ? t.exportBonus : 1));
+    // A crusher that knows you pays better than one that does not. The
+    // district's standing is where the car is delivered, not where it was
+    // stolen — the yard is the business you have a relationship with.
+    const rate = this.standings.crusherRate(
+      playerId,
+      districtAt(map, Math.floor(v.pos.x / TILE_SIZE), Math.floor(v.pos.y / TILE_SIZE)),
+    );
+    const amount = Math.floor(base * (wanted ? t.exportBonus : 1) * rate);
     out.push({ type: 'crushVehicle', vehicleId: v.id });
     this.credit(playerId, amount, `crush:${v.kind}`);
 
@@ -331,6 +368,10 @@ export class Economy {
     map?: CityMap,
     outCommands?: SimCommand[],
   ): Set<number> {
+    // Stashed so `credit` can attribute an award to where it happened. The
+    // whole of district standing hangs off this one line.
+    this.currentState = state;
+    this.currentMap = map ?? this.currentMap;
     const changed = new Set<number>();
     for (const ev of events) {
       if (ev.type === 'kill' && ev.killerId >= 0) {
@@ -440,8 +481,23 @@ export class Economy {
     const ok = this.ledgerFor(key).append(key, scaled, reason, `award:${randomUUID()}`);
     if (ok) {
       this.lifetimeByPlayer.set(playerId, (this.lifetimeByPlayer.get(playerId) ?? 0) + scaled);
+      this.standings.credit(playerId, this.districtOfPlayer(playerId), scaled);
     }
     return ok;
+  }
+
+  /**
+   * Which district a player is standing in right now, for attributing what
+   * they just earned. Read here rather than passed by every caller: there is
+   * one chokepoint and it already knows who, so it may as well know where.
+   */
+  private districtOfPlayer(playerId: number): DistrictType | null {
+    const state = this.currentState;
+    const map = this.currentMap;
+    if (!state || !map) return null;
+    const p = state.players.byId[playerId];
+    if (!p) return null;
+    return districtAt(map, Math.floor(p.pos.x / TILE_SIZE), Math.floor(p.pos.y / TILE_SIZE));
   }
 }
 

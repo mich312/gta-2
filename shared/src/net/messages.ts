@@ -48,7 +48,14 @@ export type ServerMessage =
   | { type: 'full'; tick: number; snapshot: FullSnapshot }
   | { type: 'event'; tick: number; event: GameEvent }
   | { type: 'pong'; t: number; serverTick: number }
-  | { type: 'wallet'; cash: number; multiplier: number; lifetime: number }
+  | {
+      type: 'wallet';
+      cash: number;
+      multiplier: number;
+      lifetime: number;
+      /** Lifetime earned per district — how well each one knows you (L3). */
+      standing: Record<string, number>;
+    }
   | {
       /** Vehicle kinds the crushers are paying over the odds for right now. */
       type: 'exports';

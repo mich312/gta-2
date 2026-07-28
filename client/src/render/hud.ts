@@ -40,6 +40,8 @@ export class Hud {
   accountName: string | null = null;
   /** Named landmark the player is at, shown so the city is legible. */
   place: string | null = null;
+  /** District the player is standing in, for the standing readout. */
+  district: string | null = null;
   /** What the garage bolted to the car the player is currently in. */
   fitting = '';
   fittingAmmo = 0;
@@ -65,9 +67,13 @@ export class Hud {
     while (this.feed.length > 5) this.feed.shift();
   }
 
+  /** Lifetime earned per district: how well each one knows you (L3). */
+  private standing: Record<string, number> = {};
+
   /** A `wallet` message landed. Announce the multiplier only when it moves. */
-  setWallet(cash: number, multiplier: number): void {
+  setWallet(cash: number, multiplier: number, standing: Record<string, number> = {}): void {
     this.cash = cash;
+    this.standing = standing;
     if (multiplier !== this.multiplier) {
       const up = multiplier > this.multiplier;
       // The first climb off ×1 is the one worth explaining; after that the
@@ -350,6 +356,15 @@ export class Hud {
       ctx.font = '8px monospace';
       ctx.textAlign = 'right';
       ctx.fillText(this.place, INTERNAL_WIDTH - 6, 90);
+      // How well this district knows you, under its name. Standing is
+      // invisible otherwise, and an invisible gate is indistinguishable from
+      // a broken shop: the first thing it does is refuse to sell you a
+      // rocket, and you have to be able to see why.
+      if (this.district) {
+        const earned = this.standing[this.district] ?? 0;
+        ctx.fillStyle = '#7f93a8';
+        ctx.fillText(`${this.district} · known $${earned}`, INTERNAL_WIDTH - 6, 100);
+      }
       ctx.textAlign = 'left';
     }
 
