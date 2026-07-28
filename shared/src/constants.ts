@@ -5,9 +5,11 @@
  * for ever. 2: traffic tuning gained steerGain/turnSpeed/brakeDistance/
  * reverseTicks and lost turnProbe/laneHalfWidth. 3: traffic tuning gained the
  * Intelligent Driver Model parameters (minGap/timeHeadway/comfortAccel/
- * comfortBrake/scanHorizon).
+ * comfortBrake/scanHorizon). 4: vehicle tuning gained halfLength/halfWidth/
+ * mass, and VehicleState gained the damage map (zones/broken) while health
+ * became an integer varint rather than a float.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;

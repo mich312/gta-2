@@ -1,5 +1,22 @@
 import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } from 'shared';
-import { INTERNAL_HEIGHT, INTERNAL_WIDTH, TICK_RATE } from 'shared';
+import {
+  INTERNAL_HEIGHT,
+  INTERNAL_WIDTH,
+  PART_HEADLIGHT_L,
+  PART_HEADLIGHT_R,
+  PART_RADIATOR,
+  PART_TAILLIGHT_L,
+  PART_TAILLIGHT_R,
+  PART_TYRE_FL,
+  PART_TYRE_FR,
+  PART_TYRE_RL,
+  PART_TYRE_RR,
+  TICK_RATE,
+  ZONE_FRONT,
+  ZONE_LEFT,
+  ZONE_REAR,
+  ZONE_RIGHT,
+} from 'shared';
 
 /** What the server tells us about the job in hand. */
 export interface MissionView {
@@ -43,6 +60,21 @@ export class Hud {
   /** What the garage bolted to the car the player is currently in. */
   fitting = '';
   fittingAmmo = 0;
+  /**
+   * Condition of the car being driven, for the damage diagram.
+   *
+   * `carWear` was computed on every frame and sent only to the debug overlay,
+   * so the one readout the driver actually needed was the one nobody could
+   * see. Null when on foot.
+   */
+  car: { zones: number[]; broken: number; wear: number; maxHealth: number } | null = null;
+  /** Wall-clock ms the "get out" alarm stops flashing at. */
+  private alarmUntilMs = 0;
+
+  /** Flash the panel: the car is on a fuse and you have this long. */
+  alarm(seconds: number): void {
+    this.alarmUntilMs = performance.now() + seconds * 1000;
+  }
   /** The job in hand, straight off the wire. */
   private mission: MissionView | null = null;
   /** Vehicle kinds the crushers are paying over the odds for. */
@@ -172,6 +204,83 @@ export class Hud {
     this.tracers.push({ x0, y0, x1, y1, expiresAtMs: performance.now() + 70 });
   }
 
+  /**
+   * The damage diagram: a plan view of the car with the bent panels shaded
+   * and the broken parts picked out.
+   *
+   * A bar would have said the same thing as `health`, which is the thing the
+   * driver could already infer. What they could not see is WHICH corner has
+   * gone, which lamp is out and whether a tyre is flat — the facts that
+   * decide whether to keep the car or dump it.
+   */
+  private drawCarCondition(
+    ctx: CanvasRenderingContext2D,
+    car: { zones: number[]; broken: number; wear: number; maxHealth: number },
+    now: number,
+  ): void {
+    const w = 26;
+    const h = 15;
+    const x = INTERNAL_WIDTH - w - 6;
+    const y = INTERNAL_HEIGHT - h - 6;
+    const flashing = now < this.alarmUntilMs && Math.floor(now / 160) % 2 === 0;
+
+    ctx.fillStyle = flashing ? 'rgba(120, 20, 16, 0.85)' : 'rgba(10, 12, 16, 0.72)';
+    ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+
+    // The body, nose to the right, matching the speedometer's reading order.
+    // Each quadrant is tinted by how much damage it has taken.
+    const zoneRects: Array<[number, number, number, number, number]> = [
+      [ZONE_FRONT, x + w * 0.62, y + h * 0.18, w * 0.36, h * 0.64],
+      [ZONE_REAR, x + w * 0.02, y + h * 0.18, w * 0.36, h * 0.64],
+      [ZONE_LEFT, x + w * 0.2, y, w * 0.6, h * 0.3],
+      [ZONE_RIGHT, x + w * 0.2, y + h * 0.7, w * 0.6, h * 0.3],
+    ];
+    ctx.fillStyle = '#3c4652';
+    ctx.fillRect(x + w * 0.02, y + h * 0.18, w * 0.96, h * 0.64);
+    ctx.fillRect(x + w * 0.2, y, w * 0.6, h);
+    for (const [z, rx, ry, rw, rh] of zoneRects) {
+      // Saturates at a third of the car's health into one quadrant, which is
+      // about where that corner has nothing left to give.
+      const t = Math.min(1, (car.zones[z] ?? 0) / Math.max(1, car.maxHealth * 0.33));
+      if (t <= 0.02) continue;
+      const r = Math.round(70 + t * 150);
+      const g = Math.round(90 - t * 60);
+      ctx.fillStyle = `rgba(${r}, ${g}, 40, ${(0.35 + t * 0.55).toFixed(2)})`;
+      ctx.fillRect(rx, ry, rw, rh);
+    }
+
+    // Lamps: lit while they are there, dark sockets once they are not.
+    const lamp = (lx: number, ly: number, out: boolean): void => {
+      ctx.fillStyle = out ? '#2a2a2e' : '#e8dfa8';
+      ctx.fillRect(lx, ly, 2, 2);
+    };
+    lamp(x + w - 3, y + 2, (car.broken & PART_HEADLIGHT_L) !== 0);
+    lamp(x + w - 3, y + h - 4, (car.broken & PART_HEADLIGHT_R) !== 0);
+    lamp(x + 1, y + 2, (car.broken & PART_TAILLIGHT_L) !== 0);
+    lamp(x + 1, y + h - 4, (car.broken & PART_TAILLIGHT_R) !== 0);
+
+    // Flat tyres, at the corners they are actually at.
+    const tyre = (tx: number, ty: number, flat: boolean): void => {
+      if (!flat) return;
+      ctx.fillStyle = '#d8543c';
+      ctx.fillRect(tx, ty, 3, 2);
+    };
+    tyre(x + w * 0.66, y - 1, (car.broken & PART_TYRE_FL) !== 0);
+    tyre(x + w * 0.66, y + h - 1, (car.broken & PART_TYRE_FR) !== 0);
+    tyre(x + w * 0.18, y - 1, (car.broken & PART_TYRE_RL) !== 0);
+    tyre(x + w * 0.18, y + h - 1, (car.broken & PART_TYRE_RR) !== 0);
+
+    // A holed radiator is the one that stops you finishing the job.
+    if ((car.broken & PART_RADIATOR) !== 0) {
+      ctx.fillStyle = '#e8a33c';
+      ctx.font = '7px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText('RAD', x - 4, y + h - 4);
+      ctx.textAlign = 'left';
+      ctx.font = '8px monospace';
+    }
+  }
+
   draw(
     ctx: CanvasRenderingContext2D,
     me: PlayerState | null,
@@ -248,6 +357,7 @@ export class Hud {
       ctx.textAlign = 'right';
       ctx.fillText(`${Math.round(Math.abs(speed))}`, INTERNAL_WIDTH - 84, INTERNAL_HEIGHT - 7);
       ctx.textAlign = 'left';
+      if (this.car) this.drawCarCondition(ctx, this.car, now);
     }
 
     // Damage flash: a red vignette on the frame health actually dropped.

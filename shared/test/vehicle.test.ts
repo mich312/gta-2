@@ -13,6 +13,7 @@ import { Predictor } from '../src/net/prediction.js';
 import { boxInSolid } from '../src/world/collide.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
+import { PART_TYRE_FL, PART_TYRE_FR } from '../src/sim/vehicleDamage.js';
 import { T_BUILDING, T_FIELD, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
 const map = generateCity(2026, parseWorldgenParams(worldgenJson));
@@ -135,37 +136,71 @@ describe('vehicles', () => {
     expect(state.vehicles.byId[4]!.driverId).toBe(1);
   });
 
-  it('a battered car is slower and does not steer straight', () => {
+  it('a battered car is slower, and pulls toward the side that took it', () => {
     // Damage used to be entirely invisible in the handling: a car one shunt
     // from bursting into flames drove exactly like a new one.
+    //
+    // The pull used to be a sign taken from the vehicle id — constant, so it
+    // read as damage rather than as ice, but arbitrary. It now comes from the
+    // damage map, so it has a CAUSE: a car beaten down its near side drags
+    // that way, and one hammered evenly all round tracks straight, which is
+    // exactly right and is why this test has to say which side was hit.
     const arena = arenaMap(null);
     const spec = getVehicleTuning('car');
 
     /** Drive flat out in a straight line for 4 seconds; report where it got. */
-    const run = (health: number): { top: number; drift: number } => {
+    const run = (health: number, zones: number[]): { top: number; drift: number } => {
       let { state } = setupDriverScenario(arena);
       state = step(state, { 1: key(1, { action: true }) }, [], arena);
-      state.vehicles.byId[2]!.health = health;
       const y0 = state.vehicles.byId[2]!.pos.y;
       let top = 0;
       for (let i = 0; i < 120; i++) {
-        state = step(state, { 1: key(2 + i, { up: true }) }, [], arena);
         const v = state.vehicles.byId[2]!;
-        v.health = health; // hold the damage steady for the length of the run
-        top = Math.max(top, Math.abs(v.speed));
+        // Hold the damage steady for the length of the run.
+        v.health = health;
+        v.zones = zones.slice();
+        state = step(state, { 1: key(2 + i, { up: true }) }, [], arena);
+        top = Math.max(top, Math.abs(state.vehicles.byId[2]!.speed));
       }
-      return { top, drift: Math.abs(state.vehicles.byId[2]!.pos.y - y0) };
+      return { top, drift: state.vehicles.byId[2]!.pos.y - y0 };
     };
 
-    const fresh = run(spec.health);
-    const wrecked = run(spec.health * 0.05);
+    const fresh = run(spec.health, [0, 0, 0, 0]);
+    const nearside = run(spec.health * 0.05, [0, 0, 0, 120]); // beaten down the left
+    const offside = run(spec.health * 0.05, [0, 120, 0, 0]); // ...and the right
+    const evenly = run(spec.health * 0.05, [48, 48, 48, 48]);
 
-    // Down on power...
+    // Down on power, whichever side took it.
     expect(fresh.top).toBeGreaterThan(spec.maxSpeed * 0.95);
-    expect(wrecked.top).toBeLessThan(fresh.top * 0.75);
-    // ...and it wanders off the straight line the fresh one holds.
-    expect(fresh.drift).toBeLessThan(1);
-    expect(wrecked.drift).toBeGreaterThan(20);
+    expect(nearside.top).toBeLessThan(fresh.top * 0.75);
+
+    // A fresh car holds the line.
+    expect(Math.abs(fresh.drift)).toBeLessThan(1);
+    // A car bent down one side drags that way — and the other side drags the
+    // other way, which the id-derived sign could never express.
+    expect(nearside.drift).toBeLessThan(-20);
+    expect(offside.drift).toBeGreaterThan(20);
+    // Crushed evenly all round it is slow, but it still tracks straight.
+    expect(Math.abs(evenly.drift)).toBeLessThan(1);
+  });
+
+  it('a flat tyre pulls the car toward it', () => {
+    const arena = arenaMap(null);
+    const run = (broken: number): number => {
+      let { state } = setupDriverScenario(arena);
+      state = step(state, { 1: key(1, { action: true }) }, [], arena);
+      const y0 = state.vehicles.byId[2]!.pos.y;
+      for (let i = 0; i < 120; i++) {
+        state.vehicles.byId[2]!.broken = broken;
+        state = step(state, { 1: key(2 + i, { up: true }) }, [], arena);
+      }
+      return state.vehicles.byId[2]!.pos.y - y0;
+    };
+    // Near-side front flat drags left; off-side front drags right; a matched
+    // pair cancels, which is what a pair of flats actually does.
+    expect(run(PART_TYRE_FL)).toBeLessThan(-20);
+    expect(run(PART_TYRE_FR)).toBeGreaterThan(20);
+    expect(Math.abs(run(PART_TYRE_FL | PART_TYRE_FR))).toBeLessThan(1);
   });
 
   it('one hard crash dents a car; it takes a real beating to set it alight', () => {

@@ -11,7 +11,17 @@ import {
   INTERNAL_WIDTH,
   TICK_MS,
   TILE_SIZE,
+  PART_HEADLIGHT_L,
+  PART_HEADLIGHT_R,
+  PART_TAILLIGHT_L,
+  PART_TAILLIGHT_R,
+  PART_TYRE_FL,
+  PART_TYRE_FR,
+  PART_TYRE_RL,
+  PART_TYRE_RR,
+  PART_WINDSCREEN,
   generateCity,
+  getVehicleTuning,
   getWeaponTuning,
   initTuning,
   vehicleWear,
@@ -258,6 +268,35 @@ function onGameEvent(event: GameEvent): void {
     effects.explosion(event.x, event.y, event.radius);
     const at = listen(event.x, event.y);
     audio.play('explosion', at.dist, at.pan);
+  } else if (event.type === 'vehicleCollided') {
+    // Metal on metal. There was no collision event at all until now, so a
+    // crash was the one physical interaction in the game that made no sound:
+    // you could put a car into a bus at full speed in silence.
+    const at = listen(event.x, event.y);
+    effects.debris(event.x, event.y);
+    audio.play(event.speed > 120 ? 'crash' : 'crunch', at.dist, at.pan);
+  } else if (event.type === 'vehiclePartBroke') {
+    const at = listen(event.x, event.y);
+    const glassy =
+      (event.part & (PART_HEADLIGHT_L | PART_HEADLIGHT_R | PART_TAILLIGHT_L | PART_TAILLIGHT_R | PART_WINDSCREEN)) !== 0;
+    const tyre =
+      (event.part & (PART_TYRE_FL | PART_TYRE_FR | PART_TYRE_RL | PART_TYRE_RR)) !== 0;
+    if (glassy) audio.play('glass', at.dist, at.pan);
+    else if (tyre) audio.play('blowout', at.dist, at.pan);
+    if (tyre && event.vehicleId === predictor.predicted?.vehicleId) {
+      hud.notice('tyre gone — she pulls now');
+    }
+  } else if (event.type === 'vehicleBurning') {
+    // The event has existed, been encoded and been relayed since vehicle
+    // damage landed, and nothing on the client handled it: your car caught
+    // fire on a seven-second fuse and said nothing at all.
+    const at = listen(event.x, event.y);
+    audio.play('crash', at.dist, at.pan);
+    effects.debris(event.x, event.y);
+    if (event.vehicleId === predictor.predicted?.vehicleId) {
+      hud.notice('GET OUT — she is going up');
+      hud.alarm(7);
+    }
   } else if (event.type === 'frenzyEnded') {
     hud.notice(
       event.completed
@@ -479,6 +518,8 @@ function frame(now: number): void {
                 speed: predictor.predictedVehicle?.speed ?? 0,
                 condition: predictor.predictedVehicle?.condition ?? 'ok',
                 wear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : 0,
+                zones: predictor.predictedVehicle?.zones ?? [0, 0, 0, 0],
+                broken: predictor.predictedVehicle?.broken ?? 0,
                 z: predictor.predicted?.z ?? 0,
               }
             : null,
@@ -501,6 +542,18 @@ function frame(now: number): void {
   const myCar = predictor.predictedVehicle;
   hud.fitting = myCar?.fitting ?? '';
   hud.fittingAmmo = myCar?.fittingAmmo ?? 0;
+  // The condition of the car you are in, for the damage diagram. Predicted
+  // rather than snapshot-derived so the panel moves on the frame you hit
+  // something rather than on the next snapshot.
+  const drivenCar = predictor.predictedVehicle;
+  hud.car = drivenCar
+    ? {
+        zones: drivenCar.zones,
+        broken: drivenCar.broken,
+        wear: vehicleWear(drivenCar),
+        maxHealth: getVehicleTuning(drivenCar.kind).health,
+      }
+    : null;
   minimap.marker = hud.missionMarker;
   hud.draw(
     screen.ctx,
@@ -569,6 +622,7 @@ function frame(now: number): void {
     // from a fresh one without reading pixels.
     carHealth: predictor.predictedVehicle?.health ?? null,
     carWear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : null,
+    carBroken: predictor.predictedVehicle?.broken ?? null,
     carCondition: predictor.predictedVehicle?.condition ?? null,
     fps: stats.fps,
     frameMs: stats.frameMs,

@@ -116,6 +116,46 @@
       "toneGain": 0.7,
       "toneDecay": 0.5,
       "sweepTo": 32
+    },
+    "crash": {
+      "kind": "noise",
+      "attack": 0.001,
+      "decay": 0.34,
+      "filter": 900,
+      "gain": 0.75,
+      "tone": 72,
+      "toneGain": 0.6,
+      "toneDecay": 0.22
+    },
+    "crunch": {
+      "kind": "noise",
+      "attack": 0.001,
+      "decay": 0.14,
+      "filter": 1500,
+      "gain": 0.42,
+      "tone": 120,
+      "toneGain": 0.3,
+      "toneDecay": 0.09
+    },
+    "glass": {
+      "kind": "noise",
+      "attack": 0.001,
+      "decay": 0.2,
+      "filter": 6200,
+      "gain": 0.35,
+      "tone": 2400,
+      "toneGain": 0.22,
+      "toneDecay": 0.14
+    },
+    "blowout": {
+      "kind": "noise",
+      "attack": 0.001,
+      "decay": 0.22,
+      "filter": 2100,
+      "gain": 0.5,
+      "tone": 180,
+      "toneGain": 0.4,
+      "toneDecay": 0.12
     }
   },
   "engine": {

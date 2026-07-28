@@ -5,8 +5,14 @@ import {
   type GameState,
   type SimCommand,
   type SimEvent,
+  PART_RADIATOR,
+  PART_TYRE_FL,
+  PART_TYRE_FR,
+  PART_TYRE_RL,
+  PART_TYRE_RR,
   TILE_SIZE,
   getTuning,
+  getVehicleTuning,
   stuntReward,
 } from 'shared';
 import { Ledger } from './ledger.js';
@@ -19,6 +25,19 @@ import { MemoryStore, type PersistenceStore } from './store.js';
  * cadence is a counter, so a session's prizes are reproducible and nobody
  * has to reason about an rng living outside the sim.
  */
+/** What the crusher docks for a car that has been round the houses. */
+const CRUSH_WEAR_PENALTY = 0.6;
+const CRUSH_PART_PENALTY = 0.05;
+/** ...and the floor, so a wreck on wheels is still worth delivering. */
+const CRUSH_MIN_SHARE = 0.25;
+const MECHANICAL_PARTS = [
+  PART_RADIATOR,
+  PART_TYRE_FL,
+  PART_TYRE_FR,
+  PART_TYRE_RL,
+  PART_TYRE_RR,
+];
+
 const CRUSH_PRIZES: Array<{ weaponId: string; ammo: number }> = [
   { weaponId: 'pistol', ammo: 60 },
   { weaponId: 'shotgun', ammo: 16 },
@@ -185,7 +204,8 @@ export class Economy {
     if (!item) return fail('no such item');
     // A respray is the one thing you buy WITHOUT getting out — you drive the
     // hot car into the garage. Everything else is a shop counter.
-    const drivethrough = item.kind === 'spray' || item.kind === 'fitting';
+    const drivethrough =
+      item.kind === 'spray' || item.kind === 'fitting' || item.kind === 'repair';
     if (!drivethrough && player.mode !== 'foot') return fail('step out of the car first');
     if (drivethrough && player.mode !== 'driving') return fail('drive a car into the garage');
 
@@ -219,6 +239,8 @@ export class Economy {
       command = { type: 'clearHeat', playerId };
     } else if (item.kind === 'fitting') {
       command = { type: 'fitVehicle', playerId, fitting: item.fitting, ammo: item.ammo };
+    } else if (item.kind === 'repair') {
+      command = { type: 'repairVehicle', playerId, tier: item.tier };
     } else if (item.kind === 'heal') {
       command = { type: 'healPlayer', playerId, health: item.health, armour: item.armour };
     } else if (item.kind === 'cosmetic') {
@@ -302,9 +324,25 @@ export class Economy {
     );
     if (!inJaws) return false;
 
+    // A burnt-out shell is scrap, not stock.
+    if (v.condition !== 'ok') return false;
     const wanted = this.exports(nowMs).includes(v.kind);
     const base = t.byKind[v.kind] ?? t.base;
-    const amount = Math.floor(base * (wanted ? t.exportBonus : 1));
+    // What the crusher will pay for THIS one, not for a car of this kind.
+    // Flat-rate payment was the reason damage had no economic weight at all:
+    // a car one shunt from bursting into flames exported for showroom money,
+    // so there was never a reason to drive carefully or to pay for a repair.
+    const max = getVehicleTuning(v.kind).health;
+    const wear = max > 0 ? Math.min(1, Math.max(0, (max - v.health) / max)) : 0;
+    let condition = 1 - wear * CRUSH_WEAR_PENALTY;
+    // ...and a deduction per broken mechanical part on top, because those are
+    // the ones the buyer has to put right.
+    for (const part of MECHANICAL_PARTS) {
+      if ((v.broken & part) !== 0) condition -= CRUSH_PART_PENALTY;
+    }
+    const amount = Math.floor(
+      base * (wanted ? t.exportBonus : 1) * Math.max(CRUSH_MIN_SHARE, condition),
+    );
     out.push({ type: 'crushVehicle', vehicleId: v.id });
     this.credit(playerId, amount, `crush:${v.kind}`);
 

@@ -8,7 +8,6 @@ import propsJson from '../data/props.json';
 import pickupsJson from '../data/pickups.json';
 import worldgenJson from '../data/worldgen.json';
 import { getVehicleTuning, initTuning } from '../src/tuning.js';
-import { roadLane } from './helpers.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState } from '../src/sim/state.js';

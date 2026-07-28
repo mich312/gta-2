@@ -11,12 +11,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 9,
+    "halfLength": 12.0,
+    "halfWidth": 5.5,
+    "mass": 1.0,
     "health": 200,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 74,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.055
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.21
   },
   "boat": {
     "accel": 72,
@@ -30,13 +33,16 @@
     "crashDamp": 0.35,
     "enterRadius": 34,
     "halfExtent": 11,
+    "halfLength": 10.0,
+    "halfWidth": 4.0,
+    "mass": 1.6,
     "medium": "water",
     "health": 260,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 84,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.055
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.21
   },
   "copcar": {
     "accel": 175,
@@ -50,12 +56,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 9,
+    "halfLength": 12.0,
+    "halfWidth": 5.5,
+    "mass": 1.05,
     "health": 260,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 74,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.055
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.21
   },
   "taxi": {
     "accel": 163,
@@ -69,12 +78,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 9,
+    "halfLength": 12.0,
+    "halfWidth": 5.5,
+    "mass": 1.0,
     "health": 200,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 74,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.055
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.21
   },
   "van": {
     "accel": 127,
@@ -88,12 +100,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 11,
+    "halfLength": 14.0,
+    "halfWidth": 6.0,
+    "mass": 1.4,
     "health": 250,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 74,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.0688
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.26
   },
   "ambulance": {
     "accel": 136,
@@ -107,12 +122,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 11,
+    "halfLength": 15.0,
+    "halfWidth": 6.25,
+    "mass": 1.5,
     "health": 260,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 74,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.0688
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.26
   },
   "truck": {
     "accel": 96,
@@ -126,12 +144,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 14,
+    "halfLength": 19.0,
+    "halfWidth": 7.0,
+    "mass": 2.2,
     "health": 360,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 87,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.1045
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.4
   },
   "bus": {
     "accel": 90,
@@ -145,12 +166,15 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 15,
+    "halfLength": 21.0,
+    "halfWidth": 7.0,
+    "mass": 2.5,
     "health": 400,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 92,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.1155
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.44
   },
   "firetruck": {
     "accel": 108,
@@ -164,11 +188,14 @@
     "crashDamp": 0.25,
     "enterRadius": 26,
     "halfExtent": 13,
+    "halfLength": 18.0,
+    "halfWidth": 6.5,
+    "mass": 2.4,
     "health": 380,
     "burnSeconds": 7,
     "wreckSeconds": 25,
     "explosionRadius": 92,
-    "explosionDamage": 85,
-    "collisionDamagePerSpeed": 0.11
+    "explosionDamage": 110,
+    "collisionDamagePerSpeed": 0.42
   }
 }
