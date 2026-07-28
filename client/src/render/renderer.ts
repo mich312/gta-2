@@ -110,8 +110,8 @@ const COP_TINT: Record<string, string> = {
 /** World px a walking entity covers per animation frame. */
 const STRIDE = 7;
 /** Sprite variant counts, mirroring shared/data/sprites.json. */
-const PLAYER_VARIANTS = 4;
-const PED_VARIANTS = 6;
+export const PLAYER_VARIANTS = 4;
+export const PED_VARIANTS = 6;
 const CAR_VARIANTS = 10;
 const WALK_FRAMES = 4;
 
@@ -430,7 +430,11 @@ export function render(
       // `timer` counts DOWN from the clock they are on, so what is left of it
       // is what says how long they have been there.
       const full = (dying ? getTuning().peds.bleedOutSec : getTuning().peds.corpseSec) * TICK_RATE;
-      drawBody(ctx, sprites, `ped_v${variant}_f0`, dx(pd.x), dy(pd.y), facing, tint, pd.x, pd.y, {
+      // Curled if they are still in there, sprawled if they are not — and
+      // which sprawl is hashed off the id, so the same body keeps the same
+      // pose on every client and for as long as it lies there.
+      const pose = dying ? 'Downed' : `Dead${deadPose(pd.ped.id)}`;
+      drawBody(ctx, sprites, `ped${pose}_v${variant}`, dx(pd.x), dy(pd.y), facing, tint, pd.x, pd.y, {
         alive: dying,
         ageSec: Math.max(0, full - pd.ped.timer) / TICK_RATE,
         nowMs: scene.nowMs,
@@ -491,7 +495,7 @@ export function render(
     // `idleTicks` counts UP from the moment they went down, which is exactly
     // the age the blood wants.
     if (c.cop.health <= 0) {
-      drawBody(ctx, sprites, 'cop_f0', dx(c.x), dy(c.y), angle, tint, c.x, c.y, {
+      drawBody(ctx, sprites, 'copDead', dx(c.x), dy(c.y), angle, tint, c.x, c.y, {
         alive: false,
         ageSec: c.cop.idleTicks / TICK_RATE,
         nowMs: scene.nowMs,
@@ -988,7 +992,7 @@ function drawPickups(
   }
 }
 
-function drawCharacter(
+export function drawCharacter(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   name: string,
@@ -1007,20 +1011,40 @@ function drawCharacter(
 /**
  * The shape of somebody lying on the floor.
  *
- * A body used to be the standing sprite squashed along the SCREEN's vertical
- * axis, which is wrong in a way that is obvious once said out loud: which way
- * the screen happens to be pointing has nothing to do with which way they
- * fell. A body that went down facing east was squeezed across its own waist
- * and just looked like a smaller person standing up.
+ * There are three of these now and they are drawn, not derived. What they
+ * replaced was the STANDING sprite scaled 1.5x along the axis it fell and
+ * 0.82x across — a trick that got the silhouette roughly right and everything
+ * else wrong. A standing figure seen from above is a head, two shoulders and
+ * the tops of two feet; stretching that gives you a stretched head and
+ * stretched shoulders, which reads as a person standing slightly further
+ * away. Somebody on the ground is a different drawing: you are looking down
+ * their whole length, their arms are out, their legs are splayed, and their
+ * face is either in the tarmac or at the sky.
  *
- * From above, a standing person is a compact blob — head, shoulders, the tops
- * of the feet. Somebody on the ground is the same person seen along their
- * whole length: half again as long head-to-toe, and a little narrower across,
- * lying down the axis they fell along. So the stretch is applied in the body's
- * own frame, not the screen's.
+ * Which pose a given body takes is hashed off its id, so it is the same body
+ * on every client and stays the same for as long as it lies there.
+ *
+ * The `downed` pose — curled on one side, one arm across the chest — is the
+ * one that earns its keep twice over. A casualty on the bleed-out clock has
+ * an ambulance coming and is worth something to whoever reaches them; a
+ * corpse is not. That difference used to be carried entirely by an alpha
+ * value and a slightly warmer colour, which is to say by nothing you would
+ * notice from across a street.
  */
-const BODY_LONG = 1.5;
-const BODY_WIDE = 0.82;
+const DEAD_POSES = 2;
+
+/**
+ * Which sprawl a given body takes: stable per entity, same on every client.
+ *
+ * Through the proper mixer, not `id * someLargePrime % 2`. That was the first
+ * version and it always returned the same pose, because multiplying by an odd
+ * number preserves parity — every even id took pose A and every odd id took
+ * pose B, and any id sequence with a stride of 2 (which is most of them, ids
+ * being handed out in runs) took one pose for ever. A test caught it.
+ */
+export function deadPose(id: number): string {
+  return String.fromCharCode(65 + Math.floor(hash2(id, 0, 0xb0d1) * DEAD_POSES) % DEAD_POSES);
+}
 
 /** Seconds a fresh body keeps bleeding out onto the ground. */
 const BLEED_SEC = 4.5;
@@ -1067,7 +1091,7 @@ interface BodyOptions {
   effects: Effects;
 }
 
-function drawBody(
+export function drawBody(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   name: string,
@@ -1129,19 +1153,17 @@ function drawBody(
   }
   ctx.restore();
 
-  // The body. Stretched along the axis it fell down and narrowed across it —
-  // in the body's frame, then unrotated so the sprite keeps its own baked
-  // rotation rather than being rotated twice.
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  ctx.scale(BODY_LONG, BODY_WIDE);
-  ctx.rotate(-angle);
-  if (!sprites.draw(ctx, name, 0, 0, angle)) {
+  // The body: a plain baked blit at the angle they came to rest along, like
+  // every other sprite in the game. No transform, no scale — the drawing
+  // already IS a person on the ground.
+  if (!sprites.draw(ctx, name, x, y, angle)) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
     ctx.fillStyle = fallback;
-    ctx.fillRect(-r, -r, r * 2, r * 2);
+    ctx.fillRect(-r * 1.5, -r * 0.8, r * 3, r * 1.6);
+    ctx.restore();
   }
-  ctx.restore();
 
   ctx.save();
   ctx.translate(x, y);
@@ -1192,7 +1214,7 @@ function drawPlayer(
   if (p.mode === 'dead' && effects) {
     // The respawn clock counts down, so what has elapsed of it is the age.
     const left = p.respawnAtTick === null ? 0 : p.respawnAtTick - tick;
-    drawBody(ctx, sprites, `player_v${variant}_f0`, x, y, aim, fallback, wx, wy, {
+    drawBody(ctx, sprites, `playerDead${deadPose(p.id)}_v${variant}`, x, y, aim, fallback, wx, wy, {
       alive: false,
       ageSec: Math.max(0, RESPAWN_DELAY_TICKS - left) / TICK_RATE,
       nowMs,
