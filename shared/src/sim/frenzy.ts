@@ -4,6 +4,7 @@ import { dCos, dSin } from '../math/trig.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState } from './state.js';
 import type { SimEvent } from './events.js';
+import { damageVehicle } from './vehicleDamage.js';
 import { T_RAMP, TILE_SIZE, type CityMap } from '../world/types.js';
 
 /**
@@ -20,6 +21,14 @@ const GRAVITY = 900;
 const RAMP_MIN_SPEED = 128;
 /** Vertical kick a ramp imparts, scaled by how fast you hit it. */
 const RAMP_LAUNCH = 0.62;
+/**
+ * Descent rate you can put down without hurting the car. A ramp taken at the
+ * minimum speed comes back at ~80 px/s, so a modest hop still costs nothing
+ * and only a real flight bends anything.
+ */
+const LANDING_SAFE_VZ = 90;
+/** Damage per px/s of descent above that, before the car's mass divides it. */
+const LANDING_DAMAGE_PER_VZ = 0.5;
 
 /**
  * Tick down a running frenzy. Kills are credited by the caller (they arrive
@@ -99,6 +108,26 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
       p.airDist = q8(p.airDist + Math.abs(v.speed) * DT);
       if (p.z <= 0) {
         const dist = p.airDist;
+        // What the landing cost. A jump used to be free money: the sim
+        // integrated z, emitted the event, and did nothing else, so a 300 px
+        // flight had no consequence at all. Damage goes to the FRONT of the
+        // car, because that is what lands first and what the damage map can
+        // now say — a bad landing puts the lights out and holes the radiator.
+        const impact = -p.vz;
+        if (impact > LANDING_SAFE_VZ) {
+          const t = getVehicleTuning(v.kind);
+          damageVehicle(
+            state,
+            v,
+            ((impact - LANDING_SAFE_VZ) * LANDING_DAMAGE_PER_VZ) / t.mass,
+            events,
+            // Landing badly is your own doing, but it is not a crime, and
+            // charging the driver for it would make every stunt heat.
+            null,
+            v.pos.x + dCos(v.heading) * t.halfLength,
+            v.pos.y + dSin(v.heading) * t.halfLength,
+          );
+        }
         p.z = 0;
         p.vz = 0;
         p.airDist = 0;

@@ -219,6 +219,16 @@ describe('wanted + police', () => {
     // the posse is measured at its peak over the window rather than at a
     // single instant — the fugitive may be shot dead partway through, which
     // sends everyone home.
+    //
+    // The fugitive RUNS, side to side. It used to stand still, and the
+    // assertion at the bottom — that this costs blood — then held only by
+    // timing: a suspect on foot and not going anywhere fast is one an officer
+    // within reach ARRESTS rather than shoots (see `tryBust`, and F2 in
+    // FEATURES.md). That is the whole risk calculus of the mechanic, so a
+    // stationary target getting nicked instead of shot is the design working,
+    // not pursuit failing. Measured on a standing target: 24 arrests to 6
+    // shots. Running: 49 shots to 2 arrests. If you want to assert blood, the
+    // fugitive has to be doing the thing that gets you shot.
     let minDist = Infinity;
     let peakCops = 0;
     // Measured across the window, like peakCops and for the same reason: the
@@ -238,7 +248,14 @@ describe('wanted + police', () => {
         me.health = 100;
         me.respawnAtTick = null;
       }
-      state = step(state, {}, [], map);
+      const running: InputIntent = {
+        ...NULL_INPUT,
+        seq: 10_000 + i,
+        tick: 10_000 + i,
+        right: i % 120 < 60,
+        left: i % 120 >= 60,
+      };
+      state = step(state, { 1: running }, [], map);
       peakCops = Math.max(peakCops, state.cops.ids.length);
       for (const cid of state.cops.ids) {
         const cop = state.cops.byId[cid]!;
@@ -249,10 +266,64 @@ describe('wanted + police', () => {
     const wanted = wantedLevelOf(state.players.byId[1]!);
     const expectedCops = Math.min(t.copsPerStar * wanted, t.maxCopsPerPlayer);
     expect(peakCops).toBeGreaterThanOrEqual(Math.min(expectedCops, 6));
-    // They converge: someone got within firing range of the standing target.
+    // They converge: someone got within firing range of the target.
     expect(minDist).toBeLessThan(t.fireRange);
     // And it costs blood: the fugitive has been shot.
     expect(everHurt).toBe(true);
+  });
+
+  it('...but a suspect who stands still gets nicked instead of shot', () => {
+    // The other half of the same rule, which nothing covered: an officer
+    // within reach of a stationary suspect on foot puts hands on them. Worth
+    // its own test, because the level-3 chase above used to rest on it not
+    // happening and nobody would have noticed if it stopped.
+    const t = getTuning().police;
+    let state = commitCrimes(3);
+    const lane = roadLane(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+
+    const events: SimEvent[] = [];
+    // How far the SHOOTER was from the suspect, for every police shot. The
+    // shot event carries the muzzle position, which is the officer's own —
+    // the nearest officer is the wrong thing to measure, because the one who
+    // has just put hands on you is on cooldown while his colleagues fire.
+    const shooterRange: number[] = [];
+    for (let i = 0; i < 600; i++) {
+      const me = state.players.byId[1]!;
+      me.heat = Math.max(me.heat, 310);
+      if (me.mode === 'dead') {
+        me.mode = 'foot';
+        me.health = 100;
+        me.respawnAtTick = null;
+      }
+      const before = events.length;
+      state = step(state, {}, [], map, events);
+      const after = state.players.byId[1]!;
+      for (let k = before; k < events.length; k++) {
+        const e = events[k];
+        if (!e || e.type !== 'shot' || e.playerId >= 0) continue;
+        shooterRange.push(Math.hypot(e.x0 - after.pos.x, e.y0 - after.pos.y));
+      }
+    }
+    const busts = events.filter((e) => e.type === 'busted').length;
+    expect(busts).toBeGreaterThan(0);
+    // Hands before bullets, stated as the rule rather than as a ratio.
+    //
+    // This asserted `busts > shots` and measured 24 to 6, which read as
+    // proof. It is not: it is a measurement of where a pack of six officers
+    // happens to come to rest, and any change that shifts the sim's random
+    // sequence moves it. Merging traffic signals, boarding and gang fights in
+    // — none of which the police touch — moved it to 29 and 29, and the
+    // *reason* turned out to be geometry: one officer settles at exactly the
+    // bust radius and cuffs the suspect, while colleagues stood off at 30-60
+    // px keep firing on their own cadence. That is the design working.
+    //
+    // So assert the thing that is actually true and does not depend on the
+    // pack: no officer within arm's reach of a suspect standing still shoots
+    // them. One that close cuffs them instead — every time. A pixel of slack
+    // because the event rounds the muzzle to whole pixels.
+    expect(shooterRange.length).toBeGreaterThan(0);
+    for (const d of shooterRange) expect(d).toBeGreaterThan(t.bustRadius - 1.5);
   });
 
   it('heat decays and cops go home when the fugitive stays out of sight', () => {

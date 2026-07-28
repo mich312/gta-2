@@ -98,6 +98,10 @@ const VEHICLE_FIELDS = [
   'igniterId',
   'spreadUsed',
   'gangId',
+  // Hashed, therefore they MUST be diffed — the airDist note above is what
+  // happens when a hashed field is left out of this list.
+  'zones',
+  'broken',
   'fitting',
   'fittingAmmo',
 ] as const;

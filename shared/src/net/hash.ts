@@ -95,6 +95,8 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.igniterId ?? -1);
     h = hashNumber(h, v.spreadUsed);
     h = hashNumber(h, v.gangId);
+    for (const z of v.zones) h = hashNumber(h, z);
+    h = hashNumber(h, v.broken);
     h = hashString(h, v.fitting);
     h = hashNumber(h, v.fittingAmmo);
   }

@@ -32,6 +32,8 @@ export type SimCommand =
   | { type: 'crushVehicle'; vehicleId: number }
   /** The garage bolts something to the car the player is sitting in. */
   | { type: 'fitVehicle'; playerId: number; fitting: string; ammo: number }
+  /** ...or puts it right: panels and glass, or the whole car. */
+  | { type: 'repairVehicle'; playerId: number; tier: 'panel' | 'full' }
   /** Patched up at a hospital counter. */
   | { type: 'healPlayer'; playerId: number; health: number; armour: number }
   | {

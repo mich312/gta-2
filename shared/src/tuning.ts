@@ -25,6 +25,21 @@ export interface VehicleTuning {
   enterRadius: number;
   /** Collision box half-extent (cars are boxes for tile collision). */
   halfExtent: number;
+  /**
+   * Half-length and half-width of the ORIENTED body box, used only for
+   * vehicle-vs-vehicle contact. Taken from the sprite bodies, because the
+   * single square `halfExtent` was both too wide (18 px across a 14 px car,
+   * so cars in adjacent lanes collided without touching) and too short
+   * (18 px along a 26 px car, so they interpenetrated nose-to-tail).
+   */
+  halfLength: number;
+  halfWidth: number;
+  /**
+   * Relative mass. Splits the shove, damps the heading a shunt imparts, and
+   * divides the damage received — the three places every vehicle used to be
+   * identical, which is why a bus came off worse than the car that hit it.
+   */
+  mass: number;
   health: number;
   /** Seconds a vehicle burns before it detonates. */
   burnSeconds: number;
@@ -427,6 +442,9 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     crashDamp: n('crashDamp'),
     enterRadius: n('enterRadius'),
     halfExtent: n('halfExtent'),
+    halfLength: n('halfLength'),
+    halfWidth: n('halfWidth'),
+    mass: n('mass'),
     health: n('health'),
     burnSeconds: n('burnSeconds'),
     wreckSeconds: n('wreckSeconds'),

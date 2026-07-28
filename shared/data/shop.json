@@ -53,6 +53,18 @@
       "shop": "spray",
       "price": 400
     },
+    "panelbeat": {
+      "kind": "repair",
+      "shop": "spray",
+      "price": 150,
+      "tier": "panel"
+    },
+    "rebuild": {
+      "kind": "repair",
+      "shop": "spray",
+      "price": 350,
+      "tier": "full"
+    },
     "flamethrower": {
       "kind": "weapon",
       "shop": "gun",

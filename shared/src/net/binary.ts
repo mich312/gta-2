@@ -439,7 +439,10 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
   f('heading', (w, v) => w.q256(v.heading), (r, o) => (o['heading'] = r.q256())),
   f('speed', (w, v) => w.q8(v.speed), (r, o) => (o['speed'] = r.q8())),
   f('driverId', (w, v) => w.optInt(v.driverId), (r, o) => (o['driverId'] = r.optInt())),
-  f('health', (w, v) => w.f64(v.health), (r, o) => (o['health'] = r.f64())),
+  // Whole numbers since the damage ladder is integer thresholds, so this is a
+  // varint rather than the eight bytes of float it used to be — which paid for
+  // the damage map below with a byte to spare.
+  f('health', (w, v) => w.uint(v.health), (r, o) => (o['health'] = r.uint())),
   f(
     'condition',
     (w, v) => w.u8(VEHICLE_CONDITIONS.indexOf(v.condition)),
@@ -449,6 +452,18 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
   f('igniterId', (w, v) => w.optInt(v.igniterId), (r, o) => (o['igniterId'] = r.optInt())),
   f('spreadUsed', (w, v) => w.int(v.spreadUsed), (r, o) => (o['spreadUsed'] = r.int())),
   f('gangId', (w, v) => w.int(v.gangId), (r, o) => (o['gangId'] = r.int())),
+  f(
+    'zones',
+    (w, v) => {
+      for (let i = 0; i < 4; i++) w.u8(v.zones[i] as number);
+    },
+    (r, o) => {
+      const out: number[] = [];
+      for (let i = 0; i < 4; i++) out.push(r.u8());
+      o['zones'] = out;
+    },
+  ),
+  f('broken', (w, v) => w.uint(v.broken), (r, o) => (o['broken'] = r.uint())),
   f('fitting', (w, v) => w.str(v.fitting), (r, o) => (o['fitting'] = r.str())),
   f('fittingAmmo', (w, v) => w.int(v.fittingAmmo), (r, o) => (o['fittingAmmo'] = r.int())),
 ];

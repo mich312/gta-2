@@ -94,6 +94,29 @@ export type SimEvent =
     }
   | { type: 'pickupUp'; tick: number; kind: string; id: number }
   | { type: 'vehicleBurning'; tick: number; vehicleId: number; x: number; y: number }
+  | {
+      /** Metal met something. Without this a crash was the one physical
+       *  interaction in the game that made no sound at all. */
+      type: 'vehicleCollided';
+      tick: number;
+      vehicleId: number;
+      x: number;
+      y: number;
+      /** Closing speed, for scaling the noise. */
+      speed: number;
+    }
+  | {
+      /** A lamp, a panel or a tyre went. Breakage re-derives from the damage
+       *  map on every host, so this exists only so the client can put the
+       *  glass on the frame it happened rather than the next redraw. */
+      type: 'vehiclePartBroke';
+      tick: number;
+      vehicleId: number;
+      /** One of the PART_* bits in sim/vehicleDamage.ts. */
+      part: number;
+      x: number;
+      y: number;
+    }
   | { type: 'explosion'; tick: number; x: number; y: number; radius: number }
   | {
       type: 'frenzyEnded';

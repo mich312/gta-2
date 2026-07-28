@@ -271,7 +271,15 @@ interface Ahead {
  * report a NEGATIVE lead speed and get braked for twice as hard as a slow one.
  */
 function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: number): Ahead {
-  const half = getVehicleTuning(v.kind).halfExtent;
+  const t = getVehicleTuning(v.kind);
+  // Length ahead, width across. A single `halfExtent` for both was survivable
+  // while the collision box was also a square; against the real body it had
+  // the follower believing it had six pixels of gap at the moment the two
+  // bumpers touched, so a queue closed up until it collided and the wedged
+  // driver reversed out. The obstacle model has to agree with the contact
+  // model or the IDM is solving the wrong problem.
+  const half = t.halfLength;
+  const halfW = t.halfWidth;
   const cos = dCos(v.heading);
   const sin = dSin(v.heading);
   let gap = Infinity;
@@ -284,7 +292,15 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
   if (wall < horizon) gap = wall;
 
   /** Fold one obstacle in, if it is genuinely in our path and closer. */
-  const consider = (ox: number, oy: number, radius: number, speed: number, isPerson: boolean) => {
+  const consider = (
+    ox: number,
+    oy: number,
+    /** Their extent along OUR heading, and across it. */
+    oFwd: number,
+    oLat: number,
+    speed: number,
+    isPerson: boolean,
+  ) => {
     const rx = ox - v.pos.x;
     const ry = oy - v.pos.y;
     const fwd = rx * cos + ry * sin;
@@ -292,8 +308,8 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
     const lat = -rx * sin + ry * cos;
     // Our own width plus theirs: anything outside that is in another lane and
     // is not ours to worry about.
-    if (lat > half + radius || lat < -(half + radius)) return;
-    const g = fwd - half - radius;
+    if (lat > halfW + oLat || lat < -(halfW + oLat)) return;
+    const g = fwd - half - oFwd;
     if (g >= gap) return;
     gap = g;
     leadSpeed = speed;
@@ -304,30 +320,37 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
     if (id === v.id) continue;
     const other = state.vehicles.byId[id];
     if (!other) continue;
-    const oHalf = getVehicleTuning(other.kind).halfExtent;
+    const ot = getVehicleTuning(other.kind);
     if (Math.abs(other.pos.x - v.pos.x) > horizon || Math.abs(other.pos.y - v.pos.y) > horizon) {
       continue;
     }
+    // Their box projected onto our axes: a car across the road is as wide as
+    // it is long from where we are sitting.
+    const dh = wrapAngle(other.heading - v.heading);
+    const c = Math.abs(dCos(dh));
+    const s = Math.abs(dSin(dh));
+    const oFwd = ot.halfLength * c + ot.halfWidth * s;
+    const oLat = ot.halfLength * s + ot.halfWidth * c;
     // Their speed resolved onto our heading. A car crossing us contributes
     // almost nothing; one coming the other way contributes its full speed as a
     // closing rate, which is exactly how it should read.
-    const along = other.speed * dCos(wrapAngle(other.heading - v.heading));
-    consider(other.pos.x, other.pos.y, oHalf, along, false);
+    const along = other.speed * dCos(dh);
+    consider(other.pos.x, other.pos.y, oFwd, oLat, along, false);
   }
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
     if (!ped) continue;
-    consider(ped.pos.x, ped.pos.y, PLAYER_RADIUS, 0, true);
+    consider(ped.pos.x, ped.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   for (const id of state.players.ids) {
     const p = state.players.byId[id];
     if (!p || p.mode !== 'foot') continue;
-    consider(p.pos.x, p.pos.y, PLAYER_RADIUS, 0, true);
+    consider(p.pos.x, p.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   for (const id of state.cops.ids) {
     const cop = state.cops.byId[id];
     if (!cop || cop.vehicleId !== null) continue;
-    consider(cop.pos.x, cop.pos.y, PLAYER_RADIUS, 0, true);
+    consider(cop.pos.x, cop.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   // A fresh object every time, deliberately. This used to return a shared
   // module-level CLEAR constant for the open-road case, and the caller folds
@@ -937,6 +960,12 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     const vid = Number(key);
     const v = state.vehicles.byId[vid];
     if (!v || !isAiDriver(v.driverId)) delete state.trafficDrivers[vid];
+  }
+  // Same for the collision debounce, which is keyed on vehicles that can go
+  // away without ever having had an ambient driver.
+  for (const key of Object.keys(state.vehicleHitTick)) {
+    const vid = Number(key);
+    if (!state.vehicles.byId[vid]) delete state.vehicleHitTick[vid];
   }
 
   if (aiCount >= t.count) return;
