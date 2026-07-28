@@ -11,6 +11,7 @@ import { insertEntity, removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import { T_SIDEWALK, TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile, moveWithCollision } from '../world/collide.js';
+import { pushOutOfVehicles } from './bodies.js';
 
 const PED_RADIUS = 5;
 /** A car this close scares a pedestrian whether it is moving or not. */
@@ -189,6 +190,7 @@ export function stepPeds(
       const speed = ped.mode === 'flee' ? t.fleeSpeed : t.walkSpeed;
       const vel = { x: ped.dirX * speed, y: ped.dirY * speed };
       moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+      pushOutOfVehicles(ped.pos, vel, PED_RADIUS, state, map);
       ped.pos.x = q8(ped.pos.x);
       ped.pos.y = q8(ped.pos.y);
       if (vel.x === 0 && vel.y === 0 && speed > 0) {
@@ -291,6 +293,7 @@ function stepArmedPed(
       const speed = getTuning().peds.fleeSpeed;
       const vel = { x: ped.dirX * speed, y: ped.dirY * speed };
       moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+      pushOutOfVehicles(ped.pos, vel, PED_RADIUS, state, map);
       ped.pos.x = q8(ped.pos.x);
       ped.pos.y = q8(ped.pos.y);
       if (vel.x === 0 && vel.y === 0) {
@@ -325,6 +328,7 @@ function stepArmedPed(
   if (d > fireRange * 0.7 && (state.tick + ped.id) % 3 === 0) {
     const vel = { x: ped.dirX * chaseSpeed, y: ped.dirY * chaseSpeed };
     moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+      pushOutOfVehicles(ped.pos, vel, PED_RADIUS, state, map);
     ped.pos.x = q8(ped.pos.x);
     ped.pos.y = q8(ped.pos.y);
   }
@@ -391,6 +395,7 @@ function stepEscortee(state: GameState, map: CityMap, ped: PedState): boolean {
   const speed = d > ESCORT_KEEP * 3 ? t.fleeSpeed : t.walkSpeed;
   const vel = { x: ped.dirX * speed, y: ped.dirY * speed };
   moveWithCollision(map, ped.pos, vel, PED_RADIUS, vel.x * DT * 3, vel.y * DT * 3);
+      pushOutOfVehicles(ped.pos, vel, PED_RADIUS, state, map);
   ped.pos.x = q8(ped.pos.x);
   ped.pos.y = q8(ped.pos.y);
   return true;

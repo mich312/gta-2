@@ -515,7 +515,7 @@ function frame(now: number): void {
     localTick++;
     const shown = playerPose.sample(1);
     const playerScreen = shown ? { x: shown.x - cam.x, y: shown.y - cam.y } : null;
-    const intent = input.sample(seq++, localTick, playerScreen);
+    const intent = input.sample(seq++, localTick, playerScreen, interp.viewTick());
     conn.sendInput(sync.ackTick, [intent]);
     predictor.applyLocalInput(intent, map);
     playerPose.advance(playerPoseNow());
@@ -671,6 +671,26 @@ function frame(now: number): void {
     authoritativePos: authoritative?.pos ?? null,
     desyncs: sync.desyncs,
     fullResyncs: sync.fullResyncs,
+    vehicleBodies: overlay.visible
+      ? [
+          ...interp.sample(playerId, null).vehicles.map((rv) => ({
+            x: rv.x,
+            y: rv.y,
+            heading: rv.heading,
+            kind: rv.vehicle.kind,
+          })),
+          ...(drivenCar
+            ? [
+                {
+                  x: drivenCar.pos.x,
+                  y: drivenCar.pos.y,
+                  heading: drivenCar.heading,
+                  kind: drivenCar.kind,
+                },
+              ]
+            : []),
+        ]
+      : [],
   });
 
   // E2E/debug affordance: lets automated tests read the local player's

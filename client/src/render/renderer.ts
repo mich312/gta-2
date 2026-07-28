@@ -736,8 +736,11 @@ function collectOccluders(scene: Scene, cam: Vec2): Occluder[] {
       x,
       y,
       r: 0,
-      halfLong: t.halfExtent,
-      halfWide: t.halfExtent * 0.55,
+      // The body's real half-extents, the same pair everything else asks
+      // for. A shadow cast from a 9 px square while the car it belongs to is
+      // 12 long and 5.5 wide is a shadow that does not fit its own car.
+      halfLong: t.halfLength,
+      halfWide: t.halfWidth,
       heading,
       height: CAR_HEIGHT,
     });

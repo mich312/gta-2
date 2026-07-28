@@ -5,6 +5,7 @@ import { createTable, cloneTable } from './entities.js';
 import { seedRng } from '../rng/prng.js';
 import { getVehicleTuning } from '../tuning.js';
 import { newRespect } from './respect.js';
+import type { VehicleTrail } from './rewind.js';
 
 export type PlayerMode = 'foot' | 'driving' | 'dead';
 
@@ -404,6 +405,16 @@ export interface GameState {
   vehicleHitTick: Record<number, number>;
   /** Ambulances currently answering a casualty, per vehicle id. Server-only. */
   ambulanceCalls: Record<number, AmbulanceCall>;
+  /**
+   * Where every vehicle was on each of the last few ticks, newest first.
+   *
+   * Server-only sim state, for the same reason as `trafficDrivers` and
+   * `vehicleHitTick`: no client runs it, so it has no business in the
+   * snapshot diff or the desync hash. It exists so a client's collisions can
+   * be judged against the world that client could actually SEE — see
+   * `rewind.ts`.
+   */
+  vehicleTrail: VehicleTrail;
 }
 
 export function createGameState(seed: number): GameState {
@@ -422,6 +433,7 @@ export function createGameState(seed: number): GameState {
     trafficDrivers: {},
     vehicleHitTick: {},
     ambulanceCalls: {},
+    vehicleTrail: [],
   };
 }
 
@@ -618,6 +630,9 @@ export function cloneState(s: GameState): GameState {
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
     vehicleHitTick: { ...s.vehicleHitTick },
     ambulanceCalls: cloneAmbulanceCalls(s.ambulanceCalls),
+    // Frames are written once and never mutated, so the array of references
+    // is the whole clone.
+    vehicleTrail: s.vehicleTrail.slice(),
   };
 }
 

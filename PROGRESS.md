@@ -1,5 +1,105 @@
 # PROGRESS
 
+## Colliders on one clock and one shape: cars, people, and a server that goes back and looks
+
+526 tests green (up from 507; 19 new across three files). 8-bot brawl and
+joyride harness runs lockstep with 0 desyncs at ~11 KB/s per client against
+the 50 KB/s gate, corrections 2.65–3.03 px, replay re-simulates
+hash-identical. Wire contract bumped to protocol 8.
+
+Three separate faults, all reported as "the colliders still don't work
+reliably", and they are three because a collider has three ways of being
+wrong: the wrong shape, missing entirely, or right on one host and right on
+the other about a different moment.
+
+**A car hit you with a shape that was not a car.** `stepVehicleImpacts` — the
+run-over test, and therefore every car-versus-person contact in the game —
+used an axis-aligned square of `halfExtent`: 9 px, against a body 12 long and
+5.5 wide, and it never turned with the car. So it was three pixels too short
+and three and a half too wide at the same time. A bonnet buried a quarter of
+itself in you before anything registered; a car in the next lane ran you over
+from a clear three pixels off your shoulder; and on the diagonal it was wrong
+by the whole difference between a square and a car. This is the same square
+that was taken out of the car-to-car contact one release ago, still in place
+on the path where a person is the one being hit — and it explains both
+complaints people had, "it hit me and it was not touching me" and "it drove
+through me". Everything now asks `bodies.ts` how big a car is: the contact,
+the run-over, the props a car smashes, the traffic AI's obstacle model, the
+shadow it casts, and the debug overlay, which draws the oriented box itself
+rather than a picture of one.
+
+**Nothing on foot collided with a car at all.** Not the player, not the
+crowd, not the police: `stepPlayerMovement`, `stepPeds` and the officer walk
+all collided against the tile grid and nothing else. You walked through a
+parked car as though it were fog, and so did the queue of pedestrians at a
+red light, straight through the bonnets. The most conspicuous solid object in
+the game was the one thing you could not bump into. `pushOutOfVehicles`
+resolves it as a push-out rather than a blocked move, for the same reason the
+car-to-car contact allows any move that separates: a hard block traps anyone
+who ends up inside a body — a car parking on them, a run-over knockback, a
+spawn — with no legal position and every escape undone. Push-out always
+reduces the overlap, so it always terminates. Velocity loses only the
+component driving into the body, so walking along a flank slides; a push that
+would put somebody inside a wall is refused, because pinned against a car is
+better than extruded through a building.
+
+**And the two hosts were judging the same contact at different moments.**
+This is the one the last release left standing and named as the remaining
+trade: the client draws remote cars `INTERP_DELAY_TICKS` (~100 ms) in the past
+and collides against exactly those positions, because a collider that
+disagrees with the sprite is one you cannot aim. The server has no such delay.
+Add half a round trip and the same bumper sits three or four ticks — most of a
+car length at road speed — apart on the two clocks. Tailgating, the client
+stops against a car the server still has down the road, gets pushed forward,
+and re-predicts the same contact next tick, for as long as you follow
+anybody. Head-on it fires the other way and yanks you backwards into a crash
+you had not had yet.
+
+Neither host is wrong; they are looking at different moments. So the client
+now says which moment: `InputIntent.viewTick`, its render clock in fractional
+ticks, quantised to the same 1/256 grid the wire carries. The server keeps
+`MAX_REWIND_TICKS` of vehicle poses in `state.vehicleTrail` — server-only sim
+state, like `trafficDrivers` and `vehicleHitTick`, off the snapshot diff and
+off the desync hash — and reconstructs that moment with the same lerp the
+client's interpolator uses, over the same two ticks, so in the ordinary case
+the two views are the same numbers. Detection rewinds; the RESPONSE — the
+shove, the damage, the wreck — still lands on the live car, which is what
+keeps this lag compensation rather than time travel. `viewTick` arrives over
+the wire, so it is clamped rather than trusted, and 0 means "no opinion" and
+gets the present: bots, tests and a browser's first second are unaffected.
+
+Measured on a tailgate at city speed with one tick of wire latency, running a
+real `Predictor` against a real `step()`: worst correction **8.125 px without,
+0 px with**.
+
+The price is the standard one and worth naming: the car that gets shunted
+was, on its own screen, slightly past the point of impact, so it reads as a
+late nudge. The alternative is what the game did before — the driver who
+aimed the shunt misses, and gets corrected for it.
+
+**Verification.** New: the box is 12 by 5.5 and not a 9 px square, and the
+same spot is a hit head-on and a miss broadside; walking into a parked car
+stops at its flank; a car that parks on top of you pushes you out instead of
+trapping you; a push into a wall is refused; walking along a flank keeps the
+along-component; the crowd walks round cars; the push-out separates exactly
+and is null when there is nothing to resolve; the rewind honours fractions of
+a tick, clamps a client asking too far back, ignores cars that did not exist
+then, applies the response to the live car, and keeps a bounded trail; the
+server's rewound world reproduces the client's `vehiclesAsDrawn` to nine
+decimal places; and the tailgate scenario above, which fails on the old code
+with an 8 px correction.
+
+**Least confident about.** The 1/8 px separation skin is set to one step of
+the `q8` grid because exactly flush does not survive the round trip through
+the deterministic trig table and the position quantiser — sound, but it is the
+kind of constant that wants a second pair of eyes. Bullets and blasts still
+treat a car as a circle (`vehicleHitRadius`), which is now the last place the
+game disagrees with itself about how big a car is; it is left alone on purpose
+— that radius is tuned into weapon ranges, blast falloff and mine clearance,
+so changing it is a weapons change with a tuning pass attached, not a collider
+fix. And lag compensation has only been measured in the harness and in tests,
+never against a real link with real jitter.
+
 ## Worldgen: quays line the waterways, and a drowned road end is tested
 
 325 tests green (three new); brawl 45 s PASS, 0 desyncs. Seed-breaking

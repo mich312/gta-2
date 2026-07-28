@@ -7,19 +7,27 @@ import type { GameState, PlayerState } from './state.js';
 import type { InputIntent } from './input.js';
 import type { CityMap } from '../world/types.js';
 import { moveWithCollision } from '../world/collide.js';
+import { pushOutOfVehicles, type VehicleWorld } from './bodies.js';
 
 const INV_SQRT2 = 1 / Math.sqrt(2);
 
 /**
  * Advance ONE player by one fixed tick. This exact function runs on the
  * server inside step() and on the client inside the predictor — sharing it
- * is what makes prediction bit-exact. Collides against static tiles only.
+ * is what makes prediction bit-exact. Collides against static tiles and,
+ * given a `world`, against vehicle bodies.
  */
 export function stepPlayerMovement(
   p: PlayerState,
   input: InputIntent | undefined,
   map: CityMap,
   tick = 0,
+  /**
+   * What can be walked into. The client predicts this too, from the same
+   * delayed view it collides its car against, so walking up to a parked car
+   * stops in the same place on both hosts. Null means tiles only.
+   */
+  world: VehicleWorld | null = null,
 ): void {
   // Stunned: the aim still tracks, because a frozen camera reads as a
   // dropped connection rather than as being hit. Only the legs stop.
@@ -69,6 +77,9 @@ export function stepPlayerMovement(
   p.vel.y = approach(p.vel.y, dy * walkSpeed, maxDelta);
 
   moveWithCollision(map, p.pos, p.vel, PLAYER_RADIUS, p.vel.x * DT, p.vel.y * DT);
+  // Cars are solid to people too. After the tiles, so a push out of a car
+  // can be refused when it would put somebody inside a wall.
+  pushOutOfVehicles(p.pos, p.vel, PLAYER_RADIUS, world, map, p.vehicleId);
   p.pos.x = q8(p.pos.x);
   p.pos.y = q8(p.pos.y);
   p.vel.x = q8(p.vel.x);
@@ -84,6 +95,6 @@ export function stepPlayers(
   for (const id of state.players.ids) {
     const p = state.players.byId[id];
     if (!p) continue;
-    stepPlayerMovement(p, inputs[id], map);
+    stepPlayerMovement(p, inputs[id], map, state.tick, state);
   }
 }

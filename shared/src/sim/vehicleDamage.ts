@@ -535,7 +535,18 @@ export function stepVehicleDamage(state: GameState, events: SimEvent[]): void {
   }
 }
 
-/** Bullets hit cars too. Radius is the collision box, near enough. */
+/**
+ * Bullets hit cars too. A circle, not the body box.
+ *
+ * Deliberately still a circle, and worth saying why now that everything a car
+ * BUMPS into uses its real oriented box (see bodies.ts). This radius feeds
+ * ray casts, blast falloff and mine drop clearance, all of which are tuned
+ * around it, and a car is a target you shoot at rather than a shape you have
+ * to fit past — being a little generous at the flanks reads as a car being
+ * easy to hit rather than as a collider in the wrong place. Swapping it for a
+ * ray-versus-box test is a weapons change, not a collider fix, and belongs
+ * with the tuning pass that would have to follow it.
+ */
 export function vehicleHitRadius(v: VehicleState): number {
   return getVehicleTuning(v.kind).halfExtent + PLAYER_RADIUS * 0.5;
 }

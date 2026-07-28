@@ -20,13 +20,14 @@ import {
   POWER_STUNNED,
 } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
-import { damagePed, dropWeapon } from './peds.js';
+import { PED_RADIUS, damagePed, dropWeapon } from './peds.js';
 import { noticedBy } from './police.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile } from '../world/collide.js';
+import { circleHitsBox, vehicleBox } from './bodies.js';
 
 export const RESPAWN_DELAY_TICKS = TICK_RATE * 3;
 /** The one weapon everybody always has. */
@@ -668,16 +669,27 @@ function pushRunOver(
   });
 }
 
-/** Run-over damage: fast cars hurt anyone on foot they overlap. */
+/**
+ * Run-over damage: fast cars hurt anyone on foot they overlap.
+ *
+ * The test is the car's real body against the person's circle — the same
+ * shape the renderer draws, the same one the contact model and the traffic
+ * AI use. It used to be an axis-aligned square of `halfExtent`, which for a
+ * car is 9 px against a body 12 long and 5.5 wide, and which never turned
+ * with the car: a bonnet buried 3 px of itself in you before it registered,
+ * a car in the next lane ran you over from 3.5 px clear of your shoulder, and
+ * on the diagonal it was wrong by the whole difference between a square and a
+ * car. "It hit me and it wasn't touching me" was that square.
+ */
 export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
   for (const vid of state.vehicles.ids) {
     const v = state.vehicles.byId[vid];
     if (!v || Math.abs(v.speed) < RUNOVER_MIN_SPEED) continue;
-    const half = getVehicleTuning(v.kind).halfExtent + PLAYER_RADIUS;
+    const body = vehicleBox(v);
     for (const pid of state.players.ids) {
       const p = state.players.byId[pid];
       if (!p || p.mode !== 'foot' || p.carHitCooldown > 0) continue;
-      if (Math.abs(p.pos.x - v.pos.x) < half && Math.abs(p.pos.y - v.pos.y) < half) {
+      if (circleHitsBox(p.pos.x, p.pos.y, PLAYER_RADIUS, body)) {
         p.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         // Thrown along the car's line, not merely damaged. Walk acceleration
         // eats the extra velocity over the next few ticks, which is what reads
@@ -701,7 +713,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
     for (const copId of [...state.cops.ids]) {
       const cop = state.cops.byId[copId];
       if (!cop || cop.carHitCooldown > 0 || copIsDown(cop)) continue;
-      if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
+      if (circleHitsBox(cop.pos.x, cop.pos.y, PLAYER_RADIUS, body)) {
         cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         pushRunOver(events, state.tick, cop.pos.x, cop.pos.y, v);
         damageCop(state, cop, Math.abs(v.speed) * RUNOVER_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
@@ -712,7 +724,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       // Driving over a body is not a fresh run-over: without this a corpse in
       // the road threw blood and made a noise thirty times a second.
       if (!ped || ped.mode === 'dead') continue;
-      if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
+      if (circleHitsBox(ped.pos.x, ped.pos.y, PED_RADIUS, body)) {
         pushRunOver(events, state.tick, ped.pos.x, ped.pos.y, v);
         damagePed(state, ped, Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
       }
@@ -724,8 +736,8 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       for (const propId of state.props.ids) {
         const prop = state.props.byId[propId];
         if (!prop || !prop.intact) continue;
-        const r = (propsT.kinds[prop.kind]?.radius ?? 4) + half;
-        if (Math.abs(prop.pos.x - v.pos.x) < r && Math.abs(prop.pos.y - v.pos.y) < r) {
+        const r = propsT.kinds[prop.kind]?.radius ?? 4;
+        if (circleHitsBox(prop.pos.x, prop.pos.y, r, body)) {
           // Driving into a barrel is a way of setting one off, and the
           // driver owns what follows.
           damageProp(state, prop, 1000, events, v.driverId ?? -1);
