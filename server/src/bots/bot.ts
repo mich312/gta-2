@@ -50,6 +50,8 @@ export class Bot {
   private readonly sync = new SnapshotSync();
   private readonly predictor = new Predictor();
   private map: CityMap | null = null;
+  private seed = 0;
+  private worldgen: import('shared').WorldgenParams | null = null;
   private ws: WebSocket | null = null;
   private timer: NodeJS.Timeout | null = null;
   private seq = 1;
@@ -119,10 +121,33 @@ export class Bot {
       // Bots behave exactly like the browser client: tunables and worldgen
       // params come from the server, and the city regenerates from the seed.
       initTuning(msg.tuning);
+      this.seed = msg.seed;
+      this.worldgen = msg.worldgen;
       this.map = generateCity(msg.seed, msg.worldgen);
       this.sync.applyServerMessage(msg);
       this.startInputStream();
       onWelcome();
+      return;
+    }
+    if (msg.type === 'rebase') {
+      // The window moved: regenerate the map at the new origin and carry
+      // the predicted state into the new frame by the same whole-tile
+      // delta the server applied — so the next reconcile measures real
+      // prediction error, not the coordinate change.
+      if (this.worldgen) {
+        const dxPx = (this.worldgen.windowX - msg.windowX) * 16;
+        const dyPx = (this.worldgen.windowY - msg.windowY) * 16;
+        this.worldgen = { ...this.worldgen, windowX: msg.windowX, windowY: msg.windowY };
+        this.map = generateCity(this.seed, this.worldgen);
+        if (this.predictor.predicted) {
+          this.predictor.predicted.pos.x += dxPx;
+          this.predictor.predicted.pos.y += dyPx;
+        }
+        if (this.predictor.predictedVehicle) {
+          this.predictor.predictedVehicle.pos.x += dxPx;
+          this.predictor.predictedVehicle.pos.y += dyPx;
+        }
+      }
       return;
     }
     if (msg.type === 'event') {

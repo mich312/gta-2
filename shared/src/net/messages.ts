@@ -84,6 +84,18 @@ export type ServerMessage =
       secondsLeft: number;
       marker: { x: number; y: number } | null;
     }
+  | {
+      /**
+       * The session's window onto the unbounded world moved (ROAM=1).
+       * Regenerate the map at this origin and shift local state by the
+       * whole-tile delta; the same tick's snapshot arrives in the new
+       * frame right behind this message.
+       */
+      type: 'rebase';
+      tick: number;
+      windowX: number;
+      windowY: number;
+    }
   | { type: 'account'; ok: boolean; username: string | null; message: string }
   | { type: 'error'; code: string; message: string };
 
@@ -159,6 +171,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'exports',
   'secrets',
   'missionState',
+  'rebase',
 ]);
 
 /** Client-side parse. The server is trusted; this is a shape check, not a validator. */

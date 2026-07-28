@@ -31,7 +31,8 @@ export function runReplay(lines: string[], hashEvery = 30): ReplayResult {
   // Replays are self-contained: they carry the tunables that were in force,
   // so re-tuning the JSON files never breaks an old recording.
   initTuning(header.tuning);
-  const map = generateCity(header.seed, header.worldgen);
+  let worldgen = header.worldgen;
+  let map = generateCity(header.seed, worldgen);
 
   let state: GameState = createGameState(header.seed);
   const hashes: ReplayResult['hashes'] = [];
@@ -45,6 +46,15 @@ export function runReplay(lines: string[], hashEvery = 30): ReplayResult {
     while (state.tick < rec.t - 1) {
       state = step(state, {}, [], map);
       maybeHash(state, hashes, hashEvery);
+    }
+    // A rebase command means the session swapped its window before stepping
+    // this tick — the replay swaps at the same boundary or every collision
+    // after it happens in the wrong world.
+    for (const cmd of rec.commands) {
+      if (cmd.type === 'rebase') {
+        worldgen = { ...worldgen, windowX: cmd.windowX, windowY: cmd.windowY };
+        map = generateCity(header.seed, worldgen);
+      }
     }
     state = step(state, rec.inputs as unknown as Record<number, InputIntent>, rec.commands, map);
     maybeHash(state, hashes, hashEvery);

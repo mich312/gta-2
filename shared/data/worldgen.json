@@ -44,6 +44,14 @@
     "width": 0.018,
     "maxBridgeSpan": 20
   },
+  "countryside": {
+    "blockSize": [
+      40,
+      64
+    ],
+    "laneWidth": 2,
+    "forest": 0.58
+  },
   "parkedCarSpacing": 14,
   "shopQuota": {
     "gun": 3,

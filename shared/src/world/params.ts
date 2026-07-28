@@ -67,6 +67,12 @@ export interface WorldgenParams {
    * wider is sea, and the road stops at the bank.
    */
   water: { scale: number; width: number; maxBridgeSpan: number };
+  /**
+   * Open country between cities (WORLDGEN.md §11.1): lane-scale block
+   * extents, narrow lane carve width, and the wildness threshold above
+   * which meadow becomes forest.
+   */
+  countryside: { blockSize: [number, number]; laneWidth: number; forest: number };
   /** Roughly one parked car every N road-edge tiles (district-independent for now). */
   parkedCarSpacing: number;
   shopQuota: { gun: number; clothing: number; spray: number };
@@ -132,6 +138,15 @@ function parseFields(raw: unknown): WorldgenParams['fields'] {
   };
 }
 
+function parseCountryside(raw: unknown): WorldgenParams['countryside'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    blockSize: pair(r['blockSize'], 'countryside.blockSize'),
+    laneWidth: num(r['laneWidth'], 'countryside.laneWidth'),
+    forest: num(r['forest'], 'countryside.forest'),
+  };
+}
+
 /**
  * Window origin: the one worldgen number allowed to be zero or negative —
  * a viewport can open anywhere in the unbounded world.
@@ -170,6 +185,7 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
       width: num(waterRaw['width'], 'water.width'),
       maxBridgeSpan: num(waterRaw['maxBridgeSpan'], 'water.maxBridgeSpan'),
     },
+    countryside: parseCountryside(r['countryside']),
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
     turf: parseTurf(r['turf']),
     // Defaulted rather than required: an older worldgen block (a replay

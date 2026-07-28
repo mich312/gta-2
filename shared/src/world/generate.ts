@@ -21,10 +21,20 @@ import {
   registerClinics,
   placePayphones,
   placeRamps,
+  placeRuralSites,
   placeShops,
   placeVehicleSpawns,
 } from './amenities.js';
-import { T_BANK, T_BRIDGE, T_FIELD, T_ROAD, T_WATER, TILE_SIZE, type CityMap } from './types.js';
+import {
+  T_BANK,
+  T_BRIDGE,
+  T_FIELD,
+  T_ROAD,
+  T_SAND,
+  T_WATER,
+  TILE_SIZE,
+  type CityMap,
+} from './types.js';
 
 /**
  * A WINDOW onto an unbounded world, as a pure function of (seed, params).
@@ -107,7 +117,12 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     }
   }
 
-  const roads = generateRoads(map.tiles, params, districtIdxAt, seed);
+  // Open country: the L1 classifier's lowest band. Rural regions get
+  // lane-scale subdivision, no kerbs, and meadow/forest fill.
+  const isRural = (gx: number, gy: number): boolean =>
+    fields.density(gx, gy) < params.fields.residential * 0.5;
+
+  const roads = generateRoads(map.tiles, params, districtIdxAt, seed, isRural);
   map.blocks = roads.cells.flatMap((c) => c.blocks);
 
   // Where an ARTERIAL crosses water, that becomes a bridge: road on top,
@@ -142,26 +157,47 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     }
   }
 
-  // Banks: every open tile beside waterway water becomes quay/embankment,
-  // BEFORE blocks fill — so the fill passes treat the quay like water and
-  // keep buildings, sidewalks and yards off it, and every waterfront gets
-  // a walkable edge instead of a building sliced off by the river.
-  // Neighbourhood is tested on the water FIELD (global, pure), so a bank
-  // at the window rim agrees with every other viewport; roads keep their
-  // tiles, which is what lets a drowned road end reach its own bank.
+  // Shores: every open tile beside waterway water becomes the transition
+  // band of the water ladder, BEFORE blocks fill — so the fill passes
+  // keep buildings, sidewalks and yards off the waterfront. The band
+  // splits on urban intensity (WORLDGEN.md §11.1 A2): the city gets its
+  // stone quay one tile deep, the countryside gets a SAND beach that runs
+  // two tiles up from the water. Neighbourhood is tested on the water
+  // FIELD sampled with a margin beyond the window (global, pure), so a
+  // shore at the window rim agrees with every other viewport; roads keep
+  // their tiles, which is what lets a drowned road end reach the shore.
+  const MARGIN = 2;
+  const eW = W + MARGIN * 2;
+  const eH = H + MARGIN * 2;
+  const wet = new Uint8Array(eW * eH);
+  for (let ey = 0; ey < eH; ey++) {
+    for (let ex = 0; ex < eW; ex++) {
+      if (fields.water(wx + ex - MARGIN, wy + ey - MARGIN)) wet[ey * eW + ex] = 1;
+    }
+  }
+  const wetNear = (tx: number, ty: number, r: number): boolean => {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx === 0 && dy === 0) continue;
+        if (wet[(ty + MARGIN + dy) * eW + (tx + MARGIN + dx)] === 1) return true;
+      }
+    }
+    return false;
+  };
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const i = ty * W + tx;
       if (map.tiles[i] !== T_FIELD) continue;
-      const gx = wx + tx;
-      const gy = wy + ty;
-      if (
-        fields.water(gx + 1, gy) ||
-        fields.water(gx - 1, gy) ||
-        fields.water(gx, gy + 1) ||
-        fields.water(gx, gy - 1)
-      ) {
-        map.tiles[i] = T_BANK;
+      const urban = fields.density(wx + tx, wy + ty) >= params.fields.commercial;
+      const adjacent =
+        wet[(ty + MARGIN) * eW + (tx + MARGIN + 1)] === 1 ||
+        wet[(ty + MARGIN) * eW + (tx + MARGIN - 1)] === 1 ||
+        wet[(ty + MARGIN + 1) * eW + (tx + MARGIN)] === 1 ||
+        wet[(ty + MARGIN - 1) * eW + (tx + MARGIN)] === 1;
+      if (adjacent) {
+        map.tiles[i] = urban ? T_BANK : T_SAND;
+      } else if (!urban && wetNear(tx, ty, 2)) {
+        map.tiles[i] = T_SAND;
       }
     }
   }
@@ -171,11 +207,13 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // block whole in another.
   const cellBuildings: Array<{ cell: (typeof roads.cells)[number]; start: number; end: number }> =
     [];
+  const wildAt = (tx: number, ty: number): boolean =>
+    fields.wildness(wx + tx, wy + ty) >= params.countryside.forest;
   for (const cell of roads.cells) {
     const start = map.buildings.length;
     for (const block of cell.blocks) {
       const rng = seedRng(deriveSeed(seed, `block.${block.x + wx}.${block.y + wy}`));
-      fillBlock(map.tiles, W, H, map.buildings, block, rng);
+      fillBlock(map.tiles, W, H, map.buildings, block, rng, wildAt);
     }
     cellBuildings.push({ cell, start, end: map.buildings.length });
   }
@@ -185,6 +223,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeLandmarks(map, params, roads.cells, seed);
   placeShops(map, params, cellBuildings, seed);
   registerClinics(map);
+  // Rural sites carve tiles, so they go in before any pass that derives
+  // spawn points from the ground.
+  placeRuralSites(map, params, roads.cells, seed, isRural, (gx, gy) => fields.grit(gx, gy));
   placeVehicleSpawns(map, params, stream('vehicles'));
   placePlayerSpawns(map, params, stream('playerSpawns'));
   placeParking(map);

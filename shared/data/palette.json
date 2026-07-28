@@ -9,6 +9,9 @@
   "bank": "#77705f",
   "bankEdge": "#8f8877",
   "sand": "#b0a074",
+  "sandDark": "#9c8d64",
+  "trees": "#22391f",
+  "treesLight": "#2e4a28",
   "building": {
     "downtown": "#5a6a86",
     "residential": "#7a5f4e",

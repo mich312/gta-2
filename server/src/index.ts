@@ -28,6 +28,7 @@ async function main(): Promise<void> {
   const session = new Session(config.seed, worldgen, recorder, {
     weaponsLostOnDeath: config.weaponsLostOnDeath,
     pedCount: config.pedCount,
+    roam: config.roam,
   });
   const economy = new Economy(createStore(config.persistPath), loadCatalog(), loadEconomyParams());
   const server = new GameServer(config, session, economy);

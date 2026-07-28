@@ -27,6 +27,17 @@ export const T_FLOOR = 9;
  * rather than a building sliced off by the river.
  */
 export const T_BANK = 10;
+/**
+ * Forest canopy: countryside tree cover. Solid to everything on land, like
+ * a building — woods are obstacles you drive around and lanes thread
+ * through — and painted as canopy rather than wall.
+ */
+export const T_TREES = 11;
+/**
+ * Beach: where land meets water outside the city. Walkable, drivable,
+ * solid to hulls; the countryside's answer to the urban quay.
+ */
+export const T_SAND = 12;
 
 /**
  * Where a signal head stands: the road tile just outside a junction on one of
@@ -63,6 +74,11 @@ export interface BlockRect {
   w: number;
   h: number;
   district: DistrictType;
+  /**
+   * Open country between cities: lane-scale subdivision, no sidewalk ring,
+   * meadow-and-forest fill instead of an urban block interior.
+   */
+  rural?: boolean;
 }
 
 /** Crate kinds worldgen scatters. Frenzies are placed by their own pass. */
@@ -76,7 +92,19 @@ export type PickupSpawnKind =
   | 'invis'
   | 'reload';
 
-export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital', 'police'] as const;
+export const LANDMARK_KINDS = [
+  'stadium',
+  'power',
+  'tower',
+  'hospital',
+  'police',
+  // Rural destinations (WORLDGEN.md §11.1 A3): the countryside's reasons
+  // to drive through it, named and on the radar like any landmark.
+  'farm',
+  'campground',
+  'lighthouse',
+  'quarry',
+] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 
 export interface Landmark {
