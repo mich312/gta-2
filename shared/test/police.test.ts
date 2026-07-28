@@ -219,6 +219,16 @@ describe('wanted + police', () => {
     // the posse is measured at its peak over the window rather than at a
     // single instant — the fugitive may be shot dead partway through, which
     // sends everyone home.
+    //
+    // The fugitive RUNS, side to side. It used to stand still, and the
+    // assertion at the bottom — that this costs blood — then held only by
+    // timing: a suspect on foot and not going anywhere fast is one an officer
+    // within reach ARRESTS rather than shoots (see `tryBust`, and F2 in
+    // FEATURES.md). That is the whole risk calculus of the mechanic, so a
+    // stationary target getting nicked instead of shot is the design working,
+    // not pursuit failing. Measured on a standing target: 24 arrests to 6
+    // shots. Running: 49 shots to 2 arrests. If you want to assert blood, the
+    // fugitive has to be doing the thing that gets you shot.
     let minDist = Infinity;
     let peakCops = 0;
     for (let i = 0; i < 600; i++) {
@@ -231,7 +241,14 @@ describe('wanted + police', () => {
         me.health = 100;
         me.respawnAtTick = null;
       }
-      state = step(state, {}, [], map);
+      const running: InputIntent = {
+        ...NULL_INPUT,
+        seq: 10_000 + i,
+        tick: 10_000 + i,
+        right: i % 120 < 60,
+        left: i % 120 >= 60,
+      };
+      state = step(state, { 1: running }, [], map);
       peakCops = Math.max(peakCops, state.cops.ids.length);
       for (const cid of state.cops.ids) {
         const cop = state.cops.byId[cid]!;
@@ -242,10 +259,36 @@ describe('wanted + police', () => {
     const wanted = wantedLevelOf(state.players.byId[1]!);
     const expectedCops = Math.min(t.copsPerStar * wanted, t.maxCopsPerPlayer);
     expect(peakCops).toBeGreaterThanOrEqual(Math.min(expectedCops, 6));
-    // They converge: someone got within firing range of the standing target.
+    // They converge: someone got within firing range of the target.
     expect(minDist).toBeLessThan(t.fireRange);
     // And it costs blood: the fugitive has been shot.
     expect(state.players.byId[1]!.health).toBeLessThan(100);
+  });
+
+  it('...but a suspect who stands still gets nicked instead of shot', () => {
+    // The other half of the same rule, which nothing covered: an officer
+    // within reach of a stationary suspect on foot puts hands on them. Worth
+    // its own test, because the level-3 chase above used to rest on it not
+    // happening and nobody would have noticed if it stopped.
+    let state = commitCrimes(3);
+    const lane = roadLane(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 600; i++) {
+      const me = state.players.byId[1]!;
+      me.heat = Math.max(me.heat, 310);
+      if (me.mode === 'dead') {
+        me.mode = 'foot';
+        me.health = 100;
+        me.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map, events);
+    }
+    const busts = events.filter((e) => e.type === 'busted').length;
+    const shots = events.filter((e) => e.type === 'shot' && e.playerId < 0).length;
+    expect(busts).toBeGreaterThan(0);
+    expect(busts).toBeGreaterThan(shots);
   });
 
   it('heat decays and cops go home when the fugitive stays out of sight', () => {
