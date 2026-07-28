@@ -20,7 +20,7 @@ import {
 } from './vehicleDamage.js';
 import { creditGangKill } from './respect.js';
 import { anyCopSees } from './police.js';
-import { applyDamage } from './weapons.js';
+import { applyDamage, stunPlayer } from './weapons.js';
 
 // `VehicleWorld` and `Pose` moved to bodies.ts when people started colliding
 // with cars too, but they are still part of this module's public face.
@@ -274,6 +274,7 @@ function integrateVehicle(
         wy,
       );
       if (closing > KERB_TYRE_SPEED) kerbStrike(sim, v, wx, wy, events ?? []);
+      maybeEjectRider(sim, v, closing, events ?? []);
       events?.push({
         type: 'vehicleCollided',
         tick: sim.tick,
@@ -417,6 +418,47 @@ export function stepVehicleDriving(
 }
 
 /**
+ * Come off the bike.
+ *
+ * Two wheels and no roof: hit anything hard enough and the rider goes over
+ * the bars. This is the whole risk half of a motorcycle — without it a bike
+ * is a car that happens to be faster and thinner, and its top speed costs
+ * nothing to use. The rider lands ahead of the impact, keeps some of the
+ * momentum they had, and spends `ejectStunTicks` on the floor.
+ *
+ * `ejectSpeed` is 0 for anything with a roof, so for every other vehicle in
+ * the game this is one comparison and out.
+ */
+function maybeEjectRider(
+  sim: GameState,
+  v: VehicleState,
+  closing: number,
+  events: SimEvent[],
+): void {
+  const t = getVehicleTuning(v.kind);
+  if (t.ejectSpeed <= 0 || closing < t.ejectSpeed) return;
+  if (v.driverId === null) return;
+  const rider = sim.players.byId[v.driverId];
+  if (!rider) return;
+  v.driverId = null;
+  rider.vehicleId = null;
+  rider.mode = 'foot';
+  // Thrown forwards along the bike's nose, carrying some of what they had.
+  rider.pos.x = q8(v.pos.x + dCos(v.heading) * (t.halfLength + PLAYER_RADIUS));
+  rider.pos.y = q8(v.pos.y + dSin(v.heading) * (t.halfLength + PLAYER_RADIUS));
+  rider.vel.x = q8(dCos(v.heading) * closing * 0.5);
+  rider.vel.y = q8(dSin(v.heading) * closing * 0.5);
+  stunPlayer(rider, sim.tick, Math.round(t.ejectStunTicks));
+  events.push({
+    type: 'riderThrown',
+    tick: sim.tick,
+    playerId: rider.id,
+    x: Math.round(rider.pos.x),
+    y: Math.round(rider.pos.y),
+  });
+}
+
+/**
  * One tick of vehicle under continuous controls.
  *
  * A human at a keyboard only ever supplies ±1 on each axis, but an AI driver
@@ -538,7 +580,11 @@ export function tryEnterVehicle(
   // watching. Taking an *occupied* one is always a crime — that path arrives
   // with NPC drivers (roadmap C2), where the jack becomes an explicit action.
   if (anyCopSees(state, map, p)) {
-    addHeat(p, getTuning().police.heatPerTheft);
+    // Scaled by the vehicle: nobody calls the police about a stolen
+    // pushbike, and that single zero is what makes a bicycle a distinct tool
+    // rather than a slow car — the quiet way to cross three blocks while the
+    // cool-down clock runs down.
+    addHeat(p, getTuning().police.heatPerTheft * getVehicleTuning(best.kind).theftHeat);
   }
   // The police are not the only ones who mind. Taking a gang's car is a
   // slight against them and a favour to whoever they are at odds with,

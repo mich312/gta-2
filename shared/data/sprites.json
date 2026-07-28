@@ -6534,6 +6534,1774 @@
      ]
     ]
    }
+  },
+  "coupe": {
+   "w": 47,
+   "h": 29,
+   "pivot": [
+    23.0,
+    14.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      9,
+      1,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "rect": [
+      30,
+      1,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "poly": [
+      [
+       5,
+       4
+      ],
+      [
+       34,
+       3
+      ],
+      [
+       42,
+       8
+      ],
+      [
+       44,
+       14
+      ],
+      [
+       42,
+       20
+      ],
+      [
+       34,
+       25
+      ],
+      [
+       5,
+       24
+      ],
+      [
+       3,
+       20
+      ],
+      [
+       3,
+       8
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.018
+    },
+    {
+     "rect": [
+      42,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      2,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      40,
+      7,
+      3,
+      3
+     ],
+     "color": "carLight",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      7,
+      3,
+      3
+     ],
+     "color": "carTail",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      1,
+      12,
+      2,
+      5
+     ],
+     "color": "carPlate",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       14,
+       7
+      ],
+      [
+       27,
+       9
+      ],
+      [
+       30,
+       14
+      ],
+      [
+       27,
+       19
+      ],
+      [
+       14,
+       21
+      ],
+      [
+       11,
+       14
+      ]
+     ],
+     "color": "$body",
+     "z": 12
+    },
+    {
+     "poly": [
+      [
+       25,
+       11
+      ],
+      [
+       29,
+       12
+      ],
+      [
+       29,
+       16
+      ],
+      [
+       25,
+       17
+      ]
+     ],
+     "color": "carGlass",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       13,
+       10
+      ],
+      [
+       16,
+       11
+      ],
+      [
+       16,
+       17
+      ],
+      [
+       13,
+       18
+      ]
+     ],
+     "color": "carGlassDark",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      17,
+      9,
+      7,
+      2
+     ],
+     "color": "carGlassDark",
+     "z": 12,
+     "mirrorY": true,
+     "noOutline": true
+    }
+   ]
+  },
+  "estate": {
+   "w": 58,
+   "h": 29,
+   "pivot": [
+    29.0,
+    14.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      10,
+      1,
+      8,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "rect": [
+      38,
+      1,
+      8,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "poly": [
+      [
+       5,
+       4
+      ],
+      [
+       45,
+       3
+      ],
+      [
+       52,
+       7
+      ],
+      [
+       55,
+       14
+      ],
+      [
+       52,
+       21
+      ],
+      [
+       45,
+       25
+      ],
+      [
+       5,
+       24
+      ],
+      [
+       3,
+       20
+      ],
+      [
+       3,
+       8
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.018
+    },
+    {
+     "rect": [
+      53,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      2,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      51,
+      7,
+      3,
+      3
+     ],
+     "color": "carLight",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      7,
+      3,
+      3
+     ],
+     "color": "carTail",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      1,
+      12,
+      2,
+      5
+     ],
+     "color": "carPlate",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       8,
+       7
+      ],
+      [
+       38,
+       7
+      ],
+      [
+       41,
+       14
+      ],
+      [
+       38,
+       21
+      ],
+      [
+       8,
+       21
+      ],
+      [
+       6,
+       14
+      ]
+     ],
+     "color": "$body",
+     "z": 12
+    },
+    {
+     "poly": [
+      [
+       36,
+       10
+      ],
+      [
+       40,
+       12
+      ],
+      [
+       40,
+       16
+      ],
+      [
+       36,
+       18
+      ]
+     ],
+     "color": "carGlass",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       7,
+       10
+      ],
+      [
+       10,
+       11
+      ],
+      [
+       10,
+       17
+      ],
+      [
+       7,
+       18
+      ]
+     ],
+     "color": "carGlassDark",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      12,
+      8,
+      20,
+      2
+     ],
+     "color": "carGlassDark",
+     "z": 12,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      16,
+      6,
+      14,
+      1
+     ],
+     "color": "carTrim",
+     "z": 13,
+     "mirrorY": true
+    }
+   ]
+  },
+  "pickup": {
+   "w": 55,
+   "h": 30,
+   "pivot": [
+    27.0,
+    14.5
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      9,
+      1,
+      8,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "rect": [
+      36,
+      1,
+      8,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "poly": [
+      [
+       4,
+       4
+      ],
+      [
+       44,
+       3
+      ],
+      [
+       51,
+       7
+      ],
+      [
+       52,
+       15
+      ],
+      [
+       51,
+       23
+      ],
+      [
+       44,
+       26
+      ],
+      [
+       4,
+       25
+      ],
+      [
+       2,
+       21
+      ],
+      [
+       2,
+       8
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.018
+    },
+    {
+     "rect": [
+      5,
+      6,
+      22,
+      18
+     ],
+     "color": "carTrim",
+     "z": 9
+    },
+    {
+     "rect": [
+      7,
+      8,
+      18,
+      14
+     ],
+     "color": "carGlassDark",
+     "z": 10,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      2,
+      9,
+      2,
+      12
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      48,
+      8,
+      3,
+      3
+     ],
+     "color": "carLight",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      8,
+      3,
+      3
+     ],
+     "color": "carTail",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      1,
+      13,
+      2,
+      5
+     ],
+     "color": "carPlate",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       28,
+       6
+      ],
+      [
+       43,
+       7
+      ],
+      [
+       46,
+       15
+      ],
+      [
+       43,
+       23
+      ],
+      [
+       28,
+       24
+      ],
+      [
+       26,
+       15
+      ]
+     ],
+     "color": "$body",
+     "z": 12
+    },
+    {
+     "poly": [
+      [
+       41,
+       11
+      ],
+      [
+       45,
+       13
+      ],
+      [
+       45,
+       17
+      ],
+      [
+       41,
+       19
+      ]
+     ],
+     "color": "carGlass",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       27,
+       10
+      ],
+      [
+       30,
+       11
+      ],
+      [
+       30,
+       19
+      ],
+      [
+       27,
+       20
+      ]
+     ],
+     "color": "carGlassDark",
+     "z": 13,
+     "noOutline": true
+    }
+   ]
+  },
+  "sports": {
+   "w": 53,
+   "h": 27,
+   "pivot": [
+    26.0,
+    13.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      8,
+      1,
+      8,
+      3
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "rect": [
+      34,
+      1,
+      8,
+      3
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "poly": [
+      [
+       4,
+       4
+      ],
+      [
+       38,
+       2
+      ],
+      [
+       48,
+       6
+      ],
+      [
+       50,
+       13
+      ],
+      [
+       48,
+       20
+      ],
+      [
+       38,
+       24
+      ],
+      [
+       4,
+       22
+      ],
+      [
+       2,
+       18
+      ],
+      [
+       2,
+       8
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.018
+    },
+    {
+     "rect": [
+      48,
+      8,
+      2,
+      10
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      2,
+      8,
+      2,
+      10
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      46,
+      6,
+      3,
+      3
+     ],
+     "color": "carLight",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      6,
+      3,
+      3
+     ],
+     "color": "carTail",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      1,
+      11,
+      2,
+      5
+     ],
+     "color": "carPlate",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       12,
+       6
+      ],
+      [
+       26,
+       8
+      ],
+      [
+       29,
+       13
+      ],
+      [
+       26,
+       18
+      ],
+      [
+       12,
+       20
+      ],
+      [
+       9,
+       13
+      ]
+     ],
+     "color": "$body",
+     "z": 12
+    },
+    {
+     "poly": [
+      [
+       24,
+       10
+      ],
+      [
+       28,
+       11
+      ],
+      [
+       28,
+       15
+      ],
+      [
+       24,
+       16
+      ]
+     ],
+     "color": "carGlass",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       11,
+       9
+      ],
+      [
+       14,
+       10
+      ],
+      [
+       14,
+       16
+      ],
+      [
+       11,
+       17
+      ]
+     ],
+     "color": "carGlassDark",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      30,
+      12,
+      18,
+      3
+     ],
+     "color": "carTrim",
+     "z": 10,
+     "noOutline": true
+    }
+   ]
+  },
+  "hatch": {
+   "w": 45,
+   "h": 29,
+   "pivot": [
+    22.0,
+    14.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      8,
+      1,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "rect": [
+      28,
+      1,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "poly": [
+      [
+       5,
+       4
+      ],
+      [
+       33,
+       3
+      ],
+      [
+       41,
+       8
+      ],
+      [
+       42,
+       14
+      ],
+      [
+       41,
+       20
+      ],
+      [
+       33,
+       25
+      ],
+      [
+       5,
+       24
+      ],
+      [
+       3,
+       20
+      ],
+      [
+       3,
+       8
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.018
+    },
+    {
+     "rect": [
+      40,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      2,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      38,
+      7,
+      3,
+      3
+     ],
+     "color": "carLight",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      7,
+      3,
+      3
+     ],
+     "color": "carTail",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      1,
+      12,
+      2,
+      5
+     ],
+     "color": "carPlate",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       8,
+       6
+      ],
+      [
+       28,
+       7
+      ],
+      [
+       31,
+       14
+      ],
+      [
+       28,
+       21
+      ],
+      [
+       8,
+       22
+      ],
+      [
+       6,
+       14
+      ]
+     ],
+     "color": "$body",
+     "z": 12
+    },
+    {
+     "poly": [
+      [
+       26,
+       10
+      ],
+      [
+       30,
+       12
+      ],
+      [
+       30,
+       16
+      ],
+      [
+       26,
+       18
+      ]
+     ],
+     "color": "carGlass",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       7,
+       9
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       10,
+       18
+      ],
+      [
+       7,
+       19
+      ]
+     ],
+     "color": "carGlassDark",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      12,
+      7,
+      12,
+      2
+     ],
+     "color": "carGlassDark",
+     "z": 12,
+     "mirrorY": true,
+     "noOutline": true
+    }
+   ]
+  },
+  "muscle": {
+   "w": 56,
+   "h": 29,
+   "pivot": [
+    28.0,
+    14.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      9,
+      1,
+      9,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "rect": [
+      37,
+      1,
+      9,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2,
+     "mirrorY": true
+    },
+    {
+     "poly": [
+      [
+       4,
+       3
+      ],
+      [
+       43,
+       3
+      ],
+      [
+       51,
+       7
+      ],
+      [
+       53,
+       14
+      ],
+      [
+       51,
+       21
+      ],
+      [
+       43,
+       25
+      ],
+      [
+       4,
+       25
+      ],
+      [
+       2,
+       21
+      ],
+      [
+       2,
+       7
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.018
+    },
+    {
+     "rect": [
+      51,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      2,
+      9,
+      2,
+      11
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "rect": [
+      49,
+      7,
+      3,
+      3
+     ],
+     "color": "carLight",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      7,
+      3,
+      3
+     ],
+     "color": "carTail",
+     "z": 9,
+     "mirrorY": true,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      1,
+      12,
+      2,
+      5
+     ],
+     "color": "carPlate",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       10,
+       7
+      ],
+      [
+       26,
+       8
+      ],
+      [
+       29,
+       14
+      ],
+      [
+       26,
+       20
+      ],
+      [
+       10,
+       21
+      ],
+      [
+       8,
+       14
+      ]
+     ],
+     "color": "$body",
+     "z": 12
+    },
+    {
+     "poly": [
+      [
+       24,
+       11
+      ],
+      [
+       28,
+       12
+      ],
+      [
+       28,
+       16
+      ],
+      [
+       24,
+       17
+      ]
+     ],
+     "color": "carGlass",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       9,
+       10
+      ],
+      [
+       12,
+       11
+      ],
+      [
+       12,
+       17
+      ],
+      [
+       9,
+       18
+      ]
+     ],
+     "color": "carGlassDark",
+     "z": 13,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      33,
+      11,
+      8,
+      7
+     ],
+     "color": "carTrim",
+     "z": 11
+    },
+    {
+     "rect": [
+      35,
+      12,
+      4,
+      5
+     ],
+     "color": "carGlassDark",
+     "z": 12,
+     "noOutline": true
+    }
+   ]
+  },
+  "moto": {
+   "w": 30,
+   "h": 15,
+   "pivot": [
+    14.5,
+    7.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      2,
+      5,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2
+    },
+    {
+     "rect": [
+      21,
+      5,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2
+    },
+    {
+     "rect": [
+      9,
+      6,
+      13,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "poly": [
+      [
+       10,
+       4
+      ],
+      [
+       19,
+       4
+      ],
+      [
+       21,
+       7
+      ],
+      [
+       19,
+       10
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       8,
+       7
+      ]
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.02
+    },
+    {
+     "rect": [
+      19,
+      5,
+      4,
+      4
+     ],
+     "color": "$body",
+     "z": 9
+    },
+    {
+     "rect": [
+      22,
+      3,
+      2,
+      9
+     ],
+     "color": "gunMetal",
+     "z": 10
+    },
+    {
+     "rect": [
+      24,
+      6,
+      3,
+      2
+     ],
+     "color": "carLight",
+     "z": 9,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      3,
+      6,
+      2,
+      2
+     ],
+     "color": "carTail",
+     "z": 9,
+     "noOutline": true
+    }
+   ]
+  },
+  "copbike": {
+   "w": 30,
+   "h": 15,
+   "pivot": [
+    14.5,
+    7.0
+   ],
+   "rotations": 32,
+   "shapes": [
+    {
+     "rect": [
+      2,
+      5,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2
+    },
+    {
+     "rect": [
+      21,
+      5,
+      7,
+      4
+     ],
+     "color": "carTyre",
+     "z": 2
+    },
+    {
+     "rect": [
+      9,
+      6,
+      13,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "poly": [
+      [
+       10,
+       4
+      ],
+      [
+       19,
+       4
+      ],
+      [
+       21,
+       7
+      ],
+      [
+       19,
+       10
+      ],
+      [
+       10,
+       10
+      ],
+      [
+       8,
+       7
+      ]
+     ],
+     "color": "copCarBody",
+     "z": 8,
+     "noise": 0.02
+    },
+    {
+     "rect": [
+      19,
+      5,
+      4,
+      4
+     ],
+     "color": "copCarPanel",
+     "z": 9
+    },
+    {
+     "rect": [
+      22,
+      3,
+      2,
+      9
+     ],
+     "color": "gunMetal",
+     "z": 10
+    },
+    {
+     "rect": [
+      24,
+      6,
+      3,
+      2
+     ],
+     "color": "carLight",
+     "z": 9,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      11,
+      5,
+      3,
+      2
+     ],
+     "color": "copLightRed",
+     "z": 11,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      11,
+      8,
+      3,
+      2
+     ],
+     "color": "copLightBlue",
+     "z": 11,
+     "noOutline": true
+    }
+   ]
+  },
+  "bicycle": {
+   "w": 26,
+   "h": 13,
+   "pivot": [
+    12.5,
+    6.0
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "rect": [
+      2,
+      5,
+      5,
+      3
+     ],
+     "color": "carTyre",
+     "z": 2
+    },
+    {
+     "rect": [
+      19,
+      5,
+      5,
+      3
+     ],
+     "color": "carTyre",
+     "z": 2
+    },
+    {
+     "rect": [
+      7,
+      6,
+      12,
+      1
+     ],
+     "color": "$body",
+     "z": 6
+    },
+    {
+     "poly": [
+      [
+       9,
+       4
+      ],
+      [
+       16,
+       4
+      ],
+      [
+       18,
+       6
+      ],
+      [
+       16,
+       8
+      ],
+      [
+       9,
+       8
+      ],
+      [
+       8,
+       6
+      ]
+     ],
+     "color": "$body",
+     "z": 7
+    },
+    {
+     "rect": [
+      18,
+      3,
+      2,
+      7
+     ],
+     "color": "gunMetal",
+     "z": 9
+    },
+    {
+     "rect": [
+      11,
+      5,
+      2,
+      3
+     ],
+     "color": "gunMetal",
+     "z": 8
+    }
+   ]
   }
  }
 }

@@ -97,6 +97,28 @@ export interface VehicleTuning {
    * meet at a speed well above zero and the tank always grinds through.
    */
   crushSpeedLoss: number;
+  /**
+   * Multiplier on `police.heatPerTheft` for taking this one.
+   *
+   * 1 for everything with an engine. 0 for a bicycle, and that single number
+   * is what makes a bike a distinct tool rather than a slow car: the quiet
+   * way to cross three blocks while the cool-down clock runs down. Nobody
+   * calls the police about a stolen pushbike.
+   */
+  theftHeat: number;
+  /**
+   * Speed of impact at which a rider is thrown off, or 0 for anything with a
+   * roof. The risk that makes a motorcycle's speed a decision.
+   */
+  ejectSpeed: number;
+  /** Ticks the thrown rider spends on the floor. */
+  ejectStunTicks: number;
+  /**
+   * Distance from centre to the saddle, along the hull, or null for anything
+   * you sit inside. Its presence is what tells the renderer to draw the rider
+   * ON the vehicle — the same mechanism as `turretOffset`.
+   */
+  riderOffset: number | null;
 }
 
 export interface WeaponTuning {
@@ -658,13 +680,21 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     health: n('health'),
     burnSeconds: n('burnSeconds'),
     wreckSeconds: n('wreckSeconds'),
-    explosionRadius: n('explosionRadius'),
-    explosionDamage: n('explosionDamage'),
+    // Zero is legitimate for these two and only these two: a bicycle burns
+    // out without going off, and `blast` over a radius of 0 reaches nothing,
+    // which is exactly the intended behaviour. Every other tunable still has
+    // to be positive — a missing `maxSpeed` should be an error, not a stop.
+    explosionRadius: optNum(r['explosionRadius'], 0),
+    explosionDamage: optNum(r['explosionDamage'], 0),
     medium: r['medium'] === 'water' ? 'water' : 'land',
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
     turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
     crushesBelowMass:
       typeof r['crushesBelowMass'] === 'number' ? r['crushesBelowMass'] : 0,
+    theftHeat: typeof r['theftHeat'] === 'number' ? r['theftHeat'] : 1,
+    ejectSpeed: typeof r['ejectSpeed'] === 'number' ? r['ejectSpeed'] : 0,
+    ejectStunTicks: typeof r['ejectStunTicks'] === 'number' ? r['ejectStunTicks'] : 0,
+    riderOffset: typeof r['riderOffset'] === 'number' ? r['riderOffset'] : null,
     crushSpeedLoss:
       typeof r['crushSpeedLoss'] === 'number' ? r['crushSpeedLoss'] : 1,
   };

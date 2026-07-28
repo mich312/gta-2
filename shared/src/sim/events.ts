@@ -111,6 +111,15 @@ export type SimEvent =
   | { type: 'pickupUp'; tick: number; kind: string; id: number }
   | { type: 'vehicleBurning'; tick: number; vehicleId: number; x: number; y: number }
   | {
+      /** Somebody came off a two-wheeler. The one thing a bike does that a
+       *  car cannot, and worth a sound and a puff of dust of its own. */
+      type: 'riderThrown';
+      tick: number;
+      playerId: number;
+      x: number;
+      y: number;
+    }
+  | {
       /** Metal met something. Without this a crash was the one physical
        *  interaction in the game that made no sound at all. */
       type: 'vehicleCollided';

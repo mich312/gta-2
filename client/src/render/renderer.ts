@@ -71,6 +71,26 @@ const GANG_TINT: Record<number, string> = {
  * Anything with a sprite of its own uses it; the generic car is the only kind
  * that comes in colours, so it is the only one that varies by id.
  */
+/**
+ * Vehicle kinds whose sprite carries the ten-colour `body` variant axis.
+ * Mirrors the `variants` blocks in shared/data/sprites.json; the sprite test
+ * is what keeps the two honest.
+ */
+const PAINTED_KINDS = new Set([
+  'car',
+  'coupe',
+  'estate',
+  'pickup',
+  'sports',
+  'hatch',
+  'muscle',
+  // The two-wheelers came in colours too, and were left off this list on the
+  // first pass — so both drew as the fallback rectangle, which the vehicle
+  // contact sheet showed as a solid red block the moment it existed.
+  'moto',
+  'bicycle',
+]);
+
 export function vehicleSpriteName(kind: string, id: number, gangId = 0): string {
   // A gang car wears its gang's colours, not a colour off the rank: the whole
   // reason it exists is that you can tell whose street you are on by what is
@@ -80,7 +100,11 @@ export function vehicleSpriteName(kind: string, id: number, gangId = 0): string 
   // gang, and minting three more near-identical car sprites would cost sheet
   // space to say something already said three ways.
   if (kind === 'gangcar') return `gangcar_v${Math.max(0, gangId - 1) % 4}`;
-  return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+  // Every civilian body comes in the same ten colours, so the suffix rule is
+  // a property of the SET rather than of one kind. It used to test
+  // `kind === 'car'`, which silently drew each new body in variant-less form
+  // — that is, not at all, since no such frame exists.
+  return PAINTED_KINDS.has(kind) ? `${kind}_v${Math.abs(id) % CAR_VARIANTS}` : kind;
 }
 
 /**
@@ -97,6 +121,24 @@ function aimOf(scene: Scene, driverId: number | null): number | null {
   if (scene.local && scene.local.id === driverId) return scene.localPos?.angle ?? scene.local.aimAngle;
   for (const r of scene.remotes.players) if (r.player.id === driverId) return r.aimAngle;
   return null;
+}
+
+/**
+ * The sprite to sit on a two-wheeler, for whoever is at the bars.
+ *
+ * Null for an empty bike, and null for anything with a roof — `drawVehicle`
+ * ignores it unless the vehicle has a `riderOffset`. A ped-ridden bike in
+ * traffic has no player driver, so it falls back to a pedestrian: an empty
+ * motorcycle travelling at 60 px/s is a worse bug than a generic rider.
+ */
+function riderSprite(scene: Scene, driverId: number | null): string | null {
+  if (driverId === null) return null;
+  if (driverId < 0) return 'ped_v0_f0'; // an AI driver: somebody, at least
+  const local = scene.local && scene.local.id === driverId ? scene.local : null;
+  const remote = local ? null : scene.remotes.players.find((r) => r.player.id === driverId);
+  const who = local ?? remote?.player;
+  if (!who) return 'ped_v0_f0';
+  return `player_v${Math.abs(who.cosmeticId) % PLAYER_VARIANTS}_f0`;
 }
 
 /** Uniform per force, so what is chasing you is legible at a glance. */
@@ -596,6 +638,7 @@ export function render(
       // already interpolated for their body, so the barrel is exactly as
       // smooth as everything else on screen.
       aimOf(scene, rv.vehicle.driverId),
+      riderSprite(scene, rv.vehicle.driverId),
     );
   }
   if (scene.localVehicle) {
@@ -624,6 +667,7 @@ export function render(
       // Your own turret comes off your own smoothed aim, not off the wire, so
       // it answers the mouse on the frame you move it.
       scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
+      riderSprite(scene, scene.local?.vehicleId === null ? null : (scene.local?.id ?? null)),
     );
   }
 
@@ -1431,6 +1475,12 @@ export function drawVehicle(
   gangId = 0,
   /** Where the turret points, or null on anything without one. */
   turret: number | null = null,
+  /**
+   * Who is riding it, on a two-wheeler: the sprite to composite at the
+   * saddle, or null. On anything with a roof the driver is inside and
+   * invisible, which is why this is a parameter rather than a lookup.
+   */
+  rider: string | null = null,
 ): void {
   // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
   // the ground where it belongs. The gap between the two is what sells it.
@@ -1454,6 +1504,18 @@ export function drawVehicle(
     const tx = dx(wx + Math.cos(heading) * off);
     const ty = dy(wy + Math.sin(heading) * off) - lift;
     sprites.draw(ctx, `${name}_turret`, tx, ty, condition === 'wreck' ? heading : (turret ?? heading));
+  };
+
+  // The rider sits ON a bike rather than inside it, which is the whole
+  // reason a motorcycle reads as a motorcycle from above. Same mechanism as
+  // the turret — a second sprite pivoted at an offset along the hull — but
+  // this one turns WITH the body, because a rider faces where the bike goes.
+  const seat = getVehicleTuning(kind).riderOffset;
+  const drawRider = (): void => {
+    if (seat === null || rider === null || condition !== 'ok') return;
+    const rx = dx(wx + Math.cos(heading) * seat);
+    const ry = dy(wy + Math.sin(heading) * seat) - lift;
+    sprites.draw(ctx, rider, rx, ry, heading);
   };
 
   // A wreck is drawn dark and never lit; a burning car throws its own light
@@ -1491,6 +1553,7 @@ export function drawVehicle(
   // tracks should not be painted across the gun.
   drawBodyDamage(ctx, id, x, y, heading, fp, zones, broken, maxHealth, wear);
   drawTurret();
+  drawRider();
 
   // Smoke before fire. This is the warning the burn fuse never gave: a car
   // showing grey off the bonnet is one you should think about swapping, and

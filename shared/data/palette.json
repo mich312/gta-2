@@ -170,6 +170,8 @@
   "carSand": "#a89168",
   "copCarBody": "#1e2733",
   "copCarPanel": "#d8dde4",
+  "copLightRed": "#d2483c",
+  "copLightBlue": "#3c72d2",
   "lampPost": "#565c64",
   "lampHead": "#7d848d",
   "lampBulb": "#ffe9a8",
