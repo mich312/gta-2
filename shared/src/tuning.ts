@@ -69,6 +69,17 @@ export interface VehicleTuning {
    * tells the guns to fire down the aim rather than down the bonnet.
    */
   turretOffset: number | null;
+  /**
+   * Drive straight over anything lighter than this, px-mass, instead of
+   * bumping into it. 0 — the default, and every vehicle but one — means
+   * nothing gets driven over.
+   *
+   * A threshold rather than a list of kinds so it stays a fact about weight:
+   * the tank's 2.0 falls in the gap between the heaviest thing it flattens
+   * (an ambulance at 1.5) and the lightest thing that stops it (a truck at
+   * 2.2), and any vehicle added later sorts itself.
+   */
+  crushesBelowMass: number;
 }
 
 export interface WeaponTuning {
@@ -529,6 +540,8 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     medium: r['medium'] === 'water' ? 'water' : 'land',
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
     turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
+    crushesBelowMass:
+      typeof r['crushesBelowMass'] === 'number' ? r['crushesBelowMass'] : 0,
   };
 }
 

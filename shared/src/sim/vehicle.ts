@@ -13,6 +13,7 @@ import type { SimEvent } from './events.js';
 import {
   collisionDamage,
   damageVehicle,
+  detonateVehicle,
   kerbStrike,
   partsSteerPull,
   vehiclePower,
@@ -60,6 +61,21 @@ export function vehiclesOverlap(a: VehicleState, b: VehicleState): boolean {
   return boxesOverlap(vehicleBox(a), vehicleBox(b));
 }
 
+/**
+ * Does a `heavy` simply drive over a `victim`, rather than bumping into it?
+ *
+ * A pure function of the two kinds' tuning, which is what lets the client
+ * predict it: whether the tank stops is decided identically on both hosts,
+ * and only what happens to the car underneath is the server's business. Get
+ * this wrong in either direction and the tank stops dead on one host and
+ * drives on in the other — the exact disagreement lag compensation exists to
+ * remove, reintroduced by the feature.
+ */
+export function crushes(heavyKind: string, victimKind: string): boolean {
+  const limit = getVehicleTuning(heavyKind).crushesBelowMass;
+  return limit > 0 && getVehicleTuning(victimKind).mass < limit;
+}
+
 function overlappingVehicle(
   world: VehicleWorld | null,
   self: VehicleState,
@@ -71,6 +87,10 @@ function overlappingVehicle(
     if (id === self.id) continue;
     const other = world.vehicles.byId[id];
     if (!other) continue;
+    // Nothing this one drives over can stop it — including the wreck it made
+    // of that car a moment ago, which would otherwise be a tank sitting on
+    // top of its own kill unable to get off it.
+    if (crushes(self.kind, other.kind)) continue;
     const pose = poseIn(world, other);
     // Distance reject before the trig. `boxesOverlap` has a broad phase of its
     // own, but it runs after both boxes are built, and building one costs a
@@ -102,6 +122,56 @@ function overlappingVehicle(
     }
   }
   return null;
+}
+
+/**
+ * Flatten everything `heavy` is currently standing on.
+ *
+ * The car goes up on the spot rather than catching light and going up seven
+ * seconds later somewhere behind you: a tank rolling down a street leaves a
+ * line of fireballs, which is the whole point of driving one.
+ *
+ * It is destroyed through the ordinary path — `damageVehicle` for exactly its
+ * remaining health, so ignition, the arson charge and the `vehicleBurning`
+ * event all happen the way they do for any other kill — and then detonated
+ * immediately instead of on the burn fuse. Unlike a chain reaction this
+ * cannot recurse: a blast only ever *ignites* the vehicles around it, so the
+ * depth here is one, and the crusher itself is shielded from the blast it
+ * just caused. Driving over a car is free; the tank is what it is.
+ *
+ * Crushing is charged as arson and not as a traffic accident, which is the
+ * opposite of the call made for an ordinary shunt — and for the same reason.
+ * There, nothing at the call site can tell a deliberate ram from a bad line
+ * through a junction. Here there is nothing to tell apart: you were driving a
+ * tank, and the car was underneath it.
+ */
+function crushUnderneath(sim: GameState, heavy: VehicleState, events: SimEvent[]): void {
+  const box = vehicleBox(heavy);
+  // Snapshot the ids: destroying one ignites its neighbours, which may add to
+  // the table's contents, and iteration order must not depend on that.
+  for (const id of [...sim.vehicles.ids]) {
+    if (id === heavy.id) continue;
+    const victim = sim.vehicles.byId[id];
+    if (!victim || victim.condition !== 'ok') continue; // a wreck is already flat
+    if (!crushes(heavy.kind, victim.kind)) continue;
+    if (!boxesOverlap(box, vehicleBox(victim))) continue;
+    damageVehicle(
+      sim,
+      victim,
+      victim.health,
+      events,
+      heavy.driverId !== null && heavy.driverId >= 0 ? heavy.driverId : null,
+      victim.pos.x,
+      victim.pos.y,
+    );
+    // Re-read rather than trusting the binding: `damageVehicle` decides
+    // whether that was enough to light it, and only something it actually
+    // lit is ours to set off.
+    const lit = sim.vehicles.byId[id];
+    if (lit && lit.condition === 'burning') {
+      detonateVehicle(sim, lit, events, heavy.id);
+    }
+  }
 }
 
 /** Ticks a pair stays immune after a shunt. See `GameState.vehicleHitTick`. */
@@ -179,6 +249,12 @@ function integrateVehicle(
         speed: Math.round(closing),
       });
     }
+  }
+  // Anything it drove over. Server only — the client already knows it does
+  // not stop (see `crushes`), and what becomes of the car underneath is
+  // somebody else's vehicle, which a client has no business deciding.
+  if (sim && getVehicleTuning(v.kind).crushesBelowMass > 0) {
+    crushUnderneath(sim, v, events ?? []);
   }
   const hit = overlappingVehicle(world, v);
   if (hit) {

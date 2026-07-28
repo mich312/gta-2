@@ -450,3 +450,183 @@ describe('you can still get in', () => {
     }
   });
 });
+
+describe('the tank drives over cars', () => {
+  // A tank accelerates at 76 px/s² to a top speed of 107, so it needs about
+  // two seconds to cover the 100 px to the parked car. The first draft of
+  // these tests ran 20 ticks and the tank never arrived — which made every
+  // "is stopped by a bus" case pass without the bus being involved at all.
+  const RUN_TICKS = 150;
+  const START_X = 200;
+  const VICTIM_X = 300;
+
+  function ram(
+    kind: string,
+    victimKind: string,
+    ticks = RUN_TICKS,
+  ): { driver: VehicleState; victim: VehicleState | undefined; travelled: number } {
+    const map = arena();
+    let state = createGameState(3);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'd' }], map);
+    state.players.byId[1]!.pos = { x: START_X, y: 320 };
+    state = step(
+      state,
+      {},
+      [
+        { type: 'spawnVehicle', vehicleId: 2, kind, x: START_X, y: 320, heading: 0 },
+        { type: 'spawnVehicle', vehicleId: 3, kind: victimKind, x: VICTIM_X, y: 320, heading: 0 },
+      ],
+      map,
+    );
+    state = step(state, { 1: key(1, { action: true }) }, [], map);
+    for (let i = 0; i < ticks; i++) {
+      state = step(state, { 1: key(i + 2, { up: true }) }, [], map);
+    }
+    const driver = state.vehicles.byId[2]!;
+    return { driver, victim: state.vehicles.byId[3], travelled: driver.pos.x - START_X };
+  }
+
+  it('flattens a car and keeps going', () => {
+    const { driver, victim } = ram('tank', 'car');
+    // Past where the car was standing, not stopped short of it.
+    expect(driver.pos.x).toBeGreaterThan(VICTIM_X);
+    expect(driver.speed).toBeGreaterThan(0);
+    // And the car went up: burnt out, not merely shunted down the road.
+    expect(victim?.condition).toBe('wreck');
+  });
+
+  it('the car explodes rather than smouldering for seven seconds', () => {
+    // A burn fuse would leave it 'burning' for seven seconds and put the
+    // fireball somewhere behind you, long after the thing that caused it.
+    // Sampled the tick after contact, not at the end of a long run.
+    const map = arena();
+    let state = createGameState(3);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'd' }], map);
+    state.players.byId[1]!.pos = { x: START_X, y: 320 };
+    state = step(
+      state,
+      {},
+      [
+        { type: 'spawnVehicle', vehicleId: 2, kind: 'tank', x: START_X, y: 320, heading: 0 },
+        { type: 'spawnVehicle', vehicleId: 3, kind: 'car', x: VICTIM_X, y: 320, heading: 0 },
+      ],
+      map,
+    );
+    state = step(state, { 1: key(1, { action: true }) }, [], map);
+    let sawBurning = false;
+    let wreckedOnTick = -1;
+    for (let i = 0; i < RUN_TICKS && wreckedOnTick < 0; i++) {
+      state = step(state, { 1: key(i + 2, { up: true }) }, [], map);
+      const c = state.vehicles.byId[3];
+      if (c?.condition === 'burning') sawBurning = true;
+      if (c?.condition === 'wreck') wreckedOnTick = i;
+    }
+    expect(wreckedOnTick).toBeGreaterThan(0);
+    // Never observed mid-fuse: ignition and detonation land on one tick.
+    expect(sawBurning).toBe(false);
+  });
+
+  it('and the tank is not scratched by it', () => {
+    const { driver, victim } = ram('tank', 'car');
+    expect(victim?.condition).toBe('wreck'); // the crush really happened
+    expect(driver.health).toBe(getVehicleTuning('tank').health);
+    expect(driver.condition).toBe('ok');
+  });
+
+  it('survives driving over a whole line of them', () => {
+    // The shield has to hold for every car, not just the first: at 110 damage
+    // a pop an unshielded tank is dead well before the eighth.
+    const map = arena();
+    let state = createGameState(3);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'd' }], map);
+    state.players.byId[1]!.pos = { x: 120, y: 320 };
+    const cmds: Array<Record<string, unknown>> = [
+      { type: 'spawnVehicle', vehicleId: 2, kind: 'tank', x: 120, y: 320, heading: 0 },
+    ];
+    for (let i = 0; i < 8; i++) {
+      cmds.push({
+        type: 'spawnVehicle',
+        vehicleId: 10 + i,
+        kind: 'car',
+        x: 220 + i * 60,
+        y: 320,
+        heading: 0,
+      });
+    }
+    state = step(state, {}, cmds as never, map);
+    state = step(state, { 1: key(1, { action: true }) }, [], map);
+    for (let i = 0; i < 400; i++) state = step(state, { 1: key(i + 2, { up: true }) }, [], map);
+    const tank = state.vehicles.byId[2]!;
+    let flattened = 0;
+    for (let i = 0; i < 8; i++) {
+      const c = state.vehicles.byId[10 + i];
+      if (!c || c.condition === 'wreck') flattened++;
+    }
+    expect(flattened).toBe(8);
+    // Not exactly full, and that is the honest answer rather than a rounding
+    // allowance. Every blast the tank CAUSES by crushing is shielded. What
+    // is not shielded is the second-order one: a parked car close enough to
+    // catch fire from a crush goes up later on its own burn fuse, and by then
+    // it is an ordinary exploding car that happens to be near a tank. Eight
+    // cars cost ten points of 1600 — free in every sense that matters, and
+    // the alternative is making a tank blast-proof against everything, which
+    // is a much larger claim than "crushing is free".
+    const max = getVehicleTuning('tank').health;
+    expect(tank.health).toBeGreaterThan(max * 0.99);
+  });
+
+  it.each(['car', 'taxi', 'van', 'ambulance', 'limo', 'icecream'])('flattens a %s', (light) => {
+    const { driver, victim } = ram('tank', light);
+    expect(driver.pos.x).toBeGreaterThan(VICTIM_X);
+    expect(victim?.condition).toBe('wreck');
+  });
+
+  it.each(['bus', 'truck', 'firetruck', 'garbage', 'digger'])('is stopped by a %s', (heavy) => {
+    const { driver, victim } = ram('tank', heavy);
+    // Reached it — the tank must not merely have run out of road. Contact is
+    // at halfLength + halfLength apart, so it gets close and no further.
+    const contactX = VICTIM_X - getVehicleTuning(heavy).halfLength - getVehicleTuning('tank').halfLength;
+    expect(driver.pos.x).toBeGreaterThan(contactX - 40);
+    expect(driver.pos.x).toBeLessThan(VICTIM_X);
+    expect(victim?.condition).not.toBe('wreck');
+  });
+
+  it('predicts it in client mode too, so the crush costs no correction', () => {
+    // `sim === null` is precisely what `Predictor.advance` passes: see the
+    // world/sim split in `integrateVehicle`. The client must reach the same
+    // verdict about whether the tank STOPS, or the tank halts on one host and
+    // drives on for the other and every crushed car costs a car-length
+    // correction — the disagreement this whole change exists to remove,
+    // reintroduced by a feature.
+    const map = arena();
+    const tank = createVehicle(1, 'tank', { x: 200, y: 320 }, 0);
+    const parked = createVehicle(2, 'car', { x: 300, y: 320 }, 0);
+    const world = { vehicles: { ids: [1, 2], byId: { 1: tank, 2: parked } } };
+    for (let i = 0; i < 150; i++) driveVehicle(tank, 1, 0, map, world, null);
+    // Drove clean past it, with no server present to destroy anything: the
+    // car is still sitting there, untouched, and the tank went over it.
+    expect(tank.pos.x).toBeGreaterThan(300);
+    expect(tank.speed).toBeGreaterThan(0);
+    expect(parked.condition).toBe('ok');
+    expect(parked.pos.x).toBe(300);
+  });
+
+  it('but a client cannot decide a bus lets it through', () => {
+    const map = arena();
+    const tank = createVehicle(1, 'tank', { x: 200, y: 320 }, 0);
+    const bus = createVehicle(2, 'bus', { x: 300, y: 320 }, 0);
+    const world = { vehicles: { ids: [1, 2], byId: { 1: tank, 2: bus } } };
+    for (let i = 0; i < 150; i++) driveVehicle(tank, 1, 0, map, world, null);
+    expect(tank.pos.x).toBeLessThan(300);
+  });
+
+  it('a car does not crush anything — this is the tank\u2019s trick alone', () => {
+    // A car meeting a car is the ordinary shunt: the parked one is SHOVED
+    // down the road, intact, and the one that hit it follows. Asserting the
+    // rammer stops short would be wrong for that reason — it does not stop,
+    // it pushes.
+    const { victim } = ram('car', 'car');
+    expect(victim?.condition).not.toBe('wreck');
+    expect(victim!.pos.x).toBeGreaterThan(VICTIM_X);
+  });
+});

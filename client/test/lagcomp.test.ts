@@ -149,3 +149,76 @@ describe('tailgating a moving car', () => {
     expect(withComp.maxCorrection).toBeLessThan(1);
   });
 });
+
+describe('the tank agrees with itself across the wire', () => {
+  it('predicts driving over a car, so the crush costs no correction', () => {
+    // Whether the tank STOPS is decided by `crushes`, a pure function of the
+    // two kinds' tuning — so the client can and must predict it. If it could
+    // not, the tank would stop dead on the client and drive on for the
+    // server, and every crushed car would cost a full car-length correction:
+    // the exact disagreement this whole change exists to remove,
+    // reintroduced by a feature.
+    //
+    // What stays server-side is the car's fate, which is why the tank must
+    // not be BLOCKED by the wreck it leaves behind either.
+    const map = arena();
+    let state = createGameState(21);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'tanker' }], map);
+    state.players.byId[1]!.pos = { x: 200, y: 320 };
+    state = step(
+      state,
+      {},
+      [
+        { type: 'spawnVehicle', vehicleId: 2, kind: 'tank', x: 200, y: 320, heading: 0 },
+        { type: 'spawnVehicle', vehicleId: 3, kind: 'car', x: 340, y: 320, heading: 0 },
+        { type: 'spawnVehicle', vehicleId: 4, kind: 'car', x: 460, y: 320, heading: 0 },
+      ],
+      map,
+    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, action: true } }, [], map);
+
+    const interp = new Interpolator();
+    const predictor = new Predictor();
+    const inFlight: Array<{ dueTick: number; snap: FullSnapshot }> = [];
+    let maxCorrection = 0;
+    let seq = 2;
+    for (let t = 0; t < 200; t++) {
+      while (inFlight.length > 0 && (inFlight[0] as { dueTick: number }).dueTick <= t) {
+        const { snap } = inFlight.shift() as { dueTick: number; snap: FullSnapshot };
+        interp.push(snap);
+        interp.advance(1000 / 30);
+        predictor.setWorld(interp.vehiclesAsDrawn());
+        const authoritative = snap.players.find((p) => p.id === 1);
+        if (authoritative) {
+          const car = snap.vehicles.find((v) => v.id === authoritative.vehicleId) ?? null;
+          predictor.reconcile(authoritative, car, authoritative.lastInputSeq, map);
+          maxCorrection = Math.max(maxCorrection, predictor.lastCorrection);
+        }
+      }
+      const intent: InputIntent = {
+        ...NULL_INPUT,
+        seq: seq++,
+        tick: t,
+        up: true,
+        viewTick: interp.viewTick(),
+      };
+      predictor.applyLocalInput(intent, map);
+      state = step(state, { 1: intent }, [], map);
+      inFlight.push({ dueTick: t + WIRE_LAG_TICKS + 1, snap: takeSnapshot(state) });
+    }
+
+    // Both cars flattened, and the tank drove clean past where they stood.
+    expect(state.vehicles.byId[3]?.condition).toBe('wreck');
+    expect(state.vehicles.byId[4]?.condition).toBe('wreck');
+    expect(state.vehicles.byId[2]!.pos.x).toBeGreaterThan(460);
+    // ...with the two hosts never disagreeing about where the tank is.
+    //
+    // Weak on its own, and worth saying so: reconciliation re-anchors the
+    // client to the server every snapshot and replays only the unacked
+    // inputs, so a client that got the crush wrong can still show a small
+    // correction here. The claim that the CLIENT predicts driving over a car
+    // is pinned directly instead, by running the shared step in client mode
+    // — see "predicts it in client mode too" in shared/test/colliders.test.ts.
+    expect(maxCorrection).toBeLessThan(1);
+  });
+});

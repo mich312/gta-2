@@ -1,5 +1,69 @@
 # PROGRESS
 
+## The tank drives over cars
+
+561 tests green (up from 542; 19 new). 8-bot brawl and joyride lockstep, 0
+desyncs, replay re-simulates hash-identical.
+
+A tank flattens anything lighter than a truck and keeps going; the car it
+drove over explodes on the spot; the tank and whoever is inside it are
+untouched by the blast. Anything its own size or bigger — truck, fire engine,
+bus, garbage lorry, digger — stops it dead, exactly as another car would.
+
+**A threshold, not a list.** `crushesBelowMass: 2.0` on the tank, and nothing
+else in the game has the key at all. 2.0 sits in the gap between the heaviest
+thing a tank flattens (an ambulance, 1.5) and the lightest thing that stops it
+(a truck, 2.2), so it stays a fact about weight and any vehicle added later
+sorts itself without anyone editing a list of kinds.
+
+**The half that has to be predicted.** Whether the tank STOPS is a pure
+function of the two kinds' tuning, so the client decides it identically — get
+that wrong and the tank halts on one host and drives on for the other, and
+every crushed car costs a car-length correction: precisely the disagreement
+the lag-compensation work exists to remove, reintroduced by a feature. What
+stays server-side is the car's fate. The same rule that keeps a tank from
+being blocked by a live car also keeps it from being blocked by the wreck it
+just made, which would otherwise leave it sitting on top of its own kill.
+
+**Destroyed through the ordinary path, detonated early.** `damageVehicle` for
+exactly the car's remaining health, so ignition, the arson charge and the
+`vehicleBurning` event happen the way they do for any other kill — then set
+off immediately rather than on the seven-second burn fuse, because a fuse
+would put the fireball somewhere behind you long after the thing that caused
+it. It cannot recurse: a blast only ever *ignites* what is around it, so the
+depth is one. Crushing is charged as arson rather than as a traffic accident,
+which is the opposite of the call made for an ordinary shunt and for the same
+reason — there, nothing at the call site can tell a deliberate ram from a bad
+line through a junction; here there is nothing to tell apart.
+
+**The shield covers the crew.** `blast` gained a shielded vehicle, and it
+spares anyone riding in it as well as the bodywork. The first version shielded
+only the hull, and the tests caught what that meant: the tank survived the
+line of cars and the driver did not, so the tank coasted to a halt with a dead
+man at the controls two cars in. "The tank is not damaged" has to mean the
+tank, not its paint.
+
+**What still scratches it, honestly.** Every blast the tank CAUSES is
+shielded. A parked car close enough to catch fire from one of those blasts
+goes up later on its own fuse, and by then it is an ordinary exploding car
+that happens to be near a tank: eight cars in a row cost ten points of 1600.
+Left that way deliberately — the alternative is making a tank blast-proof
+against everything, which is a much larger claim than "crushing is free".
+
+**Verification.** Nineteen new tests: each light kind flattened and each heavy
+kind stopping it, with the blocked cases asserting the tank actually REACHED
+what stopped it; the car reaching `wreck` without ever being observed
+`burning`, which is what distinguishes exploding on the spot from smouldering
+on a fuse; a line of eight; a car proving it cannot do any of this; and the
+client-mode prediction pinned directly by running the shared step with
+`sim === null`, which is exactly what the predictor passes.
+
+**Least confident about.** A tank loses no momentum driving over a car, which
+is the literal reading of "drives over" and may read as weightless in the
+hand; a small speed loss like the one props take is a one-line tuning change
+if it does. The 2.0 threshold is a first guess at where "bigger than a tank"
+should fall.
+
 ## Colliders on one clock and one shape: cars, people, and a server that goes back and looks
 
 542 tests green (up from 507; 35 new across three files). 8-bot brawl and
