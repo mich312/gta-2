@@ -187,3 +187,128 @@ describe('payphone missions (H3)', () => {
     expect(TICK_RATE).toBe(30);
   });
 });
+
+describe('three more mission kinds (N1)', () => {
+  /**
+   * Force a specific kind onto a player, bypassing the board's rotation and
+   * respect gate: this suite is about the VERBS, not about who offers them.
+   */
+  function give(kind: string): { missions: Missions; state: GameState } {
+    const { state, gang } = atPhone();
+    const missions = new Missions();
+    const p = state.players.byId[1]!;
+    p.respect = p.respect.map(() => 60);
+    // Take jobs until the rotating board offers the one we want.
+    for (let i = 0; i < 40; i++) {
+      missions.abandon(1);
+      const why = missions.take(1, state, map);
+      expect(why, `attempt ${i}`).toBeNull();
+      if (missions.activeFor(1)?.spec.kind === kind) return { missions, state };
+    }
+    throw new Error(`board never offered a ${kind}`);
+  }
+  void 0;
+
+  it('a race must be run IN ORDER', () => {
+    // The difference between a race and a scavenger hunt, and the obvious
+    // implementation gets it wrong.
+    const { missions, state } = give('race');
+    const m = missions.activeFor(1)!;
+    expect(m.route?.length).toBe(m.spec.count);
+    const route = m.route!;
+    const p = state.players.byId[1]!;
+
+    // Standing on the LAST checkpoint first counts for nothing.
+    p.pos = { x: route[route.length - 1]!.x, y: route[route.length - 1]!.y };
+    missions.step([], state, map);
+    expect(missions.activeFor(1)!.progress).toBe(0);
+
+    // Taken in order, each one counts exactly once.
+    for (let i = 0; i < route.length; i++) {
+      p.pos = { x: route[i]!.x, y: route[i]!.y };
+      missions.step([], state, map);
+      missions.step([], state, map); // and standing there does not double-count
+      const still = missions.activeFor(1);
+      if (!still) {
+        expect(i).toBe(route.length - 1); // finished on the last one
+        return;
+      }
+      expect(still.progress).toBe(i + 1);
+    }
+  });
+
+  it('an escape needs you to arrive hot, then go quiet', () => {
+    const { missions, state } = give('escape');
+    const m = missions.activeFor(1)!;
+    expect(m.marker).not.toBeNull();
+    const p = state.players.byId[1]!;
+    p.pos = { x: m.marker!.x, y: m.marker!.y };
+
+    // Arriving clean is a walk, not an escape: the hold does not start,
+    // because the job was never primed.
+    p.heat = 0;
+    missions.step([], state, map);
+    expect(missions.activeFor(1)!.primed).toBe(false);
+    expect(missions.activeFor(1)!.holdUntilTick).toBeNull();
+
+    // Get hot: primed now, but still no hold — they are still on you.
+    p.heat = 260;
+    missions.step([], state, map);
+    expect(missions.activeFor(1)!.primed).toBe(true);
+    expect(missions.activeFor(1)!.holdUntilTick).toBeNull();
+
+    // Shake them off at the marker and the clock starts.
+    p.heat = 0;
+    missions.step([], state, map);
+    const until = missions.activeFor(1)!.holdUntilTick;
+    expect(until).toBeGreaterThan(state.tick);
+
+    // Leaving resets it — lying low means staying put.
+    p.pos = { x: m.marker!.x + 400, y: m.marker!.y };
+    missions.step([], state, map);
+    expect(missions.activeFor(1)!.holdUntilTick).toBeNull();
+  });
+
+  it('a bomb job wants an explosion on their doorstep, not just any bang', () => {
+    const { missions, state } = give('bomb');
+    const m = missions.activeFor(1)!;
+    expect(m.marker).not.toBeNull();
+
+    // A blast on the far side of town does nothing.
+    missions.step(
+      [{ type: 'explosion', tick: state.tick, x: m.marker!.x + 3000, y: m.marker!.y, radius: 90 }],
+      state,
+      map,
+    );
+    expect(missions.activeFor(1)?.progress ?? 0).toBe(0);
+
+    // One on the target finishes it.
+    const out = missions.step(
+      [{ type: 'explosion', tick: state.tick, x: m.marker!.x, y: m.marker!.y, radius: 90 }],
+      state,
+      map,
+    );
+    expect(out.completed.some((c) => c.playerId === 1)).toBe(true);
+  });
+
+  it('every kind on the board can be described without crashing the HUD', () => {
+    const { state } = atPhone();
+    const missions = new Missions();
+    state.players.byId[1]!.respect = state.players.byId[1]!.respect.map(() => 60);
+    const seen = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      missions.abandon(1);
+      if (missions.take(1, state, map) !== null) continue;
+      const m = missions.activeFor(1);
+      if (!m) continue;
+      seen.add(m.spec.kind);
+      const view = missions.view(1, state.tick);
+      expect(view.active).toBe(true);
+      expect(view.text.length).toBeGreaterThan(0);
+    }
+    // All six verbs are reachable from the board.
+    for (const kind of ['hit', 'sweep', 'delivery', 'escape', 'race', 'bomb']) {
+      expect(seen, kind).toContain(kind);
+    }
+  });
+});

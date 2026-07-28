@@ -11,6 +11,8 @@ export interface MissionView {
   target: number;
   secondsLeft: number;
   marker: { x: number; y: number } | null;
+  /** Remaining checkpoints for a race; the first of them is `marker`. */
+  route?: Array<{ x: number; y: number }>;
 }
 
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
@@ -95,6 +97,11 @@ export class Hud {
   /** Marker the renderer should point at, if any. */
   get missionMarker(): { x: number; y: number } | null {
     return this.mission?.active ? this.mission.marker : null;
+  }
+
+  /** The rest of a race's checkpoints, drawn dim behind the next one. */
+  get missionRoute(): Array<{ x: number; y: number }> {
+    return this.mission?.active ? (this.mission.route ?? []) : [];
   }
 
   /** The crushers' shopping list changed. */

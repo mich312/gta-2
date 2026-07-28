@@ -532,6 +532,7 @@ function frame(now: number): void {
   hud.fitting = myCar?.fitting ?? '';
   hud.fittingAmmo = myCar?.fittingAmmo ?? 0;
   minimap.marker = hud.missionMarker;
+  minimap.route = hud.missionRoute;
   hud.draw(
     screen.ctx,
     predictor.predicted ?? null,

@@ -5,11 +5,14 @@ import {
   type SimEvent,
   type Vec2,
   TICK_RATE,
+  TILE_SIZE,
   creditGangFavour,
+  drivableTile,
   gangAt,
   gangName,
   getTuning,
   respectOf,
+  wantedLevelOf,
 } from 'shared';
 
 /**
@@ -27,7 +30,16 @@ import {
  * turns a conflict into a race.
  */
 
-export type MissionKind = 'hit' | 'sweep' | 'delivery';
+export type MissionKind =
+  | 'hit'
+  | 'sweep'
+  | 'delivery'
+  /** Take on heat, then reach a marker and stay clean while a clock runs. */
+  | 'escape'
+  /** Hit an ordered list of markers before the clock does. */
+  | 'race'
+  /** Drive a bomb-fitted car to a target and set it off. */
+  | 'bomb';
 export type MissionTier = 'green' | 'yellow' | 'red';
 
 export interface MissionSpec {
@@ -37,9 +49,13 @@ export interface MissionSpec {
   needs: number;
   /** How long you get, in seconds. */
   seconds: number;
-  /** Bodies, or vehicles, depending on the verb. */
+  /** Bodies, vehicles, or checkpoints, depending on the verb. */
   count: number;
   pay: number;
+  /** escape: stars you must be carrying before the run counts. */
+  needsStars?: number;
+  /** escape: seconds you must stay clean at the marker. */
+  holdSeconds?: number;
 }
 
 export interface ActiveMission {
@@ -54,6 +70,18 @@ export interface ActiveMission {
   marker: Vec2 | null;
   /** For a delivery: the vehicle kind wanted, and where it goes. */
   wantKind?: string;
+  /** For a race: every checkpoint, in order. `marker` is the next one. */
+  route?: Vec2[];
+  /** For an escape: tick the hold completes on, or null before it starts. */
+  holdUntilTick?: number | null;
+  /**
+   * For an escape: have you ever actually been as hot as the job requires?
+   *
+   * Without this the mission is a walk — take it, drive to the marker clean,
+   * stand still for eight seconds, collect. You have to EARN the heat before
+   * losing it counts as losing it.
+   */
+  primed?: boolean;
 }
 
 export interface MissionView {
@@ -65,6 +93,8 @@ export interface MissionView {
   target: number;
   secondsLeft: number;
   marker: Vec2 | null;
+  /** Every remaining checkpoint, for a race. The first is `marker`. */
+  route: Vec2[];
 }
 
 /** The offer board. Two green, three yellow, two red, as the original did. */
@@ -76,7 +106,17 @@ const SPECS: MissionSpec[] = [
   { kind: 'sweep', tier: 'yellow', needs: 10, seconds: 120, count: 6, pay: 1100 },
   { kind: 'delivery', tier: 'red', needs: 35, seconds: 120, count: 1, pay: 2200 },
   { kind: 'hit', tier: 'red', needs: 35, seconds: 110, count: 7, pay: 2600 },
+  // Escape makes the POLICE the objective rather than the obstacle, which is
+  // the most developed system this project has and the one nothing else
+  // pointed a mission at.
+  { kind: 'escape', tier: 'yellow', needs: 10, seconds: 150, count: 1, pay: 1200, needsStars: 2, holdSeconds: 8 },
+  { kind: 'race', tier: 'green', needs: -10, seconds: 95, count: 4, pay: 700 },
+  { kind: 'race', tier: 'red', needs: 35, seconds: 110, count: 6, pay: 2400 },
+  { kind: 'bomb', tier: 'red', needs: 35, seconds: 140, count: 1, pay: 2800 },
 ];
+
+/** How close counts as reaching a marker, px. */
+const MARKER_REACH = 60;
 
 const WANTED_KINDS = ['bus', 'firetruck', 'ambulance', 'truck', 'taxi'];
 
@@ -115,6 +155,7 @@ export class Missions {
         target: 0,
         secondsLeft: 0,
         marker: null,
+        route: [],
       };
     }
     return {
@@ -126,6 +167,7 @@ export class Missions {
       target: m.spec.count,
       secondsLeft: Math.max(0, Math.ceil((m.deadlineTick - tick) / TICK_RATE)),
       marker: m.marker,
+      route: m.route ? m.route.slice(m.progress) : [],
     };
   }
 
@@ -172,6 +214,19 @@ export class Missions {
       mission.marker = nearestCrane(map, p.pos);
     } else if (spec.kind === 'sweep') {
       // A sweep sends you onto somebody else's ground: the employer's rival.
+      const rival = getTuning().gangs.gangs.find((g) => g.id === employer)?.rivals[0] ?? 0;
+      mission.marker = homeOf(map, rival);
+    } else if (spec.kind === 'escape') {
+      // Somewhere to run TO. A crane yard: reachable, off the main drag, and
+      // already a landmark the radar draws.
+      mission.marker = nearestCrane(map, p.pos);
+      mission.holdUntilTick = null;
+      mission.primed = false;
+    } else if (spec.kind === 'race') {
+      mission.route = raceRoute(map, p.pos, spec.count, mission.id);
+      mission.marker = mission.route[0] ?? null;
+    } else if (spec.kind === 'bomb') {
+      // The target is a rival's home ground: a bomb job is a message.
       const rival = getTuning().gangs.gangs.find((g) => g.id === employer)?.rivals[0] ?? 0;
       mission.marker = homeOf(map, rival);
     }
@@ -223,8 +278,60 @@ export class Missions {
       if (m.spec.kind === 'delivery') {
         const v = p.mode === 'driving' && p.vehicleId !== null ? state.vehicles.byId[p.vehicleId] : null;
         if (v && v.kind === m.wantKind && m.marker) {
-          const near = Math.abs(v.pos.x - m.marker.x) < 60 && Math.abs(v.pos.y - m.marker.y) < 60;
+          const near =
+            Math.abs(v.pos.x - m.marker.x) < MARKER_REACH &&
+            Math.abs(v.pos.y - m.marker.y) < MARKER_REACH;
           if (near && Math.abs(v.speed) < 40) m.progress = m.spec.count;
+        }
+      }
+
+      if (m.spec.kind === 'escape') {
+        // Three conditions, and the order is the mission: get hot, get to the
+        // marker, then get cold and stay put. Dropping any one of them turns
+        // it into a different, easier job — most obviously, without `primed`
+        // you can drive there clean and simply wait.
+        const stars = wantedLevelOf(p);
+        if (stars >= (m.spec.needsStars ?? 1) && !m.primed) {
+          m.primed = true;
+          out.changed.add(playerId);
+          out.notices.push({ playerId, text: 'they are on you — now lose them' });
+        }
+        const atMarker =
+          m.marker !== null &&
+          Math.abs(p.pos.x - m.marker.x) < MARKER_REACH &&
+          Math.abs(p.pos.y - m.marker.y) < MARKER_REACH;
+        if (!atMarker || !m.primed || stars > 0) {
+          m.holdUntilTick = null;
+        } else if (m.holdUntilTick === null || m.holdUntilTick === undefined) {
+          m.holdUntilTick = state.tick + Math.round((m.spec.holdSeconds ?? 8) * TICK_RATE);
+          out.changed.add(playerId);
+        } else if (state.tick >= m.holdUntilTick) {
+          m.progress = m.spec.count;
+        }
+      }
+
+      if (m.spec.kind === 'race' && m.route) {
+        const at = m.route[m.progress];
+        if (
+          at &&
+          Math.abs(p.pos.x - at.x) < MARKER_REACH &&
+          Math.abs(p.pos.y - at.y) < MARKER_REACH
+        ) {
+          // IN ORDER. Standing on checkpoint four does nothing until one,
+          // two and three have been visited — which is the whole difference
+          // between a race and a scavenger hunt.
+          m.progress++;
+          m.marker = m.route[m.progress] ?? m.marker;
+        }
+      }
+
+      if (m.spec.kind === 'bomb' && m.marker) {
+        for (const ev of events) {
+          if (ev.type !== 'explosion') continue;
+          const near =
+            Math.abs(ev.x - m.marker.x) < MARKER_REACH * 2 &&
+            Math.abs(ev.y - m.marker.y) < MARKER_REACH * 2;
+          if (near) m.progress = m.spec.count;
         }
       }
 
@@ -259,7 +366,53 @@ function describe(m: ActiveMission): string {
       return `hit ${m.spec.count} on rival ground`;
     case 'delivery':
       return `bring a ${m.wantKind ?? 'car'} to the crusher`;
+    case 'escape':
+      if (m.holdUntilTick != null) return 'lie low — do not move';
+      return m.primed
+        ? 'lose them, then get to the crane'
+        : `pull ${m.spec.needsStars ?? 1} stars first`;
+    case 'race':
+      return `${m.spec.count} checkpoints, in order`;
+    case 'bomb':
+      return 'put a bomb car on their doorstep';
   }
+}
+
+/**
+ * A ring of checkpoints around the player, each on a road.
+ *
+ * A ring rather than a random scatter: it guarantees the route goes somewhere
+ * and comes back, so a race cannot be won by standing still and cannot send
+ * you off the edge of the map either. The starting angle varies by mission
+ * id, so two races from the same corner are not the same race.
+ */
+function raceRoute(map: CityMap, from: Vec2, count: number, salt: number): Vec2[] {
+  const out: Vec2[] = [];
+  const radius = 520;
+  for (let i = 0; i < count; i++) {
+    const angle = ((i + salt * 0.37) / count) * Math.PI * 2;
+    const want = { x: from.x + Math.cos(angle) * radius, y: from.y + Math.sin(angle) * radius };
+    out.push(nearestRoad(map, want) ?? want);
+  }
+  return out;
+}
+
+/** Nearest drivable tile centre to a point, searched outwards. */
+function nearestRoad(map: CityMap, want: Vec2): Vec2 | null {
+  const tx0 = Math.floor(want.x / TILE_SIZE);
+  const ty0 = Math.floor(want.y / TILE_SIZE);
+  for (let r = 0; r < 24; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const tx = tx0 + dx;
+        const ty = ty0 + dy;
+        if (!drivableTile(map, tx, ty)) continue;
+        return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      }
+    }
+  }
+  return null;
 }
 
 function nearestCrane(map: CityMap, from: Vec2): Vec2 | null {

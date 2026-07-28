@@ -59,6 +59,8 @@ export class Minimap {
   private map: CityMap | null = null;
   /** Objective marker, set by the HUD's mission state. */
   marker: { x: number; y: number } | null = null;
+  /** Checkpoints still to come on a race, drawn dim behind the next one. */
+  route: Array<{ x: number; y: number }> = [];
 
   setMap(map: CityMap): void {
     this.map = map;
@@ -205,6 +207,13 @@ export class Minimap {
       }
     }
     // Where the job wants you, over everything except yourself.
+    // The rest of the route first, dimmer and smaller, so the NEXT one is
+    // unambiguous — a race drawn as five identical dots is a race you lose by
+    // going to the wrong one.
+    for (let i = 1; i < this.route.length; i++) {
+      const c = this.route[i]!;
+      dot(c.x, c.y, 'rgba(255, 210, 122, 0.45)', 1.5);
+    }
     if (this.marker) dot(this.marker.x, this.marker.y, '#ffd27a', 2.5);
 
     // Own marker last, so nothing can cover it.
