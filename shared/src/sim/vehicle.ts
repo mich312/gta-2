@@ -9,8 +9,27 @@ import type { CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
 import type { EntityTable } from './entities.js';
 import type { SimEvent } from './events.js';
-import { collisionDamage, damageVehicle } from './vehicleDamage.js';
+import {
+  collisionDamage,
+  damageVehicle,
+  kerbStrike,
+  partsSteerPull,
+  vehiclePower,
+} from './vehicleDamage.js';
 import { anyCopSees } from './police.js';
+import { applyDamage } from './weapons.js';
+
+/** Closing speed below which a scrape is just a scrape. */
+const WALL_HIT_MIN_SPEED = 54;
+const CAR_HIT_MIN_SPEED = 36;
+/** A wall gives back less than another car does — it does not move. */
+const WALL_SHARE = 0.7;
+/** Fraction of the exchange the car that did the hitting takes. */
+const STRIKER_SHARE = 0.7;
+/** Impulse handed to the struck car, before the mass split. */
+const SHOVE_BASE = 0.55;
+/** Kerb strike above this bursts the tyre nearest the contact. */
+const KERB_TYRE_SPEED = 140;
 
 /**
  * Arcade vehicle physics: signed forward speed along a heading, steering
@@ -30,24 +49,93 @@ export interface VehicleWorld {
   vehicles: EntityTable<VehicleState>;
 }
 
+/** What two vehicles touching tells the rest of the system. */
+interface VehicleContact {
+  other: VehicleState;
+  /** Where they met, in world coordinates. Routes the damage to a zone. */
+  x: number;
+  y: number;
+}
+
+/**
+ * Do two oriented body boxes overlap? Separating-axis test, four axes.
+ *
+ * This replaced an axis-aligned square of the STRIKER's own `halfExtent`,
+ * used for both vehicles and both axes. For a car that was 18 × 18 against a
+ * body 26 long and 14 wide, so it was too wide and too short at once: two cars
+ * in adjacent lanes on a two-tile street sit 16 px apart, 16 < 18, and they
+ * collided eight times per pass and shredded 44% of each other's health
+ * without their bodies ever coming near touching. Nose-to-tail, a car could
+ * bury a third of its length in the one in front before anything noticed.
+ *
+ * Only exact operations (multiply, add, compare, absolute value) and the
+ * deterministic trig table, so it is safe in prediction.
+ */
+export function boxesOverlap(a: VehicleState, b: VehicleState): boolean {
+  const ta = getVehicleTuning(a.kind);
+  const tb = getVehicleTuning(b.kind);
+  const dx = b.pos.x - a.pos.x;
+  const dy = b.pos.y - a.pos.y;
+
+  // Broad phase: no pair of boxes can touch further apart than the sum of
+  // their diagonals, and most pairs are nowhere near.
+  const reach = ta.halfLength + ta.halfWidth + tb.halfLength + tb.halfWidth;
+  if (dx * dx + dy * dy > reach * reach) return false;
+
+  const ac = dCos(a.heading);
+  const as = dSin(a.heading);
+  const bc = dCos(b.heading);
+  const bs = dSin(b.heading);
+
+  /** True if this axis separates them — one clear axis means no contact. */
+  const separated = (ux: number, uy: number): boolean => {
+    const d = dx * ux + dy * uy;
+    const dist = d < 0 ? -d : d;
+    const af = ta.halfLength * (ac * ux + as * uy);
+    const ar = ta.halfWidth * (-as * ux + ac * uy);
+    const bf = tb.halfLength * (bc * ux + bs * uy);
+    const br = tb.halfWidth * (-bs * ux + bc * uy);
+    const ra = (af < 0 ? -af : af) + (ar < 0 ? -ar : ar);
+    const rb = (bf < 0 ? -bf : bf) + (br < 0 ? -br : br);
+    return dist > ra + rb;
+  };
+
+  if (separated(ac, as)) return false;
+  if (separated(-as, ac)) return false;
+  if (separated(bc, bs)) return false;
+  if (separated(-bs, bc)) return false;
+  return true;
+}
+
 function overlappingVehicle(
   world: VehicleWorld | null,
   self: VehicleState,
-  half: number,
-): VehicleState | null {
+): VehicleContact | null {
   if (!world) return null;
   for (const id of world.vehicles.ids) {
     if (id === self.id) continue;
     const other = world.vehicles.byId[id];
     if (!other) continue;
-    if (
-      Math.abs(other.pos.x - self.pos.x) < half * 2 &&
-      Math.abs(other.pos.y - self.pos.y) < half * 2
-    ) {
-      return other;
+    if (boxesOverlap(self, other)) {
+      // The midpoint of the two centres is the contact point, near enough:
+      // head-on it lands in front of you, side-swiped it lands on the side
+      // that was swiped, which is all the damage map needs to know.
+      return {
+        other,
+        x: (self.pos.x + other.pos.x) * 0.5,
+        y: (self.pos.y + other.pos.y) * 0.5,
+      };
     }
   }
   return null;
+}
+
+/** Ticks a pair stays immune after a shunt. See `GameState.vehicleHitTick`. */
+const CONTACT_DEBOUNCE_TICKS = 4;
+
+function contactIsFresh(sim: GameState, v: VehicleState): boolean {
+  const last = sim.vehicleHitTick[v.id];
+  return last === undefined || sim.tick - last >= CONTACT_DEBOUNCE_TICKS;
 }
 
 /** Move a vehicle by its speed/heading, colliding with tiles and (server-side) other cars. */
@@ -88,37 +176,107 @@ function integrateVehicle(
   const hitWall = (dx !== 0 && tmpVel.x === 0) || (dy !== 0 && tmpVel.y === 0);
   if (hitWall) {
     const closing = Math.abs(v.speed);
+    // Where the body met the wall: the centre of whichever face was blocked,
+    // taken at the body's own extent so a nose-first prang dents the nose.
+    const wx = v.pos.x + (dx !== 0 && tmpVel.x === 0 ? Math.sign(dx) * t.halfLength : 0);
+    const wy = v.pos.y + (dy !== 0 && tmpVel.y === 0 ? Math.sign(dy) * t.halfWidth : 0);
     v.speed = -v.speed * t.crashDamp; // crunch + slight rebound
     if (Math.abs(v.speed) < 10) v.speed = 0;
-    if (sim && closing > 54) {
-      damageVehicle(sim, v, collisionDamage(v.kind, closing) * 0.7, events ?? []);
+    if (sim && closing > WALL_HIT_MIN_SPEED && contactIsFresh(sim, v)) {
+      sim.vehicleHitTick[v.id] = sim.tick;
+      damageVehicle(
+        sim,
+        v,
+        (collisionDamage(v.kind, closing) * WALL_SHARE) / t.mass,
+        events ?? [],
+        wx,
+        wy,
+      );
+      if (closing > KERB_TYRE_SPEED) kerbStrike(sim, v, wx, wy, events ?? []);
+      events?.push({
+        type: 'vehicleCollided',
+        tick: sim.tick,
+        vehicleId: v.id,
+        x: Math.round(wx),
+        y: Math.round(wy),
+        speed: Math.round(closing),
+      });
     }
   }
-  const hit = overlappingVehicle(world, v, t.halfExtent);
+  const hit = overlappingVehicle(world, v);
   if (hit) {
+    const other = hit.other;
+    // Are we driving INTO it, or out of it?
+    //
+    // Reverting the move on any overlap at all means two vehicles that are
+    // already interpenetrating can never separate: every escape attempt is
+    // undone, and the only way out is whatever unwedging heuristic the driver
+    // happens to have. Two cruisers spawned on the same spot sat in a
+    // wedge-reverse-wedge cycle for the whole of a chase because of it. A move
+    // that increases the distance between the centres is a move out, and it is
+    // always allowed — which is also simply what "momentum transfer, not a
+    // brick wall" was supposed to mean.
+    const odx0 = beforeX - other.pos.x;
+    const ody0 = beforeY - other.pos.y;
+    const odx1 = v.pos.x - other.pos.x;
+    const ody1 = v.pos.y - other.pos.y;
+    if (odx1 * odx1 + ody1 * ody1 > odx0 * odx0 + ody0 * ody0) {
+      v.pos.x = q8(v.pos.x);
+      v.pos.y = q8(v.pos.y);
+      v.speed = q8(v.speed);
+      return;
+    }
     // Momentum transfer, not a brick wall. The old behaviour reverted the
     // position and zeroed the speed, so a parked car stopped a 330 px/s
     // impact dead — you could not shunt, nudge or plough anything.
     v.pos.x = beforeX;
     v.pos.y = beforeY;
+    const to = getVehicleTuning(other.kind);
     const closing = Math.abs(v.speed);
-    const shove = v.speed * 0.55;
-    // The struck car is pushed along the striker's heading; the striker keeps
-    // a little of its momentum rather than stopping.
+    // Mass splits the exchange. Every one of these three used to treat a bus
+    // and a hatchback as the same object: a flat 0.55 shove, a heading
+    // ASSIGNED rather than nudged (a T-boned bus instantly pointed the way
+    // the car that hit it was going), and damage scaled by the receiver's own
+    // "damage dealt" coefficient, which had the bus coming off worse than the
+    // car. Equal masses reproduce the old numbers exactly.
+    const share = t.mass / (t.mass + to.mass);
+    const shove = v.speed * SHOVE_BASE * 2 * share;
     // Shoving the struck car is part of the collision RESPONSE, so the
     // client predicts it too — otherwise the server's car retreats, ours
     // does not, and the two disagree by a car length after a few seconds of
     // leaning on it. Safe because the client's world view is its own clone.
     // Damage is the part that stays authoritative.
-    if (hit.condition !== 'wreck' && Math.abs(shove) > Math.abs(hit.speed)) {
-      hit.heading = v.heading;
-      hit.speed = q8(shove);
+    if (other.condition !== 'wreck' && Math.abs(shove) > Math.abs(other.speed)) {
+      // Deflected toward the striker's line by the striker's mass share, not
+      // snapped onto it.
+      const swing = wrapAngle(v.heading - other.heading) * share;
+      other.heading = q256(wrapAngle(other.heading + swing));
+      other.speed = q8(shove);
     }
-    v.speed = q8(-v.speed * t.crashDamp);
+    v.speed = q8(-v.speed * t.crashDamp * 2 * (1 - share));
     if (Math.abs(v.speed) < 10) v.speed = 0;
-    if (sim && closing > 36) {
-      damageVehicle(sim, v, collisionDamage(v.kind, closing), events ?? []);
-      damageVehicle(sim, hit, collisionDamage(hit.kind, closing), events ?? []);
+    if (sim && closing > CAR_HIT_MIN_SPEED && contactIsFresh(sim, v) && contactIsFresh(sim, other)) {
+      sim.vehicleHitTick[v.id] = sim.tick;
+      sim.vehicleHitTick[other.id] = sim.tick;
+      // Each takes what the OTHER dealt, divided by its own mass. The striker
+      // is discounted: the end pointing at the impact is the end built for it.
+      damageVehicle(sim, other, collisionDamage(v.kind, closing) / to.mass, events ?? [], hit.x, hit.y);
+      damageVehicle(
+        sim,
+        v,
+        (collisionDamage(other.kind, closing) / t.mass) * STRIKER_SHARE,
+        events ?? [],
+        hit.x,
+        hit.y,
+      );
+      events?.push({
+        type: 'vehicleCollided',
+        tick: sim.tick,
+        vehicleId: v.id,
+        x: Math.round(hit.x),
+        y: Math.round(hit.y),
+        speed: Math.round(closing),
+      });
     }
   }
   v.pos.x = q8(v.pos.x);
@@ -139,20 +297,6 @@ export function vehicleWear(v: VehicleState): number {
   const wear = (max - v.health) / max;
   return wear < 0 ? 0 : wear > 1 ? 1 : wear;
 }
-
-/**
- * Which way a bent car pulls. Taken from the id so it needs no state and never
- * changes for a given car: a wreck that wandered left and then right would read
- * as ice, not as damage.
- */
-function pullSign(id: number): number {
-  return id % 2 === 0 ? 1 : -1;
-}
-
-/** Power a battered engine loses at full wear, as a fraction. */
-const WEAR_POWER_LOSS = 0.45;
-/** Steering a bent car applies on its own at full wear, as a fraction of lock. */
-const WEAR_PULL = 0.3;
 
 /** One tick of driver-controlled vehicle. */
 export function stepVehicleDriving(
@@ -209,11 +353,12 @@ export function driveVehicle(
   // A damaged car does not drive straight. The pull is added BEFORE the clamp
   // so a badly bent one cannot be held perfectly straight at full lock — you
   // fight it, and at walking pace you win, because steering authority scales
-  // with speed and the pull does not.
-  const wear = vehicleWear(v);
-  const steer = clamp(steerIn + pullSign(v.id) * wear * WEAR_PULL, -1, 1);
-  // ...and it does not pull like it used to, either.
-  const power = 1 - wear * WEAR_POWER_LOSS;
+  // with speed and the pull does not. Which way it pulls is now a fact about
+  // the car — a flat near-side tyre, a wing folded into the arch — rather
+  // than a sign taken from the vehicle id.
+  const steer = clamp(steerIn + partsSteerPull(v), -1, 1);
+  // ...and a holed radiator or a flat tyre costs it top end on top of wear.
+  const power = vehiclePower(v);
 
   if (throttle > 0) {
     // Over the reduced ceiling — shot while flat out, say — it bleeds off at
@@ -295,8 +440,20 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   return true;
 }
 
+/** Step out above this and you go down the road rather than onto your feet. */
+const BAILOUT_SAFE_SPEED = 60;
+/** Health per px/s of overspeed. A 200 px/s bail costs about 28. */
+const BAILOUT_DAMAGE_PER_SPEED = 0.2;
+/** Ticks you spend picking yourself up, unable to shoot. */
+const BAILOUT_STUN_TICKS = 18;
+
 /** Try to exit: first free spot beside (then behind) the car wins. */
-export function tryExitVehicle(state: GameState, p: PlayerState, map: CityMap): boolean {
+export function tryExitVehicle(
+  state: GameState,
+  p: PlayerState,
+  map: CityMap,
+  events?: SimEvent[],
+): boolean {
   if (p.vehicleId === null) return false;
   const v = state.vehicles.byId[p.vehicleId];
   if (!v) return false;
@@ -312,12 +469,29 @@ export function tryExitVehicle(state: GameState, p: PlayerState, map: CityMap): 
     // Land check regardless of the vehicle's medium: stepping off a boat
     // has to put you on a bank, not into the river.
     if (!boxInSolid(map, spot, PLAYER_RADIUS)) {
+      const speed = Math.abs(v.speed);
       v.driverId = null;
       p.mode = 'foot';
       p.vehicleId = null;
       p.pos = spot;
       p.vel.x = 0;
       p.vel.y = 0;
+      // Stepping out of a moving car used to be free, which made the burn
+      // fuse a non-decision: you could bail at full speed and stand there
+      // unhurt. It costs skin now, and a moment on the floor before you can
+      // shoot — so riding it out is a real alternative rather than the only
+      // stupid option.
+      if (speed > BAILOUT_SAFE_SPEED) {
+        p.fireCooldown = Math.max(p.fireCooldown, BAILOUT_STUN_TICKS);
+        applyDamage(
+          state,
+          p,
+          (speed - BAILOUT_SAFE_SPEED) * BAILOUT_DAMAGE_PER_SPEED,
+          p.id,
+          'tumble',
+          events ?? [],
+        );
+      }
       return true;
     }
   }

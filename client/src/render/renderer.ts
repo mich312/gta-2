@@ -5,9 +5,21 @@ import {
   type PropState,
   type Vec2,
   type WeaponTuning,
+  PART_BONNET,
+  PART_BUMPER_F,
+  PART_BUMPER_R,
+  PART_DOOR_L,
+  PART_DOOR_R,
+  PART_HEADLIGHT_L,
+  PART_HEADLIGHT_R,
+  PART_RADIATOR,
+  PART_TAILLIGHT_L,
+  PART_TAILLIGHT_R,
+  PART_WINDSCREEN,
   PLAYER_RADIUS,
   TILE_SIZE,
   clamp,
+  getVehicleTuning,
   getWeaponTuning,
   vehicleWear,
 } from 'shared';
@@ -80,6 +92,9 @@ export interface Scene {
     condition: string;
     /** 0 = undamaged, 1 = about to catch fire. */
     wear: number;
+    /** Per-zone damage and broken-part bits; see sim/vehicleDamage.ts. */
+    zones: number[];
+    broken: number;
     /** Height off the ground; nonzero only mid-stunt. */
     z: number;
   } | null;
@@ -401,6 +416,9 @@ export function render(
       rv.vehicle.driverId !== null,
       rv.vehicle.condition,
       vehicleWear(rv.vehicle),
+      rv.vehicle.zones,
+      rv.vehicle.broken,
+      getVehicleTuning(rv.vehicle.kind).health,
       dx,
       dy,
       scene.nowMs,
@@ -421,6 +439,9 @@ export function render(
       true,
       scene.localVehicle.condition,
       scene.localVehicle.wear,
+      scene.localVehicle.zones,
+      scene.localVehicle.broken,
+      getVehicleTuning(scene.localVehicle.kind).health,
       dx,
       dy,
       scene.nowMs,
@@ -577,50 +598,130 @@ function drawPlayer(
   ctx.lineWidth = 1;
 }
 
-/** Most dents a car can show, at the point where it is about to catch fire. */
-const MAX_DENTS = 7;
+/** Most dents one quadrant of a car can show before it is simply crumpled. */
+const MAX_DENTS_PER_ZONE = 4;
+
+/** A cheap deterministic hash: no rng, no per-frame state, stable on restart. */
+function hash3(a: number, b: number, c: number): number {
+  return Math.abs(Math.sin(a * 12.9898 + b * 78.233 + c * 37.719) * 43758.5453);
+}
 
 /**
- * Crumpled panels, drawn straight onto the car's own sprite.
+ * Crumpled panels, shattered lamps, missing bumpers — drawn onto the sprite.
  *
- * A car's condition was invisible until the instant it burst into flame: you
- * could shunt one down a street and it looked showroom-fresh right up to the
- * fireball. The dents are keyed off the vehicle id, so a given car's damage
- * appears in the same places every frame and grows outward as it takes more —
- * dents that danced around the bodywork would read as static, not as damage.
+ * A car's condition used to be `floor(wear * 7)` dents in positions hashed off
+ * the vehicle id. Two things were wrong with that. The first dent needed 28.6
+ * of a car's 200 health, which took four full-speed impacts, so an ordinary
+ * prang left the bodywork completely untouched. And the placement had nothing
+ * to do with where you were hit: you could reverse into a wall and watch a
+ * dent appear on the bonnet.
  *
- * `source-atop` clips the patches to the sprite's own alpha, so they land on
- * the bodywork and never square off over the road underneath.
+ * Both come from the damage map now. Dents are counted per zone and confined
+ * to that quadrant of the body, so the corner you hit is the corner that
+ * crumples, and the first one arrives at 3% of health — one solid knock.
+ *
+ * `source-atop` clips everything to the sprite's own alpha, so it lands on the
+ * bodywork and never squares off over the road underneath.
  */
-function drawDents(
+function drawBodyDamage(
   ctx: CanvasRenderingContext2D,
   id: number,
   x: number,
   y: number,
   heading: number,
   fp: { rx: number; ry: number },
+  zones: number[],
+  broken: number,
+  maxHealth: number,
   wear: number,
 ): void {
-  const count = Math.floor(wear * MAX_DENTS);
-  if (count <= 0) return;
   ctx.save();
-  ctx.globalCompositeOperation = 'source-atop';
   ctx.translate(x, y);
   ctx.rotate(heading);
-  for (let i = 0; i < count; i++) {
-    // A cheap deterministic hash of (id, i): no rng, no per-frame state, and
-    // stable across the client restarting mid-session.
-    const h = Math.abs(Math.sin(id * 12.9898 + i * 78.233) * 43758.5453);
-    const u = h % 1;
-    const w = (h * 7) % 1;
-    const px = (u * 2 - 1) * fp.rx * 0.8;
-    const py = (w * 2 - 1) * fp.ry * 0.75;
-    const r = (0.7 + ((h * 13) % 1) * 0.9) * RENDER_SCALE;
-    ctx.fillStyle = i % 3 === 0 ? 'rgba(20, 18, 20, 0.55)' : 'rgba(38, 34, 34, 0.42)';
-    ctx.beginPath();
-    ctx.ellipse(px, py, r * 1.6, r, ((h * 31) % 1) * Math.PI, 0, Math.PI * 2);
-    ctx.fill();
+
+  // Panels that are simply GONE read as a dark gap in the bodywork, clipped
+  // to the sprite like everything else here.
+  //
+  // Not `destination-out`: erasing the sprite leaves a transparent hole, and
+  // the light pass then adds headlight glow into it with `lighter`, so a
+  // missing front bumper came out as a bright white bar — which looks like
+  // chrome that is still attached rather than chrome that has gone.
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.fillStyle = 'rgba(10, 9, 11, 0.9)';
+  if ((broken & PART_BUMPER_F) !== 0) {
+    ctx.fillRect(fp.rx - 1.6 * RENDER_SCALE, -fp.ry * 0.62, 1.7 * RENDER_SCALE, fp.ry * 1.24);
   }
+  if ((broken & PART_BUMPER_R) !== 0) {
+    ctx.fillRect(-fp.rx - 0.1 * RENDER_SCALE, -fp.ry * 0.62, 1.7 * RENDER_SCALE, fp.ry * 1.24);
+  }
+  if ((broken & PART_DOOR_L) !== 0) {
+    ctx.fillRect(-fp.rx * 0.2, -fp.ry, fp.rx * 0.5, 1.5 * RENDER_SCALE);
+  }
+  if ((broken & PART_DOOR_R) !== 0) {
+    ctx.fillRect(-fp.rx * 0.2, fp.ry - 1.5 * RENDER_SCALE, fp.rx * 0.5, 1.5 * RENDER_SCALE);
+  }
+  // Dents, per quadrant. Zone order is front, right, rear, left; each one is
+  // painted inside its own third of the body so the damage is where the hit
+  // was. Placement is hashed off (id, zone, index) — a given car's dents sit
+  // in the same places every frame, which is what makes them read as damage
+  // rather than as static.
+  const perDent = maxHealth * 0.03;
+  for (let z = 0; z < 4; z++) {
+    const amount = zones[z] ?? 0;
+    const count = Math.min(MAX_DENTS_PER_ZONE, Math.floor(amount / perDent));
+    for (let i = 0; i < count; i++) {
+      const h = hash3(id, z * 11 + 1, i);
+      const u = h % 1;
+      const w = (h * 7) % 1;
+      // Along the body for front/rear, across it for left/right.
+      let px: number;
+      let py: number;
+      if (z === 0) {
+        px = fp.rx * (0.28 + u * 0.55);
+        py = (w * 2 - 1) * fp.ry * 0.7;
+      } else if (z === 2) {
+        px = -fp.rx * (0.28 + u * 0.55);
+        py = (w * 2 - 1) * fp.ry * 0.7;
+      } else {
+        px = (u * 2 - 1) * fp.rx * 0.66;
+        py = (z === 1 ? 1 : -1) * fp.ry * (0.3 + w * 0.6);
+      }
+      const r = (0.7 + ((h * 13) % 1) * 0.9) * RENDER_SCALE;
+      ctx.fillStyle = i % 3 === 0 ? 'rgba(20, 18, 20, 0.55)' : 'rgba(38, 34, 34, 0.42)';
+      ctx.beginPath();
+      ctx.ellipse(px, py, r * 1.6, r, ((h * 31) % 1) * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // A shattered lamp is a dark socket where the light used to be. Lamps are
+  // at the corners of the body; the two on an end break at different
+  // thresholds, so a car on one headlight is the common case, not a rarity.
+  const lamp = (lx: number, ly: number): void => {
+    ctx.fillStyle = 'rgba(14, 12, 14, 0.85)';
+    ctx.beginPath();
+    ctx.ellipse(lx, ly, 1.1 * RENDER_SCALE, 0.9 * RENDER_SCALE, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  if ((broken & PART_HEADLIGHT_L) !== 0) lamp(fp.rx * 0.86, -fp.ry * 0.6);
+  if ((broken & PART_HEADLIGHT_R) !== 0) lamp(fp.rx * 0.86, fp.ry * 0.6);
+  if ((broken & PART_TAILLIGHT_L) !== 0) lamp(-fp.rx * 0.86, -fp.ry * 0.6);
+  if ((broken & PART_TAILLIGHT_R) !== 0) lamp(-fp.rx * 0.86, fp.ry * 0.6);
+
+  // Crazed glass: a few pale cracks across the cabin.
+  if ((broken & PART_WINDSCREEN) !== 0) {
+    ctx.strokeStyle = 'rgba(226, 232, 240, 0.5)';
+    ctx.lineWidth = Math.max(1, 0.4 * RENDER_SCALE);
+    const cx = fp.rx * 0.2;
+    for (let i = 0; i < 4; i++) {
+      const h = hash3(id, 91, i);
+      ctx.beginPath();
+      ctx.moveTo(cx, 0);
+      ctx.lineTo(cx + ((h % 1) * 2 - 1) * fp.rx * 0.3, ((h * 7) % 1) * 2 * fp.ry - fp.ry);
+      ctx.stroke();
+    }
+  }
+
   // Past half-wrecked the paint is scorched as well as bent.
   if (wear > 0.5) {
     ctx.fillStyle = `rgba(26, 22, 22, ${((wear - 0.5) * 0.5).toFixed(3)})`;
@@ -629,7 +730,13 @@ function drawDents(
   ctx.restore();
 }
 
-function drawVehicle(
+/**
+ * Exported for the damage contact sheet (`debug/damageSheet.ts`), which draws
+ * one car at every rung of the breakage ladder side by side. The same idea as
+ * `pnpm sprites -- --preview`: some things you can only check by looking, and
+ * a sheet you can eyeball beats hunting for the state in a live game.
+ */
+export function drawVehicle(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   lights: LightPass,
@@ -644,6 +751,10 @@ function drawVehicle(
   condition: string,
   /** 0 = undamaged, 1 = about to catch fire. See `vehicleWear`. */
   wear: number,
+  /** Per-zone damage and the broken-part bits; see sim/vehicleDamage.ts. */
+  zones: number[],
+  broken: number,
+  maxHealth: number,
   dx: (n: number) => number,
   dy: (n: number) => number,
   nowMs: number,
@@ -669,6 +780,11 @@ function drawVehicle(
     ctx.fillStyle = 'rgba(18, 16, 18, 0.72)';
     ctx.fillRect(x - fp.rx, y - fp.ry, fp.rx * 2, fp.ry * 2);
     ctx.restore();
+    // A burnt-out shell has every panel off it. Detonation sets all the bits,
+    // so this is the same code path as any other damage — the wreck used to
+    // be the intact sprite in shadow, which read as a car parked out of the
+    // sun rather than one that had exploded.
+    drawBodyDamage(ctx, id, x, y, heading, fp, zones, broken, maxHealth, 1);
     return;
   }
 
@@ -681,7 +797,23 @@ function drawVehicle(
     ctx.restore();
   }
 
-  drawDents(ctx, id, x, y, heading, fp, wear);
+  drawBodyDamage(ctx, id, x, y, heading, fp, zones, broken, maxHealth, wear);
+
+  // Smoke before fire. This is the warning the burn fuse never gave: a car
+  // showing grey off the bonnet is one you should think about swapping, and
+  // one showing black has had it. Sampled off wall-clock like the exhaust, so
+  // a fast display does not smoke four times as hard.
+  const holed = (broken & PART_RADIATOR) !== 0;
+  if (condition === 'ok' && (holed || (broken & PART_BONNET) !== 0)) {
+    const period = holed ? 1.4 : 2.6;
+    if ((nowMs * 0.06 + id) % period < 1) {
+      effects.engineSmoke(
+        wx + Math.cos(heading) * 8,
+        wy + Math.sin(heading) * 8,
+        holed,
+      );
+    }
+  }
 
   // Strobing light bar on any cruiser with an officer aboard.
   if (kind === 'copcar' && occupied) {
@@ -705,13 +837,24 @@ function drawVehicle(
   // all blazing away washes the scene out and reads as nonsense.
   if (!occupied) return;
 
+  // Lamps, one at a time. Every light on a car used to be a single boolean —
+  // `occupied` — so a car that had been through a wall at full speed still had
+  // two perfect headlights. Each is gated on its own bit now, and losing one
+  // is both the commonest damage state and the most legible: a car coming the
+  // other way on one headlight tells you what has happened to it.
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
   const nx = -sin;
   const ny = cos;
   const front = 11 * RENDER_SCALE;
   const side = 4.5 * RENDER_SCALE;
-  for (const s of [-1, 1]) {
+  const headL = (broken & PART_HEADLIGHT_L) === 0;
+  const headR = (broken & PART_HEADLIGHT_R) === 0;
+  for (const [s, lit] of [
+    [-1, headL],
+    [1, headR],
+  ] as Array<[number, boolean]>) {
+    if (!lit) continue;
     lights.point(
       x + cos * front + nx * side * s,
       y + sin * front + ny * side * s,
@@ -720,9 +863,26 @@ function drawVehicle(
       0.7,
     );
   }
-  lights.cone(x + cos * front, y + sin * front, heading, 66 * RENDER_SCALE, 'head', 0.42);
+  // One lamp still throws a beam, but a narrower one, and from where it
+  // actually is rather than down the centreline.
+  if (headL || headR) {
+    const both = headL && headR;
+    const off = both ? 0 : (headL ? -1 : 1) * side;
+    lights.cone(
+      x + cos * front + nx * off,
+      y + sin * front + ny * off,
+      heading,
+      (both ? 66 : 46) * RENDER_SCALE,
+      'head',
+      both ? 0.42 : 0.3,
+    );
+  }
   const braking = speed < 0 || Math.abs(speed) < 7;
-  for (const s of [-1, 1]) {
+  for (const [s, lit] of [
+    [-1, (broken & PART_TAILLIGHT_L) === 0],
+    [1, (broken & PART_TAILLIGHT_R) === 0],
+  ] as Array<[number, boolean]>) {
+    if (!lit) continue;
     lights.point(
       x - cos * front + nx * side * s,
       y - sin * front + ny * side * s,
@@ -737,8 +897,6 @@ function drawVehicle(
   if (Math.abs(speed) > 40 && (nowMs * 0.06 + id) % 3 < 1) {
     effects.exhaust(wx, wy, heading);
   }
-
-  layRubber(effects, id, wx, wy, heading, speed, nowMs);
 }
 
 /** Per-vehicle heading and speed history, for spotting a slide or a stop. */

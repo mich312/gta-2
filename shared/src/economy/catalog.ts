@@ -14,6 +14,13 @@ export type CatalogItem =
   | { kind: 'spray'; shop: ShopKind; price: number }
   /** Bolted to the car you drove in: bomb, slick, mines, guns. */
   | { kind: 'fitting'; shop: ShopKind; price: number; fitting: string; ammo: number }
+  /**
+   * The car you drove in, put right. 'panel' beats out the bodywork and
+   * replaces the glass and lamps; 'full' also does the radiator and the tyres
+   * and takes the health back to showroom. Cosmetic damage being cheap and
+   * mechanical damage dear is what makes the choice interesting.
+   */
+  | { kind: 'repair'; shop: ShopKind; price: number; tier: 'panel' | 'full' }
   /** Patched up at the hospital counter. */
   | { kind: 'heal'; shop: ShopKind; price: number; health: number; armour: number };
 
@@ -43,6 +50,12 @@ export function parseCatalog(raw: unknown): Catalog {
       }
       case 'spray': {
         out[id] = { kind: 'spray', shop, price };
+        break;
+      }
+      case 'repair': {
+        const tier = r['tier'];
+        if (tier !== 'panel' && tier !== 'full') throw new Error(`catalog: bad tier for ${id}`);
+        out[id] = { kind: 'repair', shop, price, tier };
         break;
       }
       case 'heal': {

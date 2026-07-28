@@ -317,6 +317,29 @@ export class Effects {
     }
   }
 
+  /**
+   * Smoke off a bent bonnet, before there is any fire.
+   *
+   * The gap the model had: a car went from looking fine to being on a
+   * seven-second fuse with nothing in between. Grey when the bonnet is
+   * buckled, black and much heavier once the radiator has gone.
+   */
+  engineSmoke(x: number, y: number, black: boolean): void {
+    const a = Math.random() * Math.PI * 2;
+    this.spawn(
+      x + Math.cos(a) * 2,
+      y + Math.sin(a) * 2,
+      Math.cos(a) * 5,
+      Math.sin(a) * 5 - (black ? 20 : 13),
+      black ? 1.5 + Math.random() * 0.9 : 0.9 + Math.random() * 0.6,
+      black ? 2.4 + Math.random() * 2 : 1.6 + Math.random() * 1.4,
+      black ? '#1b1b20' : palette.smoke,
+      false,
+      black ? 1.5 : 1.25,
+      0,
+    );
+  }
+
   /** Lazy flame licking off a burning wreck-to-be. */
   fire(x: number, y: number): void {
     const a = Math.random() * Math.PI * 2;

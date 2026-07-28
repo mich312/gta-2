@@ -7,7 +7,7 @@ import type { CopState, GameState, PlayerState, VehicleState } from './state.js'
 import { addHeat, createCop, wantedLevelOf, POWER_INVISIBLE, POWER_JAIL_CARD } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
-import { driveVehicle } from './vehicle.js';
+import { boxesOverlap, driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
 import { applyDamage, bustPlayer, damageCop, rayWallDistance } from './weapons.js';
 import { isFriendly } from './respect.js';
@@ -242,6 +242,17 @@ function motorise(state: GameState, cop: CopState, heading: number): void {
 
   const id = state.nextEntityId++;
   const v = createVehicle(id, 'copcar', cop.pos, heading);
+  // Not on top of something else. Two officers who happened to arrive on the
+  // same spot were each given a cruiser at that spot, so the pair spent the
+  // chase interpenetrating and shuffling apart at walking pace instead of
+  // driving anywhere. The officer without room simply stays on foot.
+  for (const other of state.vehicles.ids) {
+    const o = state.vehicles.byId[other];
+    if (o && boxesOverlap(v, o)) {
+      state.nextEntityId--;
+      return;
+    }
+  }
   v.driverId = copDriverId(cop.id);
   insertEntity(state.vehicles, v);
   cop.vehicleId = id;

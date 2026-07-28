@@ -141,6 +141,18 @@ export interface VehicleState {
   /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
   fuseAtTick: number | null;
   /**
+   * Damage accumulated per body zone: [front, right, rear, left], 0-255 each.
+   *
+   * `health` says how close the car is to burning; this says WHERE it has been
+   * hit, which is what everything legible about damage derives from — which
+   * lamp shattered, which door is hanging off, which corner is dented, which
+   * way it pulls. Four bytes, per-field diffed, so an untouched car pays
+   * nothing for it.
+   */
+  zones: number[];
+  /** One bit per broken component; see the PART_* flags in vehicleDamage.ts. */
+  broken: number;
+  /**
    * What the garage bolted on: '' , 'bomb', 'slick', 'mine' or 'guns'.
    * Two fields on a table that is already on the wire, changing only when
    * you buy or use something — see FEATURES.md G2.
@@ -260,6 +272,17 @@ export interface GameState {
   projectiles: EntityTable<ProjectileState>;
   /** Ambient-AI bookkeeping, per vehicle id. Never leaves the server. */
   trafficDrivers: Record<number, TrafficDriver>;
+  /**
+   * Tick each vehicle last took collision damage, per vehicle id.
+   *
+   * Sim state that never leaves the server, for the same reason as
+   * `trafficDrivers`: no client ever runs the damage path, so it has no
+   * business in the snapshot diff or the desync hash. It exists so that two
+   * vehicles wedged against each other are hurt once per contact rather than
+   * once per tick — without it, quadrupling the collision coefficient turns
+   * leaning on a parked car into an execution.
+   */
+  vehicleHitTick: Record<number, number>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -276,6 +299,7 @@ export function createGameState(seed: number): GameState {
     pickups: createTable(),
     projectiles: createTable(),
     trafficDrivers: {},
+    vehicleHitTick: {},
   };
 }
 
@@ -363,13 +387,17 @@ export function createVehicle(
     health: getVehicleTuning(kind).health,
     condition: 'ok',
     fuseAtTick: null,
+    zones: [0, 0, 0, 0],
+    broken: 0,
     fitting: '',
     fittingAmmo: 0,
   };
 }
 
 export function cloneVehicle(v: VehicleState): VehicleState {
-  return { ...v, pos: cloneVec(v.pos) };
+  // `zones` must be copied, not aliased: the spread would hand every clone of
+  // the state the same array, and cloneState is what makes step() pure.
+  return { ...v, pos: cloneVec(v.pos), zones: v.zones.slice() };
 }
 
 export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
@@ -439,6 +467,7 @@ export function cloneState(s: GameState): GameState {
     pickups: cloneTable(s.pickups, clonePickup),
     projectiles: cloneTable(s.projectiles, cloneProjectile),
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
+    vehicleHitTick: { ...s.vehicleHitTick },
   };
 }
 

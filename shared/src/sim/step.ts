@@ -15,7 +15,7 @@ import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
 import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
-import { stepVehicleDamage } from './vehicleDamage.js';
+import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
 import { stepTraffic, stepTrafficPanic, stepTrafficPopulation, tryCarjack } from './traffic.js';
@@ -25,7 +25,7 @@ import { stepFittings } from './fittings.js';
 import { stepRespectDecay } from './respect.js';
 import { creditFrenzyKill, stepFrenzy, stepStunts } from './frenzy.js';
 import { createPed } from './state.js';
-import { getTuning } from '../tuning.js';
+import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid } from '../world/collide.js';
@@ -73,7 +73,7 @@ export function step(
       const jacked = tryCarjack(next, map, p.id);
       if (jacked) addHeat(p, getTuning().traffic.jackHeat);
       else tryEnterVehicle(next, p, map);
-    } else if (p.mode === 'driving') tryExitVehicle(next, p, map);
+    } else if (p.mode === 'driving') tryExitVehicle(next, p, map, events);
   }
 
   // Movement.
@@ -277,6 +277,23 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       // it. One bracket under the bonnet, and the garage does not refund.
       v.fittingAmmo = v.fitting === cmd.fitting ? v.fittingAmmo + cmd.ammo : cmd.ammo;
       v.fitting = cmd.fitting;
+      break;
+    }
+    case 'repairVehicle': {
+      const p = getEntity(state.players, cmd.playerId);
+      if (!p || p.vehicleId === null) return;
+      const v = state.vehicles.byId[p.vehicleId];
+      if (!v || v.condition !== 'ok') return;
+      // Panel-beating: the dents come out, the glass and the lamps and the
+      // bumpers go back on. What it does NOT do is fix the radiator or the
+      // tyres, or put any health back — the car looks new and still drives
+      // like a car that has been through a wall.
+      v.zones = [0, 0, 0, 0];
+      v.broken &= PARTS_MECHANICAL;
+      if (cmd.tier === 'full') {
+        v.broken = 0;
+        v.health = getVehicleTuning(v.kind).health;
+      }
       break;
     }
     case 'crushVehicle': {
