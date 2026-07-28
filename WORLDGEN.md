@@ -508,3 +508,154 @@ Dependency-honest sequence; sim-risk items isolated as house rules demand:
 Steps 1–2 need nothing from anyone and change how every seed looks; step 5
 is the only line in this table that can desync a client, and it ships the
 way D1's water did — alone.
+
+---
+
+## 9. The better architecture: layers, fields, and transitions
+
+Third wave of this research. §8 proved the region vision *feasible* by
+adding passes to the existing pipeline; this section says that's not good
+enough, and designs the architecture the region actually deserves. §4's
+"keep the skeleton" survives at the *algorithm* level — subdivision,
+tiles, determinism — but not at the *structure* level.
+
+### 9.1 What is actually wrong with the current architecture
+
+Stated as architecture, not as bugs — every one of these is a cost paid
+repeatedly, with receipts:
+
+1. **Tiles are the only shared truth.** Roads exist only as painted
+   `T_ROAD` cells, so every consumer reverse-engineers meaning from
+   pixels: traffic probes tiles ahead of the bumper (`roadgrid.ts:7`),
+   doorways are found by scanning building perimeters for sidewalk
+   (`amenities.ts:56`), parking rediscovers kerbs and carriageway width
+   tile-by-tile (`amenities.ts:277`). Knowledge the generator *had* —
+   which road is an arterial, which side a lot fronts — is thrown away at
+   rasterisation and expensively re-guessed downstream.
+2. **One serial rng thread couples everything.** A draw added in any pass
+   reshapes every city (`ROADMAP.md:581` accepts this as a standing
+   risk). The architecture makes extension *globally destructive*, which
+   is why half the amenity passes contort themselves to consume no rng at
+   all.
+3. **Ordering is load-bearing and implicit.** `registerClinics` carries a
+   comment explaining a combat test that broke because a pass ran one
+   slot early (`amenities.ts:671`). Discipline currently substitutes for
+   structure; discipline doesn't scale to a §8-sized pipeline.
+4. **Districts are painted, not placed — and borders are cliffs.** A tile
+   is `residential` or `industrial` with nothing in between; block size,
+   lamp spacing and building style all switch at a hard Voronoi edge.
+   Nothing in the map fades, which is exactly why the renders read as
+   patchwork.
+
+### 9.2 The design: five immutable layers, tiles last
+
+Generation becomes a stack of **typed, immutable layer artifacts**. Each
+layer reads the ones below it and may never mutate them; tiles stop being
+the medium of communication between passes and become the *final output*.
+The external contract — `generateCity(seed, params): CityMap` — does not
+change, so sim, client, prediction and tests are untouched.
+
+- **L0 · Fields.** Continuous scalar functions over the map: `height`,
+  `coast` (distance to sea), `density` (urban intensity), `wildness`.
+  Deterministic value-noise + shaping curves, seeded per-field (§9.3),
+  order-free, sampled anywhere. Everything downstream that should *fade*
+  reads a field instead of asking "which district am I in".
+- **L1 · Classification.** Land-use per coarse cell, *derived by scoring
+  L0* (downtown wants flat+central+dense, harbour wants coast+flat,
+  nature wants steep or wild) rather than by seed points. Districts
+  become emergent connected regions with computed borders — and the
+  transition system (§9.4) is defined here, on ranked land-uses, before a
+  single tile exists.
+- **L2 · Networks.** Roads as a **graph**: typed nodes (junction, bridge
+  head, dead end, gate) and typed edges (highway, avenue, street, track)
+  carrying width, one-way flag and land-use context. Built by today's
+  algorithms — arterial lattice + subdivision translate directly to graph
+  construction — but validated *as a graph*: one connected component per
+  landmass, island access policy, no highway meeting an alley without a
+  step-down junction. Rasterised to tiles afterwards. The graph ships in
+  `CityMap` as a new field, and traffic, police roadblocks
+  (`ROADMAP.md:425`) and future mission routing consume it instead of
+  probing paint.
+- **L3 · Parcels.** Block faces of the road graph subdivided into **lots
+  with frontage** — each lot knows which edge it faces and where its
+  access point is. Buildings, stamps and shops are placed *on lots*, so a
+  doorway is a property assigned at placement, not a perimeter scan that
+  can fail after the fact; `findDoorway` and its water-doorway bug class
+  (`buildings.ts:33`) disappear structurally.
+- **L4 · Content.** Landmarks, stamps, amenities — today's passes, but
+  querying L0–L3 (distance fields, lot lists, graph positions) instead of
+  scanning tiles. The four placement patterns of §6 survive unchanged;
+  they just gain honest inputs.
+- **L5 · Rasterisation.** One pass renders L1–L4 into the `Uint8Array` —
+  including all tile-level transition dressing (§9.4). The only code that
+  writes tiles.
+
+Each layer is independently renderable by `mapgen --layer=fields|use|graph`
+— the debugging story §5 asked for, structurally free.
+
+### 9.3 Hierarchical seeding — extension stops being destructive
+
+Replace the single threaded rng with **derived streams**:
+`rngFor(seed, layerName, passName)` via a hash (the codebase already
+trusts `hash2`-style mixing, `turf.ts:100`), and position-keyed hashes for
+per-cell decisions. Consequences, in order of importance:
+
+1. Adding a draw to one pass no longer moves any other pass's output —
+   the `ROADMAP.md:581` standing risk is retired, permanently.
+2. Pass order stops being load-bearing for randomness (it stays
+   load-bearing for data dependencies, which the layer contracts now
+   state explicitly instead of comments pleading for it).
+3. Worldgen becomes locally editable: tuning the shop pass changes shops,
+   nothing else. Review of a seed sweep becomes meaningful diffing.
+
+This is a pure refactor of rng plumbing, one seed-breaking change that
+buys never being seed-broken by *additions* again. It should land first.
+
+### 9.4 Transitions as a first-class system
+
+The current map has exactly one good transition — river bank — and it's
+handmade. The fix is a rule system, not more handmade edges:
+
+- **Transition ladders.** Ranked sequences that adjacency must respect:
+  `deep → shallow → sand → promenade/dune → streets` for water;
+  `downtown → commercial → residential → suburb → rural → nature` for
+  land-use; `highway → avenue → street → track` for roads. L1 enforces
+  them: where classification would jump more than one rank, it inserts
+  the mediating band (an *ecotone*) automatically — city meeting forest
+  grows a suburb/allotment fringe; downtown meeting water gets a quay,
+  nature meeting the same river gets reeds. One mechanism, every edge in
+  the game.
+- **Fields make everything fade together.** Block size, building
+  coverage, lamp spacing, ped/traffic density and prop mix all read L0
+  `density` — one number — so the city core loosens gradually into
+  suburbs with *every* channel agreeing, instead of five channels
+  switching independently at a painted border. District identity then
+  comes from the *fill strategy*, while intensity comes from the field.
+- **Corner-sampled rasterisation.** L5 samples classification at tile
+  *corners* (dual grid), so shorelines, kerbs and tree-lines can render
+  marching-squares-style blends instead of staircases. Data change only;
+  the renderer exploits it when ready.
+- **Enforced, not hoped for.** A seed-sweep test walks every cell
+  adjacency and asserts no ladder is violated — transitions get the same
+  invariant treatment as connectivity. "No beach touches downtown, no
+  highway meets a track" becomes a red test, not a review comment.
+
+### 9.5 Migration, strangler-fig style
+
+No rewrite branch. `CityMap` keeps its shape throughout; each step ships
+green and seed-breaks at most once:
+
+| # | Step | What changes | What it retires |
+|---|---|---|---|
+| 1 | Hierarchical seeding (§9.3) | rng plumbing in every pass | global seed-breakage on extension |
+| 2 | L0 fields + field-scored classification | `districts.ts` Voronoi → scoring; density modulates `fillBlock` + amenity spacing | patchwork districts, hard borders |
+| 3 | Transition ladders + ecotone bands + adjacency test | L1 | handmade edges; §8's beach/shallow arrive here for free |
+| 4 | Road graph before rasterisation | `roads.ts` emits graph, then paints; graph into `CityMap` | tile-probing traffic/roadblocks (opt-in migration) |
+| 5 | Parcels with frontage | `buildings.ts` places on lots | `findDoorway`, doorway bug class |
+| 6 | Content layer on queries; §8 region features | amenities read layers | perimeter/kerb re-scanning |
+
+Steps 1–3 are worldgen-only and deliver the visible "better": coherent
+districts that fade, real edges, beaches that grade into water. Step 4 is
+the biggest single win for *game* code (traffic, roadblocks, routing).
+After step 6, §8's islands, hills and nature are content on a clean
+substrate instead of passes 18 through 26 of a pile.
