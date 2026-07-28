@@ -40,7 +40,7 @@
     "patrol",
     "patrol",
     "swat",
-    "fed",
+    "army",
     "army"
   ],
   "kinds": {
@@ -178,12 +178,12 @@
     ],
     "5": [
       {
-        "kind": "fed",
+        "kind": "army",
         "count": 2,
-        "vehicle": "copcar"
+        "vehicle": "tank"
       },
       {
-        "kind": "swat",
+        "kind": "fed",
         "count": 2,
         "vehicle": "copcar"
       },
@@ -196,7 +196,7 @@
     "6": [
       {
         "kind": "army",
-        "count": 2,
+        "count": 3,
         "vehicle": "tank"
       },
       {
@@ -215,11 +215,11 @@
   "waveSpreadPx": 260,
   "roadblockVehicle": {
     "4": "copcar",
-    "5": "copcar",
+    "5": "tank",
     "6": "tank"
   },
   "vehicleCaps": {
     "copcar": 6,
-    "tank": 2
+    "tank": 3
   }
 }

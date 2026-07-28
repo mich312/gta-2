@@ -17,6 +17,7 @@ import {
 } from '../src/sim/state.js';
 import { insertEntity, removeEntity } from '../src/sim/entities.js';
 import { applyDamage, damageCop } from '../src/sim/weapons.js';
+import { copKindFor } from '../src/sim/police.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
@@ -1429,7 +1430,8 @@ describe('escalation by kind (I1)', () => {
     // to a single kind would forbid the mixing that is the feature.
     expect(kindsPresent(forceAt(2))).toContain('patrol');
     expect(kindsPresent(forceAt(4))).toContain('swat');
-    expect(kindsPresent(forceAt(5))).toContain('fed');
+    // Five is where the army turns out — see S3.
+    expect(kindsPresent(forceAt(5))).toContain('army');
     expect(kindsPresent(forceAt(6))).toContain('army');
     // And the ladder is a ladder: nothing below turns out the tier above.
     expect(kindsPresent(forceAt(2))).not.toContain('army');
@@ -1491,5 +1493,76 @@ describe('escalation by kind (I1)', () => {
     const state = forceAt(6);
     expect(kindsPresent(state)).toContain('army');
     expect(hashState(state)).toBe(hashState(state));
+  });
+});
+
+describe('the military at five stars (S3)', () => {
+  it('the army turns out at five, in armour', () => {
+    // What was asked for, and what the genre does. Below five it is police;
+    // at five it stops being police.
+    const t = getTuning().police;
+    const armour = (level: string): boolean =>
+      (t.waves[level] ?? []).some((u) => u.kind === 'army' && u.vehicle === 'tank');
+    expect(armour('4')).toBe(false);
+    expect(armour('5')).toBe(true);
+    expect(armour('6')).toBe(true);
+    // And the ladder's own tier list agrees with the wave table, which is
+    // the sort of thing that silently drifts apart.
+    expect(copKindFor(5)).toBe('army');
+    expect(copKindFor(4)).toBe('swat');
+  });
+
+  it('a five-star roadblock is armour across the street', () => {
+    // Two cruisers nose to nose is a thing you drive through. A tank is not.
+    const t = getTuning().police;
+    expect(t.roadblockVehicle['4']).toBe('copcar');
+    expect(t.roadblockVehicle['5']).toBe('tank');
+    expect(getVehicleTuning('tank').mass).toBeGreaterThan(getVehicleTuning('copcar').mass * 3);
+  });
+
+  it('the city cannot fill up with tanks', () => {
+    // `maxCopCars` is a sensible number of patrol cars and an absurd number
+    // of tanks, which is why the budget is per kind.
+    const t = getTuning().police;
+    expect(t.vehicleCaps['tank']).toBeLessThan(t.vehicleCaps['copcar'] ?? t.maxCopCars);
+    expect(t.vehicleCaps['tank']).toBeGreaterThan(0);
+  });
+
+  it('six is five, heavier — not five again', () => {
+    // The top of the ladder has to be a step, or the last star is decoration.
+    const t = getTuning().police;
+    const count = (level: string, kind: string): number =>
+      (t.waves[level] ?? []).filter((u) => u.kind === kind).reduce((a, u) => a + u.count, 0);
+    expect(count('6', 'army')).toBeGreaterThan(count('5', 'army'));
+    const flies5 = (t.waves['5'] ?? []).find((u) => t.kinds[u.kind]?.flies);
+    const flies6 = (t.waves['6'] ?? []).find((u) => t.kinds[u.kind]?.flies);
+    expect(flies5).toBeDefined();
+    expect(flies6).toBeDefined();
+    // The observation helicopter becomes a gunship.
+    const gun5 = getWeaponTuning(t.kinds[flies5!.kind]!.weapon)!;
+    const gun6 = getWeaponTuning(t.kinds[flies6!.kind]!.weapon)!;
+    expect(gun6.damage).toBeGreaterThan(gun5.damage);
+  });
+
+  it('armour actually turns out, and drives', () => {
+    // The data says tank; this says a tank appears with an officer in it.
+    let state = createGameState(606);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    for (let i = 0; i < 400; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 610;
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      if (p.mode === 'dead') {
+        p.mode = 'foot';
+        p.health = 100;
+        p.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map);
+    }
+    const tanks = state.vehicles.ids.filter((id) => state.vehicles.byId[id]!.kind === 'tank');
+    expect(tanks.length).toBeGreaterThan(0);
+    expect(tanks.length).toBeLessThanOrEqual(getTuning().police.vehicleCaps['tank'] ?? 99);
+    // Somebody is at the wheel of at least one of them.
+    expect(tanks.some((id) => state.vehicles.byId[id]!.driverId !== null)).toBe(true);
   });
 });
