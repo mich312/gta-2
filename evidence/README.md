@@ -14,6 +14,19 @@ readily enough and never on cue.
 | `police-tiers.png` | The four forces on their feet, under the bodies. Patrol blue, SWAT charcoal with a helmet and visor, federal navy in a long coat, army olive with webbing and a rifle. Each is built off the patrol anatomy so they still read as the same species — before this a tier was the patrol figure under a different tint, which reads as an officer standing in a different light rather than as a different force. |
 | `bodies.png` | Every state somebody can be found on the floor in, at seven angles, drawn through the real `drawBody`. Row 1 is a standing figure for scale — a head, two shoulders and the tops of two feet. The rest are drawings of their own rather than that one stretched: dead face-down (no face, the back of the head), dead on the back (face up), and — the one that earns its keep — **downed**, curled on one side with an arm across the chest, because a casualty on the bleed-out clock has an ambulance coming and a corpse does not. |
 
+## The chase
+
+| file | what it shows |
+|---|---|
+| `wanted-hud.png` | The wanted readout at every state it can be in, drawn through the real `Hud`. Bright amber while they can see you; dimmed with a `hidden 3…2…1` countdown the moment nobody does; green and `losing them` once the heat is actually draining. This corner of the screen is the whole player-facing half of Wave P — an escape nobody can perceive is not a mechanic — and before it the stars had one appearance and told you nothing about whether you were getting away. Retake via `/hud-sheet.html`. |
+
+Staging a three-star chase through scripted key presses turns out to be
+unreliable for reasons that have nothing to do with the feature (see
+`ci/play.mjs`), so this sheet chooses the states rather than provoking them —
+exactly as the damage sheet below does. What produces those states is
+covered by `shared/test/police.test.ts` and by `pnpm chase`, which measures
+escape rate and survival time per star level over several seeds.
+
 ## Vehicles
 
 | file | what it shows |
