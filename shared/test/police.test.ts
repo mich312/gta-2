@@ -376,6 +376,28 @@ describe('escalation by kind', () => {
     expect(four).toBeGreaterThan(three);
   });
 
+  it('every vehicle the chase creates sits on the wire grid', () => {
+    // The binary codec ships positions as exact q8 integers on the promise
+    // that the sim only ever holds grid values. A roadblock cruiser used to
+    // break it: spawned at c + cos(angle)*14 un-quantised, then parked
+    // forever, so nothing ever rounded it and every client that saw one
+    // carried a permanent one-bit disagreement with the server — the bot
+    // harness read it as an endless hash desync. Found by the harness, fixed
+    // at the spawn, pinned here.
+    const { state } = chaseAt(4, 1500, 61);
+    for (const id of state.vehicles.ids) {
+      const v = state.vehicles.byId[id]!;
+      expect(v.pos.x * 8, `vehicle ${id} pos.x ${v.pos.x}`).toBeCloseTo(
+        Math.round(v.pos.x * 8),
+        9,
+      );
+      expect(v.pos.y * 8, `vehicle ${id} pos.y ${v.pos.y}`).toBeCloseTo(
+        Math.round(v.pos.y * 8),
+        9,
+      );
+    }
+  });
+
   /** Put officer 500 in cruiser 501 at `at`, chasing player 1 at `targetAt`. */
   function wedged(at: { x: number; y: number }, targetAt: { x: number; y: number }): GameState {
     let state = createGameState(71);

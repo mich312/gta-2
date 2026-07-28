@@ -921,9 +921,12 @@ export function tryCarjack(
   const across = best.heading + HALF_PI;
   const doorDist = getVehicleTuning(best.kind).halfExtent + PED_RADIUS + 2;
   for (const side of [1, -1]) {
+    // q8 at birth: they stand still until their first flee step, and an
+    // off-grid position on the wire is a standing hash desync (see the same
+    // note on roadblock cars in police.ts).
     const door = {
-      x: best.pos.x + dCos(across) * side * doorDist,
-      y: best.pos.y + dSin(across) * side * doorDist,
+      x: q8(best.pos.x + dCos(across) * side * doorDist),
+      y: q8(best.pos.y + dSin(across) * side * doorDist),
     };
     if (boxInSolid(map, door, PED_RADIUS)) continue;
     const ped = createPed(state.nextEntityId++, door, getTuning().peds.health);

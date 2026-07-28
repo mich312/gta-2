@@ -379,6 +379,10 @@ plus one `spawnPed`-style command in the carjack path so the ejected driver
 lands on the pavement in `flee` mode — the ped machinery for that already
 exists (`peds.ts:258`).
 
+*Built since this section was written* — the panic pass
+(`traffic.ts` `stepTrafficPanic`) and the ejected driver landed on this
+branch; the section stands as the rationale. See `PROGRESS.md`.
+
 ## 6.2 No errand driving: nothing can drive *to* anywhere
 
 `chooseDir` is a random walk and `drivePursuit` is a greedy homing missile.
@@ -405,6 +409,11 @@ cardinal. The controller, the IDM, the stuck recovery all stay. This is one
 graph search plus a field, not a new driver. If races ever matter, Midtown's
 opponent planner (§3.1 — three alternatives around each obstacle, pick the
 cheapest) is the grown-up version of the same primitive.
+
+*Built since this section was written* — `planRoute` (`roadgrid.ts`) and the
+`cruise | goto` mission on `TrafficDriver` landed on this branch, exactly in
+the shape argued here; `assignGoto` is the API and the consumers (6.3–6.5,
+ambulances, mission targets) remain open. See `PROGRESS.md`.
 
 ## 6.3 Gang cars
 

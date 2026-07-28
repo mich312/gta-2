@@ -495,6 +495,11 @@ describe('carjacking', () => {
     // Within a couple of car widths — they came out of THIS car, and one
     // flee-speed step may already have run this tick.
     expect(Math.hypot(newest.pos.x - car.pos.x, newest.pos.y - car.pos.y)).toBeLessThan(60);
+    // And on the wire grid: an off-grid standing position is a permanent
+    // hash desync for every client in range (see the roadblock note in
+    // police.ts).
+    expect(newest.pos.x * 8).toBeCloseTo(Math.round(newest.pos.x * 8), 9);
+    expect(newest.pos.y * 8).toBeCloseTo(Math.round(newest.pos.y * 8), 9);
   });
 
   it('an occupied car cannot simply be opened', () => {
