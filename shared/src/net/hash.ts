@@ -65,6 +65,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.wantedLevel);
     h = hashNumber(h, p.respawnAtTick ?? -1);
     h = hashBool(h, p.actionHeld);
+    h = hashBool(h, p.hornHeld);
     h = hashNumber(h, p.fireCooldown);
     h = hashNumber(h, p.carHitCooldown);
     h = hashNumber(h, p.heat);
@@ -78,6 +79,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     for (const r of p.respect) h = hashNumber(h, r);
     h = hashNumber(h, p.powerFlags);
     h = hashNumber(h, p.powerUntilTick);
+    h = hashNumber(h, p.stunnedUntilTick);
   }
   for (const v of snap.vehicles) {
     h = hashNumber(h, v.id);
@@ -90,6 +92,9 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, v.health);
     h = hashString(h, v.condition);
     h = hashNumber(h, v.fuseAtTick ?? -1);
+    h = hashNumber(h, v.igniterId ?? -1);
+    h = hashNumber(h, v.spreadUsed);
+    h = hashNumber(h, v.gangId);
     for (const z of v.zones) h = hashNumber(h, z);
     h = hashNumber(h, v.broken);
     h = hashString(h, v.fitting);
@@ -120,6 +125,8 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashString(h, ped.mode);
     h = hashNumber(h, ped.health);
     h = hashNumber(h, ped.timer);
+    h = hashNumber(h, ped.escortOf ?? -1);
+    h = hashNumber(h, ped.targetId ?? -1);
   }
   for (const prop of snap.props) {
     h = hashNumber(h, prop.id);
@@ -138,6 +145,8 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, pu.pos.y);
     h = hashBool(h, pu.active);
     h = hashNumber(h, pu.respawnAtTick ?? -1);
+    h = hashString(h, pu.weaponId);
+    h = hashNumber(h, pu.ammo);
   }
 
   for (const pr of snap.projectiles) {

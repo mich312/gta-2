@@ -106,6 +106,16 @@
       "toneDecay": 0.16,
       "sweepTo": 1180
     },
+    "horn": {
+      "kind": "tone",
+      "attack": 0.004,
+      "decay": 0.3,
+      "filter": 2200,
+      "gain": 0.26,
+      "tone": 392,
+      "toneGain": 0.5,
+      "toneDecay": 0.3
+    },
     "explosion": {
       "kind": "noise",
       "attack": 0.002,

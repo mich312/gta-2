@@ -14,11 +14,19 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
-import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { clearWanted, stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
-import { stepTraffic, stepTrafficPanic, stepTrafficPopulation, tryCarjack } from './traffic.js';
+import { stepGangFights } from './gangwar.js';
+import { stepAmbulance } from './ambulance.js';
+import {
+  stepBoarding,
+  stepTraffic,
+  stepTrafficPanic,
+  stepTrafficPopulation,
+  tryCarjack,
+} from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
 import { stepFittings } from './fittings.js';
@@ -41,8 +49,8 @@ import { PLAYER_RADIUS } from '../constants.js';
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
  *   driverless vehicles coast → weapons → projectiles → vehicle impacts →
- *   police → peds → driver panic → vehicle damage/explosions → prop repair →
- *   pickups → stunts → frenzy.
+ *   police → peds → ambulance dispatch → driver panic → vehicle
+ *   damage/explosions → prop repair → pickups → stunts → frenzy.
  */
 export function step(
   state: GameState,
@@ -72,7 +80,7 @@ export function step(
       // and unlike lifting a parked car it is always a crime.
       const jacked = tryCarjack(next, map, p.id);
       if (jacked) addHeat(p, getTuning().traffic.jackHeat);
-      else tryEnterVehicle(next, p, map);
+      else tryEnterVehicle(next, p, map, events);
     } else if (p.mode === 'driving') tryExitVehicle(next, p, map, events);
   }
 
@@ -84,6 +92,23 @@ export function step(
     if (p.mode === 'driving' && p.vehicleId !== null) {
       const v = next.vehicles.byId[p.vehicleId];
       if (v) {
+        // Edge-triggered off `carHitCooldown`? No — a dedicated cooldown
+        // would be a field on the wire for a sound. The horn fires on the
+        // tick the key goes down, which the sim sees as "held now, not held
+        // last tick" via actionHeld's sibling: cheapest correct version is a
+        // rate limit on the input itself, done client-side, plus this guard
+        // so a held key is one press.
+        if (input?.horn && !p.hornHeld) {
+          events?.push({
+            type: 'horn',
+            tick: next.tick,
+            x: Math.round(v.pos.x),
+            y: Math.round(v.pos.y),
+            kind: v.kind,
+            playerId: p.id,
+          });
+        }
+        p.hornHeld = input?.horn === true;
         stepVehicleDriving(v, input, map, next, next, events, p.z > 0);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
@@ -93,7 +118,7 @@ export function step(
         }
       }
     } else {
-      stepPlayerMovement(p, input, map);
+      stepPlayerMovement(p, input, map, next.tick);
     }
   }
 
@@ -104,6 +129,7 @@ export function step(
     if (!v || v.driverId !== null) continue;
     stepVehicleCoasting(v, map, next, next, events);
   }
+  stepBoarding(next, map);
   stepTrafficPopulation(next, map);
 
   stepWeapons(next, inputs, map, events);
@@ -117,6 +143,11 @@ export function step(
   stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  stepGangFights(next, map, events);
+  // The city answers its casualties. After stepPeds so this tick's casualties
+  // are visible to dispatch, and after stepTraffic so a van sent now sets off
+  // on the next tick — one tick of dispatch delay by construction.
+  stepAmbulance(next, map, events);
   // Drivers hear the same shots the crowd does. After every system that can
   // fire a gun or blow something up, so the whole tick's noise is in one
   // place; the flight response itself runs when traffic next steps.
@@ -172,6 +203,10 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       p.carHitCooldown = 0;
       p.weapons = cmd.loadout.map((w) => ({ ...w }));
       p.activeWeapon = p.weapons.length > 0 ? 0 : -1;
+      // You come back clean. Death already wipes the wanted level (see
+      // applyDamage); doing it here too means a player who was made dead by
+      // any other route still wakes up without a tail.
+      clearWanted(state, p);
       break;
     }
     case 'grantWeapon': {
@@ -191,18 +226,18 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (p) p.cosmeticId = cmd.cosmeticId;
       break;
     }
+    case 'addHeat': {
+      const p = state.players.byId[cmd.playerId];
+      if (p) addHeat(p, cmd.amount);
+      break;
+    }
     case 'clearHeat': {
       // A respray. Heat, wanted level and the interest of every cop already
       // on the street all go at once, which is what makes it an escape and
       // not merely a discount.
       const p = getEntity(state.players, cmd.playerId);
       if (!p) return;
-      p.heat = 0;
-      p.wantedLevel = 0;
-      for (const cid of state.cops.ids) {
-        const cop = state.cops.byId[cid];
-        if (cop && cop.targetId === cmd.playerId) cop.targetId = null;
-      }
+      clearWanted(state, p);
       break;
     }
     case 'despawnPlayer': {
@@ -249,10 +284,18 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (getEntity(state.vehicles, cmd.vehicleId)) return;
       insertEntity(
         state.vehicles,
-        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading),
+        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading, cmd.gangId ?? 0),
       );
       if (cmd.vehicleId >= state.nextEntityId) {
         state.nextEntityId = cmd.vehicleId + 1;
+      }
+      break;
+    }
+    case 'setEscort': {
+      const ped = state.peds.byId[cmd.pedId];
+      if (ped) {
+        ped.escortOf = cmd.playerId;
+        if (cmd.playerId === null && ped.mode === 'following') ped.mode = 'walk';
       }
       break;
     }

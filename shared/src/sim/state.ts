@@ -58,7 +58,15 @@ export type PickupKind =
   | 'jailcard'
   | 'damage'
   | 'invis'
-  | 'reload';
+  | 'reload'
+  | 'multi'
+  | 'cash'
+  /**
+   * A gun lying where its owner fell. Unlike every other kind this one is not
+   * worldgen furniture: it is created when somebody armed dies, it does not
+   * come back when taken, and it rots off the street on a timer.
+   */
+  | 'weapon';
 
 /**
  * Behaviour-altering power-ups, as bits rather than a field each.
@@ -77,6 +85,16 @@ export const POWER_DOUBLE_DAMAGE = 1;
 export const POWER_INVISIBLE = 2;
 export const POWER_FAST_RELOAD = 4;
 export const POWER_JAIL_CARD = 8;
+/**
+ * Stunned by an electro round: cannot move, cannot fire, waits it out.
+ *
+ * It lives in the power-up bitfield rather than in a field of its own —
+ * invariant 10 from FEATURES.md, batch the clocks — and it is deliberately
+ * NOT one of POWER_TIMED, because taking a power-up must not cure a stun and
+ * being stunned must not cancel your double damage. It has its own short
+ * clock in `stunnedUntilTick`.
+ */
+export const POWER_STUNNED = 16;
 /** Everything the clock governs. */
 export const POWER_TIMED = POWER_DOUBLE_DAMAGE | POWER_INVISIBLE | POWER_FAST_RELOAD;
 
@@ -86,8 +104,17 @@ export interface PickupState {
   pos: Vec2;
   /** False while on cooldown; the sprite is hidden and it cannot be taken. */
   active: boolean;
-  /** Tick it returns on, or null while active. */
+  /**
+   * Tick it returns on, or null while active — except on a dropped `weapon`,
+   * where it is the tick the gun rots off the street. A dropped gun never
+   * comes back, so the field would otherwise be dead weight on the one kind
+   * of pickup that needs a clock most.
+   */
   respawnAtTick: number | null;
+  /** Which gun, on a `weapon` pickup. Empty on every other kind. */
+  weaponId: string;
+  /** Rounds it comes with, on a `weapon` pickup. Zero on every other kind. */
+  ammo: number;
 }
 
 /**
@@ -106,7 +133,19 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed';
+export type PedMode =
+  | 'walk'
+  | 'flee'
+  /** Squaring up to the PLAYER, on their own turf. See peds.ts. */
+  | 'hostile'
+  /** Squaring up to a RIVAL GANG, on contested ground. See gangwar.ts. */
+  | 'fighting'
+  /** Tagging along behind a player, because a mission said so. See peds.ts. */
+  | 'following'
+  /** Bleeding out, and an ambulance may or may not arrive. See ambulance.ts. */
+  | 'downed'
+  /** A body on the pavement, for `corpseSec`. */
+  | 'dead';
 
 export interface PedState {
   id: number;
@@ -122,8 +161,25 @@ export interface PedState {
   dirY: number;
   mode: PedMode;
   health: number;
-  /** Ticks until the next wander turn (walk) or until calming down (flee). */
+  /**
+   * Ticks until the next wander turn (walk), until calming down (flee), until
+   * the next shot (hostile), until they bleed out (downed) or until the body
+   * is cleared away (dead). One counter, five meanings — 200 pedestrians pay
+   * for every field, and no two of those modes ever need it at once.
+   */
   timer: number;
+  /**
+   * Who this pedestrian is following, or null. Set by a mission command and
+   * cleared when the job ends; one nullable id on one ped at a time, which is
+   * the cheapest way to have somebody to protect.
+   */
+  escortOf: number | null;
+  /**
+   * Who this one is shooting at, or null. Only ever a player id: a grudge is
+   * something you hold against somebody who shot you, and the only shooters
+   * a pedestrian can tell apart are players.
+   */
+  targetId: number | null;
 }
 
 export type VehicleCondition = 'ok' | 'burning' | 'wreck';
@@ -140,6 +196,32 @@ export interface VehicleState {
   condition: VehicleCondition;
   /** Tick it detonates on (burning) or despawns on (wreck); null when ok. */
   fuseAtTick: number | null;
+  /**
+   * Who set it alight, or null when nobody did — a shunt in ambient traffic
+   * lights cars too, and that is an accident, not a crime. Written once, at
+   * ignition, and read on the far side of the fuse so the blast is credited
+   * to the arsonist rather than to whoever was at the wheel. Carries down a
+   * chain reaction, so burning a car park is one person's fire throughout.
+   *
+   * It rides the wire, which it would not have to if `takeSnapshot` projected
+   * fields — it clones whole entities, so anything on a table is in the
+   * snapshot whether the codec encodes it or not, and a field the codec
+   * silently dropped would fail the round-trip test. The cost is near zero in
+   * practice: it changes exactly once in a vehicle's life, so the delta path
+   * never carries it twice.
+   */
+  igniterId: number | null;
+  /**
+   * How many neighbours this car has already set alight. Bounded by
+   * `fire.spreadBudget`, which is what stops one molotov taking the city.
+   */
+  spreadUsed: number;
+  /**
+   * Whose car this is, or 0 for anybody's. Set at spawn from the turf it
+   * appears on and never changed — one small field, written once, that pays
+   * for a livery, a place to find one, and a reason not to take it.
+   */
+  gangId: number;
   /**
    * Damage accumulated per body zone: [front, right, rear, left], 0-255 each.
    *
@@ -187,11 +269,13 @@ export interface TrafficDriver {
   /**
    * What this driver is doing with its day. 'cruise' is ambient circulation —
    * the random walk that makes streets read as inhabited. 'goto' follows a
-   * planned route to a destination, then reverts to cruise on arrival. The
-   * genre's other two car missions already live elsewhere: pursuit is the
-   * police system, and flight is `panic` above.
+   * planned route to a destination, then reverts to cruise on arrival.
+   * 'tend' is parked with the engine running: the driver has arrived at
+   * something and is busy with it, and whatever set the errand will release
+   * them. The genre's other two car missions already live elsewhere: pursuit
+   * is the police system, and flight is `panic` above.
    */
-  mission: 'cruise' | 'goto';
+  mission: 'cruise' | 'goto' | 'tend';
   /**
    * The goto route: corner points, flat [x0,y0, x1,y1, ...] px, last pair =
    * destination (see roadgrid.planRoute). Null whenever mission is 'cruise'.
@@ -199,6 +283,37 @@ export interface TrafficDriver {
   route: number[] | null;
   /** Offset of the corner currently being driven at. Always even. */
   routeIdx: number;
+  /**
+   * Ticks this driver has been at the wheel. Past `traffic.tripTicks` they
+   * look for a kerb, park, and get out as a pedestrian — the other half of
+   * somebody getting in. Off the wire like the rest of this record.
+   */
+  trip: number;
+}
+
+/**
+ * An ambulance that has been sent to somebody, keyed by the vehicle carrying
+ * it. Sim state that never leaves the server, for exactly the reason
+ * `trafficDrivers` does not: no client simulates the ambulance service, so
+ * this has no business in the snapshot diff or the desync hash. What a client
+ * sees is a van driving up, stopping, and a casualty getting to their feet.
+ */
+export interface AmbulanceCall {
+  /** The casualty being answered. */
+  pedId: number;
+  /** Ticks of treatment left. Counts down only once they are on scene. */
+  treat: number;
+  /** Closest the van has got to the scene so far, px. */
+  best: number;
+  /** Ticks since that improved. A wedged van has to be given up on. */
+  stall: number;
+  /**
+   * Zero on a live call. Positive on a spent one: the attempt failed and the
+   * record is kept, counting down, purely so neither this van nor this
+   * casualty is picked again while the van drives itself out of whatever it
+   * was wedged in.
+   */
+  cooldown: number;
 }
 
 export interface PlayerState {
@@ -222,6 +337,8 @@ export interface PlayerState {
   lastInputSeq: number;
   /** Edge detection for the action button (enter/exit/buy). */
   actionHeld: boolean;
+  /** Ditto for the horn: a held key is one press, not thirty a second. */
+  hornHeld: boolean;
   /** Ticks until the active weapon may fire again. */
   fireCooldown: number;
   /** Ticks of run-over immunity so a car doesn't grind 30 hits/s. */
@@ -249,6 +366,8 @@ export interface PlayerState {
   powerFlags: number;
   /** Tick the timed powers lapse on. Meaningless when no timed bit is set. */
   powerUntilTick: number;
+  /** Tick a stun lifts on. Its own clock: see POWER_STUNNED. */
+  stunnedUntilTick: number;
 }
 
 /**
@@ -283,6 +402,8 @@ export interface GameState {
    * leaning on a parked car into an execution.
    */
   vehicleHitTick: Record<number, number>;
+  /** Ambulances currently answering a casualty, per vehicle id. Server-only. */
+  ambulanceCalls: Record<number, AmbulanceCall>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -300,11 +421,18 @@ export function createGameState(seed: number): GameState {
     projectiles: createTable(),
     trafficDrivers: {},
     vehicleHitTick: {},
+    ambulanceCalls: {},
   };
 }
 
-export function createPickup(id: number, kind: PickupKind, pos: Vec2): PickupState {
-  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null };
+export function createPickup(
+  id: number,
+  kind: PickupKind,
+  pos: Vec2,
+  weaponId = '',
+  ammo = 0,
+): PickupState {
+  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null, weaponId, ammo };
 }
 
 export function clonePickup(p: PickupState): PickupState {
@@ -341,7 +469,18 @@ export function cloneProp(p: PropState): PropState {
 }
 
 export function createPed(id: number, pos: Vec2, health: number, gangId = 0): PedState {
-  return { id, gangId, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
+  return {
+    id,
+    gangId,
+    pos: cloneVec(pos),
+    dirX: 1,
+    dirY: 0,
+    mode: 'walk',
+    health,
+    timer: 0,
+    escortOf: null,
+    targetId: null,
+  };
 }
 
 export function clonePed(p: PedState): PedState {
@@ -373,6 +512,7 @@ export function createVehicle(
   kind: string,
   pos: Vec2,
   heading: number,
+  gangId = 0,
 ): VehicleState {
   // Quantised at birth. Steering already q256s the heading every tick, but a
   // parked car that never turns would otherwise keep the raw HALF_PI it was
@@ -387,10 +527,17 @@ export function createVehicle(
     health: getVehicleTuning(kind).health,
     condition: 'ok',
     fuseAtTick: null,
+    igniterId: null,
+    spreadUsed: 0,
+    gangId,
     zones: [0, 0, 0, 0],
     broken: 0,
-    fitting: '',
-    fittingAmmo: 0,
+    // A tank is not special-cased anywhere: it is a chassis that comes out of
+    // the yard with the guns the garage already sells, and effectively
+    // limitless belts. If that ever needs its own code path, the fittings
+    // system (FEATURES.md G2) was not built generally enough.
+    fitting: kind === 'tank' ? 'guns' : '',
+    fittingAmmo: kind === 'tank' ? 9999 : 0,
   };
 }
 
@@ -418,6 +565,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respawnAtTick: null,
     lastInputSeq: 0,
     actionHeld: false,
+    hornHeld: false,
     fireCooldown: 0,
     carHitCooldown: 0,
     heat: 0,
@@ -431,6 +579,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respect: newRespect(),
     powerFlags: 0,
     powerUntilTick: 0,
+    stunnedUntilTick: 0,
   };
 }
 
@@ -468,7 +617,29 @@ export function cloneState(s: GameState): GameState {
     projectiles: cloneTable(s.projectiles, cloneProjectile),
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
     vehicleHitTick: { ...s.vehicleHitTick },
+    ambulanceCalls: cloneAmbulanceCalls(s.ambulanceCalls),
   };
+}
+
+function cloneAmbulanceCalls(
+  src: Record<number, AmbulanceCall>,
+): Record<number, AmbulanceCall> {
+  const out: Record<number, AmbulanceCall> = {};
+  // Integer-like keys iterate in ascending numeric order, so this is stable.
+  for (const key of Object.keys(src)) {
+    const id = Number(key);
+    const call = src[id];
+    if (call) {
+      out[id] = {
+        pedId: call.pedId,
+        treat: call.treat,
+        best: call.best,
+        stall: call.stall,
+        cooldown: call.cooldown,
+      };
+    }
+  }
+  return out;
 }
 
 function cloneTrafficDrivers(
@@ -487,6 +658,7 @@ function cloneTrafficDrivers(
         mission: d.mission,
         route: d.route ? d.route.slice() : null,
         routeIdx: d.routeIdx,
+        trip: d.trip,
       };
     }
   }

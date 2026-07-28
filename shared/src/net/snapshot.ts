@@ -66,6 +66,7 @@ const PLAYER_FIELDS = [
   // lastInputSeq is deliberately NOT diffed: remote clients never use it and
   // it changes every tick; own reconciliation rides on the message's ackSeq.
   'actionHeld',
+  'hornHeld',
   'fireCooldown',
   'carHitCooldown',
   'heat',
@@ -82,6 +83,7 @@ const PLAYER_FIELDS = [
   'respect',
   'powerFlags',
   'powerUntilTick',
+  'stunnedUntilTick',
 ] as const;
 
 const VEHICLE_FIELDS = [
@@ -93,6 +95,9 @@ const VEHICLE_FIELDS = [
   'health',
   'condition',
   'fuseAtTick',
+  'igniterId',
+  'spreadUsed',
+  'gangId',
   // Hashed, therefore they MUST be diffed — the airDist note above is what
   // happens when a hashed field is left out of this list.
   'zones',
@@ -112,9 +117,18 @@ const COP_FIELDS = [
   'vehicleId',
   'stuckTicks',
 ] as const;
-const PED_FIELDS = ['gangId', 'pos', 'dirX', 'dirY', 'mode', 'health', 'timer'] as const;
+const PED_FIELDS = [
+  'gangId',
+  'pos',
+  'dirX',
+  'dirY',
+  'mode',
+  'health',
+  'timer',
+  'targetId',
+] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
-const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick'] as const;
+const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick', 'weaponId', 'ammo'] as const;
 // vel rides along so the client can extrapolate between snapshots; a rocket
 // moves 14 px per tick and would otherwise stutter across the screen.
 const PROJECTILE_FIELDS = ['kind', 'pos', 'vel', 'ownerId', 'fuseAtTick'] as const;

@@ -255,3 +255,60 @@ describe('power-ups (F3b)', () => {
     expect(run()).toBe(run());
   });
 });
+
+describe('multiplier crates (O2)', () => {
+  it('worldgen scatters them, but rarely — staples still dominate', () => {
+    const kinds = map.pickupSpawns.map((s) => s.kind);
+    expect(kinds).toContain('multi');
+    const multis = kinds.filter((k) => k === 'multi').length;
+    // Rare on purpose: a multiplier you can find often makes frenzies and
+    // missions — the two things the multiplier exists to reward — not worth
+    // doing. Under one crate in twenty.
+    expect(multis / kinds.length).toBeLessThan(0.05);
+    const staples = kinds.filter((k) => k === 'health' || k === 'ammo' || k === 'armour').length;
+    expect(staples / kinds.length).toBeGreaterThan(0.6);
+  });
+
+  it('taking one always succeeds, and changes nothing in the sim', () => {
+    // The crate's whole effect is the event it emits: nothing in step() reads
+    // a multiplier, so the sim side deliberately does nothing at all.
+    //
+    // Built by hand rather than through onCrate, because a crate spawned
+    // under a player is consumed on that same tick and its event goes to the
+    // step that spawned it — which onCrate discards.
+    let state = createGameState(4242);
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnPlayer', playerId: 1, name: 'collector' }],
+      map,
+    );
+    const p0 = state.players.byId[1]!;
+    const events: SimEvent[] = [];
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnPickup', pickupId: 60, kind: 'multi', x: p0.pos.x, y: p0.pos.y }],
+      map,
+      events,
+    );
+    const taken = events.find((e) => e.type === 'pickupTaken');
+    expect(taken).toBeDefined();
+    if (taken && taken.type === 'pickupTaken') {
+      expect(taken.kind).toBe('multi');
+      expect(taken.playerId).toBe(1);
+    }
+    // The crate is spent...
+    expect(state.pickups.byId[60]!.active).toBe(false);
+    // ...and no player field moved because of it.
+    const p = state.players.byId[1]!;
+    expect(p.powerFlags).toBe(0);
+    expect(p.health).toBe(100);
+    expect(p.frenzyTarget).toBe(0);
+  });
+
+  it('collecting one is deterministic', () => {
+    const run = (): number => hashState(take(onCrate('multi')));
+    expect(run()).toBe(run());
+  });
+});

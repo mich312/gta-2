@@ -1,4 +1,4 @@
-import { DT, PLAYER_RADIUS } from '../constants.js';
+import { DT, PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { clamp, q8 } from '../math/vec.js';
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
@@ -9,7 +9,7 @@ import { insertEntity, removeEntity } from './entities.js';
 import { createVehicle } from './state.js';
 import { boxesOverlap, driveVehicle } from './vehicle.js';
 import type { SimEvent } from './events.js';
-import { applyDamage, bustPlayer, damageCop, rayWallDistance } from './weapons.js';
+import { applyDamage, bustPlayer, copIsDown, damageCop, rayWallDistance } from './weapons.js';
 import { isFriendly } from './respect.js';
 import { gangAt } from '../world/turf.js';
 import type { CityMap } from '../world/types.js';
@@ -43,7 +43,47 @@ export function anyCopSees(state: GameState, map: CityMap, p: PlayerState): bool
   const range = getTuning().police.sightRange;
   for (const cid of state.cops.ids) {
     const cop = state.cops.byId[cid];
-    if (cop && hasLineOfSight(map, cop, p, range)) return true;
+    // A body witnesses nothing. Without this the officer you just shot went on
+    // reporting your car thefts from the pavement for the next forty seconds.
+    if (cop && !copIsDown(cop) && hasLineOfSight(map, cop, p, range)) return true;
+  }
+  return false;
+}
+
+/** Officers still on their feet, for the spawn budget. Bodies are not police. */
+function liveCopCount(state: GameState): number {
+  let n = 0;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (cop && !copIsDown(cop)) n++;
+  }
+  return n;
+}
+
+/**
+ * Did anybody official notice?
+ *
+ * Seen, or heard. Line of sight is the old rule and still the strongest one;
+ * `noiseRadius` is what a shot carries as a sound, through walls, and is what
+ * makes a silenced weapon worth carrying — the same kill at a fraction of the
+ * attention. A loud weapon in an empty street is still a crime; a quiet one
+ * with a patrol car round the corner still is too.
+ */
+export function noticedBy(
+  state: GameState,
+  map: CityMap,
+  p: PlayerState,
+  noiseRadius: number,
+): boolean {
+  const range = getTuning().police.sightRange;
+  const n2 = noiseRadius * noiseRadius;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (!cop) continue;
+    const dx = cop.pos.x - p.pos.x;
+    const dy = cop.pos.y - p.pos.y;
+    if (dx * dx + dy * dy <= n2) return true;
+    if (hasLineOfSight(map, cop, p, range)) return true;
   }
   return false;
 }
@@ -70,7 +110,7 @@ function copStats(kind: string): { health: number; weapon: string; moveSpeed: nu
 
 function maybeSpawnCop(state: GameState, map: CityMap): void {
   const t = getTuning().police;
-  if (state.cops.ids.length >= t.maxCopsTotal) return;
+  if (liveCopCount(state) >= t.maxCopsTotal) return;
   // Spacing between arrivals, straight off the tick counter so it needs no
   // state of its own. Checked before any rng draw, so the stream stays fixed.
   if (state.tick % t.spawnCooldownTicks !== 0) return;
@@ -191,6 +231,7 @@ function copFire(
     y0: Math.round(cop.pos.y),
     x1: Math.round(cop.pos.x + dirX * hitDist),
     y1: Math.round(cop.pos.y + dirY * hitDist),
+    noise: weapon.noiseRadius,
   });
   if (hit) applyDamage(state, hit, weapon.damage, -1, 'police', events);
 }
@@ -478,9 +519,20 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
   }
 
   const toRemove: number[] = [];
+  const corpseTicks = Math.round(getTuning().peds.corpseSec * TICK_RATE);
   for (const cid of state.cops.ids) {
     const cop = state.cops.byId[cid];
     if (!cop) continue;
+
+    // A body on the tarmac. It lies there for the same span a pedestrian's
+    // does, on the same counter the living use to time out — a corpse is
+    // idle by definition, so no extra field is needed to clock it.
+    if (copIsDown(cop)) {
+      cop.idleTicks++;
+      if (cop.idleTicks >= corpseTicks) toRemove.push(cid);
+      continue;
+    }
+
     if (cop.fireCooldown > 0) cop.fireCooldown--;
     if (cop.carHitCooldown > 0) cop.carHitCooldown--;
 
@@ -510,7 +562,7 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
       if (weapon && state.tick % rt.gangFireCooldownTicks === cop.id % rt.gangFireCooldownTicks) {
         for (const pedId of state.peds.ids) {
           const ped = state.peds.byId[pedId];
-          if (!ped || ped.gangId === 0) continue;
+          if (!ped || ped.gangId === 0 || ped.mode === 'dead') continue;
           if (gangAt(map, ped.pos.x, ped.pos.y) !== ped.gangId) continue;
           if (!isFriendly(target, ped.gangId)) continue;
           const d = dist(ped.pos.x, ped.pos.y, cop.pos.x, cop.pos.y);

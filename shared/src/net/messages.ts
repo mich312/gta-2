@@ -48,7 +48,24 @@ export type ServerMessage =
   | { type: 'full'; tick: number; snapshot: FullSnapshot }
   | { type: 'event'; tick: number; event: GameEvent }
   | { type: 'pong'; t: number; serverTick: number }
-  | { type: 'wallet'; cash: number; multiplier: number; lifetime: number }
+  | {
+      type: 'wallet';
+      cash: number;
+      multiplier: number;
+      lifetime: number;
+      /** Lifetime earned per district — how well each one knows you (L3). */
+      standing: Record<string, number>;
+    }
+  | {
+      /**
+       * Which hidden packages THIS player has found. Indices into
+       * `map.packages`, which the client already generated from the seed —
+       * so a hundred finds cost a hundred small integers, once.
+       */
+      type: 'secrets';
+      found: number[];
+      total: number;
+    }
   | {
       /** Vehicle kinds the crushers are paying over the odds for right now. */
       type: 'exports';
@@ -140,6 +157,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'account',
   'error',
   'exports',
+  'secrets',
   'missionState',
 ]);
 

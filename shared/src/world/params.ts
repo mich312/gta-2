@@ -69,6 +69,17 @@ export interface WorldgenParams {
    * reads them.
    */
   turf: { cellTiles: number; gangCount: number };
+  /**
+   * Seconds in an in-game day. Here rather than in a tuning file for the same
+   * reason as `turf`: it ships in the welcome message alongside the seed, so
+   * the client's clock and the server's are the same function of the tick
+   * without a second thing to keep in step.
+   */
+  dayLengthSec: number;
+  /** How much of the daytime crowd is out at the dead of night. */
+  nightCrowdScale: number;
+  /** Hidden packages per city. See amenities.placePackages. */
+  packageCount: number;
 }
 
 function parseTurf(raw: unknown): { cellTiles: number; gangCount: number } {
@@ -146,6 +157,20 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     },
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
     turf: parseTurf(r['turf']),
+    // Defaulted rather than required: an older worldgen block (a replay
+    // header, a saved config) must still parse, and a city with no clock is
+    // simply the fixed-dusk city this one used to be.
+    dayLengthSec: typeof r['dayLengthSec'] === 'number' && r['dayLengthSec'] > 0
+      ? r['dayLengthSec']
+      : 1440,
+    nightCrowdScale:
+      typeof r['nightCrowdScale'] === 'number' &&
+      r['nightCrowdScale'] > 0 &&
+      r['nightCrowdScale'] <= 1
+        ? r['nightCrowdScale']
+        : 0.55,
+    packageCount:
+      typeof r['packageCount'] === 'number' && r['packageCount'] >= 0 ? r['packageCount'] : 100,
     shopQuota: {
       gun: num(quotaRaw['gun'], 'shopQuota.gun'),
       clothing: num(quotaRaw['clothing'], 'shopQuota.clothing'),

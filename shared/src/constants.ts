@@ -8,8 +8,15 @@
  * comfortBrake/scanHorizon). 4: vehicle tuning gained halfLength/halfWidth/
  * mass, and VehicleState gained the damage map (zones/broken) while health
  * became an integer varint rather than a float.
+ * 5: pedestrians gained a `dead` mode (a body that stays in the street) and a
+ * `targetId`; pickups gained a `weapon` kind with `weaponId`/`ammo`; ped
+ * tuning gained the armed-civilian and corpse numbers.
+ * 6: the tuning payload gained an `ambulance` section — the dispatch service
+ * that answers casualties.
+ * 7: `pedDown` and `copDown` carry the position they went down at, so the
+ * client can throw blood for the commonest killing in the game.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 7;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;
@@ -33,4 +40,4 @@ export const RESUME_GRACE_MS = 120_000;
 export const SNAPSHOT_RING_TICKS = 90;
 
 /** Hard ceiling on gangs, and therefore the width of a respect vector. */
-export const MAX_GANGS = 4;
+export const MAX_GANGS = 7;

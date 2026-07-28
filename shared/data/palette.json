@@ -183,5 +183,22 @@
   "busBody": "#3f7ac2",
   "vanBody": "#8d939c",
   "truckBody": "#6b5f52",
-  "fireBody": "#b8352c"
+  "fireBody": "#b8352c",
+  "limoBody": "#171a20",
+  "limoTrim": "#c9b573",
+  "garbageBody": "#3f6b4a",
+  "icecreamBody": "#f0eee6",
+  "icecreamTrim": "#e8628a",
+  "diggerBody": "#e0a828",
+  "diggerArm": "#4a4e55",
+  "tankBody": "#59654a",
+  "tankTrim": "#2a3022",
+  "garbageTrim": "#2b4a33",
+  "garbageRib": "#33573d",
+  "icecreamPink": "#e8628a",
+  "icecreamCone": "#e0b878",
+  "diggerDark": "#6b7060",
+  "tankTread": "#22261c",
+  "tankBarrel": "#1b1f18",
+  "gangStripe": "#12161c"
 }

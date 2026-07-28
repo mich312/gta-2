@@ -6,49 +6,56 @@
     "spread": 0.3,
     "pellets": 1,
     "melee": true,
-    "infiniteAmmo": true
+    "infiniteAmmo": true,
+    "noiseRadius": 20
   },
   "pistol": {
     "damage": 12,
     "cooldownTicks": 9,
     "range": 230,
     "spread": 0.025,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 170
   },
   "smg": {
     "damage": 7,
     "cooldownTicks": 3,
     "range": 200,
     "spread": 0.07,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 200
   },
   "shotgun": {
     "damage": 9,
     "cooldownTicks": 24,
     "range": 140,
     "spread": 0.22,
-    "pellets": 6
+    "pellets": 6,
+    "noiseRadius": 260
   },
   "copPistol": {
     "damage": 7,
     "cooldownTicks": 12,
     "range": 190,
     "spread": 0.05,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 170
   },
   "copShotgun": {
     "damage": 8,
     "cooldownTicks": 22,
     "range": 130,
     "spread": 0.2,
-    "pellets": 5
+    "pellets": 5,
+    "noiseRadius": 260
   },
   "copSmg": {
     "damage": 6,
     "cooldownTicks": 4,
     "range": 210,
     "spread": 0.08,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 200
   },
   "rocket": {
     "damage": 1,
@@ -62,7 +69,8 @@
       "blastRadius": 92,
       "blastDamage": 115,
       "detonateOnImpact": true
-    }
+    },
+    "noiseRadius": 340
   },
   "grenade": {
     "damage": 1,
@@ -77,7 +85,8 @@
       "blastDamage": 88,
       "detonateOnImpact": false,
       "drag": 0.94
-    }
+    },
+    "noiseRadius": 300
   },
   "molotov": {
     "damage": 1,
@@ -92,34 +101,56 @@
       "blastDamage": 55,
       "detonateOnImpact": true,
       "drag": 0.95
-    }
+    },
+    "noiseRadius": 220
   },
   "flamethrower": {
     "damage": 5,
     "cooldownTicks": 2,
     "range": 68,
     "spread": 0.42,
-    "pellets": 2
+    "pellets": 2,
+    "noiseRadius": 120
   },
   "copRifle": {
     "damage": 14,
     "cooldownTicks": 8,
     "range": 260,
     "spread": 0.03,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 240
   },
   "carGun": {
     "damage": 9,
     "cooldownTicks": 5,
     "range": 260,
     "spread": 0.02,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 210
   },
   "gangPistol": {
     "damage": 6,
     "cooldownTicks": 26,
     "range": 190,
     "spread": 0.09,
-    "pellets": 1
+    "pellets": 1,
+    "noiseRadius": 170
+  },
+  "silenced": {
+    "damage": 11,
+    "cooldownTicks": 10,
+    "range": 210,
+    "spread": 0.02,
+    "pellets": 1,
+    "noiseRadius": 34
+  },
+  "electro": {
+    "damage": 4,
+    "cooldownTicks": 30,
+    "range": 150,
+    "spread": 0.03,
+    "pellets": 1,
+    "noiseRadius": 90,
+    "stunTicks": 24
   }
 }

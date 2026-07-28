@@ -104,6 +104,24 @@ function hash2(x: number, y: number): number {
 }
 
 /** Which gang holds the ground at a world position. 0 if nobody does. */
+/**
+ * Hand every seventh parked car on a gang's ground to that gang.
+ *
+ * Runs as part of turf assignment rather than parking placement, because
+ * parking is placed before the turf exists — doing it there marked every car
+ * as nobody's. One field, written once at generation, that pays for a livery,
+ * a place to find one, and a reason not to take it.
+ */
+export function markGangCars(map: CityMap): void {
+  map.parkingSpots.forEach((spot, i) => {
+    if (i % 7 !== 0) return;
+    const gang = gangAt(map, spot.x, spot.y);
+    if (gang === 0) return;
+    spot.gangId = gang;
+    spot.kind = 'gangcar';
+  });
+}
+
 export function gangAt(map: CityMap, x: number, y: number): number {
   if (map.turfCellsWide === 0) return 0;
   const cell = map.turfCellTiles;

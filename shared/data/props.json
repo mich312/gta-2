@@ -11,6 +11,14 @@
     "hp": 25,
     "radius": 8
   },
+  "barrel": {
+    "hp": 8,
+    "radius": 6,
+    "blast": {
+      "radius": 52,
+      "damage": 60
+    }
+  },
   "respawnDelaySec": 45,
   "respawnMinDistFromPlayer": 260,
   "breakSpeed": 66,

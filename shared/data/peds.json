@@ -8,5 +8,15 @@
   "fleeTicks": 105,
   "heatPerPedKill": 80,
   "downOneIn": 3,
-  "bleedOutSec": 45
+  "bleedOutSec": 45,
+  "armedOneIn": 7,
+  "weapon": "gangPistol",
+  "dropAmmo": 24,
+  "armedSightRange": 190,
+  "armedFireRange": 160,
+  "armedFireCooldownTicks": 30,
+  "armedChaseSpeed": 84,
+  "grudgeTicks": 240,
+  "corpseSec": 40,
+  "dropLifeSec": 45
 }

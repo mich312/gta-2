@@ -11,6 +11,7 @@ import {
   INTERNAL_WIDTH,
   TICK_MS,
   TILE_SIZE,
+  districtAt,
   PART_HEADLIGHT_L,
   PART_HEADLIGHT_R,
   PART_TAILLIGHT_L,
@@ -41,6 +42,17 @@ import { DebugOverlay } from './debug/overlay.js';
 import { Hud } from './render/hud.js';
 import { Minimap } from './render/minimap.js';
 import { Audio, stationFor } from './audio/audio.js';
+
+/**
+ * How high a given vehicle's horn sits. Big things sound big: it is the one
+ * cue that tells you what is behind you without looking.
+ */
+function hornPitch(kind: string): number {
+  if (kind === 'bus' || kind === 'truck' || kind === 'firetruck') return 0.62;
+  if (kind === 'van' || kind === 'ambulance') return 0.8;
+  if (kind === 'taxi') return 1.18;
+  return 1;
+}
 
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
@@ -126,6 +138,8 @@ let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
 let catalog: Catalog | null = null;
+/** Hidden packages this player has already found; the rest still glint. */
+let foundPackages = new Set<number>();
 /** Station currently playing, so a change can be announced once. */
 let lastStation: number | null = null;
 
@@ -193,10 +207,11 @@ function vehiclePoseNow(): { x: number; y: number; angle: number } | null {
 function onStateUpdated(ackSeq: number | null): void {
   if (!sync.latest || !map) return;
   interp.push(sync.latest);
-  // Collision prediction reads the newest authoritative positions, not the
-  // ~100 ms interpolated ones: for the parked cars that make up most of what
-  // you hit, the snapshot is exact.
-  predictor.setWorld(sync.latest.vehicles);
+  // Collision prediction reads the positions the renderer is about to DRAW,
+  // not the newest ones off the wire — see Interpolator.vehiclesAsDrawn. For
+  // the parked cars that make up most of what you hit the two are identical;
+  // for anything moving, the snapshot is three ticks ahead of its own sprite.
+  predictor.setWorld(interp.vehiclesAsDrawn());
   const me = sync.latest.players.find((p) => p.id === playerId);
   if (me) {
     const myVehicle =
@@ -256,10 +271,18 @@ function onGameEvent(event: GameEvent): void {
     audio.play('impact', hit.dist, hit.pan);
   } else if (event.type === 'runOver') {
     // A car connecting with somebody. Non-fatal hits used to have no outward
-    // sign at all — the victim's HUD flashed and nothing else happened.
-    effects.blood(event.x, event.y, event.angle);
+    // sign at all — the victim's HUD flashed and nothing else happened. The
+    // spray scales with the speed: being clipped at a walking pace and being
+    // hit by a bus at 300 px/s should not throw the same amount of blood.
+    effects.blood(event.x, event.y, event.angle, 1 + Math.min(1.4, event.speed / 190));
     const at = listen(event.x, event.y);
     audio.play('thud', at.dist, at.pan);
+  } else if (event.type === 'horn') {
+    // Played from the event for everybody including the person who pressed
+    // the key. A horn is not a gunshot: nobody is aiming with it, so the
+    // round trip costs nothing worth adding a local-echo path for.
+    const at = listen(event.x, event.y);
+    audio.play('horn', at.dist, at.pan, hornPitch(event.kind));
   } else if (event.type === 'propDown') {
     effects.debris(event.x, event.y);
     const at = listen(event.x, event.y);
@@ -314,13 +337,25 @@ function onGameEvent(event: GameEvent): void {
     if (event.playerId === playerId && event.distance > 40) {
       hud.notice(`stunt jump — ${event.distance}px`);
     }
+  } else if (event.type === 'casualtySaved') {
+    // Somebody the city got to in time. The same chime a pickup makes, which
+    // is the one sound in the game that already means "that went well".
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
   } else if (event.type === 'pickupTaken') {
     const at = listen(event.x, event.y);
     audio.play('pickup', at.dist, at.pan);
+  } else if (event.type === 'pedDown' || event.type === 'copDown') {
+    // The commonest killing in the game, and until the event carried a
+    // position it was the only one that threw nothing: `shot` says where the
+    // round stopped, never whether it stopped in somebody.
+    effects.blood(event.x, event.y, Math.random() * Math.PI * 2, 1.15);
+    const at = listen(event.x, event.y);
+    audio.play('death', at.dist, at.pan);
   } else if (event.type === 'kill') {
     const victim = sync.latest?.players.find((p) => p.id === event.victimId);
     if (victim) {
-      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2, 1.35);
       const at = listen(victim.pos.x, victim.pos.y);
       audio.play('death', at.dist, at.pan);
     }
@@ -400,7 +435,10 @@ function handleServerMessage(msg: ServerMessage): void {
         }
         break;
       case 'wallet':
-        hud.setWallet(msg.cash, msg.multiplier);
+        hud.setWallet(msg.cash, msg.multiplier, msg.standing);
+        break;
+      case 'secrets':
+        foundPackages = new Set(msg.found);
         break;
       case 'exports':
         hud.setExports(msg.kinds, msg.bonus);
@@ -521,11 +559,18 @@ function frame(now: number): void {
                 zones: predictor.predictedVehicle?.zones ?? [0, 0, 0, 0],
                 broken: predictor.predictedVehicle?.broken ?? 0,
                 z: predictor.predicted?.z ?? 0,
+                gangId: predictor.predictedVehicle?.gangId ?? 0,
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
+        foundPackages,
         dt: frameMs / 1000,
         nowMs: now,
+        // The newest authoritative tick, not the last acked one: traffic
+        // signals are a function of it, and rendering the phase three ticks
+        // in the past would show a light the cars in front had already
+        // obeyed.
+        tick: sync.latest.tick,
       }
     : null;
   render(screen, map, scene, cam, sprites, tiles, effects, lights);
@@ -537,6 +582,13 @@ function frame(now: number): void {
     hud.drawShop(screen.ctx, shopKind, hud.shopRows(catalog, shopKind));
   }
   hud.place = currentLandmark();
+  {
+    const me = predictor.predicted;
+    hud.district =
+      map && me
+        ? districtAt(map, Math.floor(me.pos.x / TILE_SIZE), Math.floor(me.pos.y / TILE_SIZE))
+        : null;
+  }
   // The fitting lives on the car, so the HUD reads it off whatever the local
   // player is sitting in — predicted, like everything else about that car.
   const myCar = predictor.predictedVehicle;
@@ -555,6 +607,7 @@ function frame(now: number): void {
       }
     : null;
   minimap.marker = hud.missionMarker;
+  minimap.route = hud.missionRoute;
   hud.draw(
     screen.ctx,
     predictor.predicted ?? null,

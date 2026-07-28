@@ -51,6 +51,16 @@ export interface VehicleTuning {
   medium: 'land' | 'water';
   /** Damage per px/s of closing speed in a collision. */
   collisionDamagePerSpeed: number;
+  /**
+   * Distance from the vehicle's centre to its turret pivot, along the hull,
+   * or null for anything without one.
+   *
+   * A turret is the one part of a vehicle that does NOT rotate with the body,
+   * so it cannot be a baked rotation frame of the same sprite. Its presence
+   * here is what tells the renderer to draw `<kind>_turret` separately and
+   * tells the guns to fire down the aim rather than down the bonnet.
+   */
+  turretOffset: number | null;
 }
 
 export interface WeaponTuning {
@@ -68,6 +78,22 @@ export interface WeaponTuning {
    * rather than resolving instantly along a ray. Absent = hitscan.
    */
   projectile: ProjectileTuning | null;
+  /**
+   * How far the shot carries as a NOISE, in px, independent of how far it
+   * carries as a bullet. This is what makes a silenced pistol a mechanic
+   * rather than a reskin: the cops and the crowd key off it, so the same
+   * damage at a fraction of the noise is a real reason to carry one into a
+   * turf you would rather not stir up. It also retroactively differentiates
+   * every weapon that was already here — a shotgun wakes a street the
+   * flamethrower does not.
+   */
+  noiseRadius: number;
+  /**
+   * Ticks the target is stunned for, or 0. A stunned body cannot move or
+   * fire. Kept short on purpose: helplessness is the least fun state in any
+   * game, so this is a tool for escaping or closing, not for winning.
+   */
+  stunTicks: number;
 }
 
 export interface ProjectileTuning {
@@ -98,6 +124,12 @@ export interface PoliceTuning {
   heatPerDamage: number;
   heatPerKill: number;
   heatPerTheft: number;
+  /** Per loud shot within earshot of an officer. What a silencer saves you. */
+  heatPerNoise: number;
+  /** Setting an empty car alight. Property, so it sits between theft and murder. */
+  heatPerVehicleKill: number;
+  /** Setting a car alight with somebody in it. The deaths are charged separately. */
+  heatPerOccupiedVehicleKill: number;
   heatPerCopKill: number;
   heatDecayPerSec: number;
   despawnTicks: number;
@@ -143,11 +175,84 @@ export interface PedTuning {
   fleeRadius: number;
   fleeTicks: number;
   heatPerPedKill: number;
+  /**
+   * One pedestrian in this many is carrying, and shoots back when shot at.
+   * The whole crowd running away from every gunshot made the street a
+   * backdrop rather than a place with opinions about you.
+   */
+  armedOneIn: number;
+  /** What they carry — and therefore what their body leaves on the pavement. */
+  weapon: string;
+  /** Rounds in the gun they drop. */
+  dropAmmo: number;
+  armedSightRange: number;
+  armedFireRange: number;
+  armedFireCooldownTicks: number;
+  armedChaseSpeed: number;
+  /** Ticks an armed civilian keeps a grudge after losing sight of you. */
+  grudgeTicks: number;
+  /** Seconds a body lies in the street before it is cleared away. */
+  corpseSec: number;
+  /** Seconds a dropped gun lies where its owner fell. */
+  dropLifeSec: number;
+}
+
+/**
+ * The ambulance service: the city's own answer to a casualty.
+ *
+ * Separate from `peds` because it is not a fact about pedestrians — it is a
+ * fact about who turns out when one of them is lying in the road, and it has
+ * to be tuned against the player's ambulance JOB (server/src/economy/jobs.ts)
+ * rather than against the crowd.
+ */
+export interface AmbulanceTuning {
+  /**
+   * How long a casualty lies there before the city notices.
+   *
+   * This is the whole balance of the feature. A player driving an ambulance
+   * is racing for the same fare, so the service has to be slow enough to lose
+   * that race when somebody is actually playing it, and reliable enough that
+   * a casualty nobody claims is not simply left to die every single time.
+   */
+  responseDelaySec: number;
+  /** How often dispatch looks for somebody to send a van to. */
+  dispatchCadenceTicks: number;
+  /** Concurrent calls. A massacre must not fill the streets with ambulances. */
+  maxActive: number;
+  /** Only casualties this close to some player are worth simulating a drive to. */
+  callRadius: number;
+  /** An ambulance already in traffic within this range is sent, not a new one. */
+  reuseRadius: number;
+  /** Where a fresh one turns out from, measured from the casualty. */
+  spawnMinDist: number;
+  spawnMaxDist: number;
+  /** Near enough to the PARKING SPOT below to count as pulled up. */
+  sceneRadius: number;
+  /**
+   * How far the crew will walk from the van.
+   *
+   * A van cannot park on somebody lying in the middle of a plaza, a park or a
+   * courtyard, and the road nearest a casualty who has wandered off the
+   * pavement is routinely a hundred pixels away. Without a foot radius the
+   * service simply never turned out to any of them, which is a third of all
+   * casualties and reads from the street as the ambulance being broken.
+   */
+  crewReach: number;
+  /** How long the treatment takes once they are on scene. */
+  treatSec: number;
+  /** A player-driven ambulance this close owns the call; dispatch stands off. */
+  playerClaimDist: number;
 }
 
 export interface PropKindTuning {
   hp: number;
   radius: number;
+  /**
+   * Present only on props that go off when they break. Absent on ordinary
+   * street furniture, which is what keeps "does this explode?" a property of
+   * the data rather than a list of kinds hardcoded in the sim.
+   */
+  blast?: { radius: number; damage: number };
 }
 
 export interface PropsTuning {
@@ -217,6 +322,25 @@ export interface TrafficTuning {
   reverseTicks: number;
   decisionCadenceTicks: number;
   turnChance: number;
+  /**
+   * Traffic-signal timing. Declared here rather than imported from
+   * sim/signals.ts because this file deliberately imports nothing at all —
+   * TypeScript is structural, so the two shapes satisfy each other.
+   */
+  /** How close a pedestrian has to be to a parked car to get into it. */
+  boardRadius: number;
+  /** Odds per tick that SOMEBODY in the city gets in, at most one. */
+  boardChance: number;
+  /** Ticks an ambient driver stays at the wheel before parking and walking off. */
+  tripTicks: number;
+  /** Ticks blocked by a PERSON before a driver sounds the horn about it. */
+  hornAfterTicks: number;
+  signals: {
+    greenTicks: number;
+    amberTicks: number;
+    junctionOffsetTicks: number;
+    lookaheadPx: number;
+  };
   /** What a panicked driver accelerates to on the straight, px/s. */
   panicSpeed: number;
   /** How long a scare lasts, in sim ticks. */
@@ -269,6 +393,17 @@ export interface GangsTuning {
   cellTiles: number;
   /** One pedestrian in this many, on a gang's turf, is one of theirs. */
   memberEvery: number;
+  /** How close a rival has to be before a gang member squares up. */
+  engageRadius: number;
+  /** A fight nobody wins in this long breaks off. */
+  fightTimeoutTicks: number;
+  /**
+   * Ceiling on fights running at once, city-wide. Without it the gangs kill
+   * each other off in minutes and the streets go quiet.
+   */
+  maxConcurrentFights: number;
+  /** Fights only start on ground the shooter's gang does not hold. */
+  contestedOnly: boolean;
   gangs: GangDef[];
 }
 
@@ -292,12 +427,49 @@ export interface RespectTuning {
   gangChaseSpeed: number;
 }
 
+/** How fire travels between vehicles. See sim/vehicleDamage.ts. */
+export interface FireTuning {
+  /** How far a burning car can reach to light the next one, px. */
+  spreadRadius: number;
+  /** Ticks between one car's attempts to spread. */
+  spreadIntervalTicks: number;
+  /** Ceiling on fires burning at once, city-wide. */
+  maxConcurrent: number;
+  /** How many neighbours one burning car may ever light. */
+  spreadBudget: number;
+}
+
+const DEFAULT_FIRE: FireTuning = {
+  spreadRadius: 46,
+  spreadIntervalTicks: 45,
+  maxConcurrent: 12,
+  spreadBudget: 1,
+};
+
+const VEHICLE_SCALARS = new Set(['fire']);
+
+function parseFireTuning(raw: unknown): FireTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string, fallback: number): number => {
+    const v = r[k];
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+  };
+  return {
+    spreadRadius: n('spreadRadius', DEFAULT_FIRE.spreadRadius),
+    spreadIntervalTicks: n('spreadIntervalTicks', DEFAULT_FIRE.spreadIntervalTicks),
+    maxConcurrent: n('maxConcurrent', DEFAULT_FIRE.maxConcurrent),
+    spreadBudget: n('spreadBudget', DEFAULT_FIRE.spreadBudget),
+  };
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
+  fire: FireTuning;
   weapons: Record<string, WeaponTuning>;
   police: PoliceTuning;
   peds: PedTuning;
+  ambulance: AmbulanceTuning;
   props: PropsTuning;
   pickups: PickupsTuning;
   traffic: TrafficTuning;
@@ -348,6 +520,7 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     explosionDamage: n('explosionDamage'),
     medium: r['medium'] === 'water' ? 'water' : 'land',
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
+    turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
   };
 }
 
@@ -363,6 +536,11 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
     melee: r['melee'] === true,
     infiniteAmmo: r['infiniteAmmo'] === true,
     projectile: parseProjectile(id, r['projectile']),
+    // Defaulted rather than required: every weapon that existed before this
+    // must still parse, and "as loud as a pistol" is the right guess for one.
+    noiseRadius:
+      typeof r['noiseRadius'] === 'number' && r['noiseRadius'] >= 0 ? r['noiseRadius'] : 170,
+    stunTicks: typeof r['stunTicks'] === 'number' && r['stunTicks'] > 0 ? r['stunTicks'] : 0,
   };
 }
 
@@ -425,6 +603,9 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerDamage: n('heatPerDamage'),
     heatPerKill: n('heatPerKill'),
     heatPerTheft: n('heatPerTheft'),
+    heatPerNoise: n('heatPerNoise'),
+    heatPerVehicleKill: n('heatPerVehicleKill'),
+    heatPerOccupiedVehicleKill: n('heatPerOccupiedVehicleKill'),
     heatPerCopKill: n('heatPerCopKill'),
     heatDecayPerSec: n('heatDecayPerSec'),
     despawnTicks: n('despawnTicks'),
@@ -457,6 +638,34 @@ function parsePedTuning(raw: unknown): PedTuning {
     fleeRadius: n('fleeRadius'),
     fleeTicks: n('fleeTicks'),
     heatPerPedKill: n('heatPerPedKill'),
+    armedOneIn: n('armedOneIn'),
+    weapon: typeof r['weapon'] === 'string' && r['weapon'] ? r['weapon'] : DEFAULT_PEDS.weapon,
+    dropAmmo: n('dropAmmo'),
+    armedSightRange: n('armedSightRange'),
+    armedFireRange: n('armedFireRange'),
+    armedFireCooldownTicks: n('armedFireCooldownTicks'),
+    armedChaseSpeed: n('armedChaseSpeed'),
+    grudgeTicks: n('grudgeTicks'),
+    corpseSec: n('corpseSec'),
+    dropLifeSec: n('dropLifeSec'),
+  };
+}
+
+function parseAmbulanceTuning(raw: unknown): AmbulanceTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `ambulance.${k}`);
+  return {
+    responseDelaySec: n('responseDelaySec'),
+    dispatchCadenceTicks: n('dispatchCadenceTicks'),
+    maxActive: n('maxActive'),
+    callRadius: n('callRadius'),
+    reuseRadius: n('reuseRadius'),
+    spawnMinDist: n('spawnMinDist'),
+    spawnMaxDist: n('spawnMaxDist'),
+    sceneRadius: n('sceneRadius'),
+    crewReach: n('crewReach'),
+    treatSec: n('treatSec'),
+    playerClaimDist: n('playerClaimDist'),
   };
 }
 
@@ -480,7 +689,19 @@ function parsePropsTuning(raw: unknown): PropsTuning {
   for (const [k, v] of Object.entries(kindsSrc)) {
     if (PROP_SCALARS.has(k)) continue;
     const kv = (v ?? {}) as Record<string, unknown>;
-    kinds[k] = { hp: num(kv['hp'], `props.${k}.hp`), radius: num(kv['radius'], `props.${k}.radius`) };
+    const kind: PropKindTuning = {
+      hp: num(kv['hp'], `props.${k}.hp`),
+      radius: num(kv['radius'], `props.${k}.radius`),
+    };
+    const blast = kv['blast'];
+    if (blast !== undefined) {
+      const b = (blast ?? {}) as Record<string, unknown>;
+      kind.blast = {
+        radius: num(b['radius'], `props.${k}.blast.radius`),
+        damage: num(b['damage'], `props.${k}.blast.damage`),
+      };
+    }
+    kinds[k] = kind;
   }
   return {
     kinds,
@@ -533,6 +754,15 @@ function parseGangsTuning(raw: unknown): GangsTuning {
   return {
     cellTiles: num(r['cellTiles'], 'gangs.cellTiles'),
     memberEvery: num(r['memberEvery'], 'gangs.memberEvery'),
+    engageRadius: num(r['engageRadius'], 'gangs.engageRadius'),
+    fightTimeoutTicks: num(r['fightTimeoutTicks'], 'gangs.fightTimeoutTicks'),
+    // A cap of zero is a coherent setting — it turns gang war off — so it
+    // cannot go through `num`, which refuses zero.
+    maxConcurrentFights:
+      typeof r['maxConcurrentFights'] === 'number' && r['maxConcurrentFights'] >= 0
+        ? r['maxConcurrentFights']
+        : 8,
+    contestedOnly: r['contestedOnly'] !== false,
     gangs: list.map((g, i) => {
       const gr = (g ?? {}) as Record<string, unknown>;
       const id = gr['id'];
@@ -552,6 +782,10 @@ function parseGangsTuning(raw: unknown): GangsTuning {
 const DEFAULT_GANGS: GangsTuning = {
   cellTiles: 12,
   memberEvery: 4,
+  engageRadius: 110,
+  fightTimeoutTicks: 300,
+  maxConcurrentFights: 8,
+  contestedOnly: true,
   gangs: [
     { id: 1, name: 'Kessler Row', color: '#c8543c', rivals: [2, 3] },
     { id: 2, name: 'Sunnyside', color: '#4aa86a', rivals: [1, 4] },
@@ -654,6 +888,22 @@ function parseMix(raw: unknown): Array<{ kind: string; weight: number }> {
   });
 }
 
+function parseSignals(raw: unknown): TrafficTuning['signals'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `traffic.signals.${k}`);
+  const timing = {
+    greenTicks: n('greenTicks'),
+    amberTicks: n('amberTicks'),
+    junctionOffsetTicks: n('junctionOffsetTicks'),
+    lookaheadPx: n('lookaheadPx'),
+  };
+  // `num` already refuses zero and negatives — the same guard that caught a
+  // `damage: 0` weapon once. Both counts are genuinely positive: a zero green
+  // is a junction nothing ever gets through, and a zero amber is a light that
+  // turns red under a committed car.
+  return timing;
+}
+
 function parseTrafficTuning(raw: unknown): TrafficTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `traffic.${k}`);
@@ -680,6 +930,11 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     reverseTicks: n('reverseTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
     turnChance: n('turnChance'),
+    boardRadius: n('boardRadius'),
+    boardChance: n('boardChance'),
+    tripTicks: n('tripTicks'),
+    hornAfterTicks: n('hornAfterTicks'),
+    signals: parseSignals(r['signals']),
     panicSpeed: n('panicSpeed'),
     panicTicks: n('panicTicks'),
     panicRadius: n('panicRadius'),
@@ -712,6 +967,11 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   reverseTicks: 30,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
+  boardRadius: 40,
+  boardChance: 0.05,
+  tripTicks: 1800,
+  hornAfterTicks: 24,
+  signals: { greenTicks: 90, amberTicks: 24, junctionOffsetTicks: 37, lookaheadPx: 60 },
   panicSpeed: 150,
   panicTicks: 210,
   panicRadius: 150,
@@ -746,6 +1006,30 @@ const DEFAULT_PEDS: PedTuning = {
   fleeRadius: 170,
   fleeTicks: 105,
   heatPerPedKill: 80,
+  armedOneIn: 7,
+  weapon: 'gangPistol',
+  dropAmmo: 24,
+  armedSightRange: 190,
+  armedFireRange: 160,
+  armedFireCooldownTicks: 30,
+  armedChaseSpeed: 84,
+  grudgeTicks: 240,
+  corpseSec: 40,
+  dropLifeSec: 45,
+};
+
+const DEFAULT_AMBULANCE: AmbulanceTuning = {
+  responseDelaySec: 6,
+  dispatchCadenceTicks: 15,
+  maxActive: 2,
+  callRadius: 900,
+  reuseRadius: 700,
+  spawnMinDist: 300,
+  spawnMaxDist: 900,
+  sceneRadius: 72,
+  crewReach: 180,
+  treatSec: 3,
+  playerClaimDist: 260,
 };
 
 const DEFAULT_POLICE: PoliceTuning = {
@@ -766,6 +1050,9 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerDamage: 0.8,
   heatPerKill: 60,
   heatPerTheft: 15,
+  heatPerNoise: 3,
+  heatPerVehicleKill: 40,
+  heatPerOccupiedVehicleKill: 70,
   heatPerCopKill: 120,
   heatDecayPerSec: 5,
   despawnTicks: 150,
@@ -810,6 +1097,7 @@ export function initTuning(
     weapons?: unknown;
     police?: unknown;
     peds?: unknown;
+    ambulance?: unknown;
     props?: unknown;
     pickups?: unknown;
     traffic?: unknown;
@@ -833,9 +1121,14 @@ export function initTuning(
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
   for (const [kind, v] of Object.entries(vehiclesRaw)) {
+    // `fire` is a settings block, not a vehicle. Same shape of exception as
+    // PROP_SCALARS: a file that is mostly a map of kinds can still carry a
+    // few numbers about the whole family.
+    if (VEHICLE_SCALARS.has(kind)) continue;
     const parsed = section(`vehicles.${kind}`, () => parseVehicleTuning(kind, v), null);
     if (parsed) vehicles[kind] = parsed;
   }
+  const fire = section('vehicles.fire', () => parseFireTuning(vehiclesRaw['fire']), DEFAULT_FIRE);
   const weaponsRaw = (raw.weapons ?? {}) as Record<string, unknown>;
   const weapons: Record<string, WeaponTuning> = {};
   for (const [id, w] of Object.entries(weaponsRaw)) {
@@ -845,6 +1138,7 @@ export function initTuning(
   current = {
     player: section('player', () => parsePlayerTuning(raw.player), DEFAULT_PLAYER),
     vehicles,
+    fire,
     weapons,
     police: section(
       'police',
@@ -855,6 +1149,11 @@ export function initTuning(
       'peds',
       () => (raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS),
       DEFAULT_PEDS,
+    ),
+    ambulance: section(
+      'ambulance',
+      () => (raw.ambulance !== undefined ? parseAmbulanceTuning(raw.ambulance) : DEFAULT_AMBULANCE),
+      DEFAULT_AMBULANCE,
     ),
     props: section(
       'props',

@@ -11,9 +11,17 @@ import type {
   PropState,
   VehicleState,
 } from './state.js';
-import { addHeat, createProjectile, POWER_DOUBLE_DAMAGE, POWER_FAST_RELOAD, POWER_JAIL_CARD } from './state.js';
+import {
+  addHeat,
+  createProjectile,
+  POWER_DOUBLE_DAMAGE,
+  POWER_FAST_RELOAD,
+  POWER_JAIL_CARD,
+  POWER_STUNNED,
+} from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
-import { damagePed } from './peds.js';
+import { damagePed, dropWeapon } from './peds.js';
+import { noticedBy } from './police.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
@@ -153,7 +161,7 @@ function fireOnce(
   }
   for (const id of state.cops.ids) {
     const cop = state.cops.byId[id];
-    if (!cop) continue;
+    if (!cop || copIsDown(cop)) continue; // shoot through a body, not into it
     const d = rayCircleDistance(
       ox,
       oy,
@@ -171,7 +179,9 @@ function fireOnce(
   }
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
-    if (!ped) continue;
+    // A body on the pavement is scenery, and scenery you can shoot through:
+    // leaving corpses in the ray made every street its own sandbag wall.
+    if (!ped || ped.mode === 'dead') continue;
     const d = rayCircleDistance(
       ox,
       oy,
@@ -236,6 +246,7 @@ function fireOnce(
     }
   }
 
+  const weapon = getWeaponTuning(weaponId);
   events.push({
     type: 'shot',
     tick: state.tick,
@@ -245,18 +256,31 @@ function fireOnce(
     y0: Math.round(oy),
     x1: Math.round(ox + dirX * hitDist),
     y1: Math.round(oy + dirY * hitDist),
+    noise: weapon?.noiseRadius ?? 170,
   });
 
+  // Being HEARD is its own small crime, on top of whatever the round hit.
+  //
+  // Deliberately additive rather than a gate on the damage heat. Gating was
+  // the first attempt and it is wrong: killing somebody in an empty alley is
+  // still murder, the originals never modelled witnesses, and it quietly made
+  // the whole police system optional — four tests said so. What a silencer
+  // buys is that the patrol round the corner does not look up, so a loud
+  // weapon near an officer costs extra and a quiet one costs nothing.
+  if (noticedBy(state, map, shooter, weapon?.noiseRadius ?? 170)) {
+    addHeat(shooter, getTuning().police.heatPerNoise);
+  }
   if (hitPlayer) {
     applyDamage(state, hitPlayer, damage, shooter.id, weaponId, events);
+    if (weapon && weapon.stunTicks > 0) stunPlayer(hitPlayer, state.tick, weapon.stunTicks);
   } else if (hitCop) {
     damageCop(state, hitCop, damage, shooter.id, events);
   } else if (hitPed) {
     damagePed(state, hitPed, damage, shooter.id, events);
   } else if (hitProp) {
-    damageProp(state, hitProp, damage, events);
+    damageProp(state, hitProp, damage, events, shooter.id);
   } else if (hitVehicle) {
-    damageVehicle(state, hitVehicle, damage, events);
+    damageVehicle(state, hitVehicle, damage, events, shooter.id);
   }
 }
 
@@ -266,6 +290,7 @@ export function damageProp(
   prop: PropState,
   damage: number,
   events: SimEvent[],
+  attackerId = -1,
 ): void {
   if (!prop.intact) return;
   prop.hp -= damage;
@@ -280,6 +305,32 @@ export function damageProp(
     x: Math.round(prop.pos.x),
     y: Math.round(prop.pos.y),
   });
+
+  // A prop that goes off when it breaks does NOT blast from here. `blast`
+  // calls `damageProp`, so detonating inline would recurse to a depth both
+  // hosts would have to agree on — the same trap `vehicleDamage.ts` avoids by
+  // igniting neighbours rather than detonating them. Instead it leaves a
+  // fused object behind, which is what the projectile table already is: the
+  // codebase's one mechanism for "go off, but next tick". A chain of barrels
+  // therefore propagates one link per tick and terminates.
+  if (getTuning().props.kinds[prop.kind]?.blast) {
+    insertEntity(
+      state.projectiles,
+      createProjectile(
+        state.nextEntityId++,
+        `prop:${prop.kind}`,
+        prop.pos,
+        { x: 0, y: 0 },
+        attackerId,
+        state.tick + 1,
+      ),
+    );
+  }
+}
+
+/** An officer who is a body rather than a pursuer. See damageCop. */
+export function copIsDown(cop: CopState): boolean {
+  return cop.health <= 0;
 }
 
 /** Player shots may hit cops. Killing one is a serious crime. */
@@ -290,13 +341,37 @@ export function damageCop(
   attackerId: number,
   events: SimEvent[],
 ): void {
+  if (copIsDown(cop)) return; // already a body
   cop.health -= damage;
   const attacker = state.players.byId[attackerId];
   if (attacker) addHeat(attacker, damage * getTuning().police.heatPerDamage);
   if (cop.health > 0) return;
-  removeEntity(state.cops, cop.id);
-  if (attacker) addHeat(attacker, getTuning().police.heatPerCopKill);
-  events.push({ type: 'copDown', tick: state.tick, killerId: attackerId });
+  // The officer stays in the world as a body on the tarmac, cleared by
+  // stepPolice when the corpse clock runs out. `health <= 0` is the whole of
+  // the state that needs — health is already diffed and already hashed, so a
+  // body costs nothing extra on the wire.
+  cop.health = 0;
+  cop.targetId = null;
+  cop.idleTicks = 0;
+  cop.vel.x = 0;
+  cop.vel.y = 0;
+  if (cop.vehicleId !== null) {
+    const cruiser = state.vehicles.byId[cop.vehicleId];
+    if (cruiser) cruiser.driverId = null; // the cruiser is just a car now
+    cop.vehicleId = null;
+  }
+  // And the gun goes where the officer went. Cops are the one NPC that has
+  // always shot back; this is what makes shooting back worth doing.
+  const t = getTuning().police;
+  dropWeapon(state, cop.pos, t.kinds[cop.kind]?.weapon ?? t.weapon, Math.round(getTuning().peds.dropAmmo));
+  if (attacker) addHeat(attacker, t.heatPerCopKill);
+  events.push({
+    type: 'copDown',
+    tick: state.tick,
+    killerId: attackerId,
+    x: Math.round(cop.pos.x),
+    y: Math.round(cop.pos.y),
+  });
 }
 
 /**
@@ -326,10 +401,45 @@ export function bustPlayer(
   victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
   victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
   // Booked, processed, released: the heat is gone, not decayed.
-  victim.heat = 0;
-  victim.wantedLevel = 0;
+  clearWanted(state, victim);
   events.push({ type: 'busted', tick: state.tick, playerId: victim.id, copId });
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
+}
+
+/**
+ * Wipe one player's wanted level and let go of every officer chasing them.
+ *
+ * Per-player by construction: heat, the wanted level derived from it, and the
+ * pursuit are all keyed on this id and nobody else's. Used by an arrest, by a
+ * respray, and by dying.
+ */
+export function clearWanted(state: GameState, p: PlayerState): void {
+  p.heat = 0;
+  p.wantedLevel = 0;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (cop && cop.targetId === p.id) cop.targetId = null;
+  }
+}
+
+/**
+ * Put somebody on the floor for a moment.
+ *
+ * Does not stack: a second hit while already stunned does not extend it past
+ * the cap. Being unable to act is the least fun state in any game, so this is
+ * a tool for escaping or closing, never for winning — which is a tuning
+ * stance, and this line is where it is enforced.
+ */
+export function stunPlayer(p: PlayerState, tick: number, ticks: number): void {
+  const until = tick + ticks;
+  if ((p.powerFlags & POWER_STUNNED) !== 0 && p.stunnedUntilTick >= until) return;
+  p.powerFlags |= POWER_STUNNED;
+  p.stunnedUntilTick = until;
+}
+
+/** Has the clock run out on a stun? Cleared centrally, in stepWeapons. */
+export function isStunned(p: PlayerState, tick: number): boolean {
+  return (p.powerFlags & POWER_STUNNED) !== 0 && tick < p.stunnedUntilTick;
 }
 
 export function applyDamage(
@@ -371,6 +481,12 @@ export function applyDamage(
   // Guns are lost, hands are not. An unarmed player must still have a verb.
   victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
   victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
+  // The chase dies with you. Heat is a fact about ONE player — it always was,
+  // it is a field on PlayerState — but nothing cleared it when that player
+  // died, so you woke up at the hospital still six-starred, with the force
+  // that had just killed you re-acquiring on the spawn tick. Dying costs you
+  // the trip and the guns; it does not also cost you the rest of the session.
+  clearWanted(state, victim);
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
   if (attackerId !== victim.id) {
     events.push({
@@ -395,8 +511,21 @@ export function stepWeapons(
     if (!p) continue;
     if (p.fireCooldown > 0) p.fireCooldown--;
     if (p.carHitCooldown > 0) p.carHitCooldown--;
+    // The stun lifts centrally, on its own clock, at the top of the one pass
+    // that runs for every player every tick — so it cannot be forgotten by a
+    // code path that happens not to fire.
+    if ((p.powerFlags & POWER_STUNNED) !== 0 && state.tick >= p.stunnedUntilTick) {
+      p.powerFlags &= ~POWER_STUNNED;
+      p.stunnedUntilTick = 0;
+    }
     const input = inputs[id];
     if (!input || p.mode === 'dead') continue;
+    // A stunned body cannot shoot back. Weapon switching is allowed: it costs
+    // nothing and being unable to do anything at all reads as a lost frame.
+    if (isStunned(p, state.tick)) {
+      if (input.slot >= 0 && input.slot < p.weapons.length) p.activeWeapon = input.slot;
+      continue;
+    }
 
     if (input.slot >= 0 && input.slot < p.weapons.length) {
       p.activeWeapon = input.slot;
@@ -571,7 +700,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
     // each takes feeds heat, which feeds cop spawning, which draws rng.
     for (const copId of [...state.cops.ids]) {
       const cop = state.cops.byId[copId];
-      if (!cop || cop.carHitCooldown > 0) continue;
+      if (!cop || cop.carHitCooldown > 0 || copIsDown(cop)) continue;
       if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
         cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         pushRunOver(events, state.tick, cop.pos.x, cop.pos.y, v);
@@ -580,7 +709,9 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
     }
     for (const pedId of [...state.peds.ids]) {
       const ped = state.peds.byId[pedId];
-      if (!ped) continue;
+      // Driving over a body is not a fresh run-over: without this a corpse in
+      // the road threw blood and made a noise thirty times a second.
+      if (!ped || ped.mode === 'dead') continue;
       if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
         pushRunOver(events, state.tick, ped.pos.x, ped.pos.y, v);
         damagePed(state, ped, Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
@@ -595,7 +726,9 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         if (!prop || !prop.intact) continue;
         const r = (propsT.kinds[prop.kind]?.radius ?? 4) + half;
         if (Math.abs(prop.pos.x - v.pos.x) < r && Math.abs(prop.pos.y - v.pos.y) < r) {
-          damageProp(state, prop, 1000, events);
+          // Driving into a barrel is a way of setting one off, and the
+          // driver owns what follows.
+          damageProp(state, prop, 1000, events, v.driverId ?? -1);
           v.speed = q8(v.speed * propsT.crashSpeedLoss);
         }
       }

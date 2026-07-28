@@ -5,7 +5,21 @@
  * cash awards in phase 5. Replays don't need them: they re-derive.
  */
 export type SimEvent =
-  | { type: 'shot'; tick: number; playerId: number; x0: number; y0: number; x1: number; y1: number }
+  | {
+      type: 'shot';
+      tick: number;
+      playerId: number;
+      x0: number;
+      y0: number;
+      x1: number;
+      y1: number;
+      /**
+       * How far this shot carries as a noise. On the event rather than looked
+       * up per listener: the crowd and the police both react to it, and
+       * neither should have to know which weapon fired.
+       */
+      noise: number;
+    }
   | { type: 'kill'; tick: number; killerId: number; victimId: number; weaponId: string }
   | { type: 'death'; tick: number; playerId: number }
   | {
@@ -31,8 +45,24 @@ export type SimEvent =
       playerId: number;
       copId: number;
     }
-  | { type: 'copDown'; tick: number; killerId: number }
-  | { type: 'pedDown'; tick: number; killerId: number }
+  /**
+   * Somebody went down. The position is here so the client can throw blood:
+   * without it, the commonest killing in the game — shooting a pedestrian —
+   * produced no spray at all, because `shot` reports where the round STOPPED
+   * without saying whether it stopped in a person or a wall.
+   */
+  | { type: 'copDown'; tick: number; killerId: number; x: number; y: number }
+  | { type: 'pedDown'; tick: number; killerId: number; x: number; y: number }
+  | {
+      /** The ambulance got there in time and somebody got back up. The other
+       *  outcome has no event of its own: the bleed-out clock simply runs out
+       *  and the casualty becomes a body like any other. */
+      type: 'casualtySaved';
+      tick: number;
+      pedId: number;
+      x: number;
+      y: number;
+    }
   | {
       /** A vehicle struck somebody on foot. Non-fatal hits have no other
        *  outward sign — a kill emits `kill` as well. */
@@ -44,6 +74,29 @@ export type SimEvent =
       angle: number;
       /** Closing speed, for scaling the noise and the spray. */
       speed: number;
+    }
+  | {
+      /**
+       * Somebody leaning on the horn. Carries the vehicle kind so a bus and a
+       * hatchback do not sound alike, and the player id when a person did it,
+       * so the client that pressed the key does not play its own horn twice —
+       * the same guard the tracer path uses.
+       */
+      type: 'horn';
+      tick: number;
+      x: number;
+      y: number;
+      kind: string;
+      playerId: number | null;
+    }
+  | {
+      /** Two gangs shooting at each other, for the feed. */
+      type: 'gangFight';
+      tick: number;
+      gangId: number;
+      rivalId: number;
+      x: number;
+      y: number;
     }
   | { type: 'propDown'; tick: number; kind: string; x: number; y: number }
   | { type: 'propUp'; tick: number; kind: string; x: number; y: number }

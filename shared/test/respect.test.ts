@@ -13,7 +13,7 @@ import { getTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { gangAt, rivalsOf } from '../src/world/turf.js';
-import { createCop, createGameState, type GameState } from '../src/sim/state.js';
+import { createCop, createGameState, createPed, type GameState } from '../src/sim/state.js';
 import { creditGangFavour, isFriendly, isHostile, respectOf } from '../src/sim/respect.js';
 import { damagePed } from '../src/sim/peds.js';
 import { insertEntity } from '../src/sim/entities.js';
@@ -21,6 +21,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
+import { clearSpot } from './helpers.js';
 
 const worldgen = parseWorldgenParams(worldgenJson);
 const map = generateCity(777, worldgen);
@@ -51,7 +52,11 @@ function withGangMember(gangId: number, pedId = 40): GameState {
   const at = turfOf(gangId);
   let state = createGameState(777);
   state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
-  state.players.byId[1]!.pos = { x: at.x + 40, y: at.y };
+  // Along a CLEAR line from the ped, not a flat +x offset: hostile-gang
+  // tests need the member's shots to be able to reach the player, and a
+  // fixed offset parks the player inside whatever wall the map put there.
+  const spot = clearSpot(map, at, 40);
+  state.players.byId[1]!.pos = { x: spot.x, y: spot.y };
   state = step(state, {}, [{ type: 'spawnPed', pedId, x: at.x, y: at.y }], map);
   expect(state.peds.byId[pedId]!.gangId, 'that ped id should be a member').toBe(gangId);
   return state;
@@ -151,9 +156,15 @@ describe('respect (H2)', () => {
     const at = turfOf(1);
     let state = createGameState(777);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'friend' }], map);
-    state.players.byId[1]!.pos = { x: at.x + 30, y: at.y };
+    // Officer and fugitive along the same CLEAR line from the gang member,
+    // so the member's covering fire has an actual line to the officer.
+    const dir = clearSpot(map, at, 30);
+    state.players.byId[1]!.pos = { x: dir.x, y: dir.y };
     state = step(state, {}, [{ type: 'spawnPed', pedId: 40, x: at.x, y: at.y }], map);
-    insertEntity(state.cops, createCop(500, { x: at.x + 12, y: at.y }, 50));
+    insertEntity(
+      state.cops,
+      createCop(500, { x: at.x + Math.cos(dir.angle) * 12, y: at.y + Math.sin(dir.angle) * 12 }, 50),
+    );
     const healthBefore = state.cops.byId[500]!.health;
 
     for (let i = 0; i < 120; i++) {
@@ -179,6 +190,136 @@ describe('respect (H2)', () => {
         s = step(s, { 1: { ...NULL_INPUT, seq: i + 1, tick: s.tick } }, [], map);
       }
       return hashState(s);
+    };
+    expect(run()).toBe(run());
+  });
+});
+
+describe('gang war (J4)', () => {
+  /** Two rivals face to face on ground neither of them holds. */
+  function standoff(): { state: GameState; aId: number; bId: number; gangA: number } {
+    let state = createGameState(1212);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'onlooker' }], map);
+    // Ground held by gang 4, so gangs 1 and 2 are both away from home.
+    const at = turfOf(4);
+    const gangA = 1;
+    const gangB = rivalsOf(gangA)[0] as number;
+    const a = createPed(5001, { x: at.x, y: at.y }, 30, gangA);
+    const b = createPed(5002, { x: at.x + 40, y: at.y }, 30, gangB);
+    insertEntity(state.peds, a);
+    insertEntity(state.peds, b);
+    return { state, aId: 5001, bId: 5002, gangA };
+  }
+
+  it('a gang member killed by a rival earns the player nothing at all', () => {
+    // THE test for this feature. Without it, standing in the right postcode
+    // and watching is an earning strategy: every body dropped by somebody
+    // else would move your standing with two gangs.
+    let { state } = standoff();
+    const me = state.players.byId[1]!;
+    const before = [...me.respect];
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 600; i++) {
+      state = step(state, { 1: { ...NULL_INPUT, seq: i + 1, tick: state.tick } }, [], map, events);
+    }
+    expect(events.some((e) => e.type === 'gangFight')).toBe(true);
+    // Somebody died out there — a body now stays where it fell, so death is
+    // health at zero rather than an entry disappearing.
+    const down = (id: number): boolean => {
+      const ped = state.peds.byId[id];
+      return ped === undefined || ped.health <= 0;
+    };
+    expect(down(5001) || down(5002)).toBe(true);
+    // ...and it changed nothing about how anybody feels about the player.
+    expect([...state.players.byId[1]!.respect]).toEqual(before);
+  });
+
+  it('rivals engage on contested ground', () => {
+    let { state } = standoff();
+    let sawFight = false;
+    for (let i = 0; i < 200 && !sawFight; i++) {
+      state = step(state, {}, [], map);
+      for (const id of [5001, 5002]) {
+        if (state.peds.byId[id]?.mode === 'fighting') sawFight = true;
+      }
+    }
+    expect(sawFight).toBe(true);
+  });
+
+  it('two members of the SAME gang never square up', () => {
+    let state = createGameState(1313);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'onlooker' }], map);
+    const at = turfOf(4);
+    insertEntity(state.peds, createPed(5101, { x: at.x, y: at.y }, 30, 1));
+    insertEntity(state.peds, createPed(5102, { x: at.x + 40, y: at.y }, 30, 1));
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 300; i++) state = step(state, {}, [], map, events);
+    expect(events.some((e) => e.type === 'gangFight')).toBe(false);
+    expect(state.peds.byId[5101]?.mode).not.toBe('fighting');
+    expect(state.peds.byId[5102]?.mode).not.toBe('fighting');
+  });
+
+  it('nobody starts a fight on their own doorstep', () => {
+    // contestedOnly: a city where everybody brawls at home is at war with
+    // itself rather than having a border dispute.
+    let state = createGameState(1414);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'onlooker' }], map);
+    const at = turfOf(1);
+    expect(gangAt(map, at.x, at.y)).toBe(1);
+    const rival = rivalsOf(1)[0] as number;
+    insertEntity(state.peds, createPed(5201, { x: at.x, y: at.y }, 30, 1));
+    insertEntity(state.peds, createPed(5202, { x: at.x + 40, y: at.y }, 30, rival));
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 200; i++) state = step(state, {}, [], map, events);
+    // The visitor may start something; the gang standing at home may not.
+    for (const e of events) {
+      if (e.type === 'gangFight') expect(e.gangId).toBe(rival);
+    }
+    expect(state.peds.byId[5201]?.mode).not.toBe('fighting');
+  });
+
+  it('the city does not fight itself to death', () => {
+    // A gang war with no ceiling empties the streets in minutes. Peds are
+    // spawned by the server rather than by step(), so a bare state has none:
+    // populate one the way session.ts does before measuring survival.
+    let state = createGameState(1515);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'onlooker' }], map);
+    const cmds = map.pedSpawns.slice(0, 200).map((spot, i) => ({
+      type: 'spawnPed' as const,
+      pedId: 1000 + i,
+      x: spot.x,
+      y: spot.y,
+    }));
+    state = step(state, {}, cmds, map);
+    const countGang = (s: GameState): number => {
+      let n = 0;
+      for (const id of s.peds.ids) if ((s.peds.byId[id]?.gangId ?? 0) !== 0) n++;
+      return n;
+    };
+    const before = countGang(state);
+    expect(before).toBeGreaterThan(10);
+    for (let i = 0; i < 1800; i++) state = step(state, {}, [], map);
+    // Most of them are still standing after a minute of city.
+    expect(countGang(state) / before).toBeGreaterThan(0.7);
+  });
+
+  it('never runs more fights at once than the ceiling allows', () => {
+    let state = createGameState(1616);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'onlooker' }], map);
+    const cap = getTuning().gangs.maxConcurrentFights;
+    for (let i = 0; i < 900; i++) {
+      state = step(state, {}, [], map);
+      let n = 0;
+      for (const id of state.peds.ids) if (state.peds.byId[id]?.mode === 'fighting') n++;
+      expect(n).toBeLessThanOrEqual(cap);
+    }
+  });
+
+  it('a fight is deterministic like everything else', () => {
+    const run = (): number => {
+      let { state } = standoff();
+      for (let i = 0; i < 400; i++) state = step(state, {}, [], map);
+      return hashState(state);
     };
     expect(run()).toBe(run());
   });

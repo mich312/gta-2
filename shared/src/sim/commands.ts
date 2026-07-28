@@ -14,7 +14,17 @@ export type SimCommand =
   | { type: 'grantWeapon'; playerId: number; weaponId: string; ammo: number }
   | { type: 'setCosmetic'; playerId: number; cosmeticId: number }
   | { type: 'clearHeat'; playerId: number }
-  | { type: 'spawnVehicle'; vehicleId: number; kind: string; x: number; y: number; heading: number }
+  | { type: 'addHeat'; playerId: number; amount: number }
+  | {
+      type: 'spawnVehicle';
+      vehicleId: number;
+      kind: string;
+      x: number;
+      y: number;
+      heading: number;
+      /** Whose car it is, or 0/absent for anybody's. */
+      gangId?: number;
+    }
   | { type: 'spawnPed'; pedId: number; x: number; y: number }
   | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number }
   | { type: 'spawnPickup'; pickupId: number; kind: PickupKind; x: number; y: number }
@@ -26,5 +36,15 @@ export type SimCommand =
   | { type: 'repairVehicle'; playerId: number; tier: 'panel' | 'full' }
   /** Patched up at a hospital counter. */
   | { type: 'healPlayer'; playerId: number; health: number; armour: number }
+  | {
+      /**
+       * Put a pedestrian in somebody's care, or take them out of it with a
+       * null playerId. Issued by the mission system, which chooses who — the
+       * sim only carries out the assignment.
+       */
+      type: 'setEscort';
+      pedId: number;
+      playerId: number | null;
+    }
   /** Into the back of an ambulance or a taxi: off the map until dropped off. */
   | { type: 'despawnPed'; pedId: number };

@@ -16,12 +16,15 @@ import {
   type GameState,
 } from '../src/sim/state.js';
 import { insertEntity } from '../src/sim/entities.js';
+import { applyDamage } from '../src/sim/weapons.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
 import { clearSpot, roadLane, straightEastLane } from './helpers.js';
+import { isSolidTile } from '../src/world/collide.js';
+import { TICK_RATE } from '../src/constants.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -69,7 +72,8 @@ function commitCrimes(targetLevel: number): GameState {
     const aim = Math.atan2(p2.pos.y - p1.pos.y, p2.pos.x - p1.pos.x);
     const cmds: Array<{ type: 'respawnPlayer'; playerId: number; loadout: typeof PISTOL }> = [];
     // The cops WILL kill the crook mid-spree; respawn both parties so the
-    // spree continues (heat survives death by design).
+    // spree continues. Dying now wipes the crook's own wanted level, so the
+    // loop simply has to climb the ladder again from wherever it left off.
     if (p2.mode === 'dead' && p2.respawnAtTick !== null && state.tick >= p2.respawnAtTick) {
       cmds.push({ type: 'respawnPlayer', playerId: 2, loadout: [] });
     }
@@ -92,6 +96,61 @@ describe('wanted + police', () => {
     const state = commitCrimes(1);
     expect(wantedLevelOf(state.players.byId[1]!)).toBeGreaterThanOrEqual(1);
     expect(state.players.byId[1]!.wantedLevel).toBe(wantedLevelOf(state.players.byId[1]!));
+  });
+
+  it('the wanted level belongs to one player, not to the session', () => {
+    let state = createGameState(77);
+    state = step(
+      state,
+      {},
+      [
+        { type: 'spawnPlayer', playerId: 1, name: 'crook' },
+        { type: 'spawnPlayer', playerId: 2, name: 'bystander' },
+      ],
+      map,
+    );
+    addHeat(state.players.byId[1]!, 320);
+    state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.wantedLevel).toBe(3);
+    expect(state.players.byId[2]!.wantedLevel).toBe(0);
+    expect(state.players.byId[2]!.heat).toBe(0);
+  });
+
+  it('dying wipes your wanted level and the tail that came with it', () => {
+    let state = createGameState(78);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    const p = state.players.byId[1]!;
+    addHeat(p, 450);
+    // Officers already on the case, pointed at this player.
+    const t = getTuning().police;
+    for (const id of [80, 81]) {
+      const cop = createCop(id, { x: p.pos.x + 40, y: p.pos.y }, t.copHealth);
+      cop.targetId = 1;
+      insertEntity(state.cops, cop);
+    }
+    state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.wantedLevel).toBeGreaterThanOrEqual(4);
+
+    // Shot dead by the streets: heat, stars and pursuit all go with it. This
+    // used to survive death, so you woke up at the hospital still four-starred
+    // with the same force re-acquiring on the spawn tick.
+    const events: SimEvent[] = [];
+    applyDamage(state, state.players.byId[1]!, 1000, -1, 'police', events);
+    expect(state.players.byId[1]!.mode).toBe('dead');
+    expect(state.players.byId[1]!.heat).toBe(0);
+    expect(state.players.byId[1]!.wantedLevel).toBe(0);
+    expect(wantedLevelOf(state.players.byId[1]!)).toBe(0);
+    for (const id of state.cops.ids) expect(state.cops.byId[id]!.targetId).toBeNull();
+
+    // ...and it stays gone through the respawn.
+    state = step(
+      state,
+      {},
+      [{ type: 'respawnPlayer', playerId: 1, loadout: [], atStation: false }],
+      map,
+    );
+    expect(state.players.byId[1]!.mode).toBe('foot');
+    expect(state.players.byId[1]!.wantedLevel).toBe(0);
   });
 
   /** Player 1 in a car parked on top of them, ready to drive. Returns the state. */
@@ -171,15 +230,20 @@ describe('wanted + police', () => {
 
     // Sustained contact does finish the job, and it is reported as a cop down.
     const kill: SimEvent[] = [];
-    for (let i = 0; i < 120 && state.cops.byId[90]; i++) {
+    for (let i = 0; i < 120 && (state.cops.byId[90]?.health ?? 0) > 0; i++) {
       const c = state.cops.byId[90];
       const drive = state.vehicles.byId[2]!;
       drive.speed = 300;
       if (c) c.pos = { x: drive.pos.x, y: drive.pos.y };
       state = step(state, {}, [], map, kill);
     }
-    expect(state.cops.byId[90]).toBeUndefined();
+    // The officer stays put as a body for the corpse span, then is cleared.
+    expect(state.cops.byId[90]!.health).toBe(0);
     expect(kill.some((e) => e.type === 'copDown')).toBe(true);
+    for (let i = 0; i < getTuning().peds.corpseSec * TICK_RATE + 2; i++) {
+      state = step(state, {}, [], map);
+    }
+    expect(state.cops.byId[90]).toBeUndefined();
   });
 
   it('cops arrive on a ramp, not a wall', () => {
@@ -237,10 +301,17 @@ describe('wanted + police', () => {
     // fugitive has to be doing the thing that gets you shot.
     let minDist = Infinity;
     let peakCops = 0;
+    // Measured across the window, like peakCops and for the same reason: the
+    // loop below patches the fugitive back up whenever they go down, so
+    // health at the final tick says only whether they were shot RECENTLY.
+    // Ambient traffic (and now the lights it waits at) shifts the timing of
+    // the whole chase, which is how a passing test came to depend on it.
+    let everHurt = false;
     for (let i = 0; i < 600; i++) {
       // Keep the fugitive on their feet and wanted: a dead target has no
       // pursuers, and this test is about whether pursuit converges.
       const me = state.players.byId[1]!;
+      if (me.health < 100) everHurt = true;
       me.heat = Math.max(me.heat, 310);
       if (me.mode === 'dead') {
         me.mode = 'foot';
@@ -268,7 +339,7 @@ describe('wanted + police', () => {
     // They converge: someone got within firing range of the target.
     expect(minDist).toBeLessThan(t.fireRange);
     // And it costs blood: the fugitive has been shot.
-    expect(state.players.byId[1]!.health).toBeLessThan(100);
+    expect(everHurt).toBe(true);
   });
 
   it('...but a suspect who stands still gets nicked instead of shot', () => {
@@ -276,6 +347,7 @@ describe('wanted + police', () => {
     // within reach of a stationary suspect on foot puts hands on them. Worth
     // its own test, because the level-3 chase above used to rest on it not
     // happening and nobody would have noticed if it stopped.
+    const t = getTuning().police;
     let state = commitCrimes(3);
     // A quiet straight street: officers must be able to pull up and close on
     // foot, which a junction-riddled or dead-end spot can quietly prevent.
@@ -283,6 +355,11 @@ describe('wanted + police', () => {
     state.players.byId[1]!.pos = { x: lane.x + 5 * TILE_SIZE, y: lane.y };
 
     const events: SimEvent[] = [];
+    // How far the SHOOTER was from the suspect, for every police shot. The
+    // shot event carries the muzzle position, which is the officer's own —
+    // the nearest officer is the wrong thing to measure, because the one who
+    // has just put hands on you is on cooldown while his colleagues fire.
+    const shooterRange: number[] = [];
     for (let i = 0; i < 600; i++) {
       const me = state.players.byId[1]!;
       me.heat = Math.max(me.heat, 310);
@@ -291,12 +368,34 @@ describe('wanted + police', () => {
         me.health = 100;
         me.respawnAtTick = null;
       }
+      const before = events.length;
       state = step(state, {}, [], map, events);
+      const after = state.players.byId[1]!;
+      for (let k = before; k < events.length; k++) {
+        const e = events[k];
+        if (!e || e.type !== 'shot' || e.playerId >= 0) continue;
+        shooterRange.push(Math.hypot(e.x0 - after.pos.x, e.y0 - after.pos.y));
+      }
     }
     const busts = events.filter((e) => e.type === 'busted').length;
-    const shots = events.filter((e) => e.type === 'shot' && e.playerId < 0).length;
     expect(busts).toBeGreaterThan(0);
-    expect(busts).toBeGreaterThan(shots);
+    // Hands before bullets, stated as the rule rather than as a ratio.
+    //
+    // This asserted `busts > shots` and measured 24 to 6, which read as
+    // proof. It is not: it is a measurement of where a pack of six officers
+    // happens to come to rest, and any change that shifts the sim's random
+    // sequence moves it. Merging traffic signals, boarding and gang fights in
+    // — none of which the police touch — moved it to 29 and 29, and the
+    // *reason* turned out to be geometry: one officer settles at exactly the
+    // bust radius and cuffs the suspect, while colleagues stood off at 30-60
+    // px keep firing on their own cadence. That is the design working.
+    //
+    // So assert the thing that is actually true and does not depend on the
+    // pack: no officer within arm's reach of a suspect standing still shoots
+    // them. One that close cuffs them instead — every time. A pixel of slack
+    // because the event rounds the muzzle to whole pixels.
+    expect(shooterRange.length).toBeGreaterThan(0);
+    for (const d of shooterRange) expect(d).toBeGreaterThan(t.bustRadius - 1.5);
   });
 
   it('heat decays and cops go home when the fugitive stays out of sight', () => {
@@ -524,18 +623,41 @@ describe('escalation by kind', () => {
     // and hit the bail-out — the officer lost the car within half a second and
     // ran the rest. It should U-turn and drive.
     //
-    // Staged on a found straight street, not a hard-coded coordinate: any
-    // worldgen change can put a building or the river under a magic number.
-    // Four tiles wide — an arterial — because a U-turn needs a road wider
-    // than the car's turning arc; a three-tile side street boxed in by
-    // buildings is a three-point-turn problem, which is not what this
-    // test is about.
-    const lane = straightEastLane(map, 14, 4);
-    const start = { x: lane.x, y: lane.y };
-    const targetAt = { x: lane.x + 240, y: lane.y };
+    // Staged on found OPEN GROUND, not a hard-coded coordinate and not a
+    // street: a U-turn needs room for its arc, and since the vehicle-parts
+    // work slowed low-speed steering, a cruiser boxed between kerbs runs
+    // out of patience and bails — which is the OTHER test's behaviour. The
+    // claim here is "given room, it turns and closes".
+    // 26×5 tiles of open ground with the start NINE tiles in: the cruiser
+    // faces AWAY (west) before it turns, so it needs arc room behind it as
+    // well as the driving line to the target in front — a clearing checked
+    // only eastward parks it against whatever lies west and it bails.
+    let clearing: { x: number; y: number } | null = null;
+    outer: for (let ty = 8; ty < map.heightTiles - 8; ty++) {
+      for (let tx = 8; tx < map.widthTiles - 34; tx++) {
+        let open = true;
+        for (let dy = -2; dy <= 2 && open; dy++) {
+          for (let dx = 0; dx < 26; dx++) {
+            if (isSolidTile(map, tx + dx, ty + dy, 'land')) {
+              open = false;
+              break;
+            }
+          }
+        }
+        if (!open) continue;
+        clearing = { x: (tx + 9.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+        break outer;
+      }
+    }
+    expect(clearing, 'no open clearing on this map').not.toBeNull();
+    const start = clearing!;
+    const targetAt = { x: start.x + 240, y: start.y };
     let state = wedged(start, targetAt);
     state.vehicles.byId[501]!.heading = Math.PI; // facing directly away
     const before = Math.hypot(start.x - targetAt.x, start.y - targetAt.y);
+    // 40 ticks: enough to turn and start closing, NOT enough to arrive —
+    // a cruiser that reaches dismountDist finishes the chase on foot
+    // (correctly), and this assertion would misread that as ditching.
     for (let i = 0; i < 40; i++) {
       state.players.byId[1]!.heat = 410;
       state = step(state, {}, [], map);

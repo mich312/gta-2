@@ -10,6 +10,7 @@ import {
   POWER_TIMED,
 } from './state.js';
 import type { SimEvent } from './events.js';
+import { removeEntity } from './entities.js';
 import { FISTS_ID } from './weapons.js';
 
 /**
@@ -38,12 +39,33 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
     const pu = state.pickups.byId[id];
     if (!pu) continue;
 
+    // A dropped gun is litter, not furniture: it rots off the street instead
+    // of coming back, so its clock counts down to removal rather than to a
+    // respawn. See PickupState.respawnAtTick.
+    if (pu.kind === 'weapon' && pu.respawnAtTick !== null && state.tick >= pu.respawnAtTick) {
+      removeEntity(state.pickups, id);
+      continue;
+    }
+
     if (!pu.active) {
+      // A dropped wad is gone once taken; it is not street furniture that
+      // comes back. Worldgen crates are, and they always have been.
+      if (pu.kind === 'cash') {
+        removeEntity(state.pickups, id);
+        continue;
+      }
       if (pu.respawnAtTick !== null && state.tick >= pu.respawnAtTick) {
         pu.active = true;
         pu.respawnAtTick = null;
         events.push({ type: 'pickupUp', tick: state.tick, kind: pu.kind, id: pu.id });
       }
+      continue;
+    }
+    // ...and one nobody picks up does not litter the city for ever.
+    if (pu.kind === 'cash' && pu.respawnAtTick === null) {
+      pu.respawnAtTick = state.tick + CASH_LIFETIME_TICKS;
+    } else if (pu.kind === 'cash' && state.tick >= (pu.respawnAtTick ?? 0)) {
+      removeEntity(state.pickups, id);
       continue;
     }
 
@@ -56,9 +78,6 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
       const dy = p.pos.y - pu.pos.y;
       if (dx * dx + dy * dy > r2) continue;
       if (!consume(pu, p, state.tick)) continue;
-      pu.active = false;
-      pu.respawnAtTick =
-        state.tick + Math.round((t.kinds[pu.kind]?.respawnSec ?? 30) * TICK_RATE);
       events.push({
         type: 'pickupTaken',
         tick: state.tick,
@@ -67,6 +86,14 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
         x: Math.round(pu.pos.x),
         y: Math.round(pu.pos.y),
       });
+      if (pu.kind === 'weapon') {
+        // Picked up is picked up. There is no crate to come back.
+        removeEntity(state.pickups, id);
+        break;
+      }
+      pu.active = false;
+      pu.respawnAtTick =
+        state.tick + Math.round((t.kinds[pu.kind]?.respawnSec ?? 30) * TICK_RATE);
       break;
     }
   }
@@ -81,6 +108,9 @@ function lightTimed(p: PlayerState, bit: number, seconds: number, tick: number):
   p.powerFlags = (p.powerFlags & ~POWER_TIMED) | bit;
   p.powerUntilTick = tick + Math.round(seconds * TICK_RATE);
 }
+
+/** How long a dropped wad lies in the road before it is gone. */
+const CASH_LIFETIME_TICKS = 20 * 30;
 
 /** Apply a pickup's effect. False if the player has no room for it. */
 function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
@@ -112,6 +142,19 @@ function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
       p.wantedLevel = 0;
       return true;
     }
+    case 'cash': {
+      // Same shape as `multi`, and for the same reason: money is not sim
+      // state. Taking it always succeeds and the whole effect is the event.
+      return true;
+    }
+    case 'multi': {
+      // Nothing happens HERE, on purpose. The multiplier is server state —
+      // nothing in step() reads a multiplier (FEATURES.md invariant 8) — so
+      // this crate's whole effect is the pickupTaken event it emits, which
+      // the Economy handles through the same chokepoint a finished frenzy
+      // goes through. Taking it always succeeds; the cap is applied there.
+      return true;
+    }
     case 'jailcard': {
       if ((p.powerFlags & POWER_JAIL_CARD) !== 0) return false;
       p.powerFlags |= POWER_JAIL_CARD;
@@ -135,6 +178,18 @@ function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
       const guns = p.weapons.filter((w) => w.weaponId !== FISTS_ID);
       if (guns.length === 0) return false;
       for (const w of guns) w.ammo += value;
+      return true;
+    }
+    case 'weapon': {
+      // Somebody's gun off the pavement. Same rule as the grantWeapon
+      // command: a second one of what you already carry is a magazine.
+      if (!pu.weaponId) return false;
+      const existing = p.weapons.find((w) => w.weaponId === pu.weaponId);
+      if (existing) existing.ammo += pu.ammo;
+      else {
+        p.weapons.push({ weaponId: pu.weaponId, ammo: pu.ammo });
+        if (p.activeWeapon < 0) p.activeWeapon = 0;
+      }
       return true;
     }
   }
