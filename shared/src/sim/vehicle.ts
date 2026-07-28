@@ -2,10 +2,11 @@ import { DT, PLAYER_RADIUS } from '../constants.js';
 import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { approach, clamp, q8, q256 } from '../math/vec.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
+import type { VehicleTuning } from '../tuning.js';
 import type { GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
-import { TILE_SIZE, type CityMap } from '../world/types.js';
+import { T_RUNWAY, TILE_SIZE, type CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
 import { boxesOverlap, distanceToBox, poseIn, vehicleBox, vehicleBoxAt } from './bodies.js';
 import type { Pose, VehicleWorld } from './bodies.js';
@@ -458,6 +459,14 @@ function maybeEjectRider(
   });
 }
 
+/** Ground built for taking off from. A meadow is not a runway. */
+function isRunwayTile(map: CityMap, x: number, y: number): boolean {
+  const tx = Math.floor(x / TILE_SIZE);
+  const ty = Math.floor(y / TILE_SIZE);
+  if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+  return map.tiles[ty * map.widthTiles + tx] === T_RUNWAY;
+}
+
 /**
  * One tick of vehicle under continuous controls.
  *
@@ -530,7 +539,43 @@ export function driveVehicle(
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
-  integrateVehicle(v, map, world, sim, events, airborne);
+  // Aircraft: the altitude, and what having one changes.
+  //
+  // A plane needs runway — `takeoffSpeed` reached with the wheels on a
+  // surface built for it — which is what makes the airstrip a destination
+  // rather than scenery. A helicopter lifts from wherever it is standing.
+  // Above the ground, `integrateVehicle`'s existing airborne path takes over
+  // and the aircraft stops colliding with tiles and cars, which is the same
+  // code a stunt jump has always used: being over the city rather than in it
+  // is one idea, and it did not need a second implementation.
+  const flying = stepAltitude(v, map, t, throttle);
+
+  integrateVehicle(v, map, world, sim, events, airborne || flying);
+}
+
+/**
+ * Climb, cruise and descend. Returns whether the vehicle is off the ground.
+ *
+ * Nothing here for anything with wheels: `medium` is 'land' for all but two
+ * kinds, and this is one comparison and out.
+ */
+function stepAltitude(
+  v: VehicleState,
+  map: CityMap,
+  t: VehicleTuning,
+  throttle: number,
+): boolean {
+  if (t.medium !== 'air') return false;
+  const wantUp =
+    throttle > 0 &&
+    (t.verticalTakeoff ||
+      // Rolling fast enough, on ground meant for it. A field is not a runway:
+      // the tile test is what makes the airstrip worth finding.
+      (Math.abs(v.speed) >= t.takeoffSpeed && (v.z > 0 || isRunwayTile(map, v.pos.x, v.pos.y))));
+  const rate = t.climbRate * DT;
+  if (wantUp) v.z = q8(Math.min(t.cruiseZ, v.z + rate));
+  else v.z = q8(Math.max(0, v.z - rate));
+  return v.z > 0;
 }
 
 /** Driverless vehicles coast to a stop. */

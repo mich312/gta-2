@@ -12,7 +12,16 @@ const EPS = 0.001;
  * client prediction — so every branch here must stay exact-op only and must
  * behave identically on both hosts.
  */
-export type Medium = 'land' | 'water';
+/**
+ * What a vehicle moves through.
+ *
+ * 'air' is here so the type lines up with `VehicleTuning.medium`, but an
+ * aircraft ON THE GROUND is a heavy thing on wheels and collides like one —
+ * clearing the city is a property of altitude, not of the medium, and it is
+ * handled where altitude is (`integrateVehicle`'s airborne path). So 'air'
+ * deliberately falls through to the land rules here.
+ */
+export type Medium = 'land' | 'water' | 'air';
 
 /** Solid for movement in the given medium. Outside the map is always solid. */
 export function isSolidTile(

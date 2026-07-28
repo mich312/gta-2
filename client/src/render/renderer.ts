@@ -89,6 +89,8 @@ const PAINTED_KINDS = new Set([
   // contact sheet showed as a solid red block the moment it existed.
   'moto',
   'bicycle',
+  'plane',
+  'chopper',
 ]);
 
 export function vehicleSpriteName(kind: string, id: number, gangId = 0): string {
@@ -655,7 +657,9 @@ export function render(
       dx,
       dy,
       scene.nowMs,
-      0,
+      // Altitude comes off the wire now: an aircraft is over the city, and
+      // everybody watching it needs to see that, not just its pilot.
+      rv.vehicle.z,
       rv.vehicle.gangId,
       // A turret points where its driver is aiming, and the driver's aim is
       // already interpolated for their body, so the barrel is exactly as

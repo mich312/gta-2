@@ -55,8 +55,20 @@ export interface VehicleTuning {
   wreckSeconds: number;
   explosionRadius: number;
   explosionDamage: number;
-  /** What this vehicle travels through. Boats float; everything else drives. */
-  medium: 'land' | 'water';
+  /** What this vehicle travels through. Boats float, aircraft fly. */
+  medium: 'land' | 'water' | 'air';
+  /**
+   * Ground speed at which an aircraft leaves the runway, or 0 for anything
+   * that does not fly. A helicopter's is 0 in the other sense — it lifts
+   * from a standstill, so the field is `verticalTakeoff` rather than this.
+   */
+  takeoffSpeed: number;
+  /** True for a rotorcraft: no runway needed, straight up. */
+  verticalTakeoff: boolean;
+  /** Height it settles at, in world px, once airborne. */
+  cruiseZ: number;
+  /** Px of altitude gained or lost per second. */
+  climbRate: number;
   /** Damage per px/s of closing speed in a collision. */
   collisionDamagePerSpeed: number;
   /**
@@ -709,7 +721,11 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     // to be positive — a missing `maxSpeed` should be an error, not a stop.
     explosionRadius: optNum(r['explosionRadius'], 0),
     explosionDamage: optNum(r['explosionDamage'], 0),
-    medium: r['medium'] === 'water' ? 'water' : 'land',
+    medium: r['medium'] === 'water' ? 'water' : r['medium'] === 'air' ? 'air' : 'land',
+    takeoffSpeed: typeof r['takeoffSpeed'] === 'number' ? r['takeoffSpeed'] : 0,
+    verticalTakeoff: r['verticalTakeoff'] === true,
+    cruiseZ: typeof r['cruiseZ'] === 'number' ? r['cruiseZ'] : 0,
+    climbRate: typeof r['climbRate'] === 'number' ? r['climbRate'] : 0,
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
     turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
     crushesBelowMass:

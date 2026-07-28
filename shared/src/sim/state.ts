@@ -279,6 +279,15 @@ export interface VehicleState {
   /** One bit per broken component; see the PART_* flags in vehicleDamage.ts. */
   broken: number;
   /**
+   * Height above the street, in world px. 0 for everything with wheels on
+   * the ground, which is almost everything almost always — so per-field
+   * diffing means it costs nothing until something takes off.
+   *
+   * Above `flightZ` an aircraft stops colliding with tiles and with other
+   * vehicles: it is over the city rather than in it. See GTA.md S2.
+   */
+  z: number;
+  /**
    * What the garage bolted on: '' , 'bomb', 'slick', 'mine' or 'guns'.
    * Two fields on a table that is already on the wire, changing only when
    * you buy or use something — see FEATURES.md G2.
@@ -624,6 +633,7 @@ export function createVehicle(
     // the yard with the guns the garage already sells, and effectively
     // limitless belts. If that ever needs its own code path, the fittings
     // system (FEATURES.md G2) was not built generally enough.
+    z: 0,
     fitting: kind === 'tank' ? 'guns' : '',
     fittingAmmo: kind === 'tank' ? 9999 : 0,
   };

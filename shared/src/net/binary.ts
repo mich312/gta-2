@@ -473,6 +473,8 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
     },
   ),
   f('broken', (w, v) => w.uint(v.broken), (r, o) => (o['broken'] = r.uint())),
+  // q8, like every other position on this wire: the sim only ships grid values.
+  f('z', (w, v) => w.q8(v.z), (r, o) => (o['z'] = r.q8())),
   f('fitting', (w, v) => w.str(v.fitting), (r, o) => (o['fitting'] = r.str())),
   f('fittingAmmo', (w, v) => w.int(v.fittingAmmo), (r, o) => (o['fittingAmmo'] = r.int())),
 ];

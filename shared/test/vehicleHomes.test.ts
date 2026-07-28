@@ -28,6 +28,23 @@ const maps: CityMap[] = SEEDS.map((s) => generateCity(s, params));
  */
 const DRIVEN_TO_YOU = new Set(['copcar', 'copbike', 'gangcar', 'boat']);
 
+/**
+ * The one deliberate exception, and the reason it is one.
+ *
+ * A plane cannot leave the ground except from a runway, so a kerbside
+ * backstop would put an ornament on a street rather than a vehicle. It lives
+ * at the airstrip, the airstrip is a countryside feature, and not every
+ * 240-tile window contains countryside — the world is infinite and you drive
+ * until you find one. Making it findable everywhere would mean either
+ * guaranteeing an airfield in every window (which the terrain cannot always
+ * provide) or letting planes take off from a residential street.
+ *
+ * The helicopter is NOT on this list on purpose: it lifts from wherever it
+ * is standing, so a backstop one is a working helicopter, and that is what
+ * keeps "there is an aircraft somewhere near you" true.
+ */
+const NEEDS_A_RUNWAY = new Set(['plane']);
+
 /** How common a kind is in ambient traffic, as a fraction of the whole mix. */
 function mixShare(kind: string): number {
   const mix = getTrafficTuning().mix;
@@ -43,7 +60,7 @@ describe('every vehicle can be found somewhere (R3)', () => {
     // which is what a digger was: findable in the sense that a lottery ticket
     // is winnable.
     const kinds = Object.keys(getTrafficTuning() ? vehiclesJson : {}).filter(
-      (k) => k !== 'fire' && !DRIVEN_TO_YOU.has(k),
+      (k) => k !== 'fire' && !DRIVEN_TO_YOU.has(k) && !NEEDS_A_RUNWAY.has(k),
     );
     expect(kinds.length).toBeGreaterThan(15);
 
@@ -81,6 +98,24 @@ describe('every vehicle can be found somewhere (R3)', () => {
       expect(map.vehicleHomes.every((h) => h.kind !== 'gangcar')).toBe(true);
       expect(map.vehicleHomes.every((h) => (h.gangId ?? 0) === 0)).toBe(true);
     }
+  });
+
+  it('an airstrip, where there is one, has an aircraft on it', () => {
+    // The plane's whole deal: it is the reward for finding the airfield, so
+    // the airfield had better come with one.
+    let seen = 0;
+    for (const map of maps) {
+      for (const l of map.landmarks) {
+        if (l.kind !== 'airstrip') continue;
+        seen++;
+        const near = map.vehicleHomes.filter(
+          (h) => h.kind === 'plane' && Math.hypot(h.x - l.doorX, h.y - l.doorY) < 14 * TILE_SIZE,
+        );
+        expect(near.length, `plane at ${l.name}`).toBeGreaterThan(0);
+      }
+    }
+    // ...and across five seeds, at least one window had one at all.
+    expect(seen).toBeGreaterThan(0);
   });
 
   it('a landmark you can name tells you what is parked outside it', () => {

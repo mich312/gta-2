@@ -15,6 +15,7 @@ import {
   T_PARK,
   T_RAMP,
   T_ROAD,
+  T_RUNWAY,
   T_WATER,
   T_SIDEWALK,
   TILE_SIZE,
@@ -629,6 +630,10 @@ const LANDMARK_VEHICLES: Partial<Record<LandmarkKind, string[]>> = {
   farm: ['pickup'],
   quarry: ['digger'],
   campground: ['icecream'],
+  // The reward for finding the airfield. A plane needs a runway to leave
+  // the ground, so unlike everything else on this list it CANNOT have a
+  // kerbside backstop — a plane parked on a street is scenery.
+  airstrip: ['plane', 'chopper'],
 };
 
 /**
@@ -651,6 +656,10 @@ const HOME_ROSTER = [
   'moto',
   'bicycle',
   'tank',
+  // A helicopter lifts from wherever it is standing, so a backstop one is a
+  // working helicopter rather than an ornament. The plane is deliberately
+  // absent: see LANDMARK_VEHICLES.
+  'chopper',
 ];
 
 /**
@@ -670,8 +679,10 @@ function drivableNear(map: CityMap, at: Vec2, taken: Vec2[], clearPx: number, re
   for (let dy = -reach; dy <= reach; dy++) {
     for (let dx = -reach; dx <= reach; dx++) {
       const tile = t(map, tx + dx, ty + dy);
-      // Road, lot or pavement: somewhere a car can be left and driven off.
-      if (tile !== T_ROAD && tile !== T_LOT && tile !== T_SIDEWALK) continue;
+      // Road, lot, pavement or runway: somewhere a vehicle can be left and
+      // driven off. The runway matters — it is the only ground the aircraft
+      // that live on it are allowed to stand.
+      if (tile !== T_ROAD && tile !== T_LOT && tile !== T_SIDEWALK && tile !== T_RUNWAY) continue;
       const d = dx * dx + dy * dy;
       if (d >= bestD) continue;
       const x = (tx + dx + 0.5) * TILE_SIZE;
@@ -880,6 +891,7 @@ const LANDMARK_NAMES: Record<LandmarkKind, string[]> = {
   campground: ['Pinewatch Camp', 'The Clearings', 'Restwater'],
   lighthouse: ['Old Point Light', 'Gannet Light', 'The Lantern'],
   quarry: ['Greyhill Quarry', 'The Cut', 'Basset Pit'],
+  airstrip: ['Marsh End Airfield', 'Kestrel Field', 'The Strip'],
 };
 
 /** Minimum footprint that reads as "big" for each kind, in tiles. */
@@ -895,6 +907,8 @@ const LANDMARK_SIZE: Record<LandmarkKind, [number, number]> = {
   campground: [7, 6],
   lighthouse: [3, 3],
   quarry: [9, 7],
+  // Long and thin: a runway with an apron at one end.
+  airstrip: [26, 6],
 };
 
 const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
@@ -907,6 +921,7 @@ const LANDMARK_DISTRICTS: Record<LandmarkKind, DistrictType[]> = {
   campground: [],
   lighthouse: [],
   quarry: [],
+  airstrip: [],
 };
 
 /** Weights for the rolled (non-coverage) landmark kinds, per nominal window. */
@@ -1162,7 +1177,14 @@ export function placeRuralSites(
     }
 
     let kind: LandmarkKind | null = null;
-    if (coast) {
+    // The airstrip is placed on a COVERAGE LATTICE rather than rolled, like
+    // the hospitals and stations are, and for the same reason: "there is an
+    // airfield, and it is over there" is a fact a player should be able to
+    // rely on. A rolled one gives some cities two and some none, and a city
+    // with none has a whole vehicle class that does not exist in it. One per
+    // three cells each way is roughly one per window.
+    if (mod(cell.i * 2 + cell.j, 3) === 0) kind = 'airstrip';
+    if (kind === null && coast) {
       let roll: number;
       [roll, rng] = nextFloat01(rng);
       if (roll < 0.5) kind = 'lighthouse';
@@ -1194,6 +1216,13 @@ export function placeRuralSites(
       case 'lighthouse':
         stampBuilding(at.x, at.y, 3, 3);
         break;
+      case 'airstrip': {
+        // Tarmac, with a hangar at the west end. Nothing else is stamped on
+        // it: the whole point is a long clear run.
+        stampGround(at.x, at.y, w, h, T_RUNWAY);
+        stampBuilding(at.x, at.y, 3, 3);
+        break;
+      }
       case 'quarry':
         // A working pit: open ground a car can enter, and a crusher —
         // the crane economy reaches the countryside.

@@ -38,6 +38,15 @@ export const T_TREES = 11;
  * solid to hulls; the countryside's answer to the urban quay.
  */
 export const T_SAND = 12;
+/**
+ * Runway: the one surface an aeroplane can leave the ground from.
+ *
+ * Drivable like a lot, and deliberately its own type rather than a marked-up
+ * `T_LOT` — "is this ground built for taking off" is a question the sim asks
+ * every tick a plane is rolling, and answering it by looking for paint would
+ * be a rule about the renderer.
+ */
+export const T_RUNWAY = 13;
 
 /**
  * Where a signal head stands: the road tile just outside a junction on one of
@@ -104,6 +113,12 @@ export const LANDMARK_KINDS = [
   'campground',
   'lighthouse',
   'quarry',
+  /**
+   * A strip of tarmac in open country with something parked on it. The one
+   * place on the map an aeroplane can leave the ground from, which is what
+   * makes it a destination rather than scenery. See GTA.md S2.
+   */
+  'airstrip',
 ] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 

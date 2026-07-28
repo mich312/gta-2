@@ -8536,6 +8536,275 @@
      "z": 15
     }
    ]
+  },
+  "plane": {
+   "w": 68,
+   "h": 52,
+   "pivot": [
+    34,
+    26
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "disc": [
+      60,
+      26,
+      7
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.25,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      4,
+      16,
+      7,
+      20
+     ],
+     "color": "$body",
+     "z": 6
+    },
+    {
+     "rect": [
+      2,
+      22,
+      6,
+      8
+     ],
+     "color": "$body",
+     "z": 7
+    },
+    {
+     "rect": [
+      28,
+      3,
+      12,
+      46
+     ],
+     "color": "$body",
+     "z": 9,
+     "noise": 0.015
+    },
+    {
+     "rect": [
+      30,
+      5,
+      3,
+      42
+     ],
+     "color": "carTrim",
+     "z": 10,
+     "noOutline": true
+    },
+    {
+     "poly": [
+      [
+       8,
+       22
+      ],
+      [
+       52,
+       20
+      ],
+      [
+       58,
+       26
+      ],
+      [
+       52,
+       32
+      ],
+      [
+       8,
+       30
+      ]
+     ],
+     "color": "$body",
+     "z": 12,
+     "noise": 0.02
+    },
+    {
+     "poly": [
+      [
+       40,
+       22
+      ],
+      [
+       48,
+       23
+      ],
+      [
+       48,
+       29
+      ],
+      [
+       40,
+       30
+      ]
+     ],
+     "color": "carGlass",
+     "z": 14,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      56,
+      24,
+      4,
+      4
+     ],
+     "color": "gunMetal",
+     "z": 13
+    }
+   ]
+  },
+  "chopper": {
+   "w": 43,
+   "h": 43,
+   "pivot": [
+    21,
+    21
+   ],
+   "rotations": 32,
+   "variants": {
+    "body": [
+     "carRed",
+     "carBlue",
+     "carGreen",
+     "carYellow",
+     "carWhite",
+     "carBlack",
+     "carOrange",
+     "carTeal",
+     "carPurple",
+     "carSand"
+    ]
+   },
+   "shapes": [
+    {
+     "disc": [
+      21,
+      21,
+      19
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.22,
+     "noOutline": true
+    },
+    {
+     "disc": [
+      21,
+      21,
+      13
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.16,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      3,
+      20,
+      14,
+      3
+     ],
+     "color": "$body",
+     "z": 6
+    },
+    {
+     "rect": [
+      2,
+      17,
+      3,
+      9
+     ],
+     "color": "carTrim",
+     "z": 7
+    },
+    {
+     "ellipse": [
+      24,
+      21.5,
+      10,
+      6
+     ],
+     "color": "$body",
+     "z": 8,
+     "noise": 0.02
+    },
+    {
+     "poly": [
+      [
+       28,
+       17
+      ],
+      [
+       33,
+       20
+      ],
+      [
+       33,
+       23
+      ],
+      [
+       28,
+       26
+      ]
+     ],
+     "color": "carGlass",
+     "z": 10,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      16,
+      14,
+      16,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "rect": [
+      16,
+      27,
+      16,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "rect": [
+      19,
+      20,
+      2,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 15
+    }
+   ]
   }
  }
 }

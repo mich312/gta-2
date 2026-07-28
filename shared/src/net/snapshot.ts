@@ -106,6 +106,7 @@ const VEHICLE_FIELDS = [
   // happens when a hashed field is left out of this list.
   'zones',
   'broken',
+  'z',
   'fitting',
   'fittingAmmo',
 ] as const;

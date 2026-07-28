@@ -20,7 +20,10 @@ readily enough and never on cue.
 |---|---|
 | `vehicles.png` | Every kind in `vehicles.json`, at game scale, through the real `drawVehicle`. The point is the silhouettes side by side: colour variation existed long before shape variation did, so ten colours of one car looked like variety and a street full of them did not. Six civilian bodies now differ in outline as well as paint, and the two-wheelers carry a visible rider — composited at the saddle, the same mechanism the tank's turret uses. The sheet found its own bug on first run: `moto` and `bicycle` drew as a solid red fallback rectangle, because they were given a colour axis in the art and left out of the renderer's painted-kinds set. |
 
-Retake with `node ci/shot.mjs http://localhost:5173/vehicle-sheet.html evidence/vehicles.png '#sheet'`.
+| `airstrip.png` | A generated city with two airstrips in the countryside to the north — the dark strips in open ground. They are placed on a lattice rather than rolled, because "there is an airfield, and it is over there" is a fact a player should be able to rely on. Retake with `pnpm mapgen --seed=1`. |
+
+Retake the vehicle sheet with
+`node ci/shot.mjs http://localhost:5173/vehicle-sheet.html evidence/vehicles.png '#sheet'`.
 
 ## Damage
 
