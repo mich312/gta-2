@@ -1,6 +1,6 @@
 import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
-import { PI, dCos, dSin, wrapAngle } from '../math/trig.js';
+import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
 import type {
@@ -343,9 +343,29 @@ export function damageCop(
   events: SimEvent[],
 ): void {
   if (copIsDown(cop)) return; // already a body
-  cop.health -= damage;
   const attacker = state.players.byId[attackerId];
-  if (attacker) addHeat(attacker, damage * getTuning().police.heatPerDamage);
+  // A shield is a fact about which side of the officer you are on. SWAT take
+  // a fraction of what hits them from the front and all of what comes from
+  // behind, so a frontal assault on a shield line is the wrong answer and
+  // going round is the right one — the cheapest possible way to make a tier
+  // play differently rather than merely have more health. Officers with no
+  // shield are unaffected (frontalDamage 1), and an attacker-less hit — an
+  // explosion, a gang volley — is not from any side at all.
+  const kind = getTuning().police.kinds[cop.kind];
+  let dealt = damage;
+  if (attacker && kind && kind.frontalDamage !== 1) {
+    // Which way the officer is facing: their own heading of travel, or the
+    // bearing to whoever they are chasing when they are standing still.
+    const facing =
+      cop.vel.x !== 0 || cop.vel.y !== 0
+        ? Math.atan2(cop.vel.y, cop.vel.x)
+        : Math.atan2(attacker.pos.y - cop.pos.y, attacker.pos.x - cop.pos.x);
+    const bearing = Math.atan2(attacker.pos.y - cop.pos.y, attacker.pos.x - cop.pos.x);
+    // Within a 90-degree arc off the nose counts as frontal.
+    if (Math.abs(wrapAngle(bearing - facing)) < HALF_PI) dealt = damage * kind.frontalDamage;
+  }
+  cop.health -= dealt;
+  if (attacker) addHeat(attacker, dealt * getTuning().police.heatPerDamage);
   if (cop.health > 0) return;
   // The officer stays in the world as a body on the tarmac, cleared by
   // stepPolice when the corpse clock runs out. `health <= 0` is the whole of
@@ -726,7 +746,14 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
       if (!ped || ped.mode === 'dead') continue;
       if (circleHitsBox(ped.pos.x, ped.pos.y, PED_RADIUS, body)) {
         pushRunOver(events, state.tick, ped.pos.x, ped.pos.y, v);
-        damagePed(state, ped, Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
+        damagePed(
+          state,
+          ped,
+          Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED,
+          v.driverId ?? -1,
+          events,
+          true,
+        );
       }
     }
     // Street furniture: smashed at speed, discrete transition + a nudge of

@@ -40,6 +40,14 @@ export interface ServerConfig {
    * server flag, so the client builds the same city from the same numbers.
    */
   provingGround: boolean;
+  /**
+   * Which police preset the session runs (see police.json `presets`).
+   *
+   * Server-side on purpose: in a shared city, a difficulty each player picks
+   * for themselves is not a setting, it is a cheat. The resolved numbers
+   * reach clients in `welcome` like every other tunable.
+   */
+  difficulty: string;
 }
 
 function envInt(v: string | undefined, fallback: number): number {
@@ -62,5 +70,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     interestRadius: envInt(env['INTEREST_RADIUS'], 600),
     clientDir: env['CLIENT_DIR'] ?? null,
     provingGround: env['PROVING_GROUND'] === '1' || env['PROVING_GROUND'] === 'true',
+    difficulty: env['DIFFICULTY'] ?? 'normal',
   };
 }

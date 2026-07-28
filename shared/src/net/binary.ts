@@ -530,6 +530,7 @@ const COP_CODECS: Array<FieldCodec<CopState>> = [
   f('lastSeenY', (w, c) => w.q8(c.lastSeenY), (r, o) => (o['lastSeenY'] = r.q8())),
   f('searchTicks', (w, c) => w.int(c.searchTicks), (r, o) => (o['searchTicks'] = r.int())),
   f('searchDir', (w, c) => w.int(c.searchDir), (r, o) => (o['searchDir'] = r.int())),
+  f('burstLeft', (w, c) => w.uint(c.burstLeft), (r, o) => (o['burstLeft'] = r.uint())),
 ];
 
 const PED_CODECS: Array<FieldCodec<PedState>> = [

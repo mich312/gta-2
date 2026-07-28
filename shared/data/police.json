@@ -1,12 +1,12 @@
 {
-  "copsPerStar": 2,
-  "maxCopsPerPlayer": 10,
+  "copsPerStar": 1,
+  "maxCopsPerPlayer": 7,
   "maxCopsTotal": 24,
   "spawnCooldownTicks": 18,
   "copHealth": 50,
   "moveSpeed": 73,
   "sightRange": 260,
-  "fireRange": 190,
+  "fireRange": 175,
   "weapon": "copPistol",
   "spawnMinDist": 260,
   "spawnMaxDist": 640,
@@ -34,7 +34,7 @@
   "roadblockAheadDist": 420,
   "sprayCost": 400,
   "bustRadius": 22,
-  "bustSpeedMax": 40,
+  "bustSpeedMax": 55,
   "tiers": [
     "patrol",
     "patrol",
@@ -47,23 +47,68 @@
     "patrol": {
       "health": 50,
       "weapon": "copPistol",
-      "moveSpeed": 73
+      "moveSpeed": 73,
+      "preferredRange": 0,
+      "burstCount": 3,
+      "burstPauseTicks": 22,
+      "frontalDamage": 1
     },
     "swat": {
       "health": 90,
       "weapon": "copShotgun",
-      "moveSpeed": 79
+      "moveSpeed": 79,
+      "preferredRange": 0,
+      "burstCount": 2,
+      "burstPauseTicks": 26,
+      "frontalDamage": 0.6
     },
     "fed": {
       "health": 120,
       "weapon": "copSmg",
-      "moveSpeed": 88
+      "moveSpeed": 88,
+      "preferredRange": 130,
+      "burstCount": 5,
+      "burstPauseTicks": 30,
+      "frontalDamage": 1
     },
     "army": {
       "health": 220,
       "weapon": "copRifle",
-      "moveSpeed": 77
+      "moveSpeed": 77,
+      "preferredRange": 150,
+      "burstCount": 3,
+      "burstPauseTicks": 34,
+      "frontalDamage": 0.75
     }
   },
-  "dismountDist": 150
+  "dismountDist": 150,
+  "rangeSpread": 1.6,
+  "speedSpread": 1.4,
+  "spreadReferenceSpeed": 200,
+  "presets": {
+    "relaxed": {
+      "copsPerStar": 1,
+      "maxCopsPerPlayer": 5,
+      "maxCopsTotal": 16,
+      "wantedCooldownTicks": 60,
+      "heatDecayRamp": 0.16,
+      "searchGiveUpTicks": 150,
+      "rangeSpread": 2.2,
+      "speedSpread": 2.0,
+      "roadblocksFromStar": 5
+    },
+    "normal": {},
+    "hard": {
+      "copsPerStar": 2,
+      "maxCopsPerPlayer": 10,
+      "maxCopsTotal": 28,
+      "wantedCooldownTicks": 150,
+      "heatDecayRamp": 0.06,
+      "searchGiveUpTicks": 420,
+      "rangeSpread": 0.9,
+      "speedSpread": 0.7,
+      "carsFromStar": 2,
+      "roadblocksFromStar": 3
+    }
+  }
 }

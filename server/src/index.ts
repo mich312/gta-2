@@ -10,7 +10,7 @@ import { createFileRecorder } from './replay/record.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  loadSharedTuning();
+  loadSharedTuning(config.difficulty);
   // The flag reaches the city through worldgen, and worldgen rides in the
   // welcome message — so the client builds exactly the same map rather than
   // disagreeing with the server about where the walls are.

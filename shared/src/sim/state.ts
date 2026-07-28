@@ -59,6 +59,14 @@ export interface CopState {
    * ticks so a search reads as sweeping a street rather than as jitter.
    */
   searchDir: number;
+  /**
+   * Rounds left in the current burst. 0 means the next shot starts one.
+   *
+   * A flat cooldown made an officer's peak damage and sustained damage the
+   * same number, which is how ten federal agents came to delete a
+   * full-health player in under half a second. See police.json `burstCount`.
+   */
+  burstLeft: number;
 }
 
 export interface PropState {
@@ -568,6 +576,7 @@ export function createCop(id: number, pos: Vec2, health: number, kind = 'patrol'
     lastSeenY: 0,
     searchTicks: 0,
     searchDir: -1,
+    burstLeft: 0,
   };
 }
 

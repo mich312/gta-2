@@ -16,7 +16,7 @@ import {
   type GameState,
 } from '../src/sim/state.js';
 import { insertEntity } from '../src/sim/entities.js';
-import { applyDamage } from '../src/sim/weapons.js';
+import { applyDamage, damageCop } from '../src/sim/weapons.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
@@ -914,6 +914,171 @@ describe('arrest (F2): busted is not wasted', () => {
     const after = step(state, {}, [{ type: 'respawnPlayer', playerId: 1, loadout: [] }], map);
     const at = after.players.byId[1]!.pos;
     expect(Math.min(...map.hospitals.map((h) => Math.hypot(h.x - at.x, h.y - at.y)))).toBe(0);
+  });
+});
+
+describe('the difficulty pass (P2)', () => {
+  /**
+   * A player and an officer on a verified clear line at a chosen separation.
+   *
+   * `clearSpot` rather than a fixed offset, and for the reason the fixtures
+   * above give: a wall between the two makes the test a test of nothing. It
+   * cost an hour here — an officer placed 240 px "down the lane" had a
+   * building in the way, so it never saw the target, searched instead, and
+   * walked off up the street.
+   */
+  function faceOff(
+    seed: number,
+    separation: number,
+    kind: string,
+    copId: number,
+  ): { state: GameState; me: { x: number; y: number }; at: { x: number; y: number } } {
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    const lane = straightEastLane(map);
+    const me = { x: lane.x, y: lane.y };
+    state.players.byId[1]!.pos = { x: me.x, y: me.y };
+    const spot = clearSpot(map, me, separation);
+    const cop = createCop(copId, { x: spot.x, y: spot.y }, 900, kind);
+    cop.targetId = 1;
+    cop.lastSeenX = me.x;
+    cop.lastSeenY = me.y;
+    insertEntity(state.cops, cop);
+    return { state, me, at: { x: spot.x, y: spot.y } };
+  }
+
+  /**
+   * One officer, one shot, at a chosen range and target speed. The rng draw
+   * is the same every time, so the only thing that moves the round is the
+   * spread terms under test.
+   */
+  function shotAngleError(separation: number, targetSpeed: number): number {
+    const f = faceOff(4242, separation, 'patrol', 700);
+    let state = f.state;
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 90; i++) {
+      // Both parties pinned: this measures the spread, not the chase.
+      const me = state.players.byId[1]!;
+      me.pos = { x: f.me.x, y: f.me.y };
+      me.vel = { x: targetSpeed, y: 0 };
+      me.heat = 310;
+      me.health = 200;
+      const c = state.cops.byId[700];
+      if (c) c.pos = { x: f.at.x, y: f.at.y };
+      const before = events.length;
+      state = step(state, {}, [], map, events);
+      for (let k = before; k < events.length; k++) {
+        const e = events[k];
+        if (!e || e.type !== 'shot' || e.playerId !== -700) continue;
+        // How far off the true bearing the round went.
+        const want = Math.atan2(f.me.y - f.at.y, f.me.x - f.at.x);
+        const got = Math.atan2(e.y1 - e.y0, e.x1 - e.x0);
+        return Math.abs(Math.atan2(Math.sin(got - want), Math.cos(got - want)));
+      }
+    }
+    throw new Error('no police shot observed');
+  }
+
+  it('accuracy falls off with range (P2a)', () => {
+    // Same officer, same draw, same target: only the distance changes. Before
+    // this the far end of a cordon was as lethal as the near end.
+    expect(shotAngleError(150, 0)).toBeGreaterThan(shotAngleError(40, 0));
+  });
+
+  it('...and with how fast the target is moving', () => {
+    // The lever that stops a cordon deleting a car crossing a junction.
+    expect(shotAngleError(120, 200)).toBeGreaterThan(shotAngleError(120, 0));
+  });
+
+  it('a burst is followed by a beat (P2b)', () => {
+    // The gaps are what a player moves in. A flat cooldown made an officer's
+    // peak damage and their sustained damage the same number, which is how
+    // ten federal agents came to delete a full-health player in half a second.
+    const kind = getTuning().police.kinds['fed'];
+    expect(kind).toBeDefined();
+    expect(kind!.burstCount).toBeGreaterThan(0);
+    const weapon = getWeaponTuning(kind!.weapon)!;
+    const f = faceOff(77, 60, 'fed', 701);
+    let state = f.state;
+
+    const gaps: number[] = [];
+    let last = -1;
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 240; i++) {
+      const me = state.players.byId[1]!;
+      me.pos = { x: f.me.x, y: f.me.y };
+      me.heat = 510;
+      me.health = 500;
+      const c = state.cops.byId[701];
+      if (c) c.pos = { x: f.at.x, y: f.at.y };
+      const before = events.length;
+      state = step(state, {}, [], map, events);
+      for (let k = before; k < events.length; k++) {
+        const e = events[k];
+        // This officer's rounds only: five stars means colleagues turn out,
+        // and their shots would read as impossible zero-tick gaps.
+        if (!e || e.type !== 'shot' || e.playerId !== -701) continue;
+        if (last >= 0) gaps.push(i - last);
+        last = i;
+      }
+    }
+    expect(gaps.length).toBeGreaterThan(kind!.burstCount);
+    // Most gaps are the weapon's own cadence; at least one is the beat.
+    expect(Math.min(...gaps)).toBe(weapon.cooldownTicks);
+    expect(Math.max(...gaps)).toBeGreaterThanOrEqual(weapon.cooldownTicks + kind!.burstPauseTicks);
+  });
+
+  it('riflemen hold a cordon instead of joining the huddle (P2c)', () => {
+    // Every officer used to close to arrest reach, so a five-star response
+    // was ten people standing on top of you at minimum range.
+    const t = getTuning().police;
+    expect(t.kinds['army']!.preferredRange).toBeGreaterThan(t.bustRadius);
+    const f = faceOff(78, 220, 'army', 702);
+    let state = f.state;
+    let closest = Infinity;
+    for (let i = 0; i < 300; i++) {
+      const me = state.players.byId[1]!;
+      me.pos = { x: f.me.x, y: f.me.y };
+      me.heat = 610;
+      me.health = 900;
+      state = step(state, {}, [], map);
+      const c = state.cops.byId[702];
+      if (c) closest = Math.min(closest, Math.hypot(c.pos.x - f.me.x, c.pos.y - f.me.y));
+    }
+    // Closed to the cordon, and no further. A stride of slack either side.
+    expect(closest).toBeLessThan(t.kinds['army']!.preferredRange + 20);
+    expect(closest).toBeGreaterThan(t.bustRadius);
+  });
+
+  it('a shield is a fact about which side you are on (P2c)', () => {
+    // Frontal damage only differs for kinds that carry one, and going round
+    // is the answer rather than more bullets.
+    const swat = getTuning().police.kinds['swat']!;
+    expect(swat.frontalDamage).toBeLessThan(1);
+
+    const healthAfter = (facingAway: boolean): number => {
+      let state = createGameState(79);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+      const lane = straightEastLane(map);
+      state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+      // The officer stands east of the player, so the shot arrives from the
+      // west. Moving east is facing away from it; moving west is facing it.
+      const cop = createCop(703, { x: lane.x + 60, y: lane.y }, 200, 'swat');
+      cop.vel = { x: facingAway ? 60 : -60, y: 0 };
+      insertEntity(state.cops, cop);
+      damageCop(state, cop, 40, 1, []);
+      return cop.health;
+    };
+    expect(healthAfter(true)).toBeLessThan(healthAfter(false));
+  });
+
+  it('someone under the wheels is a lesser crime than someone shot (P2d)', () => {
+    // Driving is the main verb and the pavements are full. At a flat 80 a
+    // kill, running over four people you never saw was three stars — and
+    // with heat that could not come down, that is most of what "too hard"
+    // meant. See GTA.md P2d.
+    const t = getTuning().peds;
+    expect(t.heatPerRoadKill).toBeLessThan(t.heatPerPedKill);
   });
 });
 

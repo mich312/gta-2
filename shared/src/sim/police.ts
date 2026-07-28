@@ -3,6 +3,7 @@ import { clamp, q8 } from '../math/vec.js';
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
+import type { CopKindTuning } from '../tuning.js';
 import type { CopState, GameState, PlayerState, VehicleState } from './state.js';
 import {
   addHeat,
@@ -156,11 +157,23 @@ export function copKindFor(wanted: number): string {
   return t.tiers[Math.min(t.tiers.length, wanted) - 1] ?? 'patrol';
 }
 
-function copStats(kind: string): { health: number; weapon: string; moveSpeed: number } {
+function copStats(kind: string): CopKindTuning {
   const t = getTuning().police;
   // Fall back to the flat numbers so a police.json without a `kinds` block
-  // still produces a working force rather than an invisible one.
-  return t.kinds[kind] ?? { health: t.copHealth, weapon: t.weapon, moveSpeed: t.moveSpeed };
+  // still produces a working force rather than an invisible one — and to the
+  // pre-P2 behaviour for the fields it will not have: one flat cooldown,
+  // everybody closing to arrest reach, no shields.
+  return (
+    t.kinds[kind] ?? {
+      health: t.copHealth,
+      weapon: t.weapon,
+      moveSpeed: t.moveSpeed,
+      preferredRange: 0,
+      burstCount: 0,
+      burstPauseTicks: 0,
+      frontalDamage: 1,
+    }
+  );
 }
 
 function maybeSpawnCop(state: GameState, map: CityMap): void {
@@ -289,12 +302,37 @@ function copFire(
   const t = getTuning().police;
   const weapon = getWeaponTuning(copStats(cop.kind).weapon) ?? getWeaponTuning(t.weapon);
   if (!weapon) return;
-  cop.fireCooldown = weapon.cooldownTicks;
+
+  // Burst cadence. An officer used to fire on a flat cooldown, so their peak
+  // damage and their sustained damage were the same number — and ten federal
+  // agents at 45 DPS apiece deleted a full-health player in under half a
+  // second. Three rounds and a beat halves the sustained rate without making
+  // any single volley less frightening, and the beats are the gaps a player
+  // moves in. See GTA.md P2b.
+  const burst = copStats(cop.kind).burstCount;
+  if (burst > 0) {
+    cop.burstLeft = cop.burstLeft > 0 ? cop.burstLeft - 1 : burst - 1;
+    cop.fireCooldown =
+      cop.burstLeft > 0 ? weapon.cooldownTicks : weapon.cooldownTicks + copStats(cop.kind).burstPauseTicks;
+  } else {
+    cop.fireCooldown = weapon.cooldownTicks;
+  }
+
   let roll: number;
   [roll, state.rng] = nextFloat01(state.rng);
+  // Accuracy that falls off, which is the single biggest lever in P2 and the
+  // fair one: it never makes an officer miss somebody standing still at
+  // point-blank range, and it stops a cordon deleting a car crossing a
+  // junction at 200 px/s. Both terms are computed from sim state and the roll
+  // is still the same single draw, so the rng stream is unchanged.
+  const d = dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y);
+  const targetSpeed = Math.hypot(target.vel.x, target.vel.y);
+  const spread =
+    weapon.spread *
+    (1 + t.rangeSpread * Math.min(1, d / Math.max(1, t.fireRange))) *
+    (1 + t.speedSpread * Math.min(1, targetSpeed / Math.max(1, t.spreadReferenceSpeed)));
   const angle =
-    dAtan2(target.pos.y - cop.pos.y, target.pos.x - cop.pos.x) +
-    (roll - 0.5) * 2 * weapon.spread;
+    dAtan2(target.pos.y - cop.pos.y, target.pos.x - cop.pos.x) + (roll - 0.5) * 2 * spread;
   const dirX = dCos(angle);
   const dirY = dSin(angle);
   const wallDist = rayWallDistance(map, cop.pos.x, cop.pos.y, dirX, dirY, weapon.range);
@@ -813,7 +851,14 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // finished approaching stood half a pixel outside hands-on range and
     // shot a stationary suspect forever — whether an arrest ever landed
     // depended on where the last 4 px stride happened to fall.
-    if (goalD > t.bustRadius - 2) {
+    // How close this officer wants to be. Patrol and SWAT close to arrest
+    // reach, as everybody used to; riflemen hold a cordon at `preferredRange`
+    // instead, which is what stops a five-star response being ten people in a
+    // huddle around you all at minimum range. A unit that has LOST the suspect
+    // ignores its standoff — you cannot cordon somebody you cannot find, and
+    // the search has to be allowed to walk right up to the last-seen point.
+    const standoff = seen ? Math.max(t.bustRadius - 2, copStats(cop.kind).preferredRange) : t.bustRadius - 2;
+    if (goalD > standoff) {
       const moveSpeed = copStats(cop.kind).moveSpeed;
       const dirX = (goalX - cop.pos.x) / goalD;
       const dirY = (goalY - cop.pos.y) / goalD;

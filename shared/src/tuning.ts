@@ -224,7 +224,41 @@ export interface PoliceTuning {
    * distinction the 1999 game made and the 1997 one did not.
    */
   tiers: string[];
-  kinds: Record<string, { health: number; weapon: string; moveSpeed: number }>;
+  kinds: Record<string, CopKindTuning>;
+  /**
+   * How much the spread widens at the edge of `fireRange`, as a fraction of
+   * the weapon's own. Accuracy did not fall off with distance at all before,
+   * so the far end of a cordon was as lethal as the near end.
+   */
+  rangeSpread: number;
+  /** Ditto for a target moving at `spreadReferenceSpeed`. */
+  speedSpread: number;
+  /** The speed `speedSpread` is quoted against — roughly a car at a clip. */
+  spreadReferenceSpeed: number;
+}
+
+export interface CopKindTuning {
+  health: number;
+  weapon: string;
+  moveSpeed: number;
+  /**
+   * How close this kind wants to get, in px. 0 means "close to arrest reach",
+   * which is what every officer used to do — so a five-star response was ten
+   * people in a huddle at minimum range. Riflemen holding at 120-150 read as
+   * a cordon instead, and it leaves the arrest to the officers whose job it
+   * is. See GTA.md P2c.
+   */
+  preferredRange: number;
+  /** Rounds before a pause. 0 keeps the old flat cooldown. */
+  burstCount: number;
+  /** Extra ticks after the last round of a burst. */
+  burstPauseTicks: number;
+  /**
+   * Fraction of damage a hit from the front does to this kind. 1 is no
+   * protection; SWAT's shields are what make a frontal assault on them worse
+   * than going round.
+   */
+  frontalDamage: number;
 }
 
 export interface PedTuning {
@@ -244,6 +278,16 @@ export interface PedTuning {
   fleeRadius: number;
   fleeTicks: number;
   heatPerPedKill: number;
+  /**
+   * Heat for somebody killed under the wheels rather than shot.
+   *
+   * Lower on purpose, and it is the single most important number in the
+   * difficulty pass. Driving is the main verb and the pavements are full;
+   * charging a road death as murder made the wanted ladder something you
+   * climbed by accident on the way somewhere, which — with heat that could
+   * not come down — is most of what "it's too hard" meant.
+   */
+  heatPerRoadKill: number;
   /**
    * One pedestrian in this many is carrying, and shoots back when shot at.
    * The whole crowd running away from every gunshot made the street a
@@ -556,6 +600,18 @@ function num(v: unknown, name: string): number {
   return v;
 }
 
+/**
+ * A number that may be absent, and may legitimately be zero.
+ *
+ * `num` rejects both, which is right for a required tunable — a missing
+ * `walkSpeed` should be an error, not a silent zero — and wrong for a field
+ * added later whose default is "behave as before". Anything non-finite still
+ * falls back rather than poisoning the sim with a NaN.
+ */
+function optNum(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
 function parsePlayerTuning(raw: unknown): PlayerTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   return {
@@ -640,17 +696,24 @@ function parseTiers(raw: unknown): string[] {
   });
 }
 
-function parseCopKinds(raw: unknown): Record<string, { health: number; weapon: string; moveSpeed: number }> {
+function parseCopKinds(raw: unknown): Record<string, CopKindTuning> {
   if (typeof raw !== 'object' || raw === null) throw new Error('police: kinds must be an object');
-  const out: Record<string, { health: number; weapon: string; moveSpeed: number }> = {};
+  const out: Record<string, CopKindTuning> = {};
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
     const r = (v ?? {}) as Record<string, unknown>;
     const weapon = r['weapon'];
     if (typeof weapon !== 'string') throw new Error(`police: kinds.${id}.weapon`);
+    // The P2 fields default rather than throw: a police.json written before
+    // them still produces the force it always did, one flat cooldown and
+    // everybody closing to arrest reach.
     out[id] = {
       health: num(r['health'], `police.kinds.${id}.health`),
       weapon,
       moveSpeed: num(r['moveSpeed'], `police.kinds.${id}.moveSpeed`),
+      preferredRange: optNum(r['preferredRange'], 0),
+      burstCount: optNum(r['burstCount'], 0),
+      burstPauseTicks: optNum(r['burstPauseTicks'], 0),
+      frontalDamage: optNum(r['frontalDamage'], 1),
     };
   }
   return out;
@@ -701,6 +764,9 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     bustSpeedMax: n('bustSpeedMax'),
     tiers: parseTiers(r['tiers']),
     kinds: parseCopKinds(r['kinds']),
+    rangeSpread: optNum(r['rangeSpread'], 0),
+    speedSpread: optNum(r['speedSpread'], 0),
+    spreadReferenceSpeed: optNum(r['spreadReferenceSpeed'], 200),
   };
 }
 
@@ -718,6 +784,7 @@ function parsePedTuning(raw: unknown): PedTuning {
     fleeRadius: n('fleeRadius'),
     fleeTicks: n('fleeTicks'),
     heatPerPedKill: n('heatPerPedKill'),
+    heatPerRoadKill: optNum(r['heatPerRoadKill'], n('heatPerPedKill')),
     armedOneIn: n('armedOneIn'),
     weapon: typeof r['weapon'] === 'string' && r['weapon'] ? r['weapon'] : DEFAULT_PEDS.weapon,
     dropAmmo: n('dropAmmo'),
@@ -1085,7 +1152,8 @@ const DEFAULT_PEDS: PedTuning = {
   turnMaxTicks: 140,
   fleeRadius: 170,
   fleeTicks: 105,
-  heatPerPedKill: 80,
+  heatPerPedKill: 45,
+  heatPerRoadKill: 25,
   armedOneIn: 7,
   weapon: 'gangPistol',
   dropAmmo: 24,
@@ -1127,6 +1195,9 @@ const DEFAULT_POLICE: PoliceTuning = {
   weapon: 'copPistol',
   spawnMinDist: 260,
   spawnMaxDist: 640,
+  rangeSpread: 1.6,
+  speedSpread: 1.4,
+  spreadReferenceSpeed: 200,
   heatPerDamage: 0.8,
   heatPerKill: 60,
   heatPerTheft: 15,
@@ -1155,10 +1226,10 @@ const DEFAULT_POLICE: PoliceTuning = {
   bustSpeedMax: 40,
   tiers: ['patrol', 'patrol', 'patrol', 'swat', 'fed', 'army'],
   kinds: {
-    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73 },
-    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79 },
-    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88 },
-    army: { health: 220, weapon: 'copRifle', moveSpeed: 77 },
+    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73, preferredRange: 0, burstCount: 3, burstPauseTicks: 22, frontalDamage: 1 },
+    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79, preferredRange: 0, burstCount: 2, burstPauseTicks: 26, frontalDamage: 0.6 },
+    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88, preferredRange: 130, burstCount: 5, burstPauseTicks: 30, frontalDamage: 1 },
+    army: { health: 220, weapon: 'copRifle', moveSpeed: 77, preferredRange: 150, burstCount: 3, burstPauseTicks: 34, frontalDamage: 0.75 },
   },
 };
 

@@ -123,6 +123,7 @@ const COP_FIELDS = [
   'lastSeenY',
   'searchTicks',
   'searchDir',
+  'burstLeft',
 ] as const;
 const PED_FIELDS = [
   'gangId',

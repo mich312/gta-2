@@ -9,6 +9,7 @@
     "bots": "pnpm build && node server/dist/bots/harness.js",
     "replay": "pnpm build && node server/dist/replay/run.js",
     "mapgen": "pnpm build && node server/dist/tools/mapgen.js",
+    "chase": "pnpm build && node server/dist/tools/chase.js",
     "sprites": "pnpm build && node server/dist/tools/sprites.js",
     "test": "vitest run"
   },

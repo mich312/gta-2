@@ -51,6 +51,7 @@ the art on whole pixels.
 | `ROAM` | `1` | the window follows the players — the world is infinite in all directions (`0` pins it) |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
+| `DIFFICULTY` | `normal` | police preset: `relaxed`, `normal` or `hard` (`police.json` → `presets`). Server-side: in a shared city a per-player difficulty is a cheat |
 | `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |
 
@@ -90,6 +91,8 @@ pnpm test                                   # vitest across shared + server
 pnpm bots --count=8 --script=brawl --duration=60   # headless multiplayer harness
                                             # scripts: idle|cruise|circle|joyride|brawl|jitter
 pnpm mapgen --seed=7                        # render a city to PNG without the game
+pnpm chase                                  # the chase bench: escape rate + survival time
+                                            #   per star level, over several seeds
 pnpm sprites                                # regenerate the sprite sheet
 pnpm sprites -- --preview=8 --only=car      # + a zoomed contact sheet to eyeball
 pnpm replay replays/<file>.jsonl            # re-simulate a recording, verify hashes
