@@ -710,7 +710,15 @@ respawn/turf semantics per region. Worldgen is no longer the blocker.
 
 ---
 
-## 11. Plan: real countryside, then walk-forever streaming
+## 11. Plan: real countryside, then walk-forever streaming — DELIVERED
+
+Status: all seven phases shipped (see PROGRESS.md top entry). B2/B3
+landed as the sliding-window REBASE rather than per-cell residency — the
+window follows the players under ROAM=1 — with the B1 store standing
+ready as the substrate for true per-cell streaming later. The §11.4
+decisions were resolved by the implementation: turf stays window-scoped,
+respawn clamps to the current window's hospitals, and the world bound is
+the rebase cadence itself.
 
 The two tracks left open by §10, planned to implementation depth. Track A
 (countryside) goes first: it is pure worldgen on proven machinery, its
