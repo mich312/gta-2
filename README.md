@@ -14,9 +14,16 @@ node server/dist/index.js          # terminal 1 — server on ws://127.0.0.1:808
 pnpm --filter client dev           # terminal 2 — Vite on http://localhost:5173
 ```
 
-Open http://localhost:5173 in as many tabs as you like (4–8 players).
-The client connects to `ws://<hostname>:8080` by default; override with
-`?server=ws://host:port`.
+Open http://localhost:5173 in as many tabs as you like (4–8 players). The game
+fills the browser window: the world view grows with it, at a zoom that keeps
+the art on whole pixels.
+
+| Query parameter | Effect |
+| --- | --- |
+| `?server=ws://host:port` | connect elsewhere (default `ws://<hostname>:8080`) |
+| `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
+| `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
+| `?lights=off` | no lighting pass at all |
 
 ### Controls
 
@@ -83,9 +90,11 @@ re-simulating to identical hashes is the desync alarm.
   only through recorded SimCommands.
 - `client/` — Vite + Canvas 2D. Rendering and input only; predicts the local
   player with rewind/replay reconciliation, interpolates everything else. The
-  world view stays 480×270 world pixels but is drawn into a backing store twice
-  that size, and the local player is sampled between simulation ticks so motion
-  is continuous at any display rate.
+  world view is sized to the browser window (480×270 world pixels at 1080p, up
+  to a 700×400 ceiling) and drawn into a backing store twice that size, and the
+  local player is sampled between simulation ticks so motion is continuous at
+  any display rate. Lights are shadow-cast against the tile grid — a lamp lights
+  its own street and not the block behind it.
 
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
 direction, and `PROGRESS.md` for the per-phase log.

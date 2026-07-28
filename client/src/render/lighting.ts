@@ -1,15 +1,36 @@
+import type { CityMap } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
   AMBIENT,
   AMBIENT_TINT,
-  DEVICE_H,
-  DEVICE_W,
+  BLOOM_ALPHA,
+  BLOOM_DOWNSCALE,
   GRADE_DAY,
   GRADE_NIGHT,
+  LIGHT_CACHE_LIMIT,
+  MAX_LIGHT_BAKES,
+  MAX_SHADOW_LIGHTS,
+  RENDER_SCALE,
+  SHADOW_BOUNCE,
+  SHADOW_SOFT_PX,
   VIGNETTE,
 } from './config.js';
+import { hash2, noise1 } from './noise.js';
+import { occluderEdges, punchShadows } from './shadows.js';
+import { viewport } from './viewport.js';
 
-export type LightKind = 'lamp' | 'head' | 'red' | 'blue' | 'muzzle' | 'shop';
+export type LightKind = 'lamp' | 'head' | 'red' | 'blue' | 'muzzle' | 'shop' | 'window' | 'fire';
+
+/**
+ * Whether a light is stopped by the city.
+ *
+ * `static` is the same answer every frame — a lamp post has not moved since
+ * worldgen — so it is baked once and blitted thereafter. `dynamic` is
+ * recomputed, and rationed. `none` is for lights that are already at the thing
+ * they are lighting (a window in a wall, a taillight) where an occlusion test
+ * would only ever find the surface the light is sitting on.
+ */
+export type ShadowMode = 'none' | 'static' | 'dynamic';
 
 const LIGHT_COLORS: Record<LightKind, string> = {
   lamp: palette.lampGlow,
@@ -18,11 +39,15 @@ const LIGHT_COLORS: Record<LightKind, string> = {
   blue: palette.sirenBlue,
   muzzle: palette.muzzle,
   shop: palette.signGlow,
+  window: palette.windowGlow,
+  fire: palette.fireGlow,
 };
 
 const TEX_SIZE = 128;
 const CONE_LEN = 128;
 const CONE_HALF = 44;
+/** Ceiling on a baked light sprite, in device pixels. */
+const MAX_SPRITE = 512;
 
 interface PointLight {
   x: number;
@@ -30,6 +55,7 @@ interface PointLight {
   radius: number;
   kind: LightKind;
   alpha: number;
+  shadow: ShadowMode;
 }
 
 interface ConeLight {
@@ -39,36 +65,98 @@ interface ConeLight {
   length: number;
   kind: LightKind;
   alpha: number;
+  shadow: ShadowMode;
 }
 
 /**
  * The lighting pass: a dusk grade multiplied over the finished scene, then
- * every light added back on top.
+ * every light added back on top of it — through the city rather than over it.
  *
- * This is the cheapest way to get the look that made top-down city games feel
- * nocturnal and dense — pools under street lamps, headlight cones sweeping the
- * asphalt, sirens strobing off the buildings — without a shader stack. It costs
- * two full-screen composites plus one blit per light, and all the light
- * textures are baked once at construction.
+ * Three things happen here that a plain additive blit does not do. Lights are
+ * accumulated into their own buffer rather than straight onto the frame, which
+ * is what lets them be post-processed as a group. Anything solid between a
+ * light and a pixel takes the light away from it (`shadows.ts`), so a lamp
+ * lights its own street and not the block behind it, and a headlight beam
+ * stops at a wall. And the accumulated buffer is downscaled and added back a
+ * second time, which is a bloom, and is what stops a bright lamp reading as a
+ * sticker of a lamp.
+ *
+ * The budget: two full-screen composites for the grade, one for the light
+ * buffer, two small blits for the bloom, one for the vignette, and per light
+ * either a cache hit (one blit) or a bake (one gradient plus a few dozen
+ * shadow quads).
  */
 export class LightPass {
   private grade: { r: number; g: number; b: number; tint: number; vignette: number } | null = null;
   private night = 0.5;
   private readonly textures = new Map<LightKind, HTMLCanvasElement>();
   private readonly cones = new Map<LightKind, HTMLCanvasElement>();
-  private readonly vignette: HTMLCanvasElement;
+  private vignette: HTMLCanvasElement;
   private points: PointLight[] = [];
   private coneList: ConeLight[] = [];
 
+  /** The accumulation buffer, and the small canvas the bloom is folded in. */
+  private buffer: HTMLCanvasElement;
+  private bufferCtx: CanvasRenderingContext2D;
+  private bloom: HTMLCanvasElement;
+  private bloomCtx: CanvasRenderingContext2D;
+  private bloomMid: HTMLCanvasElement;
+  private bloomMidCtx: CanvasRenderingContext2D;
+  /** Scratch a single light is assembled in before it joins the buffer. */
+  private readonly scratch: HTMLCanvasElement;
+  private readonly scratchCtx: CanvasRenderingContext2D;
+  /** Baked static lights, keyed by kind, radius and world position. */
+  private readonly baked = new Map<string, HTMLCanvasElement>();
+  /** Reused across every occlusion query in a frame; never escapes. */
+  private readonly segs: number[] = [];
+
+  /** The city, for occlusion, and where world origin sits on screen. */
+  private map: CityMap | null = null;
+  private originX = 0;
+  private originY = 0;
+  /** Freshly-cast shadows spent this frame, against MAX_SHADOW_LIGHTS. */
+  private castBudget = 0;
+  /** Static lights baked this frame, against MAX_LIGHT_BAKES. */
+  private bakeBudget = 0;
+
   /** Off by default in daylight; the renderer decides. */
   enabled = true;
+  /** Turns every shadow and the bloom off, for a machine that cannot afford them. */
+  cheap = false;
 
   constructor() {
     for (const kind of Object.keys(LIGHT_COLORS) as LightKind[]) {
       this.textures.set(kind, makePointTexture(LIGHT_COLORS[kind]));
       this.cones.set(kind, makeConeTexture(LIGHT_COLORS[kind]));
     }
-    this.vignette = makeVignette();
+    this.vignette = makeVignette(viewport.deviceW, viewport.deviceH);
+    this.buffer = document.createElement('canvas');
+    this.bufferCtx = this.buffer.getContext('2d') as CanvasRenderingContext2D;
+    this.bloom = document.createElement('canvas');
+    this.bloomCtx = this.bloom.getContext('2d') as CanvasRenderingContext2D;
+    this.bloomMid = document.createElement('canvas');
+    this.bloomMidCtx = this.bloomMid.getContext('2d') as CanvasRenderingContext2D;
+    this.scratch = document.createElement('canvas');
+    this.scratch.width = MAX_SPRITE;
+    this.scratch.height = MAX_SPRITE;
+    this.scratchCtx = this.scratch.getContext('2d') as CanvasRenderingContext2D;
+    this.sizeBuffers();
+  }
+
+  /** Match the buffers to the frame. Cheap when nothing has changed. */
+  private sizeBuffers(): void {
+    const w = viewport.deviceW;
+    const h = viewport.deviceH;
+    if (this.buffer.width === w && this.buffer.height === h) return;
+    this.buffer.width = w;
+    this.buffer.height = h;
+    this.bloom.width = Math.max(1, Math.round(w / BLOOM_DOWNSCALE));
+    this.bloom.height = Math.max(1, Math.round(h / BLOOM_DOWNSCALE));
+    this.bloomCtx.imageSmoothingEnabled = true;
+    this.bloomMid.width = Math.max(1, Math.round(w / 2));
+    this.bloomMid.height = Math.max(1, Math.round(h / 2));
+    this.bloomMidCtx.imageSmoothingEnabled = true;
+    this.vignette = makeVignette(w, h);
   }
 
   reset(): void {
@@ -76,7 +164,17 @@ export class LightPass {
     this.coneList.length = 0;
   }
 
-  /** Device-pixel position and radius. */
+  /**
+   * The city and this frame's snapped origin, so a light given in device
+   * pixels can be put back into the world to ask what is standing in front
+   * of it. Left unset — an evidence page, a test harness — nothing casts.
+   */
+  setWorld(map: CityMap | null, originX: number, originY: number): void {
+    this.map = map;
+    this.originX = originX;
+    this.originY = originY;
+  }
+
   /**
    * Set the hour, 0 (full day) to 1 (deep night). Left unset, the pass falls
    * back to the fixed dusk it used before there was a clock.
@@ -99,15 +197,35 @@ export class LightPass {
     return this.night;
   }
 
-  point(x: number, y: number, radius: number, kind: LightKind, alpha = 1): void {
-    if (x < -radius || y < -radius || x > DEVICE_W + radius || y > DEVICE_H + radius) return;
-    this.points.push({ x, y, radius, kind, alpha });
+  /** Device-pixel position and radius. */
+  point(
+    x: number,
+    y: number,
+    radius: number,
+    kind: LightKind,
+    alpha = 1,
+    shadow: ShadowMode = 'none',
+  ): void {
+    if (x < -radius || y < -radius || x > viewport.deviceW + radius) return;
+    if (y > viewport.deviceH + radius) return;
+    if (alpha <= 0.004) return;
+    this.points.push({ x, y, radius, kind, alpha, shadow });
   }
 
   /** A headlight-style beam, pointing along `angle`. */
-  cone(x: number, y: number, angle: number, length: number, kind: LightKind, alpha = 1): void {
-    if (x < -length || y < -length || x > DEVICE_W + length || y > DEVICE_H + length) return;
-    this.coneList.push({ x, y, angle, length, kind, alpha });
+  cone(
+    x: number,
+    y: number,
+    angle: number,
+    length: number,
+    kind: LightKind,
+    alpha = 1,
+    shadow: ShadowMode = 'none',
+  ): void {
+    if (x < -length || y < -length || x > viewport.deviceW + length) return;
+    if (y > viewport.deviceH + length) return;
+    if (alpha <= 0.004) return;
+    this.coneList.push({ x, y, angle, length, kind, alpha, shadow });
   }
 
   render(ctx: CanvasRenderingContext2D): void {
@@ -115,6 +233,9 @@ export class LightPass {
       this.reset();
       return;
     }
+    this.sizeBuffers();
+    const w = viewport.deviceW;
+    const h = viewport.deviceH;
 
     // Grade first: darken and cool the whole scene so the lights have somewhere
     // to land. One multiply plus one translucent overlay.
@@ -122,27 +243,52 @@ export class LightPass {
     ctx.save();
     ctx.globalCompositeOperation = 'multiply';
     ctx.fillStyle = g ? `rgb(${g.r}, ${g.g}, ${g.b})` : AMBIENT;
-    ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
+    ctx.fillRect(0, 0, w, h);
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = g ? `rgba(24, 34, 58, ${g.tint.toFixed(3)})` : AMBIENT_TINT;
-    ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
 
-    ctx.globalCompositeOperation = 'lighter';
-    for (const c of this.coneList) {
-      const tex = this.cones.get(c.kind) as HTMLCanvasElement;
-      const s = c.length / CONE_LEN;
-      ctx.globalAlpha = c.alpha;
-      ctx.translate(c.x, c.y);
-      ctx.rotate(c.angle);
-      ctx.scale(s, s);
-      ctx.drawImage(tex, 0, -tex.height / 2);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Ration the freshly-cast shadows to the lights that cover the most
+    // screen, so the beam you are driving behind never loses them to a siren
+    // at the edge of the frame.
+    this.castBudget = this.cheap ? 0 : MAX_SHADOW_LIGHTS;
+    this.bakeBudget = this.cheap ? 0 : MAX_LIGHT_BAKES;
+    if (this.castBudget > 0) {
+      this.coneList.sort((a, b) => b.length * b.alpha - a.length * a.alpha);
+      this.points.sort((a, b) => b.radius * b.alpha - a.radius * a.alpha);
     }
-    for (const p of this.points) {
-      const tex = this.textures.get(p.kind) as HTMLCanvasElement;
-      const d = p.radius * 2;
-      ctx.globalAlpha = p.alpha;
-      ctx.drawImage(tex, p.x - p.radius, p.y - p.radius, d, d);
+
+    const buf = this.bufferCtx;
+    buf.setTransform(1, 0, 0, 1, 0, 0);
+    buf.globalCompositeOperation = 'source-over';
+    buf.globalAlpha = 1;
+    buf.clearRect(0, 0, w, h);
+    buf.globalCompositeOperation = 'lighter';
+
+    for (const c of this.coneList) this.drawCone(buf, c);
+    for (const p of this.points) this.drawPoint(buf, p);
+
+    // The buffer joins the frame as one additive layer, then a downscaled copy
+    // of it goes on a second time as the bloom.
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(this.buffer, 0, 0);
+    if (!this.cheap) {
+      // Two stages on the way back up, and the last one is nearest-neighbour.
+      // A single smoothed 6x magnification straight onto the frame measured at
+      // 16 ms on a 1280x720 backing store — it is a slow path in the browser's
+      // rasteriser, and it alone put a 1440p window under 60. Interpolating up
+      // to half size costs a quarter of the pixels, and doubling *that* with no
+      // filter is exactly one world pixel per step, which this art is made of.
+      const mw = this.bloomMid.width;
+      const mh = this.bloomMid.height;
+      this.bloomCtx.globalCompositeOperation = 'copy';
+      this.bloomCtx.drawImage(this.buffer, 0, 0, this.bloom.width, this.bloom.height);
+      this.bloomMidCtx.globalCompositeOperation = 'copy';
+      this.bloomMidCtx.drawImage(this.bloom, 0, 0, mw, mh);
+      ctx.globalAlpha = BLOOM_ALPHA;
+      ctx.drawImage(this.bloomMid, 0, 0, w, h);
     }
     ctx.restore();
 
@@ -152,6 +298,239 @@ export class LightPass {
     ctx.drawImage(this.vignette, 0, 0);
     ctx.globalAlpha = 1;
     this.reset();
+  }
+
+  /** World position of a device-pixel coordinate, for occlusion queries. */
+  private worldX(x: number): number {
+    return (x - this.originX) / RENDER_SCALE;
+  }
+
+  private worldY(y: number): number {
+    return (y - this.originY) / RENDER_SCALE;
+  }
+
+  private drawPoint(buf: CanvasRenderingContext2D, p: PointLight): void {
+    const tex = this.textures.get(p.kind) as HTMLCanvasElement;
+    const d = p.radius * 2;
+    const mode = this.shadowModeFor(p.shadow, d);
+    const plain = (): void => {
+      buf.globalAlpha = p.alpha;
+      buf.drawImage(tex, p.x - p.radius, p.y - p.radius, d, d);
+    };
+    if (mode === 'none') return plain();
+
+    const size = Math.min(MAX_SPRITE, Math.ceil(d));
+    const wx = this.worldX(p.x);
+    const wy = this.worldY(p.y);
+    const worldRadius = p.radius / RENDER_SCALE;
+
+    if (mode === 'static') {
+      // Quantised to half a world pixel: a lamp is at one place for the life
+      // of the city, and the key has to survive the camera moving under it.
+      const key = `${p.kind}|${Math.round(p.radius)}|${Math.round(wx * 2)}|${Math.round(wy * 2)}`;
+      let sprite = this.baked.get(key);
+      if (!sprite) {
+        // A street's worth of lamps coming into view at once would otherwise
+        // bake in one frame. Draw flat now, bake on a later frame.
+        if (this.bakeBudget <= 0) return plain();
+        this.bakeBudget--;
+        sprite = this.bake(tex, size, wx, wy, worldRadius, SHADOW_SOFT_PX);
+        if (this.baked.size >= LIGHT_CACHE_LIMIT) {
+          // Insertion order is close enough to least-recently-lit here: the
+          // cache only ever fills with lights that have left the screen.
+          const oldest = this.baked.keys().next().value;
+          if (oldest !== undefined) this.baked.delete(oldest);
+        }
+        this.baked.set(key, sprite);
+      }
+      buf.globalAlpha = p.alpha;
+      buf.drawImage(sprite, p.x - p.radius, p.y - p.radius, d, d);
+      return;
+    }
+
+    this.castBudget--;
+    const s = this.scratchCtx;
+    s.setTransform(1, 0, 0, 1, 0, 0);
+    s.globalCompositeOperation = 'source-over';
+    s.globalAlpha = 1;
+    s.clearRect(0, 0, size, size);
+    s.drawImage(tex, 0, 0, size, size);
+    this.cut(s, size, wx, wy, worldRadius, 0);
+    buf.globalAlpha = p.alpha;
+    buf.drawImage(this.scratch, 0, 0, size, size, p.x - p.radius, p.y - p.radius, d, d);
+  }
+
+  private drawCone(buf: CanvasRenderingContext2D, c: ConeLight): void {
+    const tex = this.cones.get(c.kind) as HTMLCanvasElement;
+    const mode = this.shadowModeFor(c.shadow, c.length * 2);
+    if (mode === 'none') {
+      const scale = c.length / CONE_LEN;
+      buf.globalAlpha = c.alpha;
+      buf.translate(c.x, c.y);
+      buf.rotate(c.angle);
+      buf.scale(scale, scale);
+      buf.drawImage(tex, 0, -tex.height / 2);
+      buf.setTransform(1, 0, 0, 1, 0, 0);
+      return;
+    }
+
+    // A beam is drawn from its apex, but the shadow maths works in radii about
+    // the light, so it is assembled in a square sprite centred on the apex.
+    this.castBudget--;
+    const want = Math.ceil(c.length * 2);
+    const size = Math.min(MAX_SPRITE, want);
+    const half = size / 2;
+    const s = this.scratchCtx;
+    s.setTransform(1, 0, 0, 1, 0, 0);
+    s.globalCompositeOperation = 'source-over';
+    s.globalAlpha = 1;
+    s.clearRect(0, 0, size, size);
+    s.translate(half, half);
+    s.rotate(c.angle);
+    s.scale(half / CONE_LEN, half / CONE_LEN);
+    s.drawImage(tex, 0, -tex.height / 2);
+    s.setTransform(1, 0, 0, 1, 0, 0);
+    this.cut(s, size, this.worldX(c.x), this.worldY(c.y), c.length / RENDER_SCALE, 0);
+    buf.globalAlpha = c.alpha;
+    buf.drawImage(this.scratch, 0, 0, size, size, c.x - want / 2, c.y - want / 2, want, want);
+  }
+
+  /**
+   * Whether this light gets shadows, given what is left of the frame's budget.
+   * Bigger lights are asked first (the caller sorts), so what falls off the end
+   * is the small stuff nobody is looking at.
+   */
+  private shadowModeFor(want: ShadowMode, diameter: number): ShadowMode {
+    if (want === 'none' || !this.map || this.cheap) return 'none';
+    // A light smaller than a tile cannot have anything meaningful in front of
+    // it: it is already inside whatever it would be occluded by.
+    if (diameter < 12) return 'none';
+    if (want === 'static') return 'static';
+    return this.castBudget > 0 ? 'dynamic' : 'none';
+  }
+
+  /** Bake a shadowed point light at its own size, for the static cache. */
+  private bake(
+    tex: HTMLCanvasElement,
+    size: number,
+    wx: number,
+    wy: number,
+    worldRadius: number,
+    soft: number,
+  ): HTMLCanvasElement {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const c = canvas.getContext('2d') as CanvasRenderingContext2D;
+    c.drawImage(tex, 0, 0, size, size);
+    this.cut(c, size, wx, wy, worldRadius, soft);
+    return canvas;
+  }
+
+  /**
+   * Take the light away from everything the city stands in front of.
+   *
+   * Not all of it: `SHADOW_BOUNCE` survives, because a shadow punched to
+   * nothing is a hole cut in the frame rather than a shadow — real streets
+   * bounce light off the facing wall, off the road and off the sky, and an
+   * alley you cannot see in is an alley you cannot fight in.
+   *
+   * The whole silhouette goes down as a single path with one fill, which is
+   * what makes the partial alpha correct: two overlapping quads filled
+   * separately would take the light away twice and leave a dark seam down the
+   * middle of every wall.
+   */
+  private cut(
+    c: CanvasRenderingContext2D,
+    size: number,
+    wx: number,
+    wy: number,
+    worldRadius: number,
+    soft: number,
+  ): void {
+    const map = this.map;
+    if (!map) return;
+    const count = occluderEdges(map, wx, wy, worldRadius, this.segs);
+    if (count === 0) return;
+    const half = size / 2;
+    // The sprite is `size` device pixels across a light of `worldRadius * 2`
+    // world pixels, whatever the scratch was clamped to.
+    const scale = half / worldRadius;
+
+    c.save();
+    c.globalCompositeOperation = 'destination-out';
+    c.globalAlpha = 1 - SHADOW_BOUNCE;
+    c.fillStyle = '#000';
+    if (soft > 0 && supportsFilter(c)) c.filter = `blur(${soft}px)`;
+    punchShadows(c, this.segs, count, wx, wy, half, half, scale, worldRadius);
+    c.restore();
+  }
+}
+
+/** Whether this context honours `filter`; jsdom and old Safari do not. */
+function supportsFilter(ctx: CanvasRenderingContext2D): boolean {
+  return typeof ctx.filter === 'string';
+}
+
+/**
+ * Flicker: how a light varies from one frame to the next.
+ *
+ * The old model was one sine per lamp, out of phase by id, which reads as a
+ * gentle collective breathing — nothing in a real street does that. What a
+ * street actually has is a majority of steady lamps, a few that hum, one on
+ * the way out that stutters, and the odd dead one that flashes once a minute
+ * and gives up. Character is drawn from the id, so a given lamp is the same
+ * lamp for every player and for the whole session; the value is a function of
+ * wall-clock, so it is identical at 30 fps and at 144.
+ */
+export type FlickerKind = 'steady' | 'buzz' | 'failing' | 'dead' | 'fire' | 'neon';
+
+/** Which sort of lamp a given id is. Stable for the life of the city. */
+export function lampCharacter(id: number): FlickerKind {
+  const r = hash2(id, 0x1a3b, 0x5f1d);
+  if (r < 0.62) return 'steady';
+  if (r < 0.82) return 'buzz';
+  if (r < 0.94) return 'failing';
+  return 'dead';
+}
+
+/**
+ * The multiplier on a light's alpha at time `ms`. Mostly ≤ 1; `fire` overshoots
+ * on purpose, because a flame that only ever dims does not look like a flame.
+ */
+export function flicker(kind: FlickerKind, id: number, ms: number): number {
+  const t = ms / 1000;
+  switch (kind) {
+    case 'steady':
+      // Barely there — enough to stop a still frame looking painted on.
+      return 0.96 + 0.04 * Math.sin(t * 1.7 + id);
+    case 'buzz': {
+      // A tube with a tired ballast: a fast ripple under a slow sag.
+      const hum = 0.06 * Math.sin(t * 47 + id * 3.1);
+      const sag = 0.05 * Math.sin(t * 0.9 + id);
+      return 0.9 + hum + sag;
+    }
+    case 'failing': {
+      // Mostly lit, with dropouts that arrive in bursts rather than evenly.
+      const n = noise1(t * 6.5, id);
+      if (n < 0.24) return 0.1 + 0.5 * noise1(t * 90, id + 7);
+      return 0.82 + 0.18 * noise1(t * 3, id + 3);
+    }
+    case 'dead': {
+      // Out, apart from the occasional attempt at coming back on.
+      const n = noise1(t * 0.55, id);
+      if (n > 0.86) return 0.35 + 0.65 * noise1(t * 70, id + 11);
+      return 0.03;
+    }
+    case 'fire': {
+      // Two beats: the body of the flame, and the tips moving faster.
+      const body = 0.78 + 0.3 * noise1(t * 7, id);
+      const tips = 0.14 * noise1(t * 21, id + 5);
+      return body + tips;
+    }
+    case 'neon':
+      // Steady, until once in a while it is not.
+      return noise1(t * 0.4, id) > 0.93 ? 0.25 + 0.5 * noise1(t * 60, id) : 1;
   }
 }
 
@@ -204,18 +583,18 @@ function makeConeTexture(color: string): HTMLCanvasElement {
   return canvas;
 }
 
-function makeVignette(): HTMLCanvasElement {
+function makeVignette(w: number, h: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
-  canvas.width = DEVICE_W;
-  canvas.height = DEVICE_H;
+  canvas.width = w;
+  canvas.height = h;
   const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
   const grad = ctx.createRadialGradient(
-    DEVICE_W / 2,
-    DEVICE_H / 2,
-    Math.min(DEVICE_W, DEVICE_H) * 0.32,
-    DEVICE_W / 2,
-    DEVICE_H / 2,
-    Math.max(DEVICE_W, DEVICE_H) * 0.72,
+    w / 2,
+    h / 2,
+    Math.min(w, h) * 0.32,
+    w / 2,
+    h / 2,
+    Math.max(w, h) * 0.72,
   );
   grad.addColorStop(0, 'rgba(0,0,0,0)');
   // Baked at full strength and modulated with globalAlpha at draw time: the
@@ -223,7 +602,7 @@ function makeVignette(): HTMLCanvasElement {
   // per frame would turn a free feature into a performance problem.
   grad.addColorStop(1, 'rgba(3, 6, 12, 1)');
   ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
+  ctx.fillRect(0, 0, w, h);
   return canvas;
 }
 

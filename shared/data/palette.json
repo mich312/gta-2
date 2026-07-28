@@ -91,6 +91,8 @@
   "night": "#0e1622",
   "lampGlow": "#ffd9a0",
   "signGlow": "#ff7a4d",
+  "windowGlow": "#ffc06a",
+  "fireGlow": "#ff8a30",
   "headlight": "#fff3d0",
   "taillight": "#ff4a3a",
   "sirenRed": "#ff3b3b",

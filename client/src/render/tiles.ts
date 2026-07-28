@@ -19,15 +19,15 @@ import {
   CHUNK_BUILDS_PER_FRAME,
   CHUNK_CACHE_LIMIT,
   CHUNK_TILES,
-  DEVICE_H,
-  DEVICE_W,
   RENDER_SCALE,
   SHADOW_DEPTH,
   SUN_X,
   SUN_Y,
   WALL_DEPTH,
 } from './config.js';
+import { hash2 } from './noise.js';
 import type { SpriteSheet } from './sprites.js';
+import { viewport } from './viewport.js';
 
 const CHUNK_WORLD = CHUNK_TILES * TILE_SIZE;
 const CHUNK_DEVICE = CHUNK_WORLD * RENDER_SCALE;
@@ -43,17 +43,6 @@ interface Chunk {
   canvas: HTMLCanvasElement;
   /** Frame counter of last use, for eviction. */
   touched: number;
-}
-
-/** Stable, cheap 2D hash — the source of every "random" detail below. */
-function hash2(x: number, y: number, salt = 0): number {
-  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(salt, 0x9e3779b9);
-  h ^= h >>> 15;
-  h = Math.imul(h, 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
 }
 
 function shade(hex: string, amount: number, towards = '#0b111c'): string {
@@ -117,8 +106,8 @@ export class TileLayer {
 
     const cx0 = Math.floor(cam.x / CHUNK_WORLD);
     const cy0 = Math.floor(cam.y / CHUNK_WORLD);
-    const cx1 = Math.floor((cam.x + DEVICE_W / RENDER_SCALE) / CHUNK_WORLD);
-    const cy1 = Math.floor((cam.y + DEVICE_H / RENDER_SCALE) / CHUNK_WORLD);
+    const cx1 = Math.floor((cam.x + viewport.w) / CHUNK_WORLD);
+    const cy1 = Math.floor((cam.y + viewport.h) / CHUNK_WORLD);
 
     let budget = CHUNK_BUILDS_PER_FRAME;
     for (let cy = cy0; cy <= cy1; cy++) {

@@ -18,7 +18,14 @@ import { SpriteSheet } from '../render/sprites.js';
 import { Effects } from '../render/effects.js';
 import { LightPass } from '../render/lighting.js';
 import { drawVehicle } from '../render/renderer.js';
-import { DEVICE_H, DEVICE_W, RENDER_SCALE, VIEW_H, VIEW_W } from '../render/config.js';
+import { RENDER_SCALE } from '../render/config.js';
+import { BASE_VIEW_H, BASE_VIEW_W } from '../render/viewport.js';
+
+/** The sheet is a fixed contact print, not a game frame. */
+const VIEW_W = BASE_VIEW_W;
+const VIEW_H = BASE_VIEW_H;
+const DEVICE_W = VIEW_W * RENDER_SCALE;
+const DEVICE_H = VIEW_H * RENDER_SCALE;
 
 /**
  * A contact sheet of the damage ladder: one car, drawn at every rung.

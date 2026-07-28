@@ -1,6 +1,6 @@
 import type { InputIntent } from 'shared';
-import { INTERNAL_HEIGHT, INTERNAL_WIDTH } from 'shared';
 import type { Screen } from '../render/canvas.js';
+import { viewport } from '../render/viewport.js';
 
 /**
  * Keyboard + mouse sampling. Produces InputIntents at sim-tick cadence;
@@ -8,8 +8,8 @@ import type { Screen } from '../render/canvas.js';
  */
 export class InputSource {
   /** Mouse position in internal-resolution pixels. */
-  mouseX = INTERNAL_WIDTH / 2;
-  mouseY = INTERNAL_HEIGHT / 2;
+  mouseX = viewport.w / 2;
+  mouseY = viewport.h / 2;
 
   private readonly keys = new Set<string>();
   private mouseDown = false;
@@ -114,8 +114,8 @@ export class InputSource {
    * is computed relative to the avatar rather than the screen centre.
    */
   sample(seq: number, tick: number, playerScreen: { x: number; y: number } | null): InputIntent {
-    const px = playerScreen?.x ?? INTERNAL_WIDTH / 2;
-    const py = playerScreen?.y ?? INTERNAL_HEIGHT / 2;
+    const px = playerScreen?.x ?? viewport.w / 2;
+    const py = playerScreen?.y ?? viewport.h / 2;
     const slot = this.pendingSlot;
     this.pendingSlot = -1;
     return {
