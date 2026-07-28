@@ -34,6 +34,16 @@ export type SimEvent =
   | { type: 'copDown'; tick: number; killerId: number }
   | { type: 'pedDown'; tick: number; killerId: number }
   | {
+      /** The ambulance got there in time and somebody got back up. The other
+       *  outcome has no event of its own: the bleed-out clock simply runs out
+       *  and the casualty becomes a body like any other. */
+      type: 'casualtySaved';
+      tick: number;
+      pedId: number;
+      x: number;
+      y: number;
+    }
+  | {
       /** A vehicle struck somebody on foot. Non-fatal hits have no other
        *  outward sign — a kill emits `kill` as well. */
       type: 'runOver';

@@ -11,8 +11,10 @@
  * 5: pedestrians gained a `dead` mode (a body that stays in the street) and a
  * `targetId`; pickups gained a `weapon` kind with `weaponId`/`ammo`; ped
  * tuning gained the armed-civilian and corpse numbers.
+ * 6: the tuning payload gained an `ambulance` section — the dispatch service
+ * that answers casualties.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;

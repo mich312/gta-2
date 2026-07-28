@@ -1,5 +1,71 @@
 # PROGRESS
 
+## The ambulance turns out
+
+The city had an ambulance JOB and no ambulance SERVICE. One pedestrian "kill"
+in `downOneIn` leaves somebody down but alive on a 45-second bleed-out clock,
+and the only thing that could ever do anything about it was a player who
+happened to be driving an ambulance and happened to be looking — so in every
+session where nobody was playing that job, every casualty ever produced died
+on the pavement. `jobs.ts` even said so in a comment: *"NOT built: ambulances
+that turn out on their own. That needs an AI driver with a destination, which
+the traffic layer does not have a notion of yet."* The traffic layer has had
+`assignGoto` since the car-AI work; this is the thing it was for. 332 tests
+green (up from 324), 6-bot brawl lockstep with 0 desyncs, replay
+hash-identical.
+
+**What it does.** A casualty who has been down for `responseDelaySec` and whom
+no player-driven ambulance is closing on gets a van sent to them: the nearest
+kerbside spot to the scene that is far enough from every player that nobody
+watches it appear, driving on `assignGoto`, parking on `holdAt`, treating for
+`treatSec` and putting them back on their feet at full health. Miss the window
+and they become a body like any other — the failure has no event of its own
+because it is just the bleed-out clock running out. The whole of the
+bookkeeping is `GameState.ambulanceCalls`, which never goes on the wire, for
+the same reason `trafficDrivers` does not: what a client sees is a van pulling
+up and somebody getting up.
+
+**It must lose the race to a player.** The job is the better content and keeps
+first refusal: the service waits six seconds before noticing anybody and
+stands off any casualty a player-driven ambulance is within `playerClaimDist`
+of. What it takes away is not the fare — it is the certainty that an unclaimed
+casualty dies.
+
+**Two new primitives in the traffic layer, and one de-duplication.** `holdAt`
+parks an AI driver where it stands (a new `tend` mission) — without it,
+arriving reverts the driver to cruise and it simply drives off again, which is
+no use to anything that needed the car to BE somewhere. `aiSpawnPlacement` /
+`putAiVehicle` are the ambient spawner's own lane-placement and rolling-start
+logic, lifted out so dispatch gets it too, plus a `prefer` bearing so a van is
+put down facing the call: one facing away has to complete a U-turn first, and
+a U-turn is taken at `turnSpeed`. A driver on a `goto` now presses on at
+`panicSpeed` rather than ambling at `cruiseSpeed`, because an ambulance
+answering somebody bleeding out at 62 px/s arrives after the funeral.
+
+**Three things measured in a live session, not guessed.** Over ten seeds with
+a casualty put down near the player: routing straight at the casualty found no
+route at all in three of them — `planRoute` only snaps a destination onto the
+road grid within three tiles, and a ped who has wandered into a plaza is
+further than that — so dispatch silently did nothing, *after* turning a van
+out, leaking an ambulance per attempt. Dispatch now picks the nearest drivable
+tile within `crewReach` and routes there, and checks the route before anything
+is created. Sending the van from the nearest hospital read beautifully and
+played terribly: the hospital is routinely most of a kilometre from the
+accident and the van spent the whole clock in traffic, so it is the nearest
+unit that goes. And a van can wedge — nosed into a gap it cannot take,
+reversing, trying again — which is bounded for a car with nowhere to be and
+unbounded for one under orders; a call that stops making progress is abandoned
+and remembered for five seconds, so the next attempt comes from a different
+street. Nine casualties in ten are now reached, at a mean of twenty seconds
+into a forty-five second clock.
+
+**Least confident about.** `crewReach` (180 px) is the number that decides how
+much of "the ambulance came" is the van and how much is imagined paramedics:
+it exists because a third of casualties are further than that from any road,
+and it means the van can be parked most of a screen away when somebody stands
+up. The one-in-ten failure rate is a judgement about how much tension a
+casualty should carry, not a measurement of anything.
+
 ## Five reported bugs: colliders, boats, stars, bodies, and people who shoot back
 
 Five things reported from play, fixed together because three of them are the

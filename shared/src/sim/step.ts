@@ -18,6 +18,7 @@ import { clearWanted, stepProps, stepVehicleImpacts, stepWeapons } from './weapo
 import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
+import { stepAmbulance } from './ambulance.js';
 import { stepTraffic, stepTrafficPanic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
@@ -41,8 +42,8 @@ import { PLAYER_RADIUS } from '../constants.js';
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
  *   driverless vehicles coast → weapons → projectiles → vehicle impacts →
- *   police → peds → driver panic → vehicle damage/explosions → prop repair →
- *   pickups → stunts → frenzy.
+ *   police → peds → ambulance dispatch → driver panic → vehicle
+ *   damage/explosions → prop repair → pickups → stunts → frenzy.
  */
 export function step(
   state: GameState,
@@ -117,6 +118,10 @@ export function step(
   stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  // The city answers its casualties. After stepPeds so this tick's casualties
+  // are visible to dispatch, and after stepTraffic so a van sent now sets off
+  // on the next tick — one tick of dispatch delay by construction.
+  stepAmbulance(next, map, events);
   // Drivers hear the same shots the crowd does. After every system that can
   // fire a gun or blow something up, so the whole tick's noise is in one
   // place; the flight response itself runs when traffic next steps.

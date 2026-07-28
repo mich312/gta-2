@@ -213,11 +213,13 @@ export interface TrafficDriver {
   /**
    * What this driver is doing with its day. 'cruise' is ambient circulation —
    * the random walk that makes streets read as inhabited. 'goto' follows a
-   * planned route to a destination, then reverts to cruise on arrival. The
-   * genre's other two car missions already live elsewhere: pursuit is the
-   * police system, and flight is `panic` above.
+   * planned route to a destination, then reverts to cruise on arrival.
+   * 'tend' is parked with the engine running: the driver has arrived at
+   * something and is busy with it, and whatever set the errand will release
+   * them. The genre's other two car missions already live elsewhere: pursuit
+   * is the police system, and flight is `panic` above.
    */
-  mission: 'cruise' | 'goto';
+  mission: 'cruise' | 'goto' | 'tend';
   /**
    * The goto route: corner points, flat [x0,y0, x1,y1, ...] px, last pair =
    * destination (see roadgrid.planRoute). Null whenever mission is 'cruise'.
@@ -225,6 +227,31 @@ export interface TrafficDriver {
   route: number[] | null;
   /** Offset of the corner currently being driven at. Always even. */
   routeIdx: number;
+}
+
+/**
+ * An ambulance that has been sent to somebody, keyed by the vehicle carrying
+ * it. Sim state that never leaves the server, for exactly the reason
+ * `trafficDrivers` does not: no client simulates the ambulance service, so
+ * this has no business in the snapshot diff or the desync hash. What a client
+ * sees is a van driving up, stopping, and a casualty getting to their feet.
+ */
+export interface AmbulanceCall {
+  /** The casualty being answered. */
+  pedId: number;
+  /** Ticks of treatment left. Counts down only once they are on scene. */
+  treat: number;
+  /** Closest the van has got to the scene so far, px. */
+  best: number;
+  /** Ticks since that improved. A wedged van has to be given up on. */
+  stall: number;
+  /**
+   * Zero on a live call. Positive on a spent one: the attempt failed and the
+   * record is kept, counting down, purely so neither this van nor this
+   * casualty is picked again while the van drives itself out of whatever it
+   * was wedged in.
+   */
+  cooldown: number;
 }
 
 export interface PlayerState {
@@ -309,6 +336,8 @@ export interface GameState {
    * leaning on a parked car into an execution.
    */
   vehicleHitTick: Record<number, number>;
+  /** Ambulances currently answering a casualty, per vehicle id. Server-only. */
+  ambulanceCalls: Record<number, AmbulanceCall>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -326,6 +355,7 @@ export function createGameState(seed: number): GameState {
     projectiles: createTable(),
     trafficDrivers: {},
     vehicleHitTick: {},
+    ambulanceCalls: {},
   };
 }
 
@@ -510,7 +540,29 @@ export function cloneState(s: GameState): GameState {
     projectiles: cloneTable(s.projectiles, cloneProjectile),
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
     vehicleHitTick: { ...s.vehicleHitTick },
+    ambulanceCalls: cloneAmbulanceCalls(s.ambulanceCalls),
   };
+}
+
+function cloneAmbulanceCalls(
+  src: Record<number, AmbulanceCall>,
+): Record<number, AmbulanceCall> {
+  const out: Record<number, AmbulanceCall> = {};
+  // Integer-like keys iterate in ascending numeric order, so this is stable.
+  for (const key of Object.keys(src)) {
+    const id = Number(key);
+    const call = src[id];
+    if (call) {
+      out[id] = {
+        pedId: call.pedId,
+        treat: call.treat,
+        best: call.best,
+        stall: call.stall,
+        cooldown: call.cooldown,
+      };
+    }
+  }
+  return out;
 }
 
 function cloneTrafficDrivers(

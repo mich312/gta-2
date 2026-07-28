@@ -315,6 +315,11 @@ function onGameEvent(event: GameEvent): void {
     if (event.playerId === playerId && event.distance > 40) {
       hud.notice(`stunt jump — ${event.distance}px`);
     }
+  } else if (event.type === 'casualtySaved') {
+    // Somebody the city got to in time. The same chime a pickup makes, which
+    // is the one sound in the game that already means "that went well".
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
   } else if (event.type === 'pickupTaken') {
     const at = listen(event.x, event.y);
     audio.play('pickup', at.dist, at.pan);
