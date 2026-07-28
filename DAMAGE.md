@@ -70,7 +70,7 @@ sprite is 53 × 29 at scale 2). Three consequences, all measured:
 **Phantom collisions between cars in adjacent lanes.** A two-tile street puts
 opposing lanes 16 px apart (`traffic.ts:171` — `centre ± halfWidth * 0.5` on a
 32 px carriageway). 16 < 18, so two cars passing in opposite directions collide.
-Measured, two cars at cruise speed with a fixed 16 px lateral separation:
+Measured, two cars at cruise speed with a fixed lateral separation:
 
 | lateral separation | collisions during one pass | HP lost (of 200) | closest approach |
 |---|---|---|---|
@@ -135,7 +135,33 @@ already generous (damage only above 54 px/s into a wall, 36 px/s into a car,
 and wall damage is further scaled by 0.7 at `vehicle.ts:94`), the car is not a
 weapon and cannot be made into one by playing well.
 
-### D4 — `vehicleBurning` is emitted, encoded, relayed, and handled by nobody
+### D4 — A car is pristine or written off, with almost nothing in between
+
+This is the one you notice while playing, and it has two halves.
+
+**The body.** `drawDents` (`renderer.ts:596`) draws
+`count = Math.floor(wear * MAX_DENTS)` dents with `MAX_DENTS = 7`. The first
+dent therefore needs `200 / 7 = 28.6` damage. A full-speed wall impact does 7.7.
+
+> **You have to crash into a wall at full speed roughly four times before your
+> car shows a single mark.** Car-to-car, 2.6 times. The scorched-paint pass at
+> `wear > 0.5` needs thirteen full-speed impacts.
+
+So the ordinary case — clip a bollard, scrape a bus, take a corner badly — leaves
+the bodywork *completely untouched*. There is no "a little dented". And when
+dents do arrive they arrive in a batch of one, then two, then three, at fixed
+wear steps, in positions hashed off the vehicle id — so they are not where you
+were hit. You can reverse into a wall and watch a dent appear on the bonnet.
+
+**The lights.** Every lamp on a car is one boolean: `if (!occupied) return`
+(`renderer.ts:733`). Both headlights, the headlight cone and both brake lights
+are either all on or all off, and nothing about damage touches any of them. A
+car that has been through a wall at 200 px/s has two perfect headlights.
+
+Between "showroom" and "on fire" the model has exactly two states it can show:
+some dents, and darker paint. That is the whole visual vocabulary.
+
+### D5 — `vehicleBurning` is emitted, encoded, relayed, and handled by nobody
 
 The event is declared (`events.ts:59`), pushed by both ignition paths
 (`vehicleDamage.ts:42`, `fittings.ts:58`) and carried to the client. There is no
@@ -151,7 +177,7 @@ The only cue is the flame particles drawn under your own sprite
 (`renderer.ts:694`), which the car body largely covers. Every other consequential
 event in the game announces itself. This one kills you.
 
-### D5 — A car crash makes no sound
+### D6 — A car crash makes no sound
 
 `integrateVehicle` emits no event on impact — not for a wall, not for another
 vehicle. There is consequently no crash sound in `audio.json` (the sound list is
@@ -160,7 +186,7 @@ explosion`) and no way to add one without adding the event first. Shooting,
 punching, running someone over, smashing a bin and blowing something up all have
 an event and a sound. Hitting a bus at 200 px/s is silent.
 
-### D6 — You survive your own car exploding
+### D7 — You survive your own car exploding
 
 `explosionDamage` is 85 (`vehicles.json`) against a player pool of 100, and
 `explode` (`vehicleDamage.ts:121-139`) fires the blast *before* ejecting the
@@ -169,7 +195,7 @@ full-health, unarmoured player standing at the exact centre of their own
 detonating car walks out with 15 HP. The fuse is meant to be a decision — bail
 or ride it out — and the wrong answer is currently survivable.
 
-### D7 — Damage has no economic weight
+### D8 — Damage has no economic weight
 
 - The respray (`step.ts:190-201`) clears heat, wanted level and cop interest.
   It does not touch `health`. There is no repair anywhere in the game.
@@ -182,7 +208,7 @@ or ride it out — and the wrong answer is currently survivable.
 So damage costs the player handling and nothing else, and there is no sink for
 the money the crusher prints.
 
-### D8 — `health` is an f64 on the wire
+### D9 — `health` is an f64 on the wire
 
 `binary.ts:435` writes `w.f64(v.health)` while every other vehicle field is
 quantised — `q8` for position and speed, `q256` for heading, `u8` for condition.
@@ -191,7 +217,7 @@ ratio that feeds a 7-step dent count and a power multiplier. Collision damage
 produces fractional values (5.72, 10.0…), so the float is load-bearing today,
 but only because nothing rounds.
 
-### D9 — Two small dead things
+### D10 — Two small dead things
 
 - `shared/test/vehicleDamage.test.ts` imports `roadLane` twice, at line 11 and
   again at line 20. It survives because tests are not type-checked —
@@ -206,10 +232,11 @@ but only because nothing rounds.
 
 These are not bugs; they are the shape of the design.
 
-**G1 — One scalar, no components.** Wear drives exactly two effects. There is no
-engine smoke stage before fire, no blown tyre, no dead headlight, no bonnet up.
-A car at 90 % wear and a car at 55 % wear differ only by dent count and a few
-percent of top speed.
+**G1 — One scalar, no components.** Everything visible and everything felt is
+derived from a single number. There is no way to say "the left headlight is
+gone", "the bonnet is buckled", "the near-side front tyre is flat" — because
+there is nowhere to put it. §4 R4 is the answer to this and is written out in
+full.
 
 **G2 — No damage direction.** `damageVehicle(state, v, amount, events)` carries
 no impact point, so the renderer hashes dents off the vehicle id rather than
@@ -228,7 +255,7 @@ costs no health.
 
 **G5 — Bailing out is free.** `tryExitVehicle` (`vehicle.ts:299`) has no speed
 check. You step out of a burning car at 200 px/s and stand still, unhurt, which
-makes the burn fuse a non-decision as soon as you know about it (see D4).
+makes the burn fuse a non-decision as soon as you know about it (see D5).
 
 **G6 — A burning car is invulnerable.** `damageVehicle` returns early unless
 `condition === 'ok'` and `blast` skips non-`ok` vehicles. A rocket into a row of
@@ -277,7 +304,8 @@ half-width:
   circle-ish box.
 - SAT on two rectangles is four axis tests using `dCos`/`dSin` — deterministic,
   and cheap enough at the tens-of-vehicles scale the AOI already enforces.
-- Return the minimum-translation vector as well as the boolean, which R2 needs.
+- Return the minimum-translation vector and the **contact point** as well as the
+  boolean. R2 needs the first, R4 needs the second.
 
 Expected effect: opposing traffic stops shredding itself, nose-to-tail contact
 registers at the bumper instead of a third of the way in, and a car can no
@@ -306,21 +334,185 @@ it in three places:
 All three are multiplications by tuned fractions, which are exact under IEEE-754
 and therefore prediction-safe, matching the note at `vehicle.ts:174-190`.
 
-### R3 — Make ramming worth doing (fixes D3)
+### R3 — Make ramming worth doing (fixes D3, and unlocks R4)
 
 With R1 and R2 landed the numbers can be re-derived rather than guessed. Targets
 I would aim at: a full-speed head-on into a wall costs ~15 % of a car's health
 (≈7 impacts to destroy, not 27); a full-speed ram into a parked car costs the
 victim ~25 % and the striker ~15 %; a truck flattening a car in three hits while
-taking a scratch. That is `collisionDamagePerSpeed` roughly tripled for the
-striker and mass-divided for the receiver.
+taking a scratch. That is `collisionDamagePerSpeed` roughly quadrupled for a car
+— 0.055 → **0.21** — and mass-divided for the receiver.
 
 Add a **repeat-contact debounce** at the same time — a `lastCollisionTick` on
 `VehicleState`, ignoring damage from the same pair within ~4 ticks. Without it,
-tripling the coefficient turns the held-throttle-against-a-wall case into an
+quadrupling the coefficient turns the held-throttle-against-a-wall case into an
 instant kill, and R1 will not fully prevent sustained overlap.
 
-### R4 — Tell the player (fixes D4, D5)
+This has to land with R4 rather than after it. R4's breakage ladder is expressed
+in fractions of vehicle health, and under *today's* collision damage almost none
+of it is reachable by driving: a full-speed wall impact is 3.8 % of a car.
+
+### R4 — A damage map instead of a slider (fixes D4, addresses G1 and G2)
+
+This is the detail the model is missing. Keep `health` as the single
+authoritative number for the burn/wreck state machine — it is the right call for
+the wire and for determinism — and add a compact record of **where** the car has
+been hit. Everything visible and everything mechanical then derives from that.
+
+#### 4.1 State
+
+Two new fields on `VehicleState` (`state.ts:139`):
+
+```ts
+/** Damage accumulated per body zone, 0-255. Index: 0 front, 1 right, 2 rear, 3 left. */
+zones: number[];
+/** One bit per breakable component. See COMPONENT_* below. */
+broken: number;
+```
+
+`broken` is a 16-bit field:
+
+| bit | component | bit | component |
+|---|---|---|---|
+| 0 | headlight L | 8 | tyre front-L |
+| 1 | headlight R | 9 | tyre front-R |
+| 2 | tail light L | 10 | tyre rear-L |
+| 3 | tail light R | 11 | tyre rear-R |
+| 4 | windscreen | 12 | door L |
+| 5 | bonnet | 13 | door R |
+| 6 | boot | 14 | bumper front |
+| 7 | radiator | 15 | bumper rear |
+
+#### 4.2 Routing a hit to a zone
+
+`damageVehicle` grows an optional impact point — supplied by the bullet hit
+position (`weapons.ts` already computes it), the blast centre, and R1's contact
+point:
+
+```ts
+function zoneOf(v: VehicleState, ix: number, iy: number): number {
+  const a = wrapAngle(dAtan2(iy - v.pos.y, ix - v.pos.x) - v.heading);
+  if (a < QUARTER_PI && a >= -QUARTER_PI) return 0;      // front
+  if (a >= QUARTER_PI && a < THREE_QUARTER_PI) return 1; // right
+  if (a >= THREE_QUARTER_PI || a < -THREE_QUARTER_PI) return 2; // rear
+  return 3;                                              // left
+}
+```
+
+`dAtan2` is the existing deterministic table (`math/trig.ts`), the comparisons
+are on integers after rounding, and the accumulator saturates at 255. Damage
+with no impact point (a car bomb, say) spreads evenly across all four.
+
+#### 4.3 The breakage ladder
+
+Thresholds are **fractions of the vehicle's own `health`**, so a bus's headlight
+takes proportionally more to shatter than a hatchback's. One shared table in
+`vehicleDamage.ts`; no per-kind tuning needed unless a specific vehicle wants it.
+
+| zone damage | what happens | car (200 hp) | felt as |
+|---|---|---|---|
+| 0.03 | first dent in that quadrant | 6 | a scuff on the corner you hit |
+| 0.04 | bumper on that end comes loose | 8 | cosmetic |
+| 0.06 | second dent | 12 | |
+| 0.07 | **near-side lamp on that end shatters** | 14 | one headlight out |
+| 0.09 | third dent | 18 | |
+| 0.11 | **off-side lamp on that end shatters** | 22 | both out — night driving is over |
+| 0.12 | fourth dent (that quadrant is full) | 24 | |
+| 0.18 | bonnet buckles (front) / boot springs (rear) | 36 | grey smoke starts |
+| 0.22 | door on that side hangs off (left/right) | 44 | driver no longer shielded from bullets |
+| 0.24 | windscreen crazes | 48 | |
+| 0.32 | radiator holed (front only) | 64 | black smoke, −15 % top speed |
+
+The asymmetric lamp thresholds (0.07 and 0.11) are the whole point: **lights go
+one at a time.** A single headlight is the most legible damage cue the genre has,
+and it costs one bit and one comparison.
+
+Worked example, a car under R3's collision numbers (`collisionDamagePerSpeed`
+0.21, wall impacts further scaled by 0.7):
+
+| impact | front-zone damage | resulting state |
+|---|---|---|
+| kerb at 80 px/s | 11.8 | one dent, front bumper loose |
+| wall at 120 px/s | 17.6 | two dents, bumper, **left headlight out** |
+| wall at 160 px/s | 23.5 | three dents, bumper, **both headlights out** |
+| wall at 200 px/s | 29.4 | four dents, bumper, both headlights out |
+| head-on into a parked car at 200 | 42.0 | quadrant full, bonnet buckled and smoking |
+
+That is a car that gets progressively, visibly worse from the first prang —
+which is what "a little dented" means and what the current model cannot produce
+at all (D4: four full-speed crashes before the first mark).
+
+#### 4.4 What each component does
+
+*Mechanical, in `shared/` — these must be deterministic:*
+
+- **Radiator** — top speed × 0.85, stacking with the existing wear power loss.
+- **Tyre** — a steering pull toward the flat side and top speed × 0.88 per flat.
+  This finally gives `pullSign(id)` (`vehicle.ts:143-150`) a real cause: the
+  comment there admits the id is a stand-in, and a blown near-side front tyre is
+  the honest reason a car pulls left. Tyres take damage from bullets whose
+  impact point lands within 6 px of a wheel — local `(±8, ±5)`, the positions
+  `layRubber` already uses — and from kerb strikes above 140 px/s.
+- **Door** — removes the driver's bullet shield. Today a driver is protected
+  because `vehicleHitRadius` (14.5) exceeds `PLAYER_RADIUS` (6), so the ray hits
+  the car first (`weapons.ts:215-236`). With that side's door gone, skip the
+  vehicle for rays arriving from that zone. This makes shooting out a driver a
+  two-stage act rather than a health-pool race.
+- **Bonnet / boot / bumper / windscreen / lamps** — no mechanical effect.
+
+*Visual, in `client/` — free, since they derive from synced state:*
+
+- **Lamps.** `drawVehicle` (`renderer.ts:715-745`) currently emits two headlight
+  points, one cone, and two brake points, gated only on `occupied`. Gate each on
+  its bit; with one headlight gone, halve the cone's spread and offset its origin
+  to the surviving lamp. A one-eyed car coming the other way at night is
+  instantly readable.
+- **Dents.** Replace `count = Math.floor(wear * MAX_DENTS)` with a per-zone
+  count, `Math.min(4, Math.floor(zone / (max * 0.03)))`, and confine each
+  zone's dents to its quadrant of the sprite footprint. Keep the
+  `hash(id, zone, i)` placement so a given car's damage is stable across frames
+  and client restarts, and keep the `source-atop` clip — that part is right.
+- **Missing panels.** A lost bumper or door is a `destination-out` notch clipped
+  to the sprite at that zone's edge, drawn before the dents.
+- **Glass.** A crazed windscreen is a short white crackle stroke over the cabin;
+  a shattered lamp is a 2 px dark dot where the light used to be.
+- **Smoke.** New `Effects.engineSmoke(x, y, heading, black)` spawning from the
+  bonnet at a wall-clock cadence (the same guard `exhaust` uses at
+  `renderer.ts:748`, so a 240 Hz display does not smoke four times as hard).
+  Grey at the bonnet threshold, black at the radiator.
+
+#### 4.5 The wreck
+
+A wreck currently draws the intact sprite darkened (`renderer.ts:664-673`). With
+components it should be a real shell: force every bit in `broken` on detonation,
+so the burnt-out car has no glass, no bumpers, no lights and four flat tyres.
+One line in `explode`, and the wreck stops looking like a car someone parked in
+the shade.
+
+#### 4.6 Wire cost
+
+`zones` as four `u8`s and `broken` as a `u16` is **6 bytes**, and both are
+per-field diffed (`snapshot.ts:87` `VEHICLE_FIELDS`, mask written at
+`binary.ts:577`) so they cost nothing on a car that has not been hit this tick.
+`VEHICLE_CODECS` goes from 10 fields to 12; the varint mask stays two bytes (it
+does not need a third until 15). Quantising `health` to a `u8` (R7) frees 7
+bytes, so the entire component system is **net −1 byte** per changed vehicle.
+
+Both fields are hashed state and must therefore be added to `hashState`
+(`hash.ts:91`) *and* to `VEHICLE_FIELDS`. The comment at `snapshot.ts:78-82`
+about `airDist` is the precedent and the warning: a hashed field left out of the
+diff produced 25 desyncs per bot against a sim that replayed perfectly.
+
+#### 4.7 Determinism
+
+Integer accumulators, integer thresholds, `dAtan2` from the existing table, no
+rng, no per-frame state in `shared/`. Breakage is a pure function of
+`(zones, health)`, so it re-derives identically on every host and needs no event
+of its own — though a `componentBroken` event is worth adding anyway so the
+client can play a glass-tinkle at the right moment rather than noticing on the
+next frame.
+
+### R5 — Tell the player (fixes D5, D6)
 
 Three small pieces, and the cheapest real improvement in the list:
 
@@ -334,69 +526,44 @@ Three small pieces, and the cheapest real improvement in the list:
    check is one comparison against `predictor.predictedVehicle?.id`.
 3. Put a vehicle condition bar on the HUD while driving, beside the fitting
    readout. `carWear` is already computed and already crosses into `main.ts`; it
-   currently goes only to the debug overlay.
+   currently goes only to the debug overlay. With R4 landed this becomes a small
+   car outline with the broken components picked out — the standard damage
+   diagram, and a far better readout than a bar.
 
-### R5 — A price on damage (fixes D7)
+### R6 — A price on damage (fixes D8)
 
-- Add a `repair` item to `shop.json` at the `spray` shop — the drive-through
-  path already exists for resprays and fittings (`economy.ts:184-187`), so this
-  needs only a new `SimCommand` (`repairVehicle`) restoring
-  `getVehicleTuning(kind).health`. Price it against `sprayCost` (400); somewhere
-  near 250 for a full repair feels right against a crush payout.
+- Add repair to `shop.json` at the `spray` shop — the drive-through path already
+  exists for resprays and fittings (`economy.ts:184-187`), so this needs only a
+  new `SimCommand`. With R4 there are two sensible tiers rather than one:
+  **panel-beating** (~150) clears `zones` and the cosmetic bits — dents, bumpers,
+  glass, lamps — and **a rebuild** (~350) also clears the radiator and tyres and
+  restores `health`. Cosmetic damage being cheap to fix and mechanical damage
+  dear is the right shape: it makes "is this worth fixing?" a question.
 - Scale the crush payout by condition in `tryCrush` — `Math.floor(base × bonus ×
-  (1 − wear × 0.6))`. That makes "drive it there carefully" a skill, gives the
-  export list teeth, and closes the loop with the repair shop: it can be worth
-  paying 250 to recover 400 of crush value.
+  (1 − wear × 0.6))`, with a further deduction per broken mechanical component.
+  That makes "drive it there carefully" a skill, gives the export list teeth, and
+  closes the loop with the repair shop: it can be worth paying 150 to recover 400
+  of crush value.
 - Refuse to crush a `wreck` outright, or pay scrap for it.
 
-### R6 — A breakdown ladder rather than a slider (addresses G1)
-
-Keep `health` as the single authoritative number — it is the right call for the
-wire and for determinism — and derive *stages* from wear rather than adding
-state:
-
-| wear | effect |
-|---|---|
-| > 0.35 | engine smoke: a grey particle from the bonnet at a wall-clock cadence, client-side only |
-| > 0.55 | headlights dead — skip the light cones in `drawVehicle` |
-| > 0.75 | heavy smoke, and the power loss curve steepens |
-| = 1.00 | fire, as today |
-
-All four are pure functions of `vehicleWear`, so they cost nothing on the wire
-and cannot desync. The smoke stage is the one that matters: it is the warning
-that the burn fuse currently does not give (D4), and it makes a damaged car
-readable from across the street, which is what the dents were reaching for.
-
-### R7 — Damage direction (addresses G2)
-
-Extend `damageVehicle` with an optional impact point. Store a small fixed-size
-per-vehicle damage vector — four `u8` zone accumulators (front/rear/left/right)
-is 4 bytes and quantises cleanly. Then:
-
-- dents land where the car was actually hit, replacing the id hash in
-  `drawDents` (`renderer.ts:596-635`);
-- the steering pull's sign can come from left/right asymmetry rather than
-  `pullSign(id)`, which is currently an admitted stand-in (`vehicle.ts:143-150`);
-- a front-heavy hit can be made to cost more power and a side hit more grip.
-
-This is the largest change in the list and I would not do it before R1–R4.
-
-### R8 — Consequences for stunts and bail-outs (addresses G4, G5)
-
-- Landing damage in `stepStunts` proportional to `vz` at touchdown, so a big
-  jump is a gamble rather than free money. It also gives `stuntLanded` a reason
-  to carry impact speed.
-- A speed check in `tryExitVehicle`: above ~60 px/s you take a tumble — health
-  cost scaled by speed and a brief `mode` where you cannot shoot. That turns
-  the burn fuse into the decision it was designed to be.
-
-### R9 — Quantise `health` (fixes D8)
+### R7 — Quantise `health` (fixes D9)
 
 Round collision and blast damage to whole numbers in `damageVehicle` and write
 health as a `u8` percentage or a `q8`. Saves 7 bytes per changed vehicle per
-snapshot, and makes the wear ladder in R6 land on stable thresholds instead of
-flickering on a fractional boundary. Do this *after* R3, because rounding
-changes balance and the two should be tuned together.
+snapshot — which is what pays for R4's six — and makes R4's thresholds land on
+stable integers instead of flickering on a fractional boundary. Do this
+alongside R3, because rounding changes balance and the two should be tuned
+together.
+
+### R8 — Consequences for stunts and bail-outs (addresses G4, G5)
+
+- Landing damage in `stepStunts` proportional to `vz` at touchdown, routed to the
+  front zone so a bad landing takes out the lights and the radiator — which is
+  exactly what R4 makes expressible. It also gives `stuntLanded` a reason to
+  carry impact speed.
+- A speed check in `tryExitVehicle`: above ~60 px/s you take a tumble — health
+  cost scaled by speed and a brief `mode` where you cannot shoot. That turns
+  the burn fuse into the decision it was designed to be.
 
 ---
 
@@ -404,22 +571,27 @@ changes balance and the two should be tuned together.
 
 | # | Change | Fixes | Size | Risk |
 |---|---|---|---|---|
-| 1 | R4 — crash event, sound, burning notice, HUD bar | D4, D5 | S | low |
+| 1 | R5 — crash event, sound, burning notice, HUD readout | D5, D6 | S | low |
 | 2 | R1 — oriented collision box from both extents | D1 | M | medium |
 | 3 | R2 — mass in shove, heading and damage | D2 | S | low |
-| 4 | R3 — rebalance + repeat-contact debounce | D3 | S | medium |
-| 5 | R5 — repair item, condition-scaled crush payout | D7 | S | low |
-| 6 | R6 — smoke/lights breakdown ladder | G1 | S | low |
-| 7 | R9 — quantise health | D8 | S | low |
-| 8 | R8 — landing damage, bail-out tumble | G4, G5 | S | low |
-| 9 | R7 — directional damage zones | G2 | L | medium |
+| 4 | R3 + R7 — rebalance, debounce, quantise health | D3, D9 | S | medium |
+| 5 | R4 — damage map: zones, components, lights, progressive dents | D4, G1, G2 | L | medium |
+| 6 | R6 — two-tier repair, condition-scaled crush payout | D8 | S | low |
+| 7 | R8 — landing damage, bail-out tumble | G4, G5 | S | low |
 
-R4 first because it is the cheapest and the player currently dies to a system
+R5 first because it is the cheapest and the player currently dies to a system
 that never speaks. R1 second because it is a live bug degrading every car in the
-city. R3 must not land before R1, or tripled collision damage lands on a broken
-collision test.
+city. R3 must not land before R1, or quadrupled collision damage lands on a
+broken collision test — and R4 must not land before R3, because its ladder is
+calibrated in fractions of health that today's collisions cannot reach.
 
-D6 (surviving your own explosion) and D9 (the two dead lines) are one-line fixes
+R4 is the largest item and the one that answers "the body should be a little
+dented, and a light should break". It is deliberately last of the mechanical
+work: it wants a collision system that reports *where* it hit (R1), a damage
+scale that reaches its thresholds (R3), and an integer health field to hang them
+off (R7). Landed on top of those three it is mostly rendering.
+
+D7 (surviving your own explosion) and D10 (the two dead lines) are one-line fixes
 that can ride along with whichever change is nearest.
 
 Not recommended: rigid-body physics (G3). The arcade model is a deliberate,
