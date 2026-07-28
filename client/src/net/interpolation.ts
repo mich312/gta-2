@@ -105,6 +105,27 @@ export class Interpolator {
     this.renderTick = Math.max(this.renderTick, latest.tick - BUFFER_TICKS);
   }
 
+  /**
+   * Every vehicle, positioned exactly where this frame draws it.
+   *
+   * The predictor collides the local car against these rather than against
+   * the newest snapshot. Both are "the server's opinion", but they are three
+   * ticks apart: remote cars are DRAWN on the delayed timeline above, so
+   * predicting against the raw snapshot put every moving car's collider
+   * ~100 ms ahead of its sprite — a car length at road speed. You crashed
+   * into empty tarmac and drove through the car you could see. Colliding on
+   * the timeline you render means you hit what you are looking at.
+   */
+  vehiclesAsDrawn(): VehicleState[] {
+    const world = this.sample(-1, null);
+    return world.vehicles.map((rv) => ({
+      ...rv.vehicle,
+      pos: { x: rv.x, y: rv.y },
+      heading: rv.heading,
+      zones: rv.vehicle.zones.slice(),
+    }));
+  }
+
   /** Interpolated remote entities; the local player + their car are excluded. */
   sample(excludePlayerId: number, excludeVehicleId: number | null): RenderWorld {
     const empty: RenderWorld = {

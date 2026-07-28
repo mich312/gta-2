@@ -14,10 +14,11 @@ import type { InputIntent } from './input.js';
 import type { SimCommand } from './commands.js';
 import { stepPlayerMovement } from './player.js';
 import { stepVehicleCoasting, stepVehicleDriving, tryEnterVehicle, tryExitVehicle } from './vehicle.js';
-import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
+import { clearWanted, stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
+import { stepAmbulance } from './ambulance.js';
 import { stepTraffic, stepTrafficPanic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
@@ -41,8 +42,8 @@ import { PLAYER_RADIUS } from '../constants.js';
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
  *   driverless vehicles coast → weapons → projectiles → vehicle impacts →
- *   police → peds → driver panic → vehicle damage/explosions → prop repair →
- *   pickups → stunts → frenzy.
+ *   police → peds → ambulance dispatch → driver panic → vehicle
+ *   damage/explosions → prop repair → pickups → stunts → frenzy.
  */
 export function step(
   state: GameState,
@@ -117,6 +118,10 @@ export function step(
   stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  // The city answers its casualties. After stepPeds so this tick's casualties
+  // are visible to dispatch, and after stepTraffic so a van sent now sets off
+  // on the next tick — one tick of dispatch delay by construction.
+  stepAmbulance(next, map, events);
   // Drivers hear the same shots the crowd does. After every system that can
   // fire a gun or blow something up, so the whole tick's noise is in one
   // place; the flight response itself runs when traffic next steps.
@@ -172,6 +177,10 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       p.carHitCooldown = 0;
       p.weapons = cmd.loadout.map((w) => ({ ...w }));
       p.activeWeapon = p.weapons.length > 0 ? 0 : -1;
+      // You come back clean. Death already wipes the wanted level (see
+      // applyDamage); doing it here too means a player who was made dead by
+      // any other route still wakes up without a tail.
+      clearWanted(state, p);
       break;
     }
     case 'grantWeapon': {
@@ -197,12 +206,7 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       // not merely a discount.
       const p = getEntity(state.players, cmd.playerId);
       if (!p) return;
-      p.heat = 0;
-      p.wantedLevel = 0;
-      for (const cid of state.cops.ids) {
-        const cop = state.cops.byId[cid];
-        if (cop && cop.targetId === cmd.playerId) cop.targetId = null;
-      }
+      clearWanted(state, p);
       break;
     }
     case 'despawnPlayer': {

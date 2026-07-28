@@ -58,7 +58,13 @@ export type PickupKind =
   | 'jailcard'
   | 'damage'
   | 'invis'
-  | 'reload';
+  | 'reload'
+  /**
+   * A gun lying where its owner fell. Unlike every other kind this one is not
+   * worldgen furniture: it is created when somebody armed dies, it does not
+   * come back when taken, and it rots off the street on a timer.
+   */
+  | 'weapon';
 
 /**
  * Behaviour-altering power-ups, as bits rather than a field each.
@@ -86,8 +92,17 @@ export interface PickupState {
   pos: Vec2;
   /** False while on cooldown; the sprite is hidden and it cannot be taken. */
   active: boolean;
-  /** Tick it returns on, or null while active. */
+  /**
+   * Tick it returns on, or null while active — except on a dropped `weapon`,
+   * where it is the tick the gun rots off the street. A dropped gun never
+   * comes back, so the field would otherwise be dead weight on the one kind
+   * of pickup that needs a clock most.
+   */
   respawnAtTick: number | null;
+  /** Which gun, on a `weapon` pickup. Empty on every other kind. */
+  weaponId: string;
+  /** Rounds it comes with, on a `weapon` pickup. Zero on every other kind. */
+  ammo: number;
 }
 
 /**
@@ -106,7 +121,7 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed';
+export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed' | 'dead';
 
 export interface PedState {
   id: number;
@@ -122,8 +137,19 @@ export interface PedState {
   dirY: number;
   mode: PedMode;
   health: number;
-  /** Ticks until the next wander turn (walk) or until calming down (flee). */
+  /**
+   * Ticks until the next wander turn (walk), until calming down (flee), until
+   * the next shot (hostile), until they bleed out (downed) or until the body
+   * is cleared away (dead). One counter, five meanings — 200 pedestrians pay
+   * for every field, and no two of those modes ever need it at once.
+   */
   timer: number;
+  /**
+   * Who this one is shooting at, or null. Only ever a player id: a grudge is
+   * something you hold against somebody who shot you, and the only shooters
+   * a pedestrian can tell apart are players.
+   */
+  targetId: number | null;
 }
 
 export type VehicleCondition = 'ok' | 'burning' | 'wreck';
@@ -187,11 +213,13 @@ export interface TrafficDriver {
   /**
    * What this driver is doing with its day. 'cruise' is ambient circulation —
    * the random walk that makes streets read as inhabited. 'goto' follows a
-   * planned route to a destination, then reverts to cruise on arrival. The
-   * genre's other two car missions already live elsewhere: pursuit is the
-   * police system, and flight is `panic` above.
+   * planned route to a destination, then reverts to cruise on arrival.
+   * 'tend' is parked with the engine running: the driver has arrived at
+   * something and is busy with it, and whatever set the errand will release
+   * them. The genre's other two car missions already live elsewhere: pursuit
+   * is the police system, and flight is `panic` above.
    */
-  mission: 'cruise' | 'goto';
+  mission: 'cruise' | 'goto' | 'tend';
   /**
    * The goto route: corner points, flat [x0,y0, x1,y1, ...] px, last pair =
    * destination (see roadgrid.planRoute). Null whenever mission is 'cruise'.
@@ -199,6 +227,31 @@ export interface TrafficDriver {
   route: number[] | null;
   /** Offset of the corner currently being driven at. Always even. */
   routeIdx: number;
+}
+
+/**
+ * An ambulance that has been sent to somebody, keyed by the vehicle carrying
+ * it. Sim state that never leaves the server, for exactly the reason
+ * `trafficDrivers` does not: no client simulates the ambulance service, so
+ * this has no business in the snapshot diff or the desync hash. What a client
+ * sees is a van driving up, stopping, and a casualty getting to their feet.
+ */
+export interface AmbulanceCall {
+  /** The casualty being answered. */
+  pedId: number;
+  /** Ticks of treatment left. Counts down only once they are on scene. */
+  treat: number;
+  /** Closest the van has got to the scene so far, px. */
+  best: number;
+  /** Ticks since that improved. A wedged van has to be given up on. */
+  stall: number;
+  /**
+   * Zero on a live call. Positive on a spent one: the attempt failed and the
+   * record is kept, counting down, purely so neither this van nor this
+   * casualty is picked again while the van drives itself out of whatever it
+   * was wedged in.
+   */
+  cooldown: number;
 }
 
 export interface PlayerState {
@@ -283,6 +336,8 @@ export interface GameState {
    * leaning on a parked car into an execution.
    */
   vehicleHitTick: Record<number, number>;
+  /** Ambulances currently answering a casualty, per vehicle id. Server-only. */
+  ambulanceCalls: Record<number, AmbulanceCall>;
 }
 
 export function createGameState(seed: number): GameState {
@@ -300,11 +355,18 @@ export function createGameState(seed: number): GameState {
     projectiles: createTable(),
     trafficDrivers: {},
     vehicleHitTick: {},
+    ambulanceCalls: {},
   };
 }
 
-export function createPickup(id: number, kind: PickupKind, pos: Vec2): PickupState {
-  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null };
+export function createPickup(
+  id: number,
+  kind: PickupKind,
+  pos: Vec2,
+  weaponId = '',
+  ammo = 0,
+): PickupState {
+  return { id, kind, pos: cloneVec(pos), active: true, respawnAtTick: null, weaponId, ammo };
 }
 
 export function clonePickup(p: PickupState): PickupState {
@@ -341,7 +403,17 @@ export function cloneProp(p: PropState): PropState {
 }
 
 export function createPed(id: number, pos: Vec2, health: number, gangId = 0): PedState {
-  return { id, gangId, pos: cloneVec(pos), dirX: 1, dirY: 0, mode: 'walk', health, timer: 0 };
+  return {
+    id,
+    gangId,
+    pos: cloneVec(pos),
+    dirX: 1,
+    dirY: 0,
+    mode: 'walk',
+    health,
+    timer: 0,
+    targetId: null,
+  };
 }
 
 export function clonePed(p: PedState): PedState {
@@ -468,7 +540,29 @@ export function cloneState(s: GameState): GameState {
     projectiles: cloneTable(s.projectiles, cloneProjectile),
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
     vehicleHitTick: { ...s.vehicleHitTick },
+    ambulanceCalls: cloneAmbulanceCalls(s.ambulanceCalls),
   };
+}
+
+function cloneAmbulanceCalls(
+  src: Record<number, AmbulanceCall>,
+): Record<number, AmbulanceCall> {
+  const out: Record<number, AmbulanceCall> = {};
+  // Integer-like keys iterate in ascending numeric order, so this is stable.
+  for (const key of Object.keys(src)) {
+    const id = Number(key);
+    const call = src[id];
+    if (call) {
+      out[id] = {
+        pedId: call.pedId,
+        treat: call.treat,
+        best: call.best,
+        stall: call.stall,
+        cooldown: call.cooldown,
+      };
+    }
+  }
+  return out;
 }
 
 function cloneTrafficDrivers(

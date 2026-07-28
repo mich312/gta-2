@@ -144,6 +144,48 @@ describe('session', () => {
     session.queueInput(slot.playerId, 0, [intent(3, 1, slot.playerId)]); // stale seq
     expect(slot.queue.length).toBe(1);
   });
+
+  it('the input buffer drains back down after a jitter storm', () => {
+    // A client produces one intent per tick and the server consumes at most
+    // one per tick, so the rates match — but they are not synchronised. A tick
+    // on which the queue is empty consumes nothing (the last keys are held
+    // instead) while the intent it was waiting for turns up and queues behind
+    // the next one, and there is no path back: the buffer settles at the worst
+    // excursion the link has EVER shown and stays there once the line is calm.
+    // At that depth the server is simulating the player a fifth of a second in
+    // the past, and at the cap it starts dropping intents the client has
+    // already predicted — the "server lags behind the client physics" bug.
+    const session = new Session(99, worldgen);
+    const slot = session.addPlayer('jittery', 'tok');
+    // Delivery is in order (a WebSocket never reorders), so a delay that grows
+    // opens gaps and a delay that shrinks delivers a burst.
+    const STORM = 150;
+    const TICKS = 1200;
+    const delayAt = (t: number): number =>
+      t < STORM ? [0, 1, 2, 3, 4, 5, 6, 4, 2, 0][t % 10] as number : 1;
+    const arrivals = new Map<number, InputIntent[]>();
+    let due = 0;
+    for (let t = 0; t < TICKS; t++) {
+      due = Math.max(due, t + 1 + delayAt(t));
+      const at = arrivals.get(due) ?? [];
+      at.push(intent(t + 1, t, slot.playerId));
+      arrivals.set(due, at);
+    }
+    const depths: number[] = [];
+    for (let t = 0; t < TICKS; t++) {
+      const batch = arrivals.get(t);
+      if (batch) session.queueInput(slot.playerId, session.state.tick, batch);
+      session.tick();
+      depths.push(slot.queue.length);
+    }
+    // The storm is allowed to fill the buffer. What matters is that a calm
+    // line empties it again, back to a single spare intent of headroom.
+    expect(Math.max(...depths.slice(0, STORM))).toBeGreaterThan(2);
+    expect(Math.max(...depths.slice(-300))).toBeLessThanOrEqual(2);
+    // And not by throwing the player's inputs away: the server must still have
+    // folded in essentially everything they sent.
+    expect(slot.lastInputSeq).toBeGreaterThan(TICKS * 0.97);
+  });
 });
 
 describe('the crowd replenishes', () => {

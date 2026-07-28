@@ -1,0 +1,13 @@
+{
+  "responseDelaySec": 6,
+  "dispatchCadenceTicks": 15,
+  "maxActive": 2,
+  "callRadius": 900,
+  "reuseRadius": 700,
+  "spawnMinDist": 300,
+  "spawnMaxDist": 900,
+  "sceneRadius": 72,
+  "crewReach": 180,
+  "treatSec": 3,
+  "playerClaimDist": 260
+}

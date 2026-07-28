@@ -338,7 +338,7 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
   }
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
-    if (!ped) continue;
+    if (!ped || ped.mode === 'dead') continue; // traffic does not queue behind a body
     consider(ped.pos.x, ped.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   for (const id of state.players.ids) {
@@ -536,7 +536,13 @@ function laneControl(
   // at `turnSpeed` either way: panic floors the accelerator, it does not
   // repeal the steering physics, and a driver that corners at double speed
   // leaves the road on every bend, which reads as broken rather than scared.
-  const straight = driver.panic > 0 ? t.panicSpeed : t.cruiseSpeed;
+  //
+  // A driver on an errand presses on too. Ambient cruise is a shopping trip;
+  // an ambulance answering somebody bleeding out in the road at 62 px/s would
+  // arrive after the funeral. Same ceiling as panic, for the same reason —
+  // it is the fastest speed the lane-keeping is known to hold.
+  const straight =
+    driver.panic > 0 || driver.mission === 'goto' ? t.panicSpeed : t.cruiseSpeed;
   const desired = Math.abs(err) > TURN_ERROR ? t.turnSpeed : straight;
 
   // How hard to press which pedal, from one continuous model of what is in
@@ -662,6 +668,29 @@ export function assignGoto(
 }
 
 /**
+ * Park an AI driver where it stands: it has arrived and has work to do.
+ *
+ * The companion to assignGoto — without it, arriving reverts the driver to
+ * cruise and it simply drives off again, which is no use to anything that
+ * needed the car to BE somewhere rather than merely reach it. Whatever set
+ * the errand owns the release.
+ */
+export function holdAt(state: GameState, vehicleId: number): boolean {
+  const driver = state.trafficDrivers[vehicleId];
+  if (!driver) return false;
+  driver.mission = 'tend';
+  driver.route = null;
+  driver.routeIdx = 0;
+  return true;
+}
+
+/** Release a driver from an errand, tending or en route: back to traffic. */
+export function releaseErrand(state: GameState, vehicleId: number): void {
+  const driver = state.trafficDrivers[vehicleId];
+  if (driver) endMission(driver);
+}
+
+/**
  * One tick of ambient traffic. Runs before player movement is integrated so
  * an AI car and a player car resolve their overlap the same way any two
  * vehicles do.
@@ -685,6 +714,16 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
       state.trafficDrivers[id] = driver;
     }
     if (driver.panic > 0) driver.panic--;
+
+    // Stopped on the job. A tending driver has arrived at whatever it was
+    // sent to and is busy: no routing, no turn lottery, pedals off, and it
+    // rolls to a halt on its own friction. Whatever set the errand takes it
+    // off 'tend' when the job is done — see sim/ambulance.ts.
+    if (driver.mission === 'tend') {
+      driver.stuck = 0;
+      driveVehicle(v, 0, 0, map, state, state, events, false, 1);
+      continue;
+    }
 
     if (driver.stuck < 0) {
       // Backing out of somewhere. Bounded: it ends, and the driver then picks
@@ -768,8 +807,10 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
       nearest = Math.min(nearest, Math.hypot(p.pos.x - v.pos.x, p.pos.y - v.pos.y));
     }
     // A car on an errand is not set dressing: it despawns when the errand
-    // ends, not when nobody happens to be watching it drive there.
-    if (nearest > t.despawnDist && state.trafficDrivers[id]?.mission !== 'goto') {
+    // ends, not when nobody happens to be watching it drive there — and that
+    // covers standing at the scene of one as much as driving to it.
+    const mission = state.trafficDrivers[id]?.mission;
+    if (nearest > t.despawnDist && mission !== 'goto' && mission !== 'tend') {
       doomed.push(id);
     }
   }
@@ -814,40 +855,106 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     const d = Math.hypot(candidate.x - player.pos.x, candidate.y - player.pos.y);
     if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
 
-    // A spawn has to face somewhere the car can actually drive, and the car is
-    // put down in the lane it belongs in rather than in the middle of the
-    // parking spot: one born on the wrong side of the road spends its first
-    // seconds crossing back over, which is the very thing this pass is about.
-    const dirIdx = nearestCardinal(candidate.heading);
-    if (!dirIsOpen(map, candidate.x, candidate.y, dirIdx)) continue;
-    const lanes = laneOptions(map, candidate.x, candidate.y, dirIdx);
-    const lane = lanes ? (lanes[0] as number) : null;
-    const alongX = dirIdx === 0 || dirIdx === 2;
-    const x = lane !== null && !alongX ? lane : candidate.x;
-    const y = lane !== null && alongX ? lane : candidate.y;
-
-    // Never spawn on top of an existing vehicle.
-    let clear = true;
-    for (const id of state.vehicles.ids) {
-      const other = state.vehicles.byId[id];
-      if (!other) continue;
-      if (Math.abs(other.pos.x - x) < 30 && Math.abs(other.pos.y - y) < 30) {
-        clear = false;
-        break;
-      }
-    }
-    if (!clear) continue;
-
-    const id = state.nextEntityId++;
-    const v = createVehicle(id, pickKind(state), { x: q8(x), y: q8(y) }, CARDINAL_ANGLE[dirIdx] as number);
-    v.speed = q8(t.cruiseSpeed * 0.6);
-    v.driverId = -1000 - id; // negative => AI, and never -1
-    state.trafficDrivers[id] = freshDriver(dirIdx);
-    state.vehicles.ids.push(id);
-    state.vehicles.ids.sort((a, b) => a - b);
-    state.vehicles.byId[id] = v;
+    const place = aiSpawnPlacement(state, map, candidate);
+    if (!place) continue;
+    // The kind is drawn HERE, after the spot is known good, so a rejected
+    // candidate costs no random number and the stream stays fixed.
+    putAiVehicle(state, pickKind(state), place);
     return;
   }
+}
+
+/** Where an AI-driven car goes down, and which way it sets off. */
+export interface AiSpawnPlacement {
+  x: number;
+  y: number;
+  /** Cardinal index the driver starts out following. */
+  dir: number;
+}
+
+/**
+ * Vet a kerbside spawn point for an AI car, and say where on it the car goes.
+ *
+ * A spawn has to face somewhere the car can actually drive, and the car is put
+ * down in the LANE it belongs in rather than in the middle of the parking
+ * spot: one born on the wrong side of the road spends its first seconds
+ * crossing back over. Null when the spot will not take a car.
+ *
+ * Draws no random numbers and mutates nothing, so a caller may reject the
+ * result without disturbing anything.
+ */
+export function aiSpawnPlacement(
+  state: GameState,
+  map: CityMap,
+  spot: { x: number; y: number; heading: number },
+  /**
+   * Bearing the car wants to set off along, snapped to the nearest cardinal
+   * with road down it. Omit and the spawn point's own heading decides — which
+   * is right for ambient traffic, and wrong for anything with an errand: a van
+   * put down facing away from the call has to complete a U-turn before it can
+   * start, and a U-turn is taken at `turnSpeed`.
+   */
+  prefer?: number,
+): AiSpawnPlacement | null {
+  let dirIdx = nearestCardinal(spot.heading);
+  if (prefer !== undefined) {
+    let bestErr = Infinity;
+    let best = -1;
+    for (let i = 0; i < 4; i++) {
+      if (!dirIsOpen(map, spot.x, spot.y, i)) continue;
+      const err = Math.abs(wrapAngle((CARDINAL_ANGLE[i] as number) - prefer));
+      if (err < bestErr) {
+        bestErr = err;
+        best = i;
+      }
+    }
+    if (best < 0) return null;
+    dirIdx = best;
+  } else if (!dirIsOpen(map, spot.x, spot.y, dirIdx)) {
+    return null;
+  }
+
+  const lanes = laneOptions(map, spot.x, spot.y, dirIdx);
+  const lane = lanes ? (lanes[0] as number) : null;
+  const alongX = dirIdx === 0 || dirIdx === 2;
+  const x = lane !== null && !alongX ? lane : spot.x;
+  const y = lane !== null && alongX ? lane : spot.y;
+
+  // Never spawn on top of an existing vehicle.
+  for (const id of state.vehicles.ids) {
+    const other = state.vehicles.byId[id];
+    if (!other) continue;
+    if (Math.abs(other.pos.x - x) < 30 && Math.abs(other.pos.y - y) < 30) return null;
+  }
+  return { x, y, dir: dirIdx };
+}
+
+/**
+ * Put an AI-driven car on the road at a vetted placement, already rolling.
+ *
+ * Rolling, not stationary, because a car that has to accelerate from rest into
+ * a lane it is not yet in reads as broken; and the driver record is created
+ * here with the right direction rather than being inferred later from the
+ * heading. Returns the new vehicle id.
+ */
+export function putAiVehicle(
+  state: GameState,
+  kind: string,
+  place: AiSpawnPlacement,
+): number {
+  const t = getTrafficTuning();
+  const id = state.nextEntityId++;
+  const v = createVehicle(
+    id,
+    kind,
+    { x: q8(place.x), y: q8(place.y) },
+    CARDINAL_ANGLE[place.dir] as number,
+  );
+  v.speed = q8(t.cruiseSpeed * 0.6);
+  v.driverId = -1000 - id; // negative => AI, and never -1
+  state.trafficDrivers[id] = freshDriver(place.dir);
+  insertEntity(state.vehicles, v);
+  return id;
 }
 
 /**

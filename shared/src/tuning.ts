@@ -143,6 +143,73 @@ export interface PedTuning {
   fleeRadius: number;
   fleeTicks: number;
   heatPerPedKill: number;
+  /**
+   * One pedestrian in this many is carrying, and shoots back when shot at.
+   * The whole crowd running away from every gunshot made the street a
+   * backdrop rather than a place with opinions about you.
+   */
+  armedOneIn: number;
+  /** What they carry — and therefore what their body leaves on the pavement. */
+  weapon: string;
+  /** Rounds in the gun they drop. */
+  dropAmmo: number;
+  armedSightRange: number;
+  armedFireRange: number;
+  armedFireCooldownTicks: number;
+  armedChaseSpeed: number;
+  /** Ticks an armed civilian keeps a grudge after losing sight of you. */
+  grudgeTicks: number;
+  /** Seconds a body lies in the street before it is cleared away. */
+  corpseSec: number;
+  /** Seconds a dropped gun lies where its owner fell. */
+  dropLifeSec: number;
+}
+
+/**
+ * The ambulance service: the city's own answer to a casualty.
+ *
+ * Separate from `peds` because it is not a fact about pedestrians — it is a
+ * fact about who turns out when one of them is lying in the road, and it has
+ * to be tuned against the player's ambulance JOB (server/src/economy/jobs.ts)
+ * rather than against the crowd.
+ */
+export interface AmbulanceTuning {
+  /**
+   * How long a casualty lies there before the city notices.
+   *
+   * This is the whole balance of the feature. A player driving an ambulance
+   * is racing for the same fare, so the service has to be slow enough to lose
+   * that race when somebody is actually playing it, and reliable enough that
+   * a casualty nobody claims is not simply left to die every single time.
+   */
+  responseDelaySec: number;
+  /** How often dispatch looks for somebody to send a van to. */
+  dispatchCadenceTicks: number;
+  /** Concurrent calls. A massacre must not fill the streets with ambulances. */
+  maxActive: number;
+  /** Only casualties this close to some player are worth simulating a drive to. */
+  callRadius: number;
+  /** An ambulance already in traffic within this range is sent, not a new one. */
+  reuseRadius: number;
+  /** Where a fresh one turns out from, measured from the casualty. */
+  spawnMinDist: number;
+  spawnMaxDist: number;
+  /** Near enough to the PARKING SPOT below to count as pulled up. */
+  sceneRadius: number;
+  /**
+   * How far the crew will walk from the van.
+   *
+   * A van cannot park on somebody lying in the middle of a plaza, a park or a
+   * courtyard, and the road nearest a casualty who has wandered off the
+   * pavement is routinely a hundred pixels away. Without a foot radius the
+   * service simply never turned out to any of them, which is a third of all
+   * casualties and reads from the street as the ambulance being broken.
+   */
+  crewReach: number;
+  /** How long the treatment takes once they are on scene. */
+  treatSec: number;
+  /** A player-driven ambulance this close owns the call; dispatch stands off. */
+  playerClaimDist: number;
 }
 
 export interface PropKindTuning {
@@ -298,6 +365,7 @@ export interface Tuning {
   weapons: Record<string, WeaponTuning>;
   police: PoliceTuning;
   peds: PedTuning;
+  ambulance: AmbulanceTuning;
   props: PropsTuning;
   pickups: PickupsTuning;
   traffic: TrafficTuning;
@@ -457,6 +525,34 @@ function parsePedTuning(raw: unknown): PedTuning {
     fleeRadius: n('fleeRadius'),
     fleeTicks: n('fleeTicks'),
     heatPerPedKill: n('heatPerPedKill'),
+    armedOneIn: n('armedOneIn'),
+    weapon: typeof r['weapon'] === 'string' && r['weapon'] ? r['weapon'] : DEFAULT_PEDS.weapon,
+    dropAmmo: n('dropAmmo'),
+    armedSightRange: n('armedSightRange'),
+    armedFireRange: n('armedFireRange'),
+    armedFireCooldownTicks: n('armedFireCooldownTicks'),
+    armedChaseSpeed: n('armedChaseSpeed'),
+    grudgeTicks: n('grudgeTicks'),
+    corpseSec: n('corpseSec'),
+    dropLifeSec: n('dropLifeSec'),
+  };
+}
+
+function parseAmbulanceTuning(raw: unknown): AmbulanceTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string): number => num(r[k], `ambulance.${k}`);
+  return {
+    responseDelaySec: n('responseDelaySec'),
+    dispatchCadenceTicks: n('dispatchCadenceTicks'),
+    maxActive: n('maxActive'),
+    callRadius: n('callRadius'),
+    reuseRadius: n('reuseRadius'),
+    spawnMinDist: n('spawnMinDist'),
+    spawnMaxDist: n('spawnMaxDist'),
+    sceneRadius: n('sceneRadius'),
+    crewReach: n('crewReach'),
+    treatSec: n('treatSec'),
+    playerClaimDist: n('playerClaimDist'),
   };
 }
 
@@ -746,6 +842,30 @@ const DEFAULT_PEDS: PedTuning = {
   fleeRadius: 170,
   fleeTicks: 105,
   heatPerPedKill: 80,
+  armedOneIn: 7,
+  weapon: 'gangPistol',
+  dropAmmo: 24,
+  armedSightRange: 190,
+  armedFireRange: 160,
+  armedFireCooldownTicks: 30,
+  armedChaseSpeed: 84,
+  grudgeTicks: 240,
+  corpseSec: 40,
+  dropLifeSec: 45,
+};
+
+const DEFAULT_AMBULANCE: AmbulanceTuning = {
+  responseDelaySec: 6,
+  dispatchCadenceTicks: 15,
+  maxActive: 2,
+  callRadius: 900,
+  reuseRadius: 700,
+  spawnMinDist: 300,
+  spawnMaxDist: 900,
+  sceneRadius: 72,
+  crewReach: 180,
+  treatSec: 3,
+  playerClaimDist: 260,
 };
 
 const DEFAULT_POLICE: PoliceTuning = {
@@ -810,6 +930,7 @@ export function initTuning(
     weapons?: unknown;
     police?: unknown;
     peds?: unknown;
+    ambulance?: unknown;
     props?: unknown;
     pickups?: unknown;
     traffic?: unknown;
@@ -855,6 +976,11 @@ export function initTuning(
       'peds',
       () => (raw.peds !== undefined ? parsePedTuning(raw.peds) : DEFAULT_PEDS),
       DEFAULT_PEDS,
+    ),
+    ambulance: section(
+      'ambulance',
+      () => (raw.ambulance !== undefined ? parseAmbulanceTuning(raw.ambulance) : DEFAULT_AMBULANCE),
+      DEFAULT_AMBULANCE,
     ),
     props: section(
       'props',

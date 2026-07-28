@@ -12,8 +12,8 @@ import type {
   VehicleState,
 } from './state.js';
 import { addHeat, createProjectile, POWER_DOUBLE_DAMAGE, POWER_FAST_RELOAD, POWER_JAIL_CARD } from './state.js';
-import { insertEntity, removeEntity } from './entities.js';
-import { damagePed } from './peds.js';
+import { insertEntity } from './entities.js';
+import { damagePed, dropWeapon } from './peds.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
@@ -153,7 +153,7 @@ function fireOnce(
   }
   for (const id of state.cops.ids) {
     const cop = state.cops.byId[id];
-    if (!cop) continue;
+    if (!cop || copIsDown(cop)) continue; // shoot through a body, not into it
     const d = rayCircleDistance(
       ox,
       oy,
@@ -171,7 +171,9 @@ function fireOnce(
   }
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
-    if (!ped) continue;
+    // A body on the pavement is scenery, and scenery you can shoot through:
+    // leaving corpses in the ray made every street its own sandbag wall.
+    if (!ped || ped.mode === 'dead') continue;
     const d = rayCircleDistance(
       ox,
       oy,
@@ -282,6 +284,11 @@ export function damageProp(
   });
 }
 
+/** An officer who is a body rather than a pursuer. See damageCop. */
+export function copIsDown(cop: CopState): boolean {
+  return cop.health <= 0;
+}
+
 /** Player shots may hit cops. Killing one is a serious crime. */
 export function damageCop(
   state: GameState,
@@ -290,13 +297,37 @@ export function damageCop(
   attackerId: number,
   events: SimEvent[],
 ): void {
+  if (copIsDown(cop)) return; // already a body
   cop.health -= damage;
   const attacker = state.players.byId[attackerId];
   if (attacker) addHeat(attacker, damage * getTuning().police.heatPerDamage);
   if (cop.health > 0) return;
-  removeEntity(state.cops, cop.id);
-  if (attacker) addHeat(attacker, getTuning().police.heatPerCopKill);
-  events.push({ type: 'copDown', tick: state.tick, killerId: attackerId });
+  // The officer stays in the world as a body on the tarmac, cleared by
+  // stepPolice when the corpse clock runs out. `health <= 0` is the whole of
+  // the state that needs — health is already diffed and already hashed, so a
+  // body costs nothing extra on the wire.
+  cop.health = 0;
+  cop.targetId = null;
+  cop.idleTicks = 0;
+  cop.vel.x = 0;
+  cop.vel.y = 0;
+  if (cop.vehicleId !== null) {
+    const cruiser = state.vehicles.byId[cop.vehicleId];
+    if (cruiser) cruiser.driverId = null; // the cruiser is just a car now
+    cop.vehicleId = null;
+  }
+  // And the gun goes where the officer went. Cops are the one NPC that has
+  // always shot back; this is what makes shooting back worth doing.
+  const t = getTuning().police;
+  dropWeapon(state, cop.pos, t.kinds[cop.kind]?.weapon ?? t.weapon, Math.round(getTuning().peds.dropAmmo));
+  if (attacker) addHeat(attacker, t.heatPerCopKill);
+  events.push({
+    type: 'copDown',
+    tick: state.tick,
+    killerId: attackerId,
+    x: Math.round(cop.pos.x),
+    y: Math.round(cop.pos.y),
+  });
 }
 
 /**
@@ -326,10 +357,25 @@ export function bustPlayer(
   victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
   victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
   // Booked, processed, released: the heat is gone, not decayed.
-  victim.heat = 0;
-  victim.wantedLevel = 0;
+  clearWanted(state, victim);
   events.push({ type: 'busted', tick: state.tick, playerId: victim.id, copId });
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
+}
+
+/**
+ * Wipe one player's wanted level and let go of every officer chasing them.
+ *
+ * Per-player by construction: heat, the wanted level derived from it, and the
+ * pursuit are all keyed on this id and nobody else's. Used by an arrest, by a
+ * respray, and by dying.
+ */
+export function clearWanted(state: GameState, p: PlayerState): void {
+  p.heat = 0;
+  p.wantedLevel = 0;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (cop && cop.targetId === p.id) cop.targetId = null;
+  }
 }
 
 export function applyDamage(
@@ -371,6 +417,12 @@ export function applyDamage(
   // Guns are lost, hands are not. An unarmed player must still have a verb.
   victim.weapons = victim.weapons.filter((w) => w.weaponId === FISTS_ID);
   victim.activeWeapon = victim.weapons.length > 0 ? 0 : -1;
+  // The chase dies with you. Heat is a fact about ONE player — it always was,
+  // it is a field on PlayerState — but nothing cleared it when that player
+  // died, so you woke up at the hospital still six-starred, with the force
+  // that had just killed you re-acquiring on the spawn tick. Dying costs you
+  // the trip and the guns; it does not also cost you the rest of the session.
+  clearWanted(state, victim);
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
   if (attackerId !== victim.id) {
     events.push({
@@ -571,7 +623,7 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
     // each takes feeds heat, which feeds cop spawning, which draws rng.
     for (const copId of [...state.cops.ids]) {
       const cop = state.cops.byId[copId];
-      if (!cop || cop.carHitCooldown > 0) continue;
+      if (!cop || cop.carHitCooldown > 0 || copIsDown(cop)) continue;
       if (Math.abs(cop.pos.x - v.pos.x) < half && Math.abs(cop.pos.y - v.pos.y) < half) {
         cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         pushRunOver(events, state.tick, cop.pos.x, cop.pos.y, v);
@@ -580,7 +632,9 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
     }
     for (const pedId of [...state.peds.ids]) {
       const ped = state.peds.byId[pedId];
-      if (!ped) continue;
+      // Driving over a body is not a fresh run-over: without this a corpse in
+      // the road threw blood and made a noise thirty times a second.
+      if (!ped || ped.mode === 'dead') continue;
       if (Math.abs(ped.pos.x - v.pos.x) < half && Math.abs(ped.pos.y - v.pos.y) < half) {
         pushRunOver(events, state.tick, ped.pos.x, ped.pos.y, v);
         damagePed(state, ped, Math.abs(v.speed) * RUNOVER_PED_DAMAGE_PER_SPEED, v.driverId ?? -1, events);
