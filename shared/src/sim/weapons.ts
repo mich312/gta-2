@@ -254,7 +254,7 @@ function fireOnce(
   } else if (hitPed) {
     damagePed(state, hitPed, damage, shooter.id, events);
   } else if (hitProp) {
-    damageProp(state, hitProp, damage, events);
+    damageProp(state, hitProp, damage, events, shooter.id);
   } else if (hitVehicle) {
     damageVehicle(state, hitVehicle, damage, events, shooter.id);
   }
@@ -266,6 +266,7 @@ export function damageProp(
   prop: PropState,
   damage: number,
   events: SimEvent[],
+  attackerId = -1,
 ): void {
   if (!prop.intact) return;
   prop.hp -= damage;
@@ -280,6 +281,27 @@ export function damageProp(
     x: Math.round(prop.pos.x),
     y: Math.round(prop.pos.y),
   });
+
+  // A prop that goes off when it breaks does NOT blast from here. `blast`
+  // calls `damageProp`, so detonating inline would recurse to a depth both
+  // hosts would have to agree on — the same trap `vehicleDamage.ts` avoids by
+  // igniting neighbours rather than detonating them. Instead it leaves a
+  // fused object behind, which is what the projectile table already is: the
+  // codebase's one mechanism for "go off, but next tick". A chain of barrels
+  // therefore propagates one link per tick and terminates.
+  if (getTuning().props.kinds[prop.kind]?.blast) {
+    insertEntity(
+      state.projectiles,
+      createProjectile(
+        state.nextEntityId++,
+        `prop:${prop.kind}`,
+        prop.pos,
+        { x: 0, y: 0 },
+        attackerId,
+        state.tick + 1,
+      ),
+    );
+  }
 }
 
 /** Player shots may hit cops. Killing one is a serious crime. */
@@ -595,7 +617,9 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
         if (!prop || !prop.intact) continue;
         const r = (propsT.kinds[prop.kind]?.radius ?? 4) + half;
         if (Math.abs(prop.pos.x - v.pos.x) < r && Math.abs(prop.pos.y - v.pos.y) < r) {
-          damageProp(state, prop, 1000, events);
+          // Driving into a barrel is a way of setting one off, and the
+          // driver owns what follows.
+          damageProp(state, prop, 1000, events, v.driverId ?? -1);
           v.speed = q8(v.speed * propsT.crashSpeedLoss);
         }
       }

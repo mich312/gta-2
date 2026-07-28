@@ -332,11 +332,16 @@ export function placePedSpawns(map: CityMap): void {
  * Street furniture (phase 8): lamps on kerbside sidewalk tiles, bins against
  * building walls, fences along park edges. Deterministic row-major sampling.
  */
+/** How many explosive barrels a city gets, whatever else it is full of. */
+const BARREL_BUDGET = 60;
+
 export function placeProps(map: CityMap): void {
   const props: CityMap['propSpawns'] = [];
+  const barrels: CityMap['propSpawns'] = [];
   let lampN = 0;
   let binN = 0;
   let fenceN = 0;
+  let barrelN = 0;
   for (let ty = 0; ty < map.heightTiles; ty++) {
     for (let tx = 0; tx < map.widthTiles; tx++) {
       if (t(map, tx, ty) !== T_SIDEWALK) continue;
@@ -360,6 +365,25 @@ export function placeProps(map: CityMap): void {
       }
       if (bldLeft || bldUp) {
         binN++;
+        // Barrels stand against industrial walls, and only there. Scattered
+        // evenly across the city they are a random tax on driving; clustered
+        // where the work is, they are a weapon you can plan around — which is
+        // the difference between scenery that explodes and a hazard.
+        //
+        // Collected apart from the furniture because of what happens below:
+        // the furniture list is decimated to a cap, and a decimation does not
+        // care that one kind is gameplay and the rest is decoration. First
+        // attempt put two barrels in the whole city on one seed and none at
+        // all on another.
+        if (district === 'industrial' && ++barrelN % 3 === 0) {
+          barrels.push({
+            kind: 'barrel',
+            x: (tx + 0.5) * TILE_SIZE,
+            y: (ty + 0.5) * TILE_SIZE,
+            orient: 0,
+          });
+          continue;
+        }
         if (binN % 13 === 0) {
           props.push({ kind: 'bin', x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE, orient: 0 });
           continue;
@@ -382,8 +406,15 @@ export function placeProps(map: CityMap): void {
   // that put every lamp post, bin and fence in the city into its top few
   // blocks and left the other 80% of the map with no street furniture and no
   // street lighting at all.
-  const stride = Math.max(1, Math.floor(props.length / MAX_PROPS));
-  map.propSpawns = props.filter((_, i) => i % stride === 0).slice(0, MAX_PROPS);
+  const furnitureCap = MAX_PROPS - BARREL_BUDGET;
+  const stride = Math.max(1, Math.floor(props.length / furnitureCap));
+  const kept = props.filter((_, i) => i % stride === 0).slice(0, furnitureCap);
+  // Barrels get their own reserved slice, strided the same way so they are
+  // spread across the industrial districts rather than piled in the first.
+  const bStride = Math.max(1, Math.floor(barrels.length / BARREL_BUDGET));
+  map.propSpawns = kept.concat(
+    barrels.filter((_, i) => i % bStride === 0).slice(0, BARREL_BUDGET),
+  );
 }
 
 export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: number): number {

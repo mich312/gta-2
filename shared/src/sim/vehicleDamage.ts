@@ -137,7 +137,7 @@ export function blast(
     const prop = state.props.byId[propId];
     if (!prop || !prop.intact) continue;
     const dmg = falloff(prop.pos.x - cx, prop.pos.y - cy);
-    if (dmg > 0) damageProp(state, prop, dmg, events);
+    if (dmg > 0) damageProp(state, prop, dmg, events, attackerId);
   }
   for (const vid of state.vehicles.ids) {
     if (vid === exceptVehicleId) continue;

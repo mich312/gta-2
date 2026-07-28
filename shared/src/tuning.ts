@@ -137,6 +137,12 @@ export interface PedTuning {
 export interface PropKindTuning {
   hp: number;
   radius: number;
+  /**
+   * Present only on props that go off when they break. Absent on ordinary
+   * street furniture, which is what keeps "does this explode?" a property of
+   * the data rather than a list of kinds hardcoded in the sim.
+   */
+  blast?: { radius: number; damage: number };
 }
 
 export interface PropsTuning {
@@ -479,7 +485,19 @@ function parsePropsTuning(raw: unknown): PropsTuning {
   for (const [k, v] of Object.entries(kindsSrc)) {
     if (PROP_SCALARS.has(k)) continue;
     const kv = (v ?? {}) as Record<string, unknown>;
-    kinds[k] = { hp: num(kv['hp'], `props.${k}.hp`), radius: num(kv['radius'], `props.${k}.radius`) };
+    const kind: PropKindTuning = {
+      hp: num(kv['hp'], `props.${k}.hp`),
+      radius: num(kv['radius'], `props.${k}.radius`),
+    };
+    const blast = kv['blast'];
+    if (blast !== undefined) {
+      const b = (blast ?? {}) as Record<string, unknown>;
+      kind.blast = {
+        radius: num(b['radius'], `props.${k}.blast.radius`),
+        damage: num(b['damage'], `props.${k}.blast.damage`),
+      };
+    }
+    kinds[k] = kind;
   }
   return {
     kinds,

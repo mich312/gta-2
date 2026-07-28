@@ -2398,6 +2398,68 @@
         }
       ]
     },
+    "barrel_broken": {
+      "w": 21,
+      "h": 21,
+      "pivot": [
+        10,
+        10
+      ],
+      "rotations": 0,
+      "shapes": [
+        {
+          "disc": [
+            10,
+            10,
+            9
+          ],
+          "color": "smoke",
+          "z": 1,
+          "alpha": 0.55,
+          "noOutline": true
+        },
+        {
+          "ellipse": [
+            10,
+            11,
+            7,
+            4
+          ],
+          "color": "rust",
+          "z": 3,
+          "noise": 0.12,
+          "dither": "smoke"
+        },
+        {
+          "ellipse": [
+            10,
+            11,
+            4,
+            2.2
+          ],
+          "color": "smoke",
+          "z": 4
+        },
+        {
+          "disc": [
+            4,
+            5,
+            1.8
+          ],
+          "color": "rust",
+          "z": 2
+        },
+        {
+          "disc": [
+            16,
+            6,
+            1.4
+          ],
+          "color": "carTrim",
+          "z": 2
+        }
+      ]
+    },
     "crate": {
       "w": 21,
       "h": 21,

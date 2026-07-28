@@ -64,6 +64,15 @@ export function stepProjectiles(state: GameState, map: CityMap, events: SimEvent
       continue;
     }
 
+    // A broken prop that goes off: it does not fly, it just waits one tick
+    // and detonates. `damageProp` leaves one of these behind rather than
+    // blasting inline, because `blast` calls `damageProp` and a chain of
+    // barrels would otherwise recurse to a depth both hosts must agree on.
+    if (propBlastOf(pr.kind)) {
+      if (state.tick >= pr.fuseAtTick) detonating.push({ id, x: pr.pos.x, y: pr.pos.y });
+      continue;
+    }
+
     const tuning = getWeaponTuning(pr.kind)?.projectile;
     if (!tuning) {
       // Tuning changed out from under a live projectile: drop it rather than
@@ -106,11 +115,25 @@ export function stepProjectiles(state: GameState, map: CityMap, events: SimEvent
   for (const d of detonating) {
     const pr = state.projectiles.byId[d.id];
     if (!pr) continue;
-    const tuning = getWeaponTuning(pr.kind)?.projectile;
+    const prop = propBlastOf(pr.kind);
+    const tuning = prop
+      ? { blastRadius: prop.radius, blastDamage: prop.damage }
+      : getWeaponTuning(pr.kind)?.projectile;
     removeEntity(state.projectiles, d.id);
     if (!tuning) continue;
     blast(state, d.x, d.y, tuning.blastRadius, tuning.blastDamage, pr.ownerId, events);
   }
+}
+
+/**
+ * The blast a `prop:<kind>` marker carries, or null for anything else.
+ *
+ * The prefix keeps prop detonations out of `weapons.json`, where a barrel has
+ * no business being — it is not something anybody carries, buys or fires.
+ */
+function propBlastOf(kind: string): { radius: number; damage: number } | null {
+  if (!kind.startsWith('prop:')) return null;
+  return getTuning().props.kinds[kind.slice(5)]?.blast ?? null;
 }
 
 /**
