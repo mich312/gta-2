@@ -19,6 +19,7 @@ import {
   pushOutOfVehicles,
   vehicleBoxAt,
 } from '../src/sim/bodies.js';
+import { driveVehicle, vehiclesOverlap } from '../src/sim/vehicle.js';
 import { MAX_REWIND_TICKS, rewoundWorld } from '../src/sim/rewind.js';
 import { T_BUILDING, T_FIELD, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
@@ -99,6 +100,67 @@ describe('a car is one shape, and it is the shape of a car', () => {
     expect(
       circleHitsBox(spot.x, spot.y, PLAYER_RADIUS, vehicleBoxAt('car', 100, 100, HALF_PI)),
     ).toBe(false);
+  });
+});
+
+describe('a broad phase may over-include, never under-include', () => {
+  // Both of these pin the same mistake, which is easy to make twice and was:
+  // rejecting a pair on `halfLength` when a box reaches sqrt(hl² + hw²) from
+  // its centre. Everything in between is a contact thrown away before
+  // anything looks at it — a collision that silently does not happen, which
+  // is the exact complaint this whole change answers.
+
+  it('two cars meeting corner to corner still collide', () => {
+    // Clear at the start of the tick, corner-to-corner at the end of it —
+    // which is the only way a contact is ever made, and the case the reject
+    // has to survive. `a` steps ~4 px east (120 px/s at 30 Hz), closing to
+    // (23, 10.5) apart: inside both separating axes (2*halfLength = 24,
+    // 2*halfWidth = 11) and so genuinely overlapping, while the centres are
+    // 25.28 px apart — further than halfLength + halfLength.
+    //
+    // Mid-field, not at the origin: a car centred on x = 0 has its near side
+    // outside the map, which is solid, so it is a WALL hit that stops it and
+    // the test proves nothing. The first draft of this test did exactly that
+    // and passed against the bug it was written to catch.
+    const ax = 200;
+    const ay = 200;
+    const a = createVehicle(1, 'car', { x: ax, y: ay }, 0);
+    const b = createVehicle(2, 'car', { x: ax + 27, y: ay + 10.5 }, 0);
+    expect(vehiclesOverlap(a, b)).toBe(false); // not yet
+    expect(Math.hypot(23, 10.5)).toBeGreaterThan(car().halfLength * 2);
+    // By the end of the step, once `a` has closed ~4 px:
+    expect(vehiclesOverlap(createVehicle(3, 'car', { x: ax + 4, y: ay }, 0), b)).toBe(true);
+
+    const world = { vehicles: { ids: [2], byId: { 2: b } } };
+    a.speed = 120;
+    driveVehicle(a, 0, 0, arena(), world);
+    // Struck it: knocked back onto its heels, and left short of where the
+    // free move would have put it.
+    expect(a.speed).toBeLessThan(0);
+    expect(a.pos.x).toBeLessThan(ax + 3);
+    // And the car it hit was shoved, which only the contact path does.
+    expect(b.speed).toBeGreaterThan(0);
+  });
+
+  it('somebody standing against a corner of a car is touching it', () => {
+    // 5.66 px from the corner at (12, 5.5), so inside a 6 px body radius —
+    // and 18.6 px from the centre, past halfLength + radius. Mid-field, so no
+    // wall can be what moves them.
+    const cx = 200;
+    const cy = 200;
+    const at = { x: cx + 16, y: cy + 9.5 };
+    const body = vehicleBoxAt('car', cx, cy, 0);
+    expect(circleHitsBox(at.x, at.y, PLAYER_RADIUS, body)).toBe(true);
+    expect(Math.hypot(16, 9.5)).toBeGreaterThan(car().halfLength + PLAYER_RADIUS);
+
+    const pos = { ...at };
+    const vel = { x: 0, y: 0 };
+    const world = {
+      vehicles: { ids: [1], byId: { 1: createVehicle(1, 'car', { x: cx, y: cy }, 0) } },
+    };
+    pushOutOfVehicles(pos, vel, PLAYER_RADIUS, world, arena());
+    expect(pos.x === at.x && pos.y === at.y).toBe(false); // it saw them
+    expect(circleHitsBox(pos.x, pos.y, PLAYER_RADIUS, body)).toBe(false);
   });
 });
 

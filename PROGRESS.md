@@ -2,7 +2,7 @@
 
 ## Colliders on one clock and one shape: cars, people, and a server that goes back and looks
 
-526 tests green (up from 507; 19 new across three files). 8-bot brawl and
+528 tests green (up from 507; 21 new across three files). 8-bot brawl and
 joyride harness runs lockstep with 0 desyncs at ~11 KB/s per client against
 the 50 KB/s gate, corrections 2.65–3.03 px, replay re-simulates
 hash-identical. Wire contract bumped to protocol 8.
@@ -88,6 +88,22 @@ then, applies the response to the live car, and keeps a bounded trail; the
 server's rewound world reproduces the client's `vehiclesAsDrawn` to nine
 decimal places; and the tailgate scenario above, which fails on the old code
 with an 8 px correction.
+
+**One defect found by verifying, not by testing.** The broad-phase reject
+that keeps the trig off ten thousand pairs a tick was written as
+`halfLength + radius` — and a box reaches `sqrt(hl² + hw²)` from its centre,
+not `hl`. So two cars meeting corner to corner (centres 25.28 px apart,
+genuinely overlapping) and anybody standing against a car's corner (18.6 px
+from its centre, genuinely touching) were thrown away before the real test
+ever saw them: a new missed-collision bug, inside the change that exists to
+fix missed collisions, in the one piece of it written as an optimisation
+rather than as behaviour. Both sites now use `halfLength + halfWidth`, which
+is exactly the reach `boxesOverlap`'s own broad phase uses — so hoisting the
+test in front of the trig provably cannot change an answer. Two regression
+tests pin it, and both fail on the code as first committed. The first draft
+of the car-to-car one passed against the bug because it staged the cars at
+the origin, where the map edge is solid and a WALL hit was what stopped
+them; it is now staged mid-field, and that trap is written down in the test.
 
 **Least confident about.** The 1/8 px separation skin is set to one step of
 the `q8` grid because exactly flush does not survive the round trip through

@@ -66,17 +66,26 @@ function overlappingVehicle(
 ): VehicleContact | null {
   if (!world) return null;
   const selfBox = vehicleBox(self);
-  const selfReach = selfBox.halfLength;
+  const selfReach = selfBox.halfLength + selfBox.halfWidth;
   for (const id of world.vehicles.ids) {
     if (id === self.id) continue;
     const other = world.vehicles.byId[id];
     if (!other) continue;
     const pose = poseIn(world, other);
-    // Distance reject before the trig. `boxesOverlap` has a broad phase of
-    // its own, but it runs after both boxes are built, and building one costs
-    // a sine and a cosine — which is the whole expense on a street of parked
-    // cars none of which are anywhere near.
-    const reach = selfReach + getVehicleTuning(other.kind).halfLength;
+    // Distance reject before the trig. `boxesOverlap` has a broad phase of its
+    // own, but it runs after both boxes are built, and building one costs a
+    // sine and a cosine — the whole expense on a street of parked cars none of
+    // which are anywhere near.
+    //
+    // `halfLength + halfWidth`, which is EXACTLY the reach the inner broad
+    // phase uses, so hoisting the test in front of the trig cannot change any
+    // answer. Tempting and wrong: `halfLength` alone. A box reaches
+    // sqrt(hl² + hw²) from its centre, not hl, so two cars meeting corner to
+    // corner touch with their centres 26.4 px apart while `hl + hl` is 24 —
+    // and the contact gets thrown away before anything looks at it. Which is
+    // the exact class of bug this whole change is about.
+    const ot = getVehicleTuning(other.kind);
+    const reach = selfReach + ot.halfLength + ot.halfWidth;
     const rdx = pose.x - self.pos.x;
     const rdy = pose.y - self.pos.y;
     if (rdx * rdx + rdy * rdy > reach * reach) continue;

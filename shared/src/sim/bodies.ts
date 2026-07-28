@@ -295,9 +295,17 @@ export function pushOutOfVehicles(
     // Broad phase before anything expensive. Two hundred pedestrians against
     // fifty cars is ten thousand pairs a tick, and building the oriented box
     // costs a sine and a cosine each — so the reject has to come first, and
-    // has to be arithmetic. `halfLength` is the longest a body reaches from
-    // its centre whichever way it is pointing.
-    const reach = getVehicleTuning(v.kind).halfLength + radius;
+    // has to be arithmetic.
+    //
+    // `halfLength + halfWidth`, not `halfLength`: a box reaches
+    // sqrt(hl² + hw²) from its centre, so somebody standing against a car's
+    // CORNER is 19.2 px from its centre while `halfLength + radius` is 18,
+    // and a reject on that number throws away a contact that is really
+    // happening. The sum of the half-extents is always at least the
+    // half-diagonal, so it can only ever over-include — which is what a broad
+    // phase is allowed to do.
+    const vt = getVehicleTuning(v.kind);
+    const reach = vt.halfLength + vt.halfWidth + radius;
     const dx = pos.x - vx;
     const dy = pos.y - vy;
     if (dx * dx + dy * dy > reach * reach) continue;
