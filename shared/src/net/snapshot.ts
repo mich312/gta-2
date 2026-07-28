@@ -83,6 +83,7 @@ const PLAYER_FIELDS = [
   'respect',
   'powerFlags',
   'powerUntilTick',
+  'stunnedUntilTick',
 ] as const;
 
 const VEHICLE_FIELDS = [

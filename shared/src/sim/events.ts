@@ -5,7 +5,21 @@
  * cash awards in phase 5. Replays don't need them: they re-derive.
  */
 export type SimEvent =
-  | { type: 'shot'; tick: number; playerId: number; x0: number; y0: number; x1: number; y1: number }
+  | {
+      type: 'shot';
+      tick: number;
+      playerId: number;
+      x0: number;
+      y0: number;
+      x1: number;
+      y1: number;
+      /**
+       * How far this shot carries as a noise. On the event rather than looked
+       * up per listener: the crowd and the police both react to it, and
+       * neither should have to know which weapon fired.
+       */
+      noise: number;
+    }
   | { type: 'kill'; tick: number; killerId: number; victimId: number; weaponId: string }
   | { type: 'death'; tick: number; playerId: number }
   | {

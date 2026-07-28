@@ -66,12 +66,15 @@ export function stepPeds(
   const t = getTuning().peds;
 
   // Panic sources from this tick: gunshots and deaths.
-  const scares: Array<[number, number]> = [];
+  // Each scare carries its own reach now: a shotgun clears a street that a
+  // silenced pistol does not disturb at all (M2). A death still uses the
+  // crowd's own radius — seeing a body is not a question of how loud it was.
+  const scares: Array<[number, number, number]> = [];
   for (const ev of tickEvents) {
-    if (ev.type === 'shot') scares.push([ev.x0, ev.y0]);
+    if (ev.type === 'shot') scares.push([ev.x0, ev.y0, ev.noise]);
     else if (ev.type === 'death') {
       const p = state.players.byId[ev.playerId];
-      if (p) scares.push([p.pos.x, p.pos.y]);
+      if (p) scares.push([p.pos.x, p.pos.y, t.fleeRadius]);
     }
   }
 
@@ -93,11 +96,11 @@ export function stepPeds(
     if (ped.gangId !== 0 && stepHostileGangMember(state, map, ped, tickEvents)) continue;
 
     // Panic check (nearest scare inside radius wins).
-    for (const [sx, sy] of scares) {
+    for (const [sx, sy, reach] of scares) {
       const dx = ped.pos.x - sx;
       const dy = ped.pos.y - sy;
       const d2 = dx * dx + dy * dy;
-      if (d2 < t.fleeRadius * t.fleeRadius && d2 > 0.0001) {
+      if (d2 < reach * reach && d2 > 0.0001) {
         const d = Math.sqrt(d2);
         ped.dirX = dx / d;
         ped.dirY = dy / d;
@@ -242,6 +245,7 @@ function stepHostileGangMember(
         y0: Math.round(ped.pos.y),
         x1: Math.round(ped.pos.x + ped.dirX * Math.min(wall, d)),
         y1: Math.round(ped.pos.y + ped.dirY * Math.min(wall, d)),
+        noise: weapon.noiseRadius,
       });
       if (wall >= d) applyDamage(state, target, weapon.damage, -1, 'gang', events);
       ped.timer = rt.gangFireCooldownTicks;

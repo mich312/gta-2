@@ -170,6 +170,7 @@ function fireCarGuns(
     y0: Math.round(oy),
     x1: Math.round(ox + dirX * hitDist),
     y1: Math.round(oy + dirY * hitDist),
+    noise: weapon.noiseRadius,
   });
 
   if (hitPlayerId !== null) {

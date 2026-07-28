@@ -417,6 +417,7 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
   f('fittingCooldown', (w, p) => w.int(p.fittingCooldown), (r, o) => (o['fittingCooldown'] = r.int())),
   f('powerFlags', (w, p) => w.u8(p.powerFlags), (r, o) => (o['powerFlags'] = r.u8())),
   f('powerUntilTick', (w, p) => w.big(p.powerUntilTick), (r, o) => (o['powerUntilTick'] = r.big())),
+  f('stunnedUntilTick', (w, p) => w.big(p.stunnedUntilTick), (r, o) => (o['stunnedUntilTick'] = r.big())),
   f(
     'lastInputSeq',
     (w, p) => w.big(p.lastInputSeq),

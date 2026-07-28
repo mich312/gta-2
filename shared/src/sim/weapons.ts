@@ -11,9 +11,17 @@ import type {
   PropState,
   VehicleState,
 } from './state.js';
-import { addHeat, createProjectile, POWER_DOUBLE_DAMAGE, POWER_FAST_RELOAD, POWER_JAIL_CARD } from './state.js';
+import {
+  addHeat,
+  createProjectile,
+  POWER_DOUBLE_DAMAGE,
+  POWER_FAST_RELOAD,
+  POWER_JAIL_CARD,
+  POWER_STUNNED,
+} from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
 import { damagePed } from './peds.js';
+import { noticedBy } from './police.js';
 import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
@@ -236,6 +244,7 @@ function fireOnce(
     }
   }
 
+  const weapon = getWeaponTuning(weaponId);
   events.push({
     type: 'shot',
     tick: state.tick,
@@ -245,10 +254,23 @@ function fireOnce(
     y0: Math.round(oy),
     x1: Math.round(ox + dirX * hitDist),
     y1: Math.round(oy + dirY * hitDist),
+    noise: weapon?.noiseRadius ?? 170,
   });
 
+  // Being HEARD is its own small crime, on top of whatever the round hit.
+  //
+  // Deliberately additive rather than a gate on the damage heat. Gating was
+  // the first attempt and it is wrong: killing somebody in an empty alley is
+  // still murder, the originals never modelled witnesses, and it quietly made
+  // the whole police system optional — four tests said so. What a silencer
+  // buys is that the patrol round the corner does not look up, so a loud
+  // weapon near an officer costs extra and a quiet one costs nothing.
+  if (noticedBy(state, map, shooter, weapon?.noiseRadius ?? 170)) {
+    addHeat(shooter, getTuning().police.heatPerNoise);
+  }
   if (hitPlayer) {
     applyDamage(state, hitPlayer, damage, shooter.id, weaponId, events);
+    if (weapon && weapon.stunTicks > 0) stunPlayer(hitPlayer, state.tick, weapon.stunTicks);
   } else if (hitCop) {
     damageCop(state, hitCop, damage, shooter.id, events);
   } else if (hitPed) {
@@ -354,6 +376,26 @@ export function bustPlayer(
   events.push({ type: 'death', tick: state.tick, playerId: victim.id });
 }
 
+/**
+ * Put somebody on the floor for a moment.
+ *
+ * Does not stack: a second hit while already stunned does not extend it past
+ * the cap. Being unable to act is the least fun state in any game, so this is
+ * a tool for escaping or closing, never for winning — which is a tuning
+ * stance, and this line is where it is enforced.
+ */
+export function stunPlayer(p: PlayerState, tick: number, ticks: number): void {
+  const until = tick + ticks;
+  if ((p.powerFlags & POWER_STUNNED) !== 0 && p.stunnedUntilTick >= until) return;
+  p.powerFlags |= POWER_STUNNED;
+  p.stunnedUntilTick = until;
+}
+
+/** Has the clock run out on a stun? Cleared centrally, in stepWeapons. */
+export function isStunned(p: PlayerState, tick: number): boolean {
+  return (p.powerFlags & POWER_STUNNED) !== 0 && tick < p.stunnedUntilTick;
+}
+
 export function applyDamage(
   state: GameState,
   victim: PlayerState,
@@ -417,8 +459,21 @@ export function stepWeapons(
     if (!p) continue;
     if (p.fireCooldown > 0) p.fireCooldown--;
     if (p.carHitCooldown > 0) p.carHitCooldown--;
+    // The stun lifts centrally, on its own clock, at the top of the one pass
+    // that runs for every player every tick — so it cannot be forgotten by a
+    // code path that happens not to fire.
+    if ((p.powerFlags & POWER_STUNNED) !== 0 && state.tick >= p.stunnedUntilTick) {
+      p.powerFlags &= ~POWER_STUNNED;
+      p.stunnedUntilTick = 0;
+    }
     const input = inputs[id];
     if (!input || p.mode === 'dead') continue;
+    // A stunned body cannot shoot back. Weapon switching is allowed: it costs
+    // nothing and being unable to do anything at all reads as a lost frame.
+    if (isStunned(p, state.tick)) {
+      if (input.slot >= 0 && input.slot < p.weapons.length) p.activeWeapon = input.slot;
+      continue;
+    }
 
     if (input.slot >= 0 && input.slot < p.weapons.length) {
       p.activeWeapon = input.slot;

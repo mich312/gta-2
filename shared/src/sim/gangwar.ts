@@ -156,6 +156,7 @@ export function stepGangFights(state: GameState, map: CityMap, events: SimEvent[
         y0: Math.round(ped.pos.y),
         x1: Math.round(ped.pos.x + ped.dirX * Math.min(wall, d)),
         y1: Math.round(ped.pos.y + ped.dirY * Math.min(wall, d)),
+        noise: weapon.noiseRadius,
       });
       if (wall >= d) {
         // -1: nobody gets the credit, and nobody gets the respect. This is

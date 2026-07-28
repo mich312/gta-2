@@ -117,7 +117,7 @@ export function step(
         }
       }
     } else {
-      stepPlayerMovement(p, input, map);
+      stepPlayerMovement(p, input, map, next.tick);
     }
   }
 

@@ -78,6 +78,16 @@ export const POWER_DOUBLE_DAMAGE = 1;
 export const POWER_INVISIBLE = 2;
 export const POWER_FAST_RELOAD = 4;
 export const POWER_JAIL_CARD = 8;
+/**
+ * Stunned by an electro round: cannot move, cannot fire, waits it out.
+ *
+ * It lives in the power-up bitfield rather than in a field of its own —
+ * invariant 10 from FEATURES.md, batch the clocks — and it is deliberately
+ * NOT one of POWER_TIMED, because taking a power-up must not cure a stun and
+ * being stunned must not cancel your double damage. It has its own short
+ * clock in `stunnedUntilTick`.
+ */
+export const POWER_STUNNED = 16;
 /** Everything the clock governs. */
 export const POWER_TIMED = POWER_DOUBLE_DAMAGE | POWER_INVISIBLE | POWER_FAST_RELOAD;
 
@@ -274,6 +284,8 @@ export interface PlayerState {
   powerFlags: number;
   /** Tick the timed powers lapse on. Meaningless when no timed bit is set. */
   powerUntilTick: number;
+  /** Tick a stun lifts on. Its own clock: see POWER_STUNNED. */
+  stunnedUntilTick: number;
 }
 
 /**
@@ -448,6 +460,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respect: newRespect(),
     powerFlags: 0,
     powerUntilTick: 0,
+    stunnedUntilTick: 0,
   };
 }
 

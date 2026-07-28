@@ -49,6 +49,34 @@ export function anyCopSees(state: GameState, map: CityMap, p: PlayerState): bool
 }
 
 /**
+ * Did anybody official notice?
+ *
+ * Seen, or heard. Line of sight is the old rule and still the strongest one;
+ * `noiseRadius` is what a shot carries as a sound, through walls, and is what
+ * makes a silenced weapon worth carrying — the same kill at a fraction of the
+ * attention. A loud weapon in an empty street is still a crime; a quiet one
+ * with a patrol car round the corner still is too.
+ */
+export function noticedBy(
+  state: GameState,
+  map: CityMap,
+  p: PlayerState,
+  noiseRadius: number,
+): boolean {
+  const range = getTuning().police.sightRange;
+  const n2 = noiseRadius * noiseRadius;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (!cop) continue;
+    const dx = cop.pos.x - p.pos.x;
+    const dy = cop.pos.y - p.pos.y;
+    if (dx * dx + dy * dy <= n2) return true;
+    if (hasLineOfSight(map, cop, p, range)) return true;
+  }
+  return false;
+}
+
+/**
  * Which force answers a given wanted level, and what it is made of.
  *
  * The ladder is the point: at the bottom it is patrol officers with sidearms,
@@ -191,6 +219,7 @@ function copFire(
     y0: Math.round(cop.pos.y),
     x1: Math.round(cop.pos.x + dirX * hitDist),
     y1: Math.round(cop.pos.y + dirY * hitDist),
+    noise: weapon.noiseRadius,
   });
   if (hit) applyDamage(state, hit, weapon.damage, -1, 'police', events);
 }

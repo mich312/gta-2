@@ -53,6 +53,22 @@ export interface WeaponTuning {
    * rather than resolving instantly along a ray. Absent = hitscan.
    */
   projectile: ProjectileTuning | null;
+  /**
+   * How far the shot carries as a NOISE, in px, independent of how far it
+   * carries as a bullet. This is what makes a silenced pistol a mechanic
+   * rather than a reskin: the cops and the crowd key off it, so the same
+   * damage at a fraction of the noise is a real reason to carry one into a
+   * turf you would rather not stir up. It also retroactively differentiates
+   * every weapon that was already here — a shotgun wakes a street the
+   * flamethrower does not.
+   */
+  noiseRadius: number;
+  /**
+   * Ticks the target is stunned for, or 0. A stunned body cannot move or
+   * fire. Kept short on purpose: helplessness is the least fun state in any
+   * game, so this is a tool for escaping or closing, not for winning.
+   */
+  stunTicks: number;
 }
 
 export interface ProjectileTuning {
@@ -83,6 +99,8 @@ export interface PoliceTuning {
   heatPerDamage: number;
   heatPerKill: number;
   heatPerTheft: number;
+  /** Per loud shot within earshot of an officer. What a silencer saves you. */
+  heatPerNoise: number;
   /** Setting an empty car alight. Property, so it sits between theft and murder. */
   heatPerVehicleKill: number;
   /** Setting a car alight with somebody in it. The deaths are charged separately. */
@@ -385,6 +403,11 @@ function parseWeaponTuning(id: string, raw: unknown): WeaponTuning {
     melee: r['melee'] === true,
     infiniteAmmo: r['infiniteAmmo'] === true,
     projectile: parseProjectile(id, r['projectile']),
+    // Defaulted rather than required: every weapon that existed before this
+    // must still parse, and "as loud as a pistol" is the right guess for one.
+    noiseRadius:
+      typeof r['noiseRadius'] === 'number' && r['noiseRadius'] >= 0 ? r['noiseRadius'] : 170,
+    stunTicks: typeof r['stunTicks'] === 'number' && r['stunTicks'] > 0 ? r['stunTicks'] : 0,
   };
 }
 
@@ -447,6 +470,7 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerDamage: n('heatPerDamage'),
     heatPerKill: n('heatPerKill'),
     heatPerTheft: n('heatPerTheft'),
+    heatPerNoise: n('heatPerNoise'),
     heatPerVehicleKill: n('heatPerVehicleKill'),
     heatPerOccupiedVehicleKill: n('heatPerOccupiedVehicleKill'),
     heatPerCopKill: n('heatPerCopKill'),
@@ -841,6 +865,7 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerDamage: 0.8,
   heatPerKill: 60,
   heatPerTheft: 15,
+  heatPerNoise: 3,
   heatPerVehicleKill: 40,
   heatPerOccupiedVehicleKill: 70,
   heatPerCopKill: 120,

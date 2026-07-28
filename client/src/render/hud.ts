@@ -378,6 +378,10 @@ export class Hud {
       if ((me.powerFlags & 2) !== 0) lit.push(`INVISIBLE ${secs}`);
       if ((me.powerFlags & 4) !== 0) lit.push(`FAST RELOAD ${secs}`);
       if ((me.powerFlags & 8) !== 0) lit.push('GET OUT OF JAIL FREE');
+      // Without this, being stunned is indistinguishable from the game
+      // having stopped listening to you — which is the worst thing a
+      // multiplayer game can look like.
+      if ((me.powerFlags & 16) !== 0) lit.push('STUNNED');
       ctx.textAlign = 'center';
       lit.forEach((text, i) => {
         ctx.fillStyle = i === lit.length - 1 && (me.powerFlags & 8) !== 0 ? '#e8e0c0' : '#ff9a5a';
