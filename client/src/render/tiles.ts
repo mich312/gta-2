@@ -36,6 +36,8 @@ const TD = TILE_SIZE * RENDER_SCALE;
 
 /** A road is a road, not a junction, once its cross-run is this long. */
 const RUN_ROAD = 8;
+/** Carriageway width at which a street counts as a main road. */
+const ARTERIAL_WIDTH = 4;
 
 interface Chunk {
   canvas: HTMLCanvasElement;
@@ -648,9 +650,17 @@ export class TileLayer {
       else ctx.fillRect(x, near ? y + t : y + TD - 2 * t, TD, t);
     }
 
-    // Stop line + zebra on the last tile before a junction.
+    // Stop line + zebra on the last tile before a junction — but only where a
+    // MAIN road meets it.
+    //
+    // Marking every arm of every junction was the default, and at this city's
+    // block density it covered the place: 2589 of 16951 road tiles carried a
+    // crossing, so on a short block the striping ran from one junction
+    // straight into the next and the streets read as painted rather than
+    // paved. Real cities put crossings on main roads. `width` is the
+    // carriageway width, so four tiles or more is an arterial.
     const ahead = vertical ? this.junctionAt(tx, ty + 1) || this.junctionAt(tx, ty - 1) : this.junctionAt(tx + 1, ty) || this.junctionAt(tx - 1, ty);
-    if (!ahead) return;
+    if (!ahead || width < ARTERIAL_WIDTH) return;
     const forward = vertical ? this.junctionAt(tx, ty + 1) : this.junctionAt(tx + 1, ty);
     ctx.fillStyle = palette.roadStop;
     if (vertical) ctx.fillRect(x, forward ? y + TD - 3 * t : y + t, TD, 2 * t);
