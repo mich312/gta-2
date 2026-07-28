@@ -96,6 +96,7 @@ const VEHICLE_FIELDS = [
   'condition',
   'fuseAtTick',
   'igniterId',
+  'spreadUsed',
   'gangId',
   'fitting',
   'fittingAmmo',

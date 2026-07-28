@@ -335,9 +335,45 @@ export interface RespectTuning {
   gangChaseSpeed: number;
 }
 
+/** How fire travels between vehicles. See sim/vehicleDamage.ts. */
+export interface FireTuning {
+  /** How far a burning car can reach to light the next one, px. */
+  spreadRadius: number;
+  /** Ticks between one car's attempts to spread. */
+  spreadIntervalTicks: number;
+  /** Ceiling on fires burning at once, city-wide. */
+  maxConcurrent: number;
+  /** How many neighbours one burning car may ever light. */
+  spreadBudget: number;
+}
+
+const DEFAULT_FIRE: FireTuning = {
+  spreadRadius: 46,
+  spreadIntervalTicks: 45,
+  maxConcurrent: 12,
+  spreadBudget: 1,
+};
+
+const VEHICLE_SCALARS = new Set(['fire']);
+
+function parseFireTuning(raw: unknown): FireTuning {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string, fallback: number): number => {
+    const v = r[k];
+    return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : fallback;
+  };
+  return {
+    spreadRadius: n('spreadRadius', DEFAULT_FIRE.spreadRadius),
+    spreadIntervalTicks: n('spreadIntervalTicks', DEFAULT_FIRE.spreadIntervalTicks),
+    maxConcurrent: n('maxConcurrent', DEFAULT_FIRE.maxConcurrent),
+    spreadBudget: n('spreadBudget', DEFAULT_FIRE.spreadBudget),
+  };
+}
+
 export interface Tuning {
   player: PlayerTuning;
   vehicles: Record<string, VehicleTuning>;
+  fire: FireTuning;
   weapons: Record<string, WeaponTuning>;
   police: PoliceTuning;
   peds: PedTuning;
@@ -935,9 +971,14 @@ export function initTuning(
   const vehiclesRaw = (raw.vehicles ?? {}) as Record<string, unknown>;
   const vehicles: Record<string, VehicleTuning> = {};
   for (const [kind, v] of Object.entries(vehiclesRaw)) {
+    // `fire` is a settings block, not a vehicle. Same shape of exception as
+    // PROP_SCALARS: a file that is mostly a map of kinds can still carry a
+    // few numbers about the whole family.
+    if (VEHICLE_SCALARS.has(kind)) continue;
     const parsed = section(`vehicles.${kind}`, () => parseVehicleTuning(kind, v), null);
     if (parsed) vehicles[kind] = parsed;
   }
+  const fire = section('vehicles.fire', () => parseFireTuning(vehiclesRaw['fire']), DEFAULT_FIRE);
   const weaponsRaw = (raw.weapons ?? {}) as Record<string, unknown>;
   const weapons: Record<string, WeaponTuning> = {};
   for (const [id, w] of Object.entries(weaponsRaw)) {
@@ -947,6 +988,7 @@ export function initTuning(
   current = {
     player: section('player', () => parsePlayerTuning(raw.player), DEFAULT_PLAYER),
     vehicles,
+    fire,
     weapons,
     police: section(
       'police',

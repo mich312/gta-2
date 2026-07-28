@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import spriteSheet from 'shared/data/sprites.json';
 import vehiclesJson from 'shared/data/vehicles.json';
+import weaponsJson from 'shared/data/weapons.json';
+import playerJson from 'shared/data/player.json';
+import { getTuning, initTuning } from 'shared';
 import { vehicleSpriteName } from '../src/render/renderer.js';
 
 const sprites = (spriteSheet as { sprites: Record<string, unknown> }).sprites;
-const kinds = Object.keys(vehiclesJson as Record<string, unknown>);
+// Asked of the PARSER, not of the raw file: vehicles.json carries settings
+// blocks as well as kinds (`fire`), and a test that enumerated the file's
+// keys started demanding a sprite for one. The parser's view cannot drift
+// from the sim's, which is the whole point of taking it from here.
+initTuning({ player: playerJson, vehicles: vehiclesJson, weapons: weaponsJson });
+const kinds = Object.keys(getTuning().vehicles);
 
 describe('vehicle sprites', () => {
   it('every vehicle kind has a sprite of its own', () => {

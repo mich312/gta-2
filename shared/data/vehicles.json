@@ -284,5 +284,11 @@
     "explosionRadius": 74,
     "explosionDamage": 85,
     "collisionDamagePerSpeed": 0.055
+  },
+  "fire": {
+    "spreadRadius": 46,
+    "spreadIntervalTicks": 45,
+    "maxConcurrent": 12,
+    "spreadBudget": 1
   }
 }

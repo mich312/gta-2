@@ -182,8 +182,87 @@ function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
   }
 }
 
+/**
+ * Fire travelling from a burning car to what is parked beside it.
+ *
+ * The blast at the end of the fuse already ignites neighbours; what did not
+ * happen before this was fire spreading BEFORE the explosion, so a burning
+ * car in a packed street was a countdown rather than a developing situation.
+ *
+ * No rng: the nearest eligible neighbour wins, ties broken by ascending id,
+ * evaluated in ascending burning-vehicle id, collected then applied. Three
+ * brakes stop it running away, because spread is exponential by nature and
+ * this map has car parks — a budget of one ignition per car, a city-wide
+ * ceiling on simultaneous fires, and the reach itself.
+ *
+ * Attribution carries: the neighbour inherits the original arsonist from K1,
+ * so a fire you start is a fire you are wanted for however far it travels.
+ * That is why this item depends on K1 rather than merely following it.
+ */
+function stepFireSpread(state: GameState, events: SimEvent[]): void {
+  const t = getTuning().fire;
+  if (t.spreadBudget <= 0 || t.maxConcurrent <= 0) return;
+
+  let burning = 0;
+  const sources: VehicleState[] = [];
+  for (const id of state.vehicles.ids) {
+    const v = state.vehicles.byId[id];
+    if (!v || v.condition !== 'burning') continue;
+    burning++;
+    if (v.spreadUsed >= t.spreadBudget) continue;
+    // Staggered by id so the whole street does not try to spread on one tick.
+    if ((state.tick + id) % t.spreadIntervalTicks !== 0) continue;
+    sources.push(v);
+  }
+  if (sources.length === 0 || burning >= t.maxConcurrent) return;
+
+  const r2 = t.spreadRadius * t.spreadRadius;
+  const lighting: Array<{ from: VehicleState; to: number }> = [];
+  for (const src of sources) {
+    if (burning + lighting.length >= t.maxConcurrent) break;
+    let best: number | null = null;
+    let bestD2 = r2;
+    for (const id of state.vehicles.ids) {
+      const other = state.vehicles.byId[id];
+      if (!other || other.id === src.id || other.condition !== 'ok') continue;
+      if (lighting.some((l) => l.to === id)) continue;
+      const dx = other.pos.x - src.pos.x;
+      const dy = other.pos.y - src.pos.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        best = id;
+      }
+    }
+    if (best !== null) lighting.push({ from: src, to: best });
+  }
+
+  for (const l of lighting) {
+    const victim = state.vehicles.byId[l.to];
+    if (!victim || victim.condition !== 'ok') continue;
+    l.from.spreadUsed++;
+    // Straight to burning rather than through damageVehicle: fire does not
+    // shoot a car, it sets it alight, and routing through the damage path
+    // would charge the arsonist a second time for the same crime.
+    victim.condition = 'burning';
+    victim.health = 0;
+    victim.igniterId = l.from.igniterId;
+    victim.fuseAtTick =
+      state.tick + Math.round(getVehicleTuning(victim.kind).burnSeconds * TICK_RATE);
+    events.push({
+      type: 'vehicleBurning',
+      tick: state.tick,
+      vehicleId: victim.id,
+      x: Math.round(victim.pos.x),
+      y: Math.round(victim.pos.y),
+    });
+  }
+}
+
 /** Burn-down, detonation and wreck clearing. One pass, fixed order. */
 export function stepVehicleDamage(state: GameState, events: SimEvent[]): void {
+  stepFireSpread(state, events);
+
   // Frozen before any damage lands: explosions ignite other vehicles, and a
   // list built while that happens would depend on iteration order.
   const detonating: number[] = [];

@@ -174,6 +174,11 @@ export interface VehicleState {
    */
   igniterId: number | null;
   /**
+   * How many neighbours this car has already set alight. Bounded by
+   * `fire.spreadBudget`, which is what stops one molotov taking the city.
+   */
+  spreadUsed: number;
+  /**
    * Whose car this is, or 0 for anybody's. Set at spawn from the turf it
    * appears on and never changed — one small field, written once, that pays
    * for a livery, a place to find one, and a reason not to take it.
@@ -414,6 +419,7 @@ export function createVehicle(
     condition: 'ok',
     fuseAtTick: null,
     igniterId: null,
+    spreadUsed: 0,
     gangId,
     // A tank is not special-cased anywhere: it is a chassis that comes out of
     // the yard with the guns the garage already sells, and effectively

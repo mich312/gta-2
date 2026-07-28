@@ -7,7 +7,7 @@ import pedsJson from '../data/peds.json';
 import propsJson from '../data/props.json';
 import pickupsJson from '../data/pickups.json';
 import worldgenJson from '../data/worldgen.json';
-import { getVehicleTuning, initTuning } from '../src/tuning.js';
+import { getTuning, getVehicleTuning, initTuning } from '../src/tuning.js';
 import { roadLane } from './helpers.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
@@ -405,5 +405,113 @@ describe('arson is a crime (K1)', () => {
       expect(v.igniterId, `car ${id}`).toBe(1);
     }
     expect(touched).toBeGreaterThan(1);
+  });
+});
+
+describe('fire that spreads (K3)', () => {
+  /** A row of `n` cars, `gap` px apart, down a real lane. */
+  function row(n: number, gap: number, seed = 606): { state: GameState; ids: number[] } {
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    const lane = roadLane(map, 70 + n * gap + 40);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    const dirX = Math.cos(lane.heading);
+    const dirY = Math.sin(lane.heading);
+    const cmds: SimCommand[] = [];
+    const ids: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const d = 70 + i * gap;
+      ids.push(900 + i);
+      cmds.push({
+        type: 'spawnVehicle',
+        vehicleId: 900 + i,
+        kind: 'car',
+        x: lane.x + dirX * d,
+        y: lane.y + dirY * d,
+        heading: lane.heading,
+      });
+    }
+    return { state: step(state, {}, cmds, map), ids };
+  }
+
+  it('a burning car sets its neighbour alight BEFORE it goes off', () => {
+    // The thing that was missing: a burning car in a packed street used to be
+    // a countdown, not a developing situation. The blast already lit
+    // neighbours; nothing did before it.
+    const { state: base, ids } = row(3, 34);
+    let s = base;
+    damageVehicle(s, s.vehicles.byId[ids[0]!]!, 9999, [], 1);
+    const fuse = s.vehicles.byId[ids[0]!]!.fuseAtTick!;
+    let spreadTick = -1;
+    while (s.tick < fuse && spreadTick < 0) {
+      s = step(s, {}, [], map, []);
+      if (s.vehicles.byId[ids[1]!]!.condition === 'burning') spreadTick = s.tick;
+    }
+    expect(spreadTick).toBeGreaterThan(0);
+    expect(spreadTick).toBeLessThan(fuse); // before the explosion, not after it
+  });
+
+  it('the fire belongs to whoever started it, all the way down the row', () => {
+    const { state: base, ids } = row(4, 34);
+    let s = base;
+    damageVehicle(s, s.vehicles.byId[ids[0]!]!, 9999, [], 7);
+    for (let i = 0; i < 400; i++) s = step(s, {}, [], map, []);
+    let touched = 0;
+    for (const id of ids) {
+      const v = s.vehicles.byId[id];
+      if (!v || v.condition === 'ok') continue;
+      touched++;
+      expect(v.igniterId, `car ${id}`).toBe(7);
+    }
+    expect(touched).toBeGreaterThan(1);
+  });
+
+  it('one car can only ever light so many, so a car park terminates', () => {
+    const t = getTuning().fire;
+    const { state: base, ids } = row(8, 30);
+    let s = base;
+    damageVehicle(s, s.vehicles.byId[ids[0]!]!, 9999, [], 1);
+    for (let i = 0; i < 900; i++) s = step(s, {}, [], map, []);
+    // The run ended: nothing is still burning and waiting to take more.
+    for (const id of ids) {
+      const v = s.vehicles.byId[id];
+      if (v) expect(v.condition, `car ${id}`).not.toBe('burning');
+    }
+    expect(t.spreadBudget).toBeGreaterThan(0);
+  });
+
+  it('never exceeds the city-wide ceiling on fires at once', () => {
+    const t = getTuning().fire;
+    const { state: base, ids } = row(10, 28, 707);
+    let s = base;
+    for (const id of ids.slice(0, 3)) damageVehicle(s, s.vehicles.byId[id]!, 9999, [], 1);
+    for (let i = 0; i < 600; i++) {
+      s = step(s, {}, [], map, []);
+      let burning = 0;
+      for (const vid of s.vehicles.ids) {
+        if (s.vehicles.byId[vid]!.condition === 'burning') burning++;
+      }
+      expect(burning).toBeLessThanOrEqual(t.maxConcurrent);
+    }
+  });
+
+  it('a car well clear of the fire never catches', () => {
+    const { state: base, ids } = row(2, 400);
+    let s = base;
+    damageVehicle(s, s.vehicles.byId[ids[0]!]!, 9999, [], 1);
+    for (let i = 0; i < 300; i++) s = step(s, {}, [], map, []);
+    const far = s.vehicles.byId[ids[1]!];
+    if (far) expect(far.condition).toBe('ok');
+  });
+
+  it('spreading is deterministic', () => {
+    const run = (): number => {
+      const { state: base, ids } = row(5, 32, 808);
+      let s = base;
+      damageVehicle(s, s.vehicles.byId[ids[0]!]!, 9999, [], 1);
+      for (let i = 0; i < 300; i++) s = step(s, {}, [], map, []);
+      return hashState(s);
+    };
+    expect(run()).toBe(run());
   });
 });
