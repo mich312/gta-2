@@ -28,6 +28,21 @@ describe('vehicle sprites', () => {
     }
   });
 
+  it('anything with a turret has a turret sprite, and vice versa', () => {
+    // The two halves of a turret live in different files — the offset in
+    // vehicles.json says the renderer will ask for `<kind>_turret`, and
+    // sprites.json is what has to answer. Either one alone is a tank with an
+    // invisible gun, or a barrel drawn on the wrong pivot.
+    const turreted = kinds.filter((k) => getTuning().vehicles[k]?.turretOffset !== null);
+    expect(turreted.length).toBeGreaterThan(0);
+    for (const kind of turreted) expect(sprites[`${kind}_turret`], kind).toBeDefined();
+    for (const name of Object.keys(sprites)) {
+      if (!name.endsWith('_turret')) continue;
+      const kind = name.slice(0, -'_turret'.length);
+      expect(getTuning().vehicles[kind]?.turretOffset, name).not.toBe(null);
+    }
+  });
+
   it('a boat is drawn as a boat, whoever is driving it', () => {
     expect(vehicleSpriteName('boat', 7)).toBe('boat');
     expect(vehicleSpriteName('bus', 7)).toBe('bus');

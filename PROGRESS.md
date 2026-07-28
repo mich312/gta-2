@@ -1,5 +1,44 @@
 # PROGRESS
 
+## The turret: a part that does not turn with the body
+
+Asked whether a tank's turret traverses independently, the answer was no —
+`SpriteSheet.draw` picks ONE baked rotation frame per sprite, so anything
+drawn as a single sprite can only ever point one way, and `fireCarGuns` shot
+down `v.heading` on purpose. Both halves of that are now conditional on one
+number.
+
+**A second sprite is the whole mechanism.** `tank` is the hull, tracks and
+ring; `tank_turret` is the barrel and the hatch, pivoted at `[13, 13]` — the
+ring, not the sprite's middle. The renderer draws them at two different
+angles about two different centres, and the ring centre is carried round with
+the hull (`wx + cos(heading) * turretOffset`) so the gun stays bolted to the
+tank however it is parked.
+
+**It costs no state and no bytes.** A turret points where its driver is
+aiming, and a driver's `aimAngle` is already on the wire for every player,
+already interpolated, already hashed. So `turretAngle(state, v)` is a
+derivation, not a field: no snapshot entry, no codec change, nothing to
+desync, and the six touch points an entity field would have cost are all
+untouched. The renderer's `aimOf` is the same rule read off the smoothed view
+instead of the authoritative state, which is what makes the barrel move at
+frame rate rather than in 30 Hz steps.
+
+**One number decides both halves, so they cannot disagree.**
+`turretOffset` in `vehicles.json` is null for everything without a turret; it
+is what the gun asks and what the renderer asks. A test walks it in both
+directions — every kind with an offset has a `_turret` sprite, and every
+`_turret` sprite belongs to a kind with an offset — because the two halves
+live in different files and either one alone is a tank with an invisible gun.
+
+**The digger's boom does not slew, and that is a decision rather than an
+omission.** A real excavator's does, but nothing here would drive it: the
+digger carries no weapon, and the only aim signal in the game is a weapon's.
+Giving it a traverse means either inventing an input or borrowing the gun's,
+and borrowing the gun's is exactly the disagreement `turretOffset` exists to
+prevent. The tank gets one because its gun is a weapon and the aim already
+exists.
+
 ## Waves J–O: the whole of GAPS.md, sixteen items
 
 Every gap `AUDIT.md` found, closed. 402 tests green (up from 294), 8 bots

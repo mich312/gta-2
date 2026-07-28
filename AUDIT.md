@@ -296,7 +296,7 @@ GTA points multiplier did. Everything below is money.
 | --- | --- | --- |
 | Hidden ramps | built | `frenzy.test.ts` "worldgen builds ramps" |
 | Shortcuts | partial | alleys and bridges exist and are genuinely faster, but none is hidden on purpose |
-| Secret vehicles | built (M1/L2) | the tank, in the police yard, which is not somewhere you wander into |
+| Secret vehicles | built (M1/L2) | the tank, in the police yard, which is not somewhere you wander into — and its turret traverses independently of the hull, `fittings.test.ts` "a turret is the exception: it follows the mouse, not the hull" |
 | Hidden weapons | built (L2) | packages are placed in the most enclosed ground in the city, scored by how few open neighbours a tile has |
 | Easter eggs | not built | the one item in this list that is purely for delight, and the only one still outstanding |
 

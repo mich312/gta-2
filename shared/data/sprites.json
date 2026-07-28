@@ -4508,53 +4508,13 @@
           "noOutline": true
         },
         {
-          "rect": [
-            36,
-            16,
-            42,
-            4
-          ],
-          "color": "tankBarrel",
-          "z": 16
-        },
-        {
-          "rect": [
-            74,
-            14.5,
-            5,
-            7
-          ],
-          "color": "tankBarrel",
-          "z": 16
-        },
-        {
           "disc": [
             31,
             18,
             11
           ],
           "color": "tankTrim",
-          "z": 18
-        },
-        {
-          "disc": [
-            31,
-            18,
-            8
-          ],
-          "color": "tankBody",
-          "z": 19,
-          "noise": 0.02
-        },
-        {
-          "disc": [
-            27,
-            18,
-            3
-          ],
-          "color": "tankTrim",
-          "z": 20,
-          "noOutline": true
+          "z": 14
         }
       ]
     },
@@ -4825,6 +4785,66 @@
           "color": "gangStripe",
           "z": 13,
           "mirrorY": true,
+          "noOutline": true
+        }
+      ]
+    },
+    "tank_turret": {
+      "w": 64,
+      "h": 26,
+      "pivot": [
+        13,
+        13
+      ],
+      "rotations": 64,
+      "shapes": [
+        {
+          "rect": [
+            11,
+            11,
+            44,
+            4
+          ],
+          "color": "tankBarrel",
+          "z": 16
+        },
+        {
+          "rect": [
+            52,
+            9,
+            5,
+            8
+          ],
+          "color": "tankBarrel",
+          "z": 16
+        },
+        {
+          "disc": [
+            13,
+            13,
+            10
+          ],
+          "color": "tankTrim",
+          "z": 18
+        },
+        {
+          "disc": [
+            13,
+            13,
+            7.5
+          ],
+          "color": "tankBody",
+          "z": 19,
+          "noise": 0.02
+        },
+        {
+          "disc": [
+            9,
+            13,
+            3
+          ],
+          "color": "tankTrim",
+          "z": 20,
           "noOutline": true
         }
       ]

@@ -1,7 +1,7 @@
 import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { q8, q256 } from '../math/vec.js';
 import { dCos, dSin, wrapAngle } from '../math/trig.js';
-import { getTuning, getWeaponTuning } from '../tuning.js';
+import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
 import type { GameState, VehicleState } from './state.js';
 import { createProjectile } from './state.js';
 import { insertEntity } from './entities.js';
@@ -92,10 +92,14 @@ export function stepFittings(
 }
 
 /**
- * Two streams of fire straight down the car's nose. Deliberately NOT aimed
- * at the mouse: these are bolted to the bodywork, so the way to aim them is
+ * Two streams of fire down the car's nose — or down the turret, if it has one.
+ *
+ * Bolted guns are deliberately NOT aimed at the mouse: the way to aim them is
  * to point the car, which is what makes them a different weapon from leaning
- * out of the window with a pistol.
+ * out of the window with a pistol. A TURRET is the exception, and the reason
+ * the exception exists is that a turret is the one part of a vehicle that
+ * does not turn with the body. `turretOffset` in vehicles.json is what says
+ * which is which, so the renderer and the gun cannot disagree about it.
  */
 function fireCarGuns(
   state: GameState,
@@ -106,7 +110,7 @@ function fireCarGuns(
 ): void {
   const weapon = getWeaponTuning('carGun');
   if (!weapon) return;
-  const angle = q256(v.heading);
+  const angle = q256(turretAngle(state, v));
   const dirX = dCos(angle);
   const dirY = dSin(angle);
   const muzzle = vehicleHitRadius(v) + 2;
@@ -186,6 +190,20 @@ function fireCarGuns(
     const other = state.vehicles.byId[hitVehicleId];
     if (other) damageVehicle(state, other, weapon.damage, events, ownerId);
   }
+}
+
+/**
+ * Where a vehicle's gun points.
+ *
+ * For a turreted vehicle with somebody at the wheel, that is the driver's own
+ * aim — which is already on the wire for every player, so an independently
+ * traversing turret costs exactly nothing in state or bandwidth. With nobody
+ * driving, or on anything without a turret, it rests along the hull.
+ */
+export function turretAngle(state: GameState, v: VehicleState): number {
+  if (getVehicleTuning(v.kind).turretOffset === null) return v.heading;
+  const driver = v.driverId === null ? undefined : state.players.byId[v.driverId];
+  return driver ? driver.aimAngle : v.heading;
 }
 
 /**

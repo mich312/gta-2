@@ -36,6 +36,16 @@ export interface VehicleTuning {
   medium: 'land' | 'water';
   /** Damage per px/s of closing speed in a collision. */
   collisionDamagePerSpeed: number;
+  /**
+   * Distance from the vehicle's centre to its turret pivot, along the hull,
+   * or null for anything without one.
+   *
+   * A turret is the one part of a vehicle that does NOT rotate with the body,
+   * so it cannot be a baked rotation frame of the same sprite. Its presence
+   * here is what tells the renderer to draw `<kind>_turret` separately and
+   * tells the guns to fire down the aim rather than down the bonnet.
+   */
+  turretOffset: number | null;
 }
 
 export interface WeaponTuning {
@@ -424,6 +434,7 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     explosionDamage: n('explosionDamage'),
     medium: r['medium'] === 'water' ? 'water' : 'land',
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
+    turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
   };
 }
 

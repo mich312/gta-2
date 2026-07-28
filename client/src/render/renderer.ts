@@ -13,6 +13,7 @@ import {
   TILE_SIZE,
   clamp,
   getTrafficTuning,
+  getVehicleTuning,
   getWeaponTuning,
   signalColour,
   vehicleWear,
@@ -63,6 +64,22 @@ export function vehicleSpriteName(kind: string, id: number, gangId = 0): string 
   // space to say something already said three ways.
   if (kind === 'gangcar') return `gangcar_v${Math.max(0, gangId - 1) % 4}`;
   return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+}
+
+/**
+ * The interpolated aim of whoever is at the wheel, or null if nobody is.
+ *
+ * This is the renderer's half of `turretAngle` in the sim: the same rule —
+ * a turret points where its driver points — read off the smoothed view
+ * instead of off the authoritative state, so the barrel moves at frame rate
+ * rather than in 30 Hz steps. An empty tank rests its gun along the hull,
+ * which is what `drawVehicle` falls back to when this returns null.
+ */
+function aimOf(scene: Scene, driverId: number | null): number | null {
+  if (driverId === null) return null;
+  if (scene.local && scene.local.id === driverId) return scene.localPos?.angle ?? scene.local.aimAngle;
+  for (const r of scene.remotes.players) if (r.player.id === driverId) return r.aimAngle;
+  return null;
 }
 
 /** Uniform per force, so what is chasing you is legible at a glance. */
@@ -453,6 +470,10 @@ export function render(
       scene.nowMs,
       0,
       rv.vehicle.gangId,
+      // A turret points where its driver is aiming, and the driver's aim is
+      // already interpolated for their body, so the barrel is exactly as
+      // smooth as everything else on screen.
+      aimOf(scene, rv.vehicle.driverId),
     );
   }
   if (scene.localVehicle) {
@@ -475,6 +496,9 @@ export function render(
       scene.nowMs,
       scene.localVehicle.z,
       scene.localVehicle.gangId,
+      // Your own turret comes off your own smoothed aim, not off the wire, so
+      // it answers the mouse on the frame you move it.
+      scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
     );
   }
 
@@ -816,6 +840,8 @@ function drawVehicle(
   nowMs: number,
   z = 0,
   gangId = 0,
+  /** Where the turret points, or null on anything without one. */
+  turret: number | null = null,
 ): void {
   // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
   // the ground where it belongs. The gap between the two is what sells it.
@@ -827,15 +853,33 @@ function drawVehicle(
   const shrink = z > 0 ? 0.75 : 1;
   drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);
 
+  // A turret is the one part of a vehicle that does not turn with the body,
+  // so it cannot be a baked rotation frame of the hull sprite: it is its own
+  // sprite, pivoted on the ring, drawn at its own angle. The ring is offset
+  // along the hull, so the pivot has to be carried round with the heading.
+  // A wreck still has its barrel, it just stops traversing — drawn inside the
+  // wreck's own save/restore so the scorching lands on it too.
+  const off = getVehicleTuning(kind).turretOffset;
+  const drawTurret = (): void => {
+    if (off === null) return;
+    const tx = dx(wx + Math.cos(heading) * off);
+    const ty = dy(wy + Math.sin(heading) * off) - lift;
+    sprites.draw(ctx, `${name}_turret`, tx, ty, condition === 'wreck' ? heading : (turret ?? heading));
+  };
+
   // A wreck is drawn dark and never lit; a burning car throws its own light
   // and sheds flame until it goes.
   if (condition === 'wreck') {
     ctx.save();
     ctx.globalAlpha = 0.85;
     sprites.draw(ctx, name, x, y, heading);
+    drawTurret();
     ctx.globalCompositeOperation = 'source-atop';
     ctx.fillStyle = 'rgba(18, 16, 18, 0.72)';
-    ctx.fillRect(x - fp.rx, y - fp.ry, fp.rx * 2, fp.ry * 2);
+    // Wide enough to cover a barrel lying across the hull as well as the hull.
+    const rx = off === null ? fp.rx : fp.rx * 2;
+    const ry = off === null ? fp.ry : fp.ry * 2;
+    ctx.fillRect(x - rx, y - ry, rx * 2, ry * 2);
     ctx.restore();
     return;
   }
@@ -849,7 +893,10 @@ function drawVehicle(
     ctx.restore();
   }
 
+  // Dents go on the hull, then the turret rides over them: a scrape on the
+  // tracks should not be painted across the gun.
   drawDents(ctx, id, x, y, heading, fp, wear);
+  drawTurret();
 
   // Strobing light bar on any cruiser with an officer aboard.
   if (kind === 'copcar' && occupied) {

@@ -264,7 +264,8 @@
     "wreckSeconds": 25,
     "explosionRadius": 120,
     "explosionDamage": 119,
-    "collisionDamagePerSpeed": 0.2541
+    "collisionDamagePerSpeed": 0.2541,
+    "turretOffset": -4.5
   },
   "gangcar": {
     "accel": 164,
