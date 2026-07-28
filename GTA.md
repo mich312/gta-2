@@ -26,11 +26,36 @@ states scope, files, determinism constraints, prediction impact, new
 tunables, bandwidth, effort, risk, dependencies, and a verification gate.
 Effort key: **S** ≤ 1 day · **M** 1–3 days · **L** ≥ 1 week.
 
-**Status: in build.** Items are landing in the recommended order of §2, each
-as its own commit with its own gate; `PROGRESS.md` carries the per-item log.
-Baseline before the first: 50 test files, 580 tests, all green
-(`pnpm build && pnpm test` — the client tests need the build first, because
-they resolve `shared` through its built entry).
+**Status: all nine items are built.** Each landed as its own commit with its
+own gate, in the order of §2. Baseline before the first: 50 test files, 580
+tests. After the last: **55 files, 650 tests**, plus `pnpm bots
+--count=8 --script=brawl` at 0 desyncs and a replay that re-simulates to
+identical hashes. (`pnpm build` first — the client tests resolve `shared`
+through its built entry.)
+
+Five things the build changed about the plan, all of them found by making it
+work rather than by arguing:
+
+- **P1 needed a radio.** Removing the pursuit's omniscience left nothing in
+  its place, and units dispatched to where a suspect *was* circled 300 px
+  away — just outside the 260 they can see — for a whole wave without ever
+  making contact. Dispatch now updates units en route while the suspect is
+  still hot, gated on the same cool-down that governs everything else.
+- **P1c deadlocked the whole system.** Suppressing spawns whenever a player
+  is unseen also suppresses the FIRST car: commit a crime on an empty street
+  and three seconds later nobody can see you, so nobody is sent, so nobody
+  ever can. Dispatching the first unit is the crime being reported;
+  suppressing the second is the search being called off.
+- **The dispatch budget had to stop counting searchers.** Six units combing
+  the wrong block read as a full response while a suspect stood in plain
+  view three streets away.
+- **P3's waves did not group.** Taking the unitIndex-th valid kerbside point
+  scatters them, because the spawn list is row-major over the window; a wave
+  of five measured 1126 px across. They stage on one point now.
+- **S2 got easier, not harder.** The plan costed an airstrip against city
+  blocks and found it barely fits. The countryside that landed on main
+  mid-build made it straightforward, and an airfield in a meadow is where
+  one belongs.
 
 ---
 
@@ -161,6 +186,8 @@ Wave S  (the sky)                    S1 the helicopter ── S2 airstrip + airc
 - **R1 needs nothing and unblocks nothing.** It can land in any gap.
 
 **Recommended order:** P1 → P2 → R1 → P3 → R2 → R3 → S1 → S2 → S3.
+
+*(Built in exactly this order.)*
 
 P1 rides first because it is the actual bug and because every other item in
 Wave P and Wave S is tuned against it. R1 rides third because it is the
