@@ -77,6 +77,56 @@ describe('the river', () => {
     expect(Array.from(again.tiles)).toEqual(Array.from(map.tiles));
     expect(again.boatSpawns).toEqual(map.boatSpawns);
   });
+
+  it('bridges cross water; they never run along it or across the sea', () => {
+    // Every bridge tile must belong to a genuine crossing: a run of
+    // water-or-bridge no longer than maxBridgeSpan along SOME axis. A
+    // causeway — a road laid lengthwise over a river — or a span across
+    // open water fails this on both axes. The road is supposed to stop at
+    // the bank there, and the boat is supposed to be the way across.
+    const wet = (m: typeof map, tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= m.widthTiles || ty >= m.heightTiles) return false;
+      const t = m.tiles[ty * m.widthTiles + tx];
+      return t === T_WATER || t === T_BRIDGE;
+    };
+    const span = (m: typeof map, tx: number, ty: number, dx: number, dy: number): number => {
+      let n = 1;
+      for (let s = 1; wet(m, tx + dx * s, ty + dy * s); s++) n++;
+      for (let s = 1; wet(m, tx - dx * s, ty - dy * s); s++) n++;
+      return n;
+    };
+    const max = params.water.maxBridgeSpan;
+    for (const seed of [1, 7, 42, 1234, 90210]) {
+      const m = generateCity(seed, params);
+      for (let ty = 0; ty < m.heightTiles; ty++) {
+        for (let tx = 0; tx < m.widthTiles; tx++) {
+          if (m.tiles[ty * m.widthTiles + tx] !== T_BRIDGE) continue;
+          // Interior tiles only: at the window rim a run is cut short by
+          // the edge, which reads as "short" — skip the ambiguity.
+          if (tx < max || ty < max || tx >= m.widthTiles - max || ty >= m.heightTiles - max)
+            continue;
+          const ok = Math.min(span(m, tx, ty, 0, 1), span(m, tx, ty, 1, 0)) <= max;
+          expect(ok, `seed ${seed}: causeway/sea bridge at (${tx}, ${ty})`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('every bridge tile is open water underneath — boats go under, everywhere', () => {
+    for (const seed of [1, 7, 1234]) {
+      const m = generateCity(seed, params);
+      let bridges = 0;
+      for (let ty = 0; ty < m.heightTiles; ty++) {
+        for (let tx = 0; tx < m.widthTiles; tx++) {
+          if (m.tiles[ty * m.widthTiles + tx] !== T_BRIDGE) continue;
+          bridges++;
+          expect(isSolidTile(m, tx, ty, 'water'), `seed ${seed} bridge (${tx}, ${ty})`).toBe(false);
+          expect(isSolidTile(m, tx, ty, 'land'), `seed ${seed} bridge (${tx}, ${ty})`).toBe(false);
+        }
+      }
+      expect(bridges).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('media', () => {

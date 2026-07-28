@@ -1,5 +1,37 @@
 # PROGRESS
 
+## Worldgen: bridges are crossings, not causeways
+
+322 tests green (two new); brawl 45 s PASS, 0 desyncs. Seed-breaking for
+bridge/water tiles only (`water.maxBridgeSpan` added to params).
+
+The unbounded-world bridge rule was "arterial over water ⇒ bridge", which
+had two failure modes the renders made obvious: an arterial running
+LENGTHWISE over a river became a causeway that roofed the waterway for
+dozens of tiles, and wide water got crossed as casually as a ditch. The
+rule is now span-limited and axis-aware: `arterialMask` records which
+axis carved each tile (`ARTERIAL_VERTICAL`/`ARTERIAL_HORIZONTAL`), and a
+tile bridges only when the water span measured ALONG that road's
+direction of travel is ≤ `maxBridgeSpan` (20 — chosen by measurement:
+at 16, seed 7's oblique crossings left its whole window bridgeless).
+Spans are measured on the water FIELD, not the window arrays, so the
+decision stays identical from every viewport. Where the span is too
+long, the road now stops at the bank and the boat is the way across —
+wide water is finally a real barrier.
+
+Boats under bridges needed no collision change — `isSolidTile` has
+carried "bridge: road on top, navigable water underneath" since D1 and
+there is no boat AI probing tiles — but it was only tested for one tile
+on one seed. Now pinned for every bridge tile across three seeds, along
+with the anti-causeway invariant: every interior bridge tile belongs to
+a crossing ≤ maxBridgeSpan along some axis, five seeds.
+
+**Least confident about.** Interrupted arterials (a road that dips into
+a lengthwise river stretch now dead-ends at the bank, resumes beyond)
+rely on traffic's existing stuck-recovery to turn cars around at the
+water's edge; the bot gates pass but no test pins a car's behaviour at a
+drowned road end specifically.
+
 ## Worldgen: the unbounded world (WORLDGEN.md §10)
 
 The map is now a WINDOW onto an infinite design. 320 tests green (up from

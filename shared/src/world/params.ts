@@ -48,8 +48,13 @@ export interface WorldgenParams {
     parkWildness: number;
     grit: number;
   };
-  /** Waterways: noise-contour bands. `scale` = wavelength in tiles, `width` = half-band in field units. */
-  water: { scale: number; width: number };
+  /**
+   * Waterways: noise-contour bands. `scale` = wavelength in tiles, `width` =
+   * half-band in field units. `maxBridgeSpan` = the longest water crossing
+   * (tiles, along the road's direction) an arterial will bridge — anything
+   * wider is sea, and the road stops at the bank.
+   */
+  water: { scale: number; width: number; maxBridgeSpan: number };
   /** Roughly one parked car every N road-edge tiles (district-independent for now). */
   parkedCarSpacing: number;
   shopQuota: { gun: number; clothing: number; spray: number };
@@ -137,6 +142,7 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     water: {
       scale: num(waterRaw['scale'], 'water.scale'),
       width: num(waterRaw['width'], 'water.width'),
+      maxBridgeSpan: num(waterRaw['maxBridgeSpan'], 'water.maxBridgeSpan'),
     },
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
     turf: parseTurf(r['turf']),

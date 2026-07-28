@@ -41,7 +41,8 @@
   },
   "water": {
     "scale": 220,
-    "width": 0.018
+    "width": 0.018,
+    "maxBridgeSpan": 20
   },
   "parkedCarSpacing": 14,
   "shopQuota": {

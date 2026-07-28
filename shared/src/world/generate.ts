@@ -2,8 +2,8 @@ import { assignTurf } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
 import { classifyDistrict } from './districts.js';
-import { makeFields } from './fields.js';
-import { generateRoads } from './roads.js';
+import { makeFields, type CityFields } from './fields.js';
+import { ARTERIAL_HORIZONTAL, ARTERIAL_VERTICAL, generateRoads } from './roads.js';
 import { fillBlock } from './buildings.js';
 import {
   placeParking,
@@ -103,14 +103,36 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   const roads = generateRoads(map.tiles, params, districtIdxAt, seed);
   map.blocks = roads.cells.flatMap((c) => c.blocks);
 
-  // Where an ARTERIAL was carved straight over water, that becomes a
-  // bridge: road on top, navigable water underneath. Everything else the
-  // roads trampled goes back to being water, so the crossings stay few and
-  // the waterways stay real barriers.
-  for (let i = 0; i < map.tiles.length; i++) {
-    if (waterMask[i] !== 1) continue;
-    const bridged = map.tiles[i] === T_ROAD && roads.arterialMask[i] === 1;
-    map.tiles[i] = bridged ? T_BRIDGE : T_WATER;
+  // Where an ARTERIAL crosses water, that becomes a bridge: road on top,
+  // navigable water underneath — but only where the crossing is SHORT
+  // along the road's direction of travel. A road running lengthwise over a
+  // river is not a crossing, it is a causeway that roofs the waterway
+  // over; and a stretch of water wider than maxBridgeSpan is sea, where
+  // the road stops at the bank and the boat is the way across. Everything
+  // else the roads trampled goes back to being water. Spans are measured
+  // on the water FIELD (global, pure), not on the window's arrays, so the
+  // decision is identical from every viewport.
+  const maxSpan = params.water.maxBridgeSpan;
+  const crossingSpan = (fs: CityFields, gx: number, gy: number, dx: number, dy: number): number => {
+    let n = 1;
+    for (let s = 1; s <= maxSpan && fs.water(gx + dx * s, gy + dy * s); s++) n++;
+    for (let s = 1; s <= maxSpan && fs.water(gx - dx * s, gy - dy * s); s++) n++;
+    return n;
+  };
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const i = ty * W + tx;
+      if (waterMask[i] !== 1) continue;
+      const axisBits = roads.arterialMask[i] as number;
+      const gx = wx + tx;
+      const gy = wy + ty;
+      const bridged =
+        map.tiles[i] === T_ROAD &&
+        (((axisBits & ARTERIAL_VERTICAL) !== 0 && crossingSpan(fields, gx, gy, 0, 1) <= maxSpan) ||
+          ((axisBits & ARTERIAL_HORIZONTAL) !== 0 &&
+            crossingSpan(fields, gx, gy, 1, 0) <= maxSpan));
+      map.tiles[i] = bridged ? T_BRIDGE : T_WATER;
+    }
   }
 
   // Blocks fill per cell, each block from its own GLOBAL-coordinate-derived

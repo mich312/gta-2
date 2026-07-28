@@ -26,9 +26,19 @@ export interface WorldCell {
   blocks: BlockRect[];
 }
 
+/** arterialMask bits: which kind of arterial carved this tile. */
+export const ARTERIAL_VERTICAL = 1; // runs along y — crosses water east–west bands
+export const ARTERIAL_HORIZONTAL = 2; // runs along x
+
 export interface RoadsResult {
   cells: WorldCell[];
-  /** Tiles carved by an ARTERIAL specifically — the only roads that bridge. */
+  /**
+   * Tiles carved by an ARTERIAL specifically — the only roads that may
+   * bridge — as an axis bitfield (ARTERIAL_VERTICAL | ARTERIAL_HORIZONTAL).
+   * The axis matters: a crossing is judged by the water span along the
+   * road's direction of travel, so a road running ALONG a river must not
+   * count as "crossing" it.
+   */
   arterialMask: Uint8Array;
 }
 
@@ -65,7 +75,7 @@ export function generateRoads(
   const arterialMask = new Uint8Array(W * H);
 
   /** Carve a GLOBAL rect as road, clipped to the window. */
-  const carveG = (gx: number, gy: number, gw: number, gh: number, arterial: boolean): void => {
+  const carveG = (gx: number, gy: number, gw: number, gh: number, arterialBit: number): void => {
     const x1 = Math.max(0, gx - wx);
     const y1 = Math.max(0, gy - wy);
     const x2 = Math.min(W, gx + gw - wx);
@@ -73,7 +83,9 @@ export function generateRoads(
     for (let ty = y1; ty < y2; ty++) {
       for (let tx = x1; tx < x2; tx++) {
         tiles[ty * W + tx] = T_ROAD;
-        if (arterial) arterialMask[ty * W + tx] = 1;
+        if (arterialBit) {
+          arterialMask[ty * W + tx] = (arterialMask[ty * W + tx] as number) | arterialBit;
+        }
       }
     }
   };
@@ -85,10 +97,10 @@ export function generateRoads(
   const ky0 = Math.floor(wy / sp) - 1;
   const ky1 = Math.ceil((wy + H) / sp) + 1;
   for (let k = kx0; k <= kx1; k++) {
-    carveG(arterialCoord(seed, 'x', k, sp) - half, wy, aw, H, true);
+    carveG(arterialCoord(seed, 'x', k, sp) - half, wy, aw, H, ARTERIAL_VERTICAL);
   }
   for (let k = ky0; k <= ky1; k++) {
-    carveG(wx, arterialCoord(seed, 'y', k, sp) - half, W, aw, true);
+    carveG(wx, arterialCoord(seed, 'y', k, sp) - half, W, aw, ARTERIAL_HORIZONTAL);
   }
 
   // Cells between adjacent lattice lines, for every cell whose interior
@@ -139,7 +151,7 @@ export function generateRoads(
           }
           let cut: number;
           [cut, rng] = nextIntRange(rng, lo, hi + 1);
-          carveG(cut, r.y, sw, r.h, false);
+          carveG(cut, r.y, sw, r.h, 0);
           queue.push({ x: r.x, y: r.y, w: cut - r.x, h: r.h });
           queue.push({ x: cut + sw, y: r.y, w: r.x + r.w - cut - sw, h: r.h });
         } else {
@@ -151,7 +163,7 @@ export function generateRoads(
           }
           let cut: number;
           [cut, rng] = nextIntRange(rng, lo, hi + 1);
-          carveG(r.x, cut, r.w, sw, false);
+          carveG(r.x, cut, r.w, sw, 0);
           queue.push({ x: r.x, y: r.y, w: r.w, h: cut - r.y });
           queue.push({ x: r.x, y: cut + sw, w: r.w, h: r.y + r.h - cut - sw });
         }
