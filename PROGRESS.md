@@ -59,6 +59,19 @@ and remembered for five seconds, so the next attempt comes from a different
 street. Nine casualties in ten are now reached, at a mean of twenty seconds
 into a forty-five second clock.
 
+**And then it was looked at.** Everything on this branch that draws — the
+bodies, the dropped guns, the van — had been shipped unverified, twice
+flagged as such. A scratch scenario server (`index.ts`'s own boot, holding the
+Session) staged casualties around whichever browser turned up, and the
+screenshots are in `evidence/`. Two things came out of it. The van reads
+exactly as intended: it drives in, parks on the road beside the scene, and the
+patient gets up. And a casualty was drawn identically to a corpse — which was
+harmless when nothing could be done for either, and wrong the moment an
+ambulance was on its way to one of them. `drawBody` now takes an `alive` flag:
+a body is flat, drained and still; a casualty keeps its colour over a smaller,
+fresher pool and breathes on a slow sine. `evidence/street-down.png` is the
+two of them side by side.
+
 **Least confident about.** `crewReach` (180 px) is the number that decides how
 much of "the ambulance came" is the van and how much is imagined paramedics:
 it exists because a third of casualties are further than that from any road,

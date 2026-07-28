@@ -321,9 +321,22 @@ export function render(
     // Gang members wear their colours. Being able to read a street at a
     // glance is the whole reason turf exists.
     const tint = GANG_TINT[pd.ped.gangId] ?? '#7a7f6d';
-    const down = pd.ped.mode === 'dead' || pd.ped.mode === 'downed';
-    if (down) {
-      drawBody(ctx, sprites, `ped_v${variant}_f0`, dx(pd.x), dy(pd.y), facing, tint);
+    // Down but not out: still on the bleed-out clock, and still worth an
+    // ambulance. See drawBody.
+    const dying = pd.ped.mode === 'downed';
+    if (dying || pd.ped.mode === 'dead') {
+      drawBody(
+        ctx,
+        sprites,
+        `ped_v${variant}_f0`,
+        dx(pd.x),
+        dy(pd.y),
+        facing,
+        tint,
+        dying,
+        scene.nowMs,
+        pd.ped.id,
+      );
       continue;
     }
     const frame = walkFrame(`d${pd.ped.id}`, pd.x, pd.y);
@@ -585,13 +598,20 @@ function drawCharacter(
 const BODY_FLATTEN = 0.55;
 
 /**
- * Somebody who is not getting up.
+ * Somebody on the ground.
  *
  * The sim leaves the dead in the world now — a pedestrian's body for forty
  * seconds, an officer's for the same, a player's until they respawn — and
  * before this they were drawn walking about like everyone else. Same sprite,
- * squashed towards the ground, greyed, over a pool: no new art, and legible
- * at 480 x 270 from across the street.
+ * squashed towards the ground, over a pool: no new art, and legible at
+ * 480 x 270 from across the street.
+ *
+ * `alive` is the whole reason this takes a flag. A pedestrian who went down
+ * instead of dying is on a bleed-out clock and an ambulance is on its way to
+ * them (sim/ambulance.ts) — but drawn identically to a corpse, which is what
+ * a screenshot of the finished feature showed, they are indistinguishable
+ * from the thing nobody can do anything about. A casualty keeps their colour
+ * and breathes; a body is drained and still.
  */
 function drawBody(
   ctx: CanvasRenderingContext2D,
@@ -601,12 +621,17 @@ function drawBody(
   y: number,
   angle: number,
   fallback: string,
+  alive = false,
+  nowMs = 0,
+  /** Phase offset so a row of casualties does not breathe in unison. */
+  phase = 0,
 ): void {
   const r = PLAYER_RADIUS * RENDER_SCALE;
   ctx.save();
-  ctx.fillStyle = 'rgba(96, 14, 18, 0.5)';
+  // Still bleeding, not bled out: a smaller, fresher pool.
+  ctx.fillStyle = alive ? 'rgba(132, 22, 26, 0.38)' : 'rgba(96, 14, 18, 0.5)';
   ctx.beginPath();
-  ctx.ellipse(x, y + r * 0.3, r * 1.5, r * 0.9, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, y + r * 0.3, r * (alive ? 1.1 : 1.5), r * (alive ? 0.7 : 0.9), 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.translate(x, y);
   ctx.scale(1, BODY_FLATTEN);
@@ -615,14 +640,27 @@ function drawBody(
     ctx.fillRect(-r, -r, r * 2, r * 2);
   }
   ctx.restore();
-  // Drained of colour: a body is the one thing on the street that has stopped
-  // being a participant, and it should stop drawing the eye like one.
+
   ctx.save();
-  ctx.globalAlpha = 0.35;
-  ctx.fillStyle = '#1a1a20';
-  ctx.beginPath();
-  ctx.ellipse(x, y, r * 1.1, r * 0.7, 0, 0, Math.PI * 2);
-  ctx.fill();
+  if (alive) {
+    // Breathing. A slow, shallow glow is the cheapest possible "there is
+    // still someone in there", and it is the only cue that says an ambulance
+    // would not be wasted on them.
+    const breath = 0.5 + 0.5 * Math.sin(nowMs * 0.0035 + phase);
+    ctx.globalAlpha = 0.12 + 0.16 * breath;
+    ctx.fillStyle = '#e8d4b0';
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * (0.9 + 0.15 * breath), r * (0.6 + 0.1 * breath), 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else {
+    // Drained of colour: a body is the one thing on the street that has
+    // stopped being a participant, and it should stop drawing the eye.
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#1a1a20';
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 1.1, r * 0.7, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
   ctx.restore();
 }
 
