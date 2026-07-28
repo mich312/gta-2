@@ -5,6 +5,7 @@ import { getTrafficTuning, getTuning, getVehicleTuning, type TrafficTuning } fro
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
 import { createPed, createVehicle } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
+import { distanceToBox, vehicleBox } from './bodies.js';
 import { boxInSolid } from '../world/collide.js';
 import { PED_RADIUS } from './peds.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -1266,9 +1267,11 @@ export function tryCarjack(
   for (const id of state.vehicles.ids) {
     const v = state.vehicles.byId[id];
     if (!v || !isAiDriver(v.driverId) || v.condition !== 'ok') continue;
-    const d = Math.hypot(v.pos.x - p.pos.x, v.pos.y - p.pos.y);
-    const reach = getVehicleTuning(v.kind).enterRadius;
-    if (d <= reach && d < bestD) {
+    // Same door as `tryEnterVehicle`, measured the same way: from the
+    // bodywork. Dragging a driver out of a bus you are standing against
+    // should not depend on how far the middle of the bus happens to be.
+    const d = distanceToBox(p.pos.x, p.pos.y, vehicleBox(v));
+    if (d <= getVehicleTuning(v.kind).enterReach && d < bestD) {
       best = v;
       bestD = d;
     }

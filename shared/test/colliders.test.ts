@@ -396,3 +396,57 @@ describe('lag compensation: the server judges what the client could see', () => 
     expect(state.vehicleTrail[0]!.tick).toBe(state.tick);
   });
 });
+
+describe('you can still get in', () => {
+  // The regression that made a collider fix a gameplay bug. Once people stop
+  // being able to walk INTO a vehicle, they stand against its bodywork — and
+  // `tryEnterVehicle` measured the door from the vehicle's CENTRE. A bus is
+  // 42 px long, so its bumper is 21 px out and the push-out leaves you at
+  // 27.1: outside the 26 px the door reached, with nothing you could do about
+  // it. The bus and the garbage truck became unboardable from front or back,
+  // and neither the unit tests nor the bot harness noticed, because nothing
+  // in either walks up to a bus.
+  const kinds = Object.keys(vehiclesJson as Record<string, unknown>).filter(
+    (k) => (vehiclesJson as Record<string, Record<string, number>>)[k]?.['halfLength'] !== undefined,
+  );
+
+  it.each(kinds.filter((k) => k !== 'boat'))('%s opens its door from any approach', (kind) => {
+    for (let a = 0; a < 8; a++) {
+      const ang = (a * Math.PI) / 4;
+      const map = arena();
+      let state = createGameState(1);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'p' }], map);
+      const cx = 320;
+      const cy = 320;
+      state.players.byId[1]!.pos = { x: cx + Math.cos(ang) * 60, y: cy + Math.sin(ang) * 60 };
+      state = step(
+        state,
+        {},
+        [{ type: 'spawnVehicle', vehicleId: 2, kind, x: cx, y: cy, heading: 0 }],
+        map,
+      );
+      const toward = {
+        left: Math.cos(ang) > 0.3,
+        right: Math.cos(ang) < -0.3,
+        up: Math.sin(ang) > 0.3,
+        down: Math.sin(ang) < -0.3,
+      };
+      // E is mashed on the way in, because the action is edge-triggered and
+      // because that is what a player does. Walking a fixed distance and
+      // pressing once at the end tests nothing: you slide past the car and
+      // press from the far side, which is how the first draft of this test
+      // managed to pass against the very bug it was written for.
+      for (let i = 0; i < 90 && state.players.byId[1]!.mode !== 'driving'; i++) {
+        state = step(
+          state,
+          { 1: { ...NULL_INPUT, seq: i + 1, tick: i, ...toward, action: i % 2 === 0 } },
+          [],
+          map,
+        );
+      }
+      expect(`${kind}@${a * 45}deg: ${state.players.byId[1]!.mode}`).toBe(
+        `${kind}@${a * 45}deg: driving`,
+      );
+    }
+  });
+});

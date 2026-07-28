@@ -19,7 +19,10 @@
  * was looking at when it made this input, so the server can judge the
  * collisions it produced against that same moment (lag compensation; see
  * sim/rewind.ts). It is a required field on the wire, so a client that does
- * not send it cannot be decoded.
+ * not send it cannot be decoded. The vehicle tuning payload also lost
+ * `enterRadius` and gained `enterReach`: the door is measured from the
+ * bodywork now rather than from the vehicle's centre, which is the only
+ * measure that reaches the front of a bus.
  */
 export const PROTOCOL_VERSION = 8;
 

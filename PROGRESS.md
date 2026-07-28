@@ -2,7 +2,7 @@
 
 ## Colliders on one clock and one shape: cars, people, and a server that goes back and looks
 
-528 tests green (up from 507; 21 new across three files). 8-bot brawl and
+542 tests green (up from 507; 35 new across three files). 8-bot brawl and
 joyride harness runs lockstep with 0 desyncs at ~11 KB/s per client against
 the 50 KB/s gate, corrections 2.65–3.03 px, replay re-simulates
 hash-identical. Wire contract bumped to protocol 8.
@@ -104,6 +104,39 @@ tests pin it, and both fail on the code as first committed. The first draft
 of the car-to-car one passed against the bug because it staged the cars at
 the origin, where the map edge is solid and a WALL hit was what stopped
 them; it is now staged mid-field, and that trap is written down in the test.
+
+**A second defect, found by asking about tanks.** Making people solid against
+cars has a consequence the change did not follow through: you now stand
+against the BODYWORK, and `tryEnterVehicle` measured the door from the
+vehicle's CENTRE. A bus is 42 px long, so its bumper is 21 px out and the
+push-out leaves you at 27.1 — outside the 26 px the door reached, with
+nothing you could do about it. The bus and the garbage truck became
+unboardable from directly in front or behind. The tank, the vehicle the
+question was about, survives at 25.1 with nine tenths of a pixel to spare,
+which is luck rather than design. Nothing caught it: no unit test walks up to
+a bus, and the bot harness scripts never board one either.
+
+The door is now measured from the bodywork (`distanceToBox`), which is what
+"how close am I to that car" should always have meant — a fixed
+centre-distance gets stranger the longer the vehicle is. `enterRadius` is
+renamed `enterReach` rather than retuned, so nobody reads the smaller number
+as a shorter reach: 20 px past the panels is 25.5 from the centre of a car's
+flank, where 26 from the centre used to be, and 41 from the centre of a bus's
+nose, where 26 never reached the paint at all. Carjacking uses the same door
+and the same measure. Every land vehicle is now boardable from all eight
+approaches, pinned per kind by a test that is red on both of the previous two
+commits.
+
+**On probes that agree with you.** The first version of that boarding probe
+reported every vehicle unboardable from every angle — including on the code
+from before any of this work. It walked for a fixed ninety ticks and pressed
+E once at the end, so the player slid past the car and pressed from 160 px
+away. Two earlier drafts of the corner-contact tests had the same shape of
+flaw: staged at the origin, where a car's near side is outside the map and
+therefore solid, so a WALL hit was what stopped the car and the test passed
+against the bug it was written for. Three times in one change, a test agreed
+with the code for the wrong reason. Every regression test here is now checked
+red against the commit it was written to catch.
 
 **Least confident about.** The 1/8 px separation skin is set to one step of
 the `q8` grid because exactly flush does not survive the round trip through

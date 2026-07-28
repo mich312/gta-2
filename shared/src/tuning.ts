@@ -22,7 +22,15 @@ export interface VehicleTuning {
   minSteerSpeedFrac: number;
   /** Speed multiplier applied on hitting a wall or another car. */
   crashDamp: number;
-  enterRadius: number;
+  /**
+   * How far past the BODYWORK you can be and still open a door, px — not a
+   * distance from the centre, which is what `enterRadius` used to be. See
+   * `distanceToBox`. Renamed rather than retuned so nobody reads the smaller
+   * number as a shorter reach: 20 past the panels is 25.5 from the centre of
+   * a car's flank, where 26 from the centre used to be, and 41 from the
+   * centre of a bus's nose, where 26 did not reach the paint.
+   */
+  enterReach: number;
   /** Collision box half-extent (cars are boxes for tile collision). */
   halfExtent: number;
   /**
@@ -508,7 +516,7 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     turnRate: n('turnRate'),
     minSteerSpeedFrac: n('minSteerSpeedFrac'),
     crashDamp: n('crashDamp'),
-    enterRadius: n('enterRadius'),
+    enterReach: n('enterReach'),
     halfExtent: n('halfExtent'),
     halfLength: n('halfLength'),
     halfWidth: n('halfWidth'),

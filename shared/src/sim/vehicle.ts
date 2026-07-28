@@ -7,7 +7,7 @@ import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
-import { boxesOverlap, poseIn, vehicleBox, vehicleBoxAt } from './bodies.js';
+import { boxesOverlap, distanceToBox, poseIn, vehicleBox, vehicleBoxAt } from './bodies.js';
 import type { Pose, VehicleWorld } from './bodies.js';
 import type { SimEvent } from './events.js';
 import {
@@ -415,10 +415,14 @@ export function tryEnterVehicle(
     if (v.condition === 'wreck') continue; // scenery, not transport
     if (Math.abs(v.speed) > MAX_BOARDING_SPEED) continue;
     const t = getVehicleTuning(v.kind);
-    const dx = v.pos.x - p.pos.x;
-    const dy = v.pos.y - p.pos.y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d <= t.enterRadius && d < bestD) {
+    // From the BODYWORK, not the centre. Measured from the centre, a door
+    // reach that suits a car does not reach the front of a bus: a bus is 42 px
+    // long, so its bumper is already 21 px out, and once people stopped being
+    // able to walk INTO a vehicle the old rule stranded you against the nose
+    // of the biggest ones with the door refusing to open. Nearest by the same
+    // measure, so the vehicle you are touching is the one you get in.
+    const d = distanceToBox(p.pos.x, p.pos.y, vehicleBox(v));
+    if (d <= t.enterReach && d < bestD) {
       best = v;
       bestD = d;
     }

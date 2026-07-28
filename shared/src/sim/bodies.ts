@@ -235,6 +235,27 @@ export function pushOutOfBox(
   return { x: px * b.cos - py * b.sin, y: px * b.sin + py * b.cos };
 }
 
+/**
+ * How far (cx, cy) is from the box's surface. Zero inside it.
+ *
+ * What "how close am I to that car" should have meant all along. Measuring to
+ * the CENTRE instead is a rule that gets stranger the longer the vehicle is:
+ * a bus is 42 px end to end, so standing against its bumper puts you 21 px
+ * from its centre before you have left the paintwork, and a fixed
+ * centre-distance door reach runs out somewhere around the wheel arch.
+ */
+export function distanceToBox(cx: number, cy: number, b: BodyBox): number {
+  const rx = cx - b.x;
+  const ry = cy - b.y;
+  const lx = rx * b.cos + ry * b.sin;
+  const ly = -rx * b.sin + ry * b.cos;
+  const qx = lx < -b.halfLength ? -b.halfLength : lx > b.halfLength ? b.halfLength : lx;
+  const qy = ly < -b.halfWidth ? -b.halfWidth : ly > b.halfWidth ? b.halfWidth : ly;
+  const dx = lx - qx;
+  const dy = ly - qy;
+  return dx === 0 && dy === 0 ? 0 : Math.sqrt(dx * dx + dy * dy);
+}
+
 /** Does a circle at (cx, cy) touch the box? */
 export function circleHitsBox(cx: number, cy: number, radius: number, b: BodyBox): boolean {
   const rx = cx - b.x;
