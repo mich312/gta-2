@@ -217,6 +217,11 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (p) p.cosmeticId = cmd.cosmeticId;
       break;
     }
+    case 'addHeat': {
+      const p = state.players.byId[cmd.playerId];
+      if (p) addHeat(p, cmd.amount);
+      break;
+    }
     case 'clearHeat': {
       // A respray. Heat, wanted level and the interest of every cop already
       // on the street all go at once, which is what makes it an escape and

@@ -43,6 +43,14 @@ export interface BuyResult {
 }
 
 /** Everything the HUD needs about a player's standing, in one shot. */
+export interface RobResult {
+  holding: boolean;
+  /** 0..1 while the hold-up runs, for the HUD bar. */
+  progress: number;
+  done: boolean;
+  take: number;
+}
+
 export interface Wallet {
   cash: number;
   multiplier: number;
@@ -68,6 +76,10 @@ export class Economy {
   private readonly standings: Standings;
   /** Who has found which hidden packages. See secrets.ts. */
   readonly secrets: Secrets;
+  /** Ticks each player has been holding up a counter. */
+  private readonly robProgress = new Map<number, number>();
+  /** Shops closed by a hold-up, by door, until this wall-clock time. */
+  private readonly shutUntilMs = new Map<string, number>();
   /** Latest state/map, stashed by processTick so `credit` knows where you are. */
   private currentState: GameState | null = null;
   private currentMap: CityMap | null = null;
@@ -131,6 +143,62 @@ export class Economy {
 
   multiplierOf(playerId: number): number {
     return this.multiplierByPlayer.get(playerId) ?? 1;
+  }
+
+  /**
+   * Holding up a shop.
+   *
+   * Server-side entirely, including the shop's closed state: one more refusal
+   * in code that already refuses, rather than a field on the wire for a door.
+   *
+   * The heat is deliberately large. A robbery is the most located, most
+   * defended earning path in the game — you cannot do it and drive away in
+   * the same second — and it is the one that gives the police something to
+   * arrive at.
+   */
+  robTick(playerId: number, state: GameState, map: CityMap, nowMs: number): RobResult {
+    const idle: RobResult = { holding: false, progress: 0, done: false, take: 0 };
+    const p = state.players.byId[playerId];
+    if (!p || p.mode !== 'foot') {
+      this.robProgress.delete(playerId);
+      return idle;
+    }
+    const shop = map.shops.find((s) => {
+      const cx = (s.doorX + 0.5) * TILE_SIZE;
+      const cy = (s.doorY + 0.5) * TILE_SIZE;
+      return (
+        Math.abs(p.pos.x - cx) < DOORWAY_RADIUS_PX && Math.abs(p.pos.y - cy) < DOORWAY_RADIUS_PX
+      );
+    });
+    // Unarmed, or not at a counter, or this one is already shut: no hold-up.
+    const armed = (p.weapons[p.activeWeapon]?.weaponId ?? 'fists') !== 'fists';
+    if (!shop || !armed || this.isShut(shop, nowMs)) {
+      this.robProgress.delete(playerId);
+      return idle;
+    }
+
+    const t = this.params.rob;
+    const at = (this.robProgress.get(playerId) ?? 0) + 1;
+    if (at < t.ticks) {
+      this.robProgress.set(playerId, at);
+      return { holding: true, progress: at / t.ticks, done: false, take: 0 };
+    }
+    this.robProgress.delete(playerId);
+    this.shutUntilMs.set(`${shop.doorX},${shop.doorY}`, nowMs + t.reopenSec * 1000);
+    // Through `credit`, so the till is multiplied and capped like everything
+    // else — a robbery is work, not a windfall outside the economy.
+    this.credit(playerId, t.take, `rob:${shop.doorX},${shop.doorY}`);
+    return { holding: true, progress: 1, done: true, take: t.take };
+  }
+
+  /** What emptying a till costs you with the police. */
+  get robHeat(): number {
+    return this.params.rob.heat;
+  }
+
+  /** Is this shop shut because somebody just robbed it? */
+  isShut(shop: { doorX: number; doorY: number }, nowMs: number): boolean {
+    return (this.shutUntilMs.get(`${shop.doorX},${shop.doorY}`) ?? 0) > nowMs;
   }
 
   /**
@@ -247,6 +315,17 @@ export class Economy {
       );
     });
     if (!inShop) return fail(`find a ${item.shop} shop`);
+    const robbed = map.shops.find(
+      (s) => s.kind === item.shop && this.isShut(s, Date.now()),
+    );
+    if (robbed) {
+      const cx = (robbed.doorX + 0.5) * TILE_SIZE;
+      const cy = (robbed.doorY + 0.5) * TILE_SIZE;
+      const here =
+        Math.abs(player.pos.x - cx) < DOORWAY_RADIUS_PX * 2 &&
+        Math.abs(player.pos.y - cy) < DOORWAY_RADIUS_PX * 2;
+      if (here) return fail('shut — somebody robbed the place');
+    }
 
     // The upper shelf is what a district decides it trusts you with. Refused
     // with a reason rather than silently, because a shop that ignores you is
@@ -411,6 +490,15 @@ export class Economy {
         // finished is worth what it was worth, and the next one is worth more.
         this.raiseMultiplier(ev.playerId, this.params.multiplier.frenzyGain);
         changed.add(ev.playerId);
+      } else if (ev.type === 'pickupTaken' && ev.kind === 'cash') {
+        // What a body was carrying. Through `credit` and therefore through
+        // the per-minute cap and the repeat-decay, which is the difference
+        // between a bit of flavour and a farm: ten minutes of shooting
+        // pedestrians must lose to one mission, and there is a test.
+        const amount = this.awards.killAward(ev.playerId, -1, nowMs);
+        if (amount > 0 && this.credit(ev.playerId, Math.round(amount * 0.35), 'cash')) {
+          changed.add(ev.playerId);
+        }
       } else if (ev.type === 'pickupTaken' && ev.kind === 'multi') {
         // The crate's entire effect. It lands here rather than in the sim
         // because nothing in step() reads a multiplier, and it goes through

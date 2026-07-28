@@ -59,7 +59,8 @@ export type PickupKind =
   | 'damage'
   | 'invis'
   | 'reload'
-  | 'multi';
+  | 'multi'
+  | 'cash';
 
 /**
  * Behaviour-altering power-ups, as bits rather than a field each.

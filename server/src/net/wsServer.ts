@@ -120,6 +120,23 @@ export class GameServer {
     // same command path as everything else missions do.
     for (const cmd of this.missions.drainCommands()) this.session.queueCommand(cmd);
 
+    // Hold-ups. Driven off the same held key the garage uses, which is free
+    // and unambiguous: you cannot be in a car and at a counter at once.
+    for (const [playerId, conn] of this.byPlayer) {
+      const holding = this.session.lastIntents[playerId]?.fitting === true;
+      const res = holding
+        ? this.economy.robTick(playerId, this.session.state, this.session.map, Date.now())
+        : this.economy.robTick(-1, this.session.state, this.session.map, Date.now());
+      if (!holding || !res.done) continue;
+      this.session.queueCommand({ type: 'addHeat', playerId, amount: this.economy.robHeat });
+      conn.send({
+        type: 'event',
+        tick: this.session.state.tick,
+        event: { type: 'notice', text: `till emptied — $${res.take}` },
+      });
+      conn.send({ type: 'wallet', ...this.economy.walletOf(playerId) });
+    }
+
     // Hidden packages: proximity, server-side, touching nothing in the sim.
     for (const find of this.economy.secrets.step(this.session.state, this.session.map)) {
       if (find.reward > 0) this.economy.creditSecret(find.playerId, find.reward, find.found);

@@ -31,6 +31,8 @@ export interface EconomyParams {
   districts: DistrictParams;
   /** Hidden-package reach and rewards; see economy/secrets.ts. */
   secrets: SecretParams;
+  /** Holding up a shop: how long it takes, what it pays, what it costs. */
+  rob: { ticks: number; take: number; reopenSec: number; heat: number };
   crush: {
     base: number;
     byKind: Record<string, number>;
@@ -87,6 +89,21 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
     crush: parseCrush(r['crush']),
   districts: parseDistrictParams(r['districts']),
   secrets: parseSecretParams(r['secrets']),
+  rob: parseRob(r['rob']),
+  };
+}
+
+function parseRob(raw: unknown): EconomyParams['rob'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  const n = (k: string, fallback: number): number => {
+    const v = r[k];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : fallback;
+  };
+  return {
+    ticks: n('ticks', 90),
+    take: n('take', 900),
+    reopenSec: n('reopenSec', 120),
+    heat: n('heat', 180),
   };
 }
 

@@ -673,3 +673,90 @@ describe('district standing gates services, not geography (L3)', () => {
     expect(economy.leaderboard()[0]?.cash).toBeDefined();
   });
 });
+
+describe('money you can find, and a till you can empty (O1)', () => {
+  const p2 = parseEconomyParams(economyJson);
+
+  function robSetup() {
+    const map = generateCity(777, worldgen);
+    const economy = new Economy(new MemoryStore(), catalog, p2);
+    let state = createGameState(777);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'robber' }], map);
+    economy.bindGuest(1);
+    const shop = map.shops[0]!;
+    const p = state.players.byId[1]!;
+    p.pos = { x: (shop.doorX + 0.5) * TILE_SIZE, y: (shop.doorY + 0.5) * TILE_SIZE };
+    p.weapons = [{ weaponId: 'pistol', ammo: 30 }];
+    p.activeWeapon = 0;
+    return { map, economy, state, shop };
+  }
+
+  it('a hold-up takes time, pays once, and shuts the shop', () => {
+    const { map, economy, state, shop } = robSetup();
+    const before = economy.cashOf(1);
+    let done = 0;
+    for (let i = 0; i < p2.rob.ticks + 5; i++) {
+      if (economy.robTick(1, state, map, 1_000_000).done) done++;
+    }
+    expect(done).toBe(1);
+    expect(economy.cashOf(1)).toBe(before + p2.rob.take);
+    expect(economy.isShut(shop, 1_000_000)).toBe(true);
+    // ...and it opens again later.
+    expect(economy.isShut(shop, 1_000_000 + p2.rob.reopenSec * 1000 + 1)).toBe(false);
+  });
+
+  it('a shut shop refuses to serve you, with a reason', () => {
+    const { map, economy, state, shop } = robSetup();
+    for (let i = 0; i < p2.rob.ticks; i++) economy.robTick(1, state, map, Date.now());
+    expect(economy.isShut(shop, Date.now())).toBe(true);
+    const res = economy.buy(1, 'pistol', state, map);
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/robbed/);
+  });
+
+  it('you cannot hold up a counter with your bare hands', () => {
+    const { map, economy, state } = robSetup();
+    state.players.byId[1]!.weapons = [{ weaponId: 'fists', ammo: 0 }];
+    for (let i = 0; i < p2.rob.ticks + 5; i++) {
+      expect(economy.robTick(1, state, map, 1_000_000).holding).toBe(false);
+    }
+  });
+
+  it('walking away resets it, so a hold-up has to be held', () => {
+    const { map, economy, state } = robSetup();
+    for (let i = 0; i < p2.rob.ticks - 5; i++) economy.robTick(1, state, map, 1_000_000);
+    const p = state.players.byId[1]!;
+    const was = { x: p.pos.x, y: p.pos.y };
+    p.pos = { x: was.x + 500, y: was.y };
+    economy.robTick(1, state, map, 1_000_000);
+    p.pos = was;
+    // Back at the counter, but starting again.
+    let done = false;
+    for (let i = 0; i < p2.rob.ticks - 1; i++) {
+      if (economy.robTick(1, state, map, 1_000_000).done) done = true;
+    }
+    expect(done).toBe(false);
+  });
+
+  it('shooting pedestrians for ten minutes loses to one mission', () => {
+    // THE anti-farm test. Cash drops route through the same capped,
+    // decaying chokepoint as everything else, which is the difference between
+    // flavour and an exploit.
+    const { map, economy, state } = robSetup();
+    void map;
+    let farmed = 0;
+    for (let minute = 0; minute < 10; minute++) {
+      const before = economy.cashOf(1);
+      for (let i = 0; i < 200; i++) {
+        economy.processTick(
+          [{ type: 'pickupTaken', tick: i, kind: 'cash', playerId: 1, x: 0, y: 0 }],
+          state,
+          1_000_000 + minute * 60_000 + i * 100,
+        );
+      }
+      farmed += economy.cashOf(1) - before;
+    }
+    const mission = 2600; // the red-tier hit, from the mission board
+    expect(farmed).toBeLessThan(mission);
+  });
+});

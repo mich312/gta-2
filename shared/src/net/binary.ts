@@ -123,6 +123,7 @@ const PICKUP_KINDS = [
   'reload',
   // Append-only: the index is the wire format.
   'multi',
+  'cash',
 ] as const;
 const VEHICLE_CONDITIONS = ['ok', 'burning', 'wreck'] as const;
 

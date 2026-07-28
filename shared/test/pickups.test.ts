@@ -10,12 +10,14 @@ import worldgenJson from '../data/worldgen.json';
 import { getTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
-import { createGameState, type GameState } from '../src/sim/state.js';
+import { createPed, createPickup, createGameState, type GameState } from '../src/sim/state.js';
+import { insertEntity } from '../src/sim/entities.js';
+import { damagePed } from '../src/sim/peds.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
-import { roadLane } from './helpers.js';
+import { clearSpot, roadLane } from './helpers.js';
 
 const map = generateCity(5150, parseWorldgenParams(worldgenJson));
 
@@ -228,5 +230,63 @@ describe('fists', () => {
     expect(state.players.byId[1]!.mode).toBe('dead');
     expect(state.players.byId[1]!.weapons.map((w) => w.weaponId)).toEqual(['fists']);
     expect(state.players.byId[1]!.activeWeapon).toBe(0);
+  });
+});
+
+describe('cash on the ground (O1)', () => {
+  it('a body drops what it was carrying, and only for a killer who exists', () => {
+    let s = createGameState(4242);
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    const spot = clearSpot(map, s.players.byId[1]!.pos, 40);
+    insertEntity(s.peds, createPed(700, { x: spot.x, y: spot.y }, 30));
+    const before = s.pickups.ids.length;
+    damagePed(s, s.peds.byId[700]!, 999, 1, []);
+    const dropped = s.pickups.ids
+      .map((id) => s.pickups.byId[id]!)
+      .filter((pu) => pu.kind === 'cash');
+    expect(dropped.length).toBe(1);
+    expect(s.pickups.ids.length).toBe(before + 1);
+
+    // A gang-war casualty (attacker -1) leaves nothing: nobody earned it.
+    insertEntity(s.peds, createPed(701, { x: spot.x, y: spot.y }, 30));
+    const was = s.pickups.ids.length;
+    damagePed(s, s.peds.byId[701]!, 999, -1, []);
+    expect(s.pickups.ids.length).toBe(was);
+  });
+
+  it('a wad nobody takes does not litter the city for ever', () => {
+    let s = createGameState(4243);
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    // Far from the player so it is not collected the moment it lands.
+    const far = clearSpot(map, s.players.byId[1]!.pos, 600);
+    insertEntity(s.pickups, createPickup(900, 'cash', { x: far.x, y: far.y }));
+    let gone = false;
+    for (let i = 0; i < 30 * 30 && !gone; i++) {
+      s = step(s, { 1: { ...NULL_INPUT, seq: i + 1, tick: s.tick } }, [], map);
+      if (!s.pickups.byId[900]) gone = true;
+    }
+    expect(gone).toBe(true);
+  });
+
+  it('taking one always succeeds and changes nothing in the sim', () => {
+    // Money is not sim state: the crate's whole effect is the event, priced
+    // by the server through the same capped chokepoint as everything else.
+    let s = createGameState(4244);
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    const p = s.players.byId[1]!;
+    const events: SimEvent[] = [];
+    s = step(
+      s,
+      {},
+      [{ type: 'spawnPickup', pickupId: 901, kind: 'cash', x: p.pos.x, y: p.pos.y }],
+      map,
+      events,
+    );
+    const taken = events.find((e) => e.type === 'pickupTaken');
+    expect(taken).toBeDefined();
+    if (taken && taken.type === 'pickupTaken') expect(taken.kind).toBe('cash');
+    const me = s.players.byId[1]!;
+    expect(me.health).toBe(100);
+    expect(me.powerFlags).toBe(0);
   });
 });

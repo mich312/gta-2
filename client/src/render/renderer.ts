@@ -646,6 +646,8 @@ const PICKUP_COLORS: Record<string, string> = {
   reload: '#c39ce0',
   // Gold, and alone in being gold: it is the rarest thing on the ground.
   multi: '#ffd75e',
+  // Green, and the only green that is not health: it is money.
+  cash: '#8fe07a',
 };
 
 /**

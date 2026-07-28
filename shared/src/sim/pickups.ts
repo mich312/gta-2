@@ -1,3 +1,4 @@
+import { removeEntity } from './entities.js';
 import { TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
 import { getTuning } from '../tuning.js';
@@ -39,11 +40,24 @@ export function stepPickups(state: GameState, events: SimEvent[]): void {
     if (!pu) continue;
 
     if (!pu.active) {
+      // A dropped wad is gone once taken; it is not street furniture that
+      // comes back. Worldgen crates are, and they always have been.
+      if (pu.kind === 'cash') {
+        removeEntity(state.pickups, id);
+        continue;
+      }
       if (pu.respawnAtTick !== null && state.tick >= pu.respawnAtTick) {
         pu.active = true;
         pu.respawnAtTick = null;
         events.push({ type: 'pickupUp', tick: state.tick, kind: pu.kind, id: pu.id });
       }
+      continue;
+    }
+    // ...and one nobody picks up does not litter the city for ever.
+    if (pu.kind === 'cash' && pu.respawnAtTick === null) {
+      pu.respawnAtTick = state.tick + CASH_LIFETIME_TICKS;
+    } else if (pu.kind === 'cash' && state.tick >= (pu.respawnAtTick ?? 0)) {
+      removeEntity(state.pickups, id);
       continue;
     }
 
@@ -82,6 +96,9 @@ function lightTimed(p: PlayerState, bit: number, seconds: number, tick: number):
   p.powerUntilTick = tick + Math.round(seconds * TICK_RATE);
 }
 
+/** How long a dropped wad lies in the road before it is gone. */
+const CASH_LIFETIME_TICKS = 20 * 30;
+
 /** Apply a pickup's effect. False if the player has no room for it. */
 function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
   const t = getTuning().pickups;
@@ -110,6 +127,11 @@ function consume(pu: PickupState, p: PlayerState, tick: number): boolean {
       if (p.heat <= 0) return false;
       p.heat = 0;
       p.wantedLevel = 0;
+      return true;
+    }
+    case 'cash': {
+      // Same shape as `multi`, and for the same reason: money is not sim
+      // state. Taking it always succeeds and the whole effect is the event.
       return true;
     }
     case 'multi': {

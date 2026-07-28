@@ -72,5 +72,11 @@
         "cash": 60000
       }
     ]
+  },
+  "rob": {
+    "ticks": 90,
+    "take": 900,
+    "reopenSec": 120,
+    "heat": 180
   }
 }

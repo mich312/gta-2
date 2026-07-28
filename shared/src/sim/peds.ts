@@ -3,11 +3,11 @@ import { q8 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
 import type { GameState, PedState, PlayerState } from './state.js';
-import { addHeat, POWER_INVISIBLE } from './state.js';
+import { addHeat, POWER_INVISIBLE, createPickup } from './state.js';
 import { creditGangKill, isHostile } from './respect.js';
 import { applyDamage, rayWallDistance } from './weapons.js';
 import { gangAt } from '../world/turf.js';
-import { removeEntity } from './entities.js';
+import { insertEntity, removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import { T_SIDEWALK, TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile, moveWithCollision } from '../world/collide.js';
@@ -322,6 +322,16 @@ export function damagePed(
     ped.mode = 'downed';
     ped.timer = Math.round(t.bleedOutSec * TICK_RATE);
     return;
+  }
+  // What they were carrying, on the ground for a moment. A crate rather than
+  // a number, because money is not sim state: the server prices it off the
+  // pickupTaken event, through the same capped chokepoint every other earning
+  // path goes through — which is what stops this becoming the farm.
+  if (attackerId >= 0) {
+    insertEntity(
+      state.pickups,
+      createPickup(state.nextEntityId++, 'cash', { x: ped.pos.x, y: ped.pos.y }),
+    );
   }
   removeEntity(state.peds, ped.id);
   const attacker = state.players.byId[attackerId];

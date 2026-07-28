@@ -89,6 +89,8 @@ export class Session {
   private pedSpawnCursor = 0;
   /** Events emitted by the most recent tick (kills, shots, deaths). */
   lastEvents: SimEvent[] = [];
+  /** Intents applied on the last tick, by player id. */
+  lastIntents: Record<number, InputIntent | undefined> = {};
   private pendingRespawns: Array<{
     playerId: number;
     dueTick: number;
@@ -374,6 +376,9 @@ export class Session {
     const events: SimEvent[] = [];
     this.state = step(this.state, inputs, commands, this.map, events);
     this.lastEvents = events;
+    // Kept for anything server-side that needs to know what a player was
+    // holding this tick — a hold-up (O1) is a held key, not an event.
+    this.lastIntents = inputs;
 
     // Deaths schedule a respawn. The WEAPONS_LOST_ON_DEATH design flag lives
     // HERE, not in sim code: it only changes what loadout the respawn
