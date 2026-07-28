@@ -1,5 +1,5 @@
 import { TILE_SIZE, type CityMap, type JunctionMap, type SignalHead } from '../world/types.js';
-import { drivableTile } from './roadgrid.js';
+import { CARDINALS, RIGHT_STEP, drivableTile } from './roadgrid.js';
 
 /**
  * Traffic signals.
@@ -135,13 +135,49 @@ export function labelJunctions(map: CityMap): JunctionMap {
 }
 
 /**
- * One head per arm of every junction: the road tile immediately outside it,
- * and the direction traffic is going when it arrives there.
+ * The tile a driver travelling `dirIdx` is on when the junction ahead of it
+ * first becomes its problem: drivable, not itself inside a junction, with a
+ * junction tile immediately in front. That is exactly where `stopLineGap`
+ * first sees the light, so the head and the stop line agree by construction
+ * rather than by two constants being kept in step.
+ */
+function isApproachTile(
+  map: CityMap,
+  idOf: Int16Array,
+  tx: number,
+  ty: number,
+  dirIdx: number,
+): number {
+  const w = map.widthTiles;
+  const h = map.heightTiles;
+  if (tx < 0 || ty < 0 || tx >= w || ty >= h) return -1;
+  if (!drivableTile(map, tx, ty) || idOf[ty * w + tx] !== -1) return -1;
+  const [dx, dy] = CARDINALS[dirIdx] as readonly [number, number];
+  const nx = tx + dx;
+  const ny = ty + dy;
+  if (nx < 0 || ny < 0 || nx >= w || ny >= h) return -1;
+  return idOf[ny * w + nx] as number;
+}
+
+/**
+ * One head per arm of every junction — not one per tile of tarmac.
  *
- * A tile qualifies when it is drivable, is not itself part of a junction, and
- * has a junction tile in front of it. That is exactly the tile a driver is on
- * when `stopLineGap` first sees the light, so the head and the stop line
- * agree by construction rather than by two constants being kept in step.
+ * The first version emitted a head for every approach tile, which on a
+ * four-tile arterial meant four lights strung right across the carriageway,
+ * half of them standing over the lanes leaving the junction. A crossroads read
+ * as a string of fairy lights rather than as a junction, and it said something
+ * false: those outer lights are not governing anybody.
+ *
+ * A real head stands at the kerb on the near right of the approach, one per
+ * arm, and that is a purely local test — a tile carries the head when the
+ * tile one step further towards the driver's right is not another approach
+ * tile of the same junction. So the kerb-most tile of each contiguous run
+ * wins, one head per arm falls out, and a carriageway split by a central
+ * reservation (two runs) correctly gets one each.
+ *
+ * Which half is the approach comes from `RIGHT_STEP`, the same fact the lane
+ * model steers by: heading east you keep to the south half, so the light you
+ * obey is the one on the southern kerb.
  */
 function collectHeads(map: CityMap, idOf: Int16Array): SignalHead[] {
   const w = map.widthTiles;
@@ -149,13 +185,12 @@ function collectHeads(map: CityMap, idOf: Int16Array): SignalHead[] {
   const heads: SignalHead[] = [];
   for (let ty = 0; ty < h; ty++) {
     for (let tx = 0; tx < w; tx++) {
-      if (!drivableTile(map, tx, ty) || idOf[ty * w + tx] !== -1) continue;
       for (let dirIdx = 0; dirIdx < 4; dirIdx++) {
-        const nx = tx + (dirIdx === 0 ? 1 : dirIdx === 2 ? -1 : 0);
-        const ny = ty + (dirIdx === 1 ? 1 : dirIdx === 3 ? -1 : 0);
-        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
-        const id = idOf[ny * w + nx] as number;
+        const id = isApproachTile(map, idOf, tx, ty, dirIdx);
         if (id === -1) continue;
+        const [rx, ry] = RIGHT_STEP[dirIdx] as readonly [number, number];
+        // Somebody further right is closer to the kerb: let them have it.
+        if (isApproachTile(map, idOf, tx + rx, ty + ry, dirIdx) === id) continue;
         heads.push({
           x: tx * TILE_SIZE + TILE_SIZE / 2,
           y: ty * TILE_SIZE + TILE_SIZE / 2,

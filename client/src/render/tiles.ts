@@ -13,6 +13,7 @@ import {
   T_RAMP,
   T_FLOOR,
   TILE_SIZE,
+  RIGHT_SIGN,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
@@ -38,6 +39,27 @@ const TD = TILE_SIZE * RENDER_SCALE;
 const RUN_ROAD = 8;
 /** Carriageway width at which a street counts as a main road. */
 const ARTERIAL_WIDTH = 4;
+
+/**
+ * Where the centre line falls inside one carriageway tile, as a fraction of
+ * the tile from its low edge — or null when the centre is not in this tile.
+ *
+ * The old rule was "the far edge of tile `floor(width / 2) - 1`", which is the
+ * middle only when the road is an even number of tiles across. Every secondary
+ * road in this city is three tiles wide, so the line landed on the boundary
+ * between the first tile and the second, and the street had a lane and a half
+ * on one side of it and half a lane on the other.
+ *
+ * The sim never agreed: `laneOptions` has always put the two lanes at the true
+ * centre of the drivable span, plus and minus a quarter of its width. This is
+ * the paint catching up, and it is a pure function so the arithmetic can be
+ * checked without a canvas.
+ */
+export function laneCentreInTile(width: number, index: number): number | null {
+  if (width < 2) return null;
+  const at = width / 2 - index;
+  return at > 0 && at <= 1 ? at : null;
+}
 
 interface Chunk {
   canvas: HTMLCanvasElement;
@@ -618,17 +640,21 @@ export class TileLayer {
     vertical: boolean,
   ): void {
     const t = RENDER_SCALE; // 1 world px
-    const mid = width / 2 - 1;
 
-    // Centre line: dashes along the direction of travel.
-    if (width >= 2 && index === Math.floor(mid)) {
+    // Centre line: dashes along the direction of travel, down the true middle
+    // of the carriageway. See `laneCentreInTile`.
+    const centreInTile = laneCentreInTile(width, index);
+    if (centreInTile !== null) {
       ctx.fillStyle = palette.roadLane;
+      // Rounded to a whole device pixel, so an odd width does not put the line
+      // on a half pixel and let the filter smear it across two.
+      const at = Math.round(centreInTile * TD - t / 2);
       const dashes = 2;
       const dashLen = TD / (dashes * 2);
       for (let d = 0; d < dashes; d++) {
         const off = d * dashLen * 2 + dashLen / 2;
-        if (vertical) ctx.fillRect(x + TD - t, y + off, t, dashLen);
-        else ctx.fillRect(x + off, y + TD - t, dashLen, t);
+        if (vertical) ctx.fillRect(x + at, y + off, t, dashLen);
+        else ctx.fillRect(x + off, y + at, dashLen, t);
       }
     }
     // Edge lines, held one pixel off the kerb.
@@ -651,9 +677,24 @@ export class TileLayer {
     const ahead = vertical ? this.junctionAt(tx, ty + 1) || this.junctionAt(tx, ty - 1) : this.junctionAt(tx + 1, ty) || this.junctionAt(tx - 1, ty);
     if (!ahead || width < ARTERIAL_WIDTH) return;
     const forward = vertical ? this.junctionAt(tx, ty + 1) : this.junctionAt(tx + 1, ty);
-    ctx.fillStyle = palette.roadStop;
-    if (vertical) ctx.fillRect(x, forward ? y + TD - 3 * t : y + t, TD, 2 * t);
-    else ctx.fillRect(forward ? x + TD - 3 * t : x + t, y, 2 * t, TD);
+
+    // A stop line holds the traffic going INTO the junction, so it covers that
+    // half of the carriageway and stops at the centre line. Painted across the
+    // full width — which is what it used to do — it told drivers coming the
+    // other way to stop at a junction they were leaving.
+    //
+    // `index` counts from the low edge of the run, so the approaching half is
+    // the one this direction's traffic keeps to: driving on the right, that is
+    // the low side heading south or west and the high side heading north or
+    // east. Only the direction with the junction in front of it is marked.
+    const dirIdx = vertical ? (forward ? 1 : 3) : forward ? 0 : 2;
+    const onHighSide = (RIGHT_SIGN[dirIdx] as number) > 0;
+    const approaching = onHighSide ? index >= width / 2 : index < width / 2;
+    if (approaching) {
+      ctx.fillStyle = palette.roadStop;
+      if (vertical) ctx.fillRect(x, forward ? y + TD - 3 * t : y + t, TD, 2 * t);
+      else ctx.fillRect(forward ? x + TD - 3 * t : x + t, y, 2 * t, TD);
+    }
 
     // Zebra: stripes spaced to fill exactly one tile, whatever TILE_SIZE is.
     ctx.fillStyle = palette.roadCrossing;

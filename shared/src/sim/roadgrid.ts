@@ -23,6 +23,27 @@ export const CARDINALS: ReadonlyArray<readonly [number, number]> = [
 /** Heading of each cardinal direction. */
 export const CARDINAL_ANGLE = [0, HALF_PI, PI, -HALF_PI] as const;
 
+/**
+ * Which way is the driver's right, along the axis across their travel,
+ * indexed by cardinal: heading east your right is +y, heading south it is -x.
+ *
+ * This city drives on the right. Everything that has to agree about which half
+ * of a carriageway belongs to which direction reads it from here — the lane
+ * model in `traffic.ts` picks its lanes with it, and the signal heads in
+ * `signals.ts` stand on the kerb it points at. The two used to be separate
+ * facts, and a signal on the wrong side of the road is the kind of thing that
+ * looks like an art bug rather than a disagreement about traffic law.
+ */
+export const RIGHT_SIGN = [1, -1, -1, 1] as const;
+
+/** The unit step towards the driver's right, in tiles, indexed by cardinal. */
+export const RIGHT_STEP: ReadonlyArray<readonly [number, number]> = [
+  [0, 1],
+  [-1, 0],
+  [0, -1],
+  [1, 0],
+];
+
 /** Drivable by a car: road, and the bridges that carry it. */
 export function drivableTile(map: CityMap, tx: number, ty: number): boolean {
   if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;

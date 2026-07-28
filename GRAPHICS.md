@@ -249,6 +249,36 @@ The best of it is free: a shop's interior light is inside a room whose walls are
 solid tiles, so the light spills out through the doorway and nowhere else,
 without anybody writing a doorway case.
 
+### The paint, and where the lights stand
+
+Two things on the road surface were saying something false.
+
+**The centre line was not in the centre.** The rule was "the far edge of tile
+`floor(width / 2) - 1`", which is the middle only on a road with an even number
+of tiles across it. Every secondary road in this city is three tiles wide, so
+the line landed on the boundary between the first tile and the second, and the
+street had a lane and a half on one side and half a lane on the other. The
+simulation never agreed with the paint: `laneOptions` has always put the two
+lanes at the true centre of the drivable span, plus and minus a quarter of its
+width. `laneCentreInTile` is the paint catching up — and it is a pure function,
+so the arithmetic is checked without a canvas.
+
+**Every junction was a string of fairy lights.** Signal heads were emitted per
+approach *tile*, so a four-tile arterial arm carried four of them strung right
+across the carriageway, half standing over the lanes going the other way — 2465
+heads in a city with 228 junctions. A head belongs on the kerb at the near right
+of one approach, and that is a local test: a tile carries the head when the tile
+one step further towards the driver's right is not another approach tile of the
+same junction. The kerb-most tile of each run wins, one head per arm falls out,
+and the count drops to 755 — four on a crossroads, three on a T-junction, and a
+carriageway split by a central reservation correctly gets one per side.
+
+Which half of a road belongs to which direction is now one fact, `RIGHT_SIGN` in
+`roadgrid.ts`, read by the lane model, the signal heads and the stop lines
+alike. The stop lines moved with it: they stop at the centre line instead of
+crossing it, because a stop line spanning the full width was telling the traffic
+leaving a junction to halt at it.
+
 ### Lamps that behave like lamps
 
 The old flicker was one sine per lamp, out of phase by id — a gentle collective
