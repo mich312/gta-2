@@ -7,6 +7,7 @@ import type { WorldgenParams } from './params.js';
 import {
   DISTRICT_TYPES,
   T_BANK,
+  T_SAND,
   T_BUILDING,
   T_FLOOR,
   T_LOT,
@@ -444,11 +445,28 @@ export function placeProps(map: CityMap): void {
   let barrelN = 0;
   for (let ty = 0; ty < map.heightTiles; ty++) {
     for (let tx = 0; tx < map.widthTiles; tx++) {
-      if (t(map, tx, ty) !== T_SIDEWALK) continue;
-      const roadRight = t(map, tx + 1, ty) === T_ROAD;
-      const roadDown = t(map, tx, ty + 1) === T_ROAD;
+      const tile = t(map, tx, ty);
+      // Barrels stand on the yard as well as the pavement: an industrial
+      // slab in this world mostly fronts onto its LOT, and a barrel rule
+      // that only knew sidewalks put zero barrels in a city whose industry
+      // had no kerbs.
+      if (tile !== T_SIDEWALK && tile !== T_LOT) continue;
       const bldLeft = t(map, tx - 1, ty) === T_BUILDING;
       const bldUp = t(map, tx, ty - 1) === T_BUILDING;
+      if (tile === T_LOT) {
+        const district = DISTRICT_TYPES[map.district[ty * map.widthTiles + tx] as number];
+        if ((bldLeft || bldUp) && district === 'industrial' && ++barrelN % 3 === 0) {
+          barrels.push({
+            kind: 'barrel',
+            x: (tx + 0.5) * TILE_SIZE,
+            y: (ty + 0.5) * TILE_SIZE,
+            orient: 0,
+          });
+        }
+        continue;
+      }
+      const roadRight = t(map, tx + 1, ty) === T_ROAD;
+      const roadDown = t(map, tx, ty + 1) === T_ROAD;
       const parkLeft = t(map, tx - 1, ty) === T_PARK;
       const parkUp = t(map, tx, ty - 1) === T_PARK;
       // Lamp spacing varies by district: downtown is brightly lit, industrial
@@ -671,6 +689,7 @@ export function placeBoatSpawns(map: CityMap): void {
           const near = t(map, tx + dx, ty + dy);
           if (
             near === T_BANK ||
+            near === T_SAND ||
             near === T_SIDEWALK ||
             near === T_ROAD ||
             near === T_PARK ||
@@ -800,12 +819,12 @@ export function placeLandmarks(
       const w = Math.min(minW, b.w - 2);
       const h = Math.min(minH, b.h - 2);
       if (w < 3 || h < 3) continue;
-      // Never on the water, and never on the quay that lines it.
+      // Never on the water, nor the quay, nor the beach.
       let clear = true;
       for (let ty = y; ty < y + h && clear; ty++) {
         for (let tx = x; tx < x + w; tx++) {
           const tile = t(map, tx, ty);
-          if (tile === T_WATER || tile === T_BANK) {
+          if (tile === T_WATER || tile === T_BANK || tile === T_SAND) {
             clear = false;
             break;
           }

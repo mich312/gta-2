@@ -9,6 +9,7 @@ import { createGameState, type GameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import { hashState } from '../src/net/hash.js';
+import { openSquare } from './helpers.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import { HALF_PI, PI, wrapAngle } from '../src/math/trig.js';
 
@@ -150,7 +151,9 @@ describe('step', () => {
     const speeds = [{ up: true }, { up: true, right: true }].map((keys) => {
       let state = createGameState(13);
       state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
-      state.players.byId[1]!.pos = { ...map.playerSpawns[0]! };
+      // Mid-clearing, not at spawn point zero: twenty ticks of running must
+      // not clip a wall, or the comparison measures collision, not speed.
+      state.players.byId[1]!.pos = openSquare(map);
       for (let i = 0; i < 20; i++) {
         state = step(
           state,

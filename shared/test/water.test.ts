@@ -17,7 +17,7 @@ import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import { isSolidTile, boxInSolid } from '../src/world/collide.js';
-import { T_BANK, T_BRIDGE, T_BUILDING, T_WATER, TILE_SIZE } from '../src/world/types.js';
+import { T_BANK, T_BRIDGE, T_BUILDING, T_SAND, T_WATER, TILE_SIZE } from '../src/world/types.js';
 import { hashState } from '../src/net/hash.js';
 
 initTuning({
@@ -133,7 +133,11 @@ describe('the river', () => {
         ] as const) {
           const n = map.tiles[(ty + dy) * map.widthTiles + (tx + dx)] as number;
           const allowed =
-            n === T_WATER || n === T_BRIDGE || n === T_BANK || n === 1; /* T_ROAD */
+            n === T_WATER ||
+            n === T_BRIDGE ||
+            n === T_BANK ||
+            n === T_SAND ||
+            n === 1; /* T_ROAD */
           expect(allowed, `tile ${n} flush against water at (${tx + dx}, ${ty + dy})`).toBe(true);
         }
       }

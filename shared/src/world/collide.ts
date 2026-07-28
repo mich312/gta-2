@@ -1,5 +1,5 @@
 import type { Vec2 } from '../math/vec.js';
-import { T_BRIDGE, T_BUILDING, T_WATER, TILE_SIZE, type CityMap } from './types.js';
+import { T_BRIDGE, T_BUILDING, T_TREES, T_WATER, TILE_SIZE, type CityMap } from './types.js';
 
 const EPS = 0.001;
 
@@ -24,7 +24,8 @@ export function isSolidTile(
   if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return true;
   const tile = map.tiles[ty * map.widthTiles + tx];
   if (medium === 'water') return tile !== T_WATER && tile !== T_BRIDGE;
-  return tile === T_BUILDING || tile === T_WATER;
+  // Forest is solid like a building: woods are driven around, not through.
+  return tile === T_BUILDING || tile === T_WATER || tile === T_TREES;
 }
 
 export function isSolidAtWorld(
