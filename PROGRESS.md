@@ -2,7 +2,7 @@
 
 ## The tank drives over cars
 
-561 tests green (up from 542; 19 new). 8-bot brawl and joyride lockstep, 0
+564 tests green (up from 542; 22 new). 8-bot brawl and joyride lockstep, 0
 desyncs, replay re-simulates hash-identical.
 
 A tank flattens anything lighter than a truck and keeps going; the car it
@@ -58,11 +58,37 @@ on a fuse; a line of eight; a car proving it cannot do any of this; and the
 client-mode prediction pinned directly by running the shared step with
 `sim === null`, which is exactly what the predictor passes.
 
-**Least confident about.** A tank loses no momentum driving over a car, which
-is the literal reading of "drives over" and may read as weightless in the
-hand; a small speed loss like the one props take is a one-line tuning change
-if it does. The 2.0 threshold is a first guess at where "bigger than a tank"
-should fall.
+**And it costs you something.** Driving over a car with no momentum lost read
+as weightless, which was the one thing flagged as unresolved above and turned
+out to be right. `crushSpeedLoss: 0.96` — speed kept per TICK while grinding
+over something, not the flat one-off a prop takes (`props.crashSpeedLoss`,
+0.92). A bollard is a discrete thing you smash through; a car under a tank is
+62 px of obstacle you are on top of for most of a second, and charging by the
+tick needs no memory of which cars have already been paid for, which is what
+lets both hosts agree without a byte of new state on the wire.
+
+Swept, not guessed: 0.98 dips to 98% of top speed and cannot be felt, 0.95
+halves it, 0.92 slows the tank so much it fails to reach the sixth car in the
+line at all. 0.96 gives a 25% dip for a single car with full recovery on the
+far side, and a continuous plough through a row of them settling near 60% —
+slower going, which is what it should be, rather than a crawl.
+
+It cannot pin the tank, and that is arithmetic rather than luck: drag takes
+`speed * 0.04` per tick while the throttle puts back a flat `accel * DT`, so
+the two meet at 63 px/s and the tank always grinds through. A tank that could
+be stalled by parked cars would be a tank you could trap.
+
+The drag runs on BOTH hosts, and that is the whole reason `crushUnderneath`
+became `driveOverCrushables`: the slowdown is part of how the tank moves, so
+the client predicts it, while the wreckage stays with whoever holds `sim`.
+Splitting it the other way — drag on the server alone — would have the client
+running ahead by the entire slowdown and being corrected for it once per car,
+which is the same mistake as not predicting the pass-through, just quieter.
+
+**Least confident about.** The 2.0 crush threshold is still a first guess at
+where "bigger than a tank" should fall, and 0.96 is a judgement about feel
+made against a speed trace rather than in a browser — both are one number in
+`vehicles.json`.
 
 ## Colliders on one clock and one shape: cars, people, and a server that goes back and looks
 

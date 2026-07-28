@@ -125,7 +125,14 @@ function overlappingVehicle(
 }
 
 /**
- * Flatten everything `heavy` is currently standing on.
+ * Drive over everything `heavy` is currently standing on.
+ *
+ * Two halves with different owners, which is the whole shape of this
+ * function. The DRAG is part of how the tank moves, so it runs on both hosts
+ * and the client predicts it; the WRECKAGE is somebody else's vehicle, so it
+ * happens only where `sim` is non-null. Splitting them the other way — drag
+ * on the server alone — would have the client running ahead by the entire
+ * slowdown and being corrected for it once per car.
  *
  * The car goes up on the spot rather than catching light and going up seven
  * seconds later somewhere behind you: a tank rolling down a street leaves a
@@ -145,16 +152,42 @@ function overlappingVehicle(
  * through a junction. Here there is nothing to tell apart: you were driving a
  * tank, and the car was underneath it.
  */
-function crushUnderneath(sim: GameState, heavy: VehicleState, events: SimEvent[]): void {
+function driveOverCrushables(
+  world: VehicleWorld | null,
+  heavy: VehicleState,
+  sim: GameState | null,
+  events: SimEvent[],
+): void {
+  if (!world) return;
+  const t = getVehicleTuning(heavy.kind);
+  if (t.crushesBelowMass <= 0) return;
   const box = vehicleBox(heavy);
-  // Snapshot the ids: destroying one ignites its neighbours, which may add to
-  // the table's contents, and iteration order must not depend on that.
-  for (const id of [...sim.vehicles.ids]) {
+  let dragged = false;
+  // Snapshot the ids: destroying one ignites its neighbours, and iteration
+  // order must not depend on what that does to the table.
+  for (const id of [...world.vehicles.ids]) {
     if (id === heavy.id) continue;
+    const other = world.vehicles.byId[id];
+    if (!other || !crushes(heavy.kind, other.kind)) continue;
+    // Detected where the DRIVER saw it, exactly like the contact it replaces:
+    // on the server that is the pose rewound to the driver's clock, on the
+    // client it is the delayed view it draws. Same instant, same verdict.
+    const pose = poseIn(world, other);
+    if (!boxesOverlap(box, vehicleBoxAt(other.kind, pose.x, pose.y, pose.heading))) continue;
+
+    // The drag runs on BOTH hosts — it is part of how the tank moves, and a
+    // client that did not predict it would run ahead by the whole slowdown
+    // and be corrected for it on every car. Repeated multiplication in
+    // sorted-id order, never Math.pow, which is not pinned across engines.
+    heavy.speed = heavy.speed * t.crushSpeedLoss;
+    dragged = true;
+
+    // What becomes of the car is the server's alone, and it happens to the
+    // LIVE one rather than to the pose we detected against. A wreck is
+    // already flat: it still drags, it does not explode twice.
+    if (!sim) continue;
     const victim = sim.vehicles.byId[id];
-    if (!victim || victim.condition !== 'ok') continue; // a wreck is already flat
-    if (!crushes(heavy.kind, victim.kind)) continue;
-    if (!boxesOverlap(box, vehicleBox(victim))) continue;
+    if (!victim || victim.condition !== 'ok') continue;
     damageVehicle(
       sim,
       victim,
@@ -172,6 +205,7 @@ function crushUnderneath(sim: GameState, heavy: VehicleState, events: SimEvent[]
       detonateVehicle(sim, lit, events, heavy.id);
     }
   }
+  if (dragged) heavy.speed = q8(heavy.speed);
 }
 
 /** Ticks a pair stays immune after a shunt. See `GameState.vehicleHitTick`. */
@@ -250,12 +284,8 @@ function integrateVehicle(
       });
     }
   }
-  // Anything it drove over. Server only — the client already knows it does
-  // not stop (see `crushes`), and what becomes of the car underneath is
-  // somebody else's vehicle, which a client has no business deciding.
-  if (sim && getVehicleTuning(v.kind).crushesBelowMass > 0) {
-    crushUnderneath(sim, v, events ?? []);
-  }
+  // Anything it drove over: the drag on both hosts, the wreckage on one.
+  driveOverCrushables(world, v, sim, events ?? []);
   const hit = overlappingVehicle(world, v);
   if (hit) {
     const other = hit.other;

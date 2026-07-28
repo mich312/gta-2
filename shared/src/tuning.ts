@@ -80,6 +80,23 @@ export interface VehicleTuning {
    * 2.2), and any vehicle added later sorts itself.
    */
   crushesBelowMass: number;
+  /**
+   * Speed kept per tick while grinding over something, so driving over a car
+   * costs a little momentum instead of being free. 1 — the default — is no
+   * loss at all.
+   *
+   * Per TICK rather than per car, unlike the flat one-off a prop takes
+   * (`props.crashSpeedLoss`). A bollard is a discrete thing you smash
+   * through; a car under a tank is 62 px of obstacle you are on top of for
+   * most of a second, and charging by the tick needs no memory of which cars
+   * have already been paid for — which is what lets both hosts agree without
+   * any new state on the wire.
+   *
+   * It is self-limiting and cannot pin the tank: drag takes `speed * (1 - x)`
+   * per tick while the throttle puts back a flat `accel * DT`, so the two
+   * meet at a speed well above zero and the tank always grinds through.
+   */
+  crushSpeedLoss: number;
 }
 
 export interface WeaponTuning {
@@ -542,6 +559,8 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
     crushesBelowMass:
       typeof r['crushesBelowMass'] === 'number' ? r['crushesBelowMass'] : 0,
+    crushSpeedLoss:
+      typeof r['crushSpeedLoss'] === 'number' ? r['crushSpeedLoss'] : 1,
   };
 }
 

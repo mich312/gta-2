@@ -308,7 +308,8 @@
     "explosionDamage": 154,
     "collisionDamagePerSpeed": 0.55,
     "turretOffset": -4.5,
-    "crushesBelowMass": 2.0
+    "crushesBelowMass": 2.0,
+    "crushSpeedLoss": 0.96
   },
   "gangcar": {
     "accel": 164,

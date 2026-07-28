@@ -630,3 +630,85 @@ describe('the tank drives over cars', () => {
     expect(victim!.pos.x).toBeGreaterThan(VICTIM_X);
   });
 });
+
+describe('driving over a car costs you something', () => {
+  /** Tank at full speed, one parked car ahead; returns the speed profile. */
+  function ploughThrough(cars: number): { top: number; dip: number; final: number; x: number } {
+    const map = arena();
+    let state = createGameState(3);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'd' }], map);
+    state.players.byId[1]!.pos = { x: 120, y: 320 };
+    const cmds: Array<Record<string, unknown>> = [
+      { type: 'spawnVehicle', vehicleId: 2, kind: 'tank', x: 120, y: 320, heading: 0 },
+    ];
+    for (let i = 0; i < cars; i++) {
+      cmds.push({
+        type: 'spawnVehicle',
+        vehicleId: 10 + i,
+        kind: 'car',
+        x: 420 + i * 70,
+        y: 320,
+        heading: 0,
+      });
+    }
+    state = step(state, {}, cmds as never, map);
+    state = step(state, { 1: key(1, { action: true }) }, [], map);
+    let dip = Infinity;
+    for (let i = 0; i < 320; i++) {
+      state = step(state, { 1: key(i + 2, { up: true }) }, [], map);
+      const t = state.vehicles.byId[2]!;
+      // Only once it has actually reached the first car.
+      if (t.pos.x > 380) dip = Math.min(dip, t.speed);
+    }
+    const tank = state.vehicles.byId[2]!;
+    return {
+      top: getVehicleTuning('tank').maxSpeed,
+      dip,
+      final: tank.speed,
+      x: tank.pos.x,
+    };
+  }
+
+  it('a single car is a thump you feel, not a free ride', () => {
+    const { top, dip, final } = ploughThrough(1);
+    // Measured 75% of top speed at the worst moment. Free (dip === top) is
+    // what this is here to stop; so is grinding to a halt.
+    expect(dip).toBeLessThan(top * 0.9);
+    expect(dip).toBeGreaterThan(top * 0.5);
+    // ...and it is back up to speed by the far side.
+    expect(final).toBe(top);
+  });
+
+  it('a line of them settles at a slower cruise instead of compounding to a stop', () => {
+    // Per-tick drag against a flat throttle meets at a speed well above zero,
+    // so ploughing continuously is slower going — not a trap. A tank that
+    // could be stalled by parked cars would be a tank you could pin.
+    //
+    // This one guards the OPPOSITE direction from its two neighbours: it
+    // passes happily with no drag at all, and fails if `crushSpeedLoss` is
+    // ever tuned low enough to bog the tank down. Both bounds, so the number
+    // has somewhere to live rather than a floor and open sky.
+    const { top, dip, x } = ploughThrough(6);
+    expect(dip).toBeGreaterThan(top * 0.4);
+    expect(x).toBeGreaterThan(420 + 5 * 70); // got past all six
+  });
+
+  it('the drag is predicted client-side, or it is a correction per car', () => {
+    // Same argument as the pass-through itself: the drag changes how the tank
+    // MOVES, so a client that did not predict it would run ahead by the whole
+    // slowdown and be pulled back once per car. `sim === null` is exactly
+    // what `Predictor.advance` passes.
+    const map = arena();
+    const tank = createVehicle(1, 'tank', { x: 120, y: 320 }, 0);
+    const parked = createVehicle(2, 'car', { x: 420, y: 320 }, 0);
+    const world = { vehicles: { ids: [1, 2], byId: { 1: tank, 2: parked } } };
+    let dip = Infinity;
+    for (let i = 0; i < 200; i++) {
+      driveVehicle(tank, 1, 0, map, world, null);
+      if (tank.pos.x > 380) dip = Math.min(dip, tank.speed);
+    }
+    // The client slows down too — with no server present to wreck anything.
+    expect(dip).toBeLessThan(getVehicleTuning('tank').maxSpeed * 0.9);
+    expect(parked.condition).toBe('ok');
+  });
+});
