@@ -38,14 +38,28 @@ interface PaletteFile {
 function main(): void {
   let seed = 1;
   let out = '';
+  let wx: number | null = null;
+  let wy: number | null = null;
+  let size: number | null = null;
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)=(.+)$/.exec(a);
     if (m && m[1] === 'seed') seed = Number.parseInt(m[2] as string, 10);
     if (m && m[1] === 'out') out = m[2] as string;
+    if (m && m[1] === 'wx') wx = Number.parseInt(m[2] as string, 10);
+    if (m && m[1] === 'wy') wy = Number.parseInt(m[2] as string, 10);
+    if (m && m[1] === 'size') size = Number.parseInt(m[2] as string, 10);
   }
   if (!out) out = `mapgen-seed${seed}.png`;
 
   const params = loadWorldgenParams();
+  // The world is unbounded; --wx/--wy open the window somewhere else in it,
+  // and --size opens a bigger one (quotas scale with it by design).
+  if (wx !== null) params.windowX = wx;
+  if (wy !== null) params.windowY = wy;
+  if (size !== null) {
+    params.widthTiles = size;
+    params.heightTiles = size;
+  }
   const palette = JSON.parse(
     readFileSync(new URL(import.meta.resolve('shared/data/palette.json')), 'utf8'),
   ) as PaletteFile;

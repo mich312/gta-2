@@ -1,21 +1,19 @@
-import { deriveSeed, nextRange, seedRng } from '../rng/prng.js';
+import { deriveSeed } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
 
 /**
  * L0 of the worldgen layer stack (WORLDGEN.md §9.2): continuous scalar
- * fields over the map. Everything downstream that should *fade* — district
- * intensity, and later block density, lamp spacing, ped counts — samples a
- * field instead of asking "which district am I in".
+ * fields over an UNBOUNDED plane. Everything here is a pure function of
+ * (seed, global tile coordinate) — no map dimensions, no window, no state —
+ * which is what makes the world (nearly) infinite: any viewport evaluates
+ * the same fields and gets the same answer, forever, in any direction.
  *
- * All noise here is integer-hash value noise with polynomial smoothing:
- * no transcendentals, no lookup tables, no state. A field is a pure
- * function of (seed, x, y), bit-identical on every host, sampleable in any
- * order — which is what makes this layer safe to consult from anywhere
- * without the ordering discipline the rng-threaded passes need.
+ * All noise is integer-hash value noise with polynomial smoothing: no
+ * transcendentals, no lookup tables. Bit-identical on every host.
  */
 
 /** Deterministic 0..1 from a lattice point. Same mixing family as turf's. */
-function latticeHash(seed: number, xi: number, yi: number): number {
+export function latticeHash(seed: number, xi: number, yi: number): number {
   let h = seed ^ Math.imul(xi, 374761393) ^ Math.imul(yi, 668265263);
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
@@ -47,66 +45,94 @@ export function fbm(seed: number, x: number, y: number): number {
   return (n0 + n1 * 0.5 + n2 * 0.25) / 1.75;
 }
 
+export interface CityCore {
+  /** Global tile position of the core. */
+  x: number;
+  y: number;
+  /** Peak density this core projects: ~1 is a metropolis, ~0.8 a town. */
+  strength: number;
+}
+
+/**
+ * The city-core lattice: one core per citySpacing×citySpacing cell, at a
+ * hashed position inside the cell (kept off the cell edge so the core lands
+ * well inside any window that contains its cell), with hashed strength.
+ * Cities forever, in every direction, with countryside between them.
+ */
+export function cityCore(seed: number, params: WorldgenParams, ci: number, cj: number): CityCore {
+  const s = params.fields.citySpacing;
+  const coreSeed = deriveSeed(seed, 'fields.cores');
+  const ux = latticeHash(coreSeed, ci * 3 + 1, cj * 3);
+  const uy = latticeHash(coreSeed, ci * 3, cj * 3 + 2);
+  const us = latticeHash(coreSeed, ci * 3 + 2, cj * 3 + 1);
+  return {
+    x: (ci + 0.2 + ux * 0.6) * s,
+    y: (cj + 0.2 + uy * 0.6) * s,
+    strength: 0.8 + us * 0.3,
+  };
+}
+
 export interface CityFields {
   /**
-   * Urban intensity, 0..1: radial falloff from the city core plus noise
-   * wobble. 1 is the middle of downtown, 0 is the map's rural-most corner.
+   * Urban intensity, 0..1 at a GLOBAL tile coordinate: the strongest nearby
+   * city core's falloff plus noise wobble. 1 is the middle of a downtown,
+   * 0 is open country between cities.
    */
-  density(tx: number, ty: number): number;
+  density(gx: number, gy: number): number;
   /** How un-urban a spot wants to be. Independent of density: pockets. */
-  wildness(tx: number, ty: number): number;
+  wildness(gx: number, gy: number): number;
   /** Which low-density ground reads industrial rather than residential. */
-  grit(tx: number, ty: number): number;
-  /** Where downtown's density peak sits, in tiles. */
-  core: { x: number; y: number };
+  grit(gx: number, gy: number): number;
+  /** Waterway field: water where |value - 0.5| < params.water.width. */
+  water(gx: number, gy: number): boolean;
 }
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
-/**
- * Build the field set for one city. The core position is the only random
- * decision — everything else is hashed straight off the coordinates.
- */
+/** Build the field set. Pure functions of global coordinates throughout. */
 export function makeFields(seed: number, params: WorldgenParams): CityFields {
-  const W = params.widthTiles;
-  const H = params.heightTiles;
   const f = params.fields;
-  const span = Math.min(W, H);
-
-  // The core is jittered off-centre so seeds differ at the macro level,
-  // from this layer's own derived stream.
-  let rng = seedRng(deriveSeed(seed, 'fields.core'));
-  let coreX: number;
-  let coreY: number;
-  [coreX, rng] = nextRange(rng, W * 0.38, W * 0.62);
-  [coreY, rng] = nextRange(rng, H * 0.38, H * 0.62);
-
   const densitySeed = deriveSeed(seed, 'fields.density');
   const wildSeed = deriveSeed(seed, 'fields.wildness');
   const gritSeed = deriveSeed(seed, 'fields.grit');
-  const radius = f.coreRadius * span;
+  const waterSeed = deriveSeed(seed, 'fields.water');
+  const spacing = f.citySpacing;
+  const radius = f.coreRadius * spacing;
   const wave = f.noiseTiles;
+  const wScale = params.water.scale;
+  const wWidth = params.water.width;
 
   return {
-    core: { x: coreX, y: coreY },
-    density(tx: number, ty: number): number {
-      const dx = tx - coreX;
-      const dy = ty - coreY;
-      const radial = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / radius);
-      const n = fbm(densitySeed, tx / wave, ty / wave);
-      return clamp01(radial + (n - 0.5) * f.densityNoise * 2);
+    density(gx: number, gy: number): number {
+      // The strongest projection of the 3×3 neighbourhood of cores. One
+      // ring is enough: radius < citySpacing, so a core two cells away
+      // cannot reach here.
+      const ci = Math.floor(gx / spacing);
+      const cj = Math.floor(gy / spacing);
+      let best = 0;
+      for (let dj = -1; dj <= 1; dj++) {
+        for (let di = -1; di <= 1; di++) {
+          const core = cityCore(seed, params, ci + di, cj + dj);
+          const dx = gx - core.x;
+          const dy = gy - core.y;
+          const fall = 1 - Math.sqrt(dx * dx + dy * dy) / radius;
+          if (fall > 0) best = Math.max(best, core.strength * fall);
+        }
+      }
+      const n = fbm(densitySeed, gx / wave, gy / wave);
+      return clamp01(best + (n - 0.5) * f.densityNoise * 2);
     },
-    wildness(tx: number, ty: number): number {
-      return fbm(wildSeed, tx / wave, ty / wave);
+    wildness(gx: number, gy: number): number {
+      return fbm(wildSeed, gx / wave, gy / wave);
     },
-    grit(tx: number, ty: number): number {
-      // Noise plus an edge affinity: heavy industry wants the city rim,
-      // where land is cheap and neighbours don't complain.
-      const edge = Math.min(tx, ty, W - 1 - tx, H - 1 - ty);
-      const edgeBoost = Math.max(0, 1 - edge / (span * 0.14)) * 0.35;
-      return clamp01(fbm(gritSeed, tx / wave, ty / wave) + edgeBoost);
+    grit(gx: number, gy: number): number {
+      return fbm(gritSeed, gx / wave, gy / wave);
+    },
+    water(gx: number, gy: number): boolean {
+      const n = fbm(waterSeed, gx / wScale, gy / wScale);
+      return Math.abs(n - 0.5) < wWidth;
     },
   };
 }

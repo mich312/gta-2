@@ -7,10 +7,20 @@ import { DISTRICT_TYPES, type DistrictType } from './types.js';
  * JSON was tuned after the client bundle was built.
  */
 export interface WorldgenParams {
+  /**
+   * The world is unbounded: every pass is a pure function of (seed, global
+   * tile coordinate). A session materialises a WINDOW of it — this origin
+   * and size, in global tiles. Two windows of the same seed agree tile-for-
+   * tile wherever they overlap (see windows.test.ts), so "the map" is
+   * really a viewport that could be opened anywhere, of any affordable
+   * size. CityMap consumers keep window-local coordinates throughout.
+   */
+  windowX: number;
+  windowY: number;
   widthTiles: number;
   heightTiles: number;
-  arterialsX: number;
-  arterialsY: number;
+  /** Arterial lattice pitch in tiles — arterials run forever, every ~this. */
+  arterialSpacing: number;
   arterialWidth: number;
   secondaryWidth: number;
   /** Per-district [min, max] target block extent in tiles. */
@@ -28,7 +38,9 @@ export interface WorldgenParams {
     noiseTiles: number;
     /** Noise amplitude added to radial density (fraction of full scale). */
     densityNoise: number;
-    /** Radius at which density reaches 0, as a fraction of min(W, H). */
+    /** City-core lattice pitch in tiles: one core per cell, forever. */
+    citySpacing: number;
+    /** Radius at which a core's density reaches 0, fraction of citySpacing. */
     coreRadius: number;
     downtown: number;
     commercial: number;
@@ -36,13 +48,14 @@ export interface WorldgenParams {
     parkWildness: number;
     grit: number;
   };
+  /** Waterways: noise-contour bands. `scale` = wavelength in tiles, `width` = half-band in field units. */
+  water: { scale: number; width: number };
   /** Roughly one parked car every N road-edge tiles (district-independent for now). */
   parkedCarSpacing: number;
   shopQuota: { gun: number; clothing: number; spray: number };
   playerSpawnCount: number;
   playerSpawnMinDist: number;
   /** River width in tiles. */
-  waterWidth: number;
   /**
    * Gang territory. Lives here rather than in gangs.json because worldgen
    * must not depend on runtime tuning being initialised — several tests
@@ -81,6 +94,7 @@ function parseFields(raw: unknown): WorldgenParams['fields'] {
   return {
     noiseTiles: num(r['noiseTiles'], 'fields.noiseTiles'),
     densityNoise: num(r['densityNoise'], 'fields.densityNoise'),
+    citySpacing: num(r['citySpacing'], 'fields.citySpacing'),
     coreRadius: num(r['coreRadius'], 'fields.coreRadius'),
     downtown: num(r['downtown'], 'fields.downtown'),
     commercial: num(r['commercial'], 'fields.commercial'),
@@ -88,6 +102,17 @@ function parseFields(raw: unknown): WorldgenParams['fields'] {
     parkWildness: num(r['parkWildness'], 'fields.parkWildness'),
     grit: num(r['grit'], 'fields.grit'),
   };
+}
+
+/**
+ * Window origin: the one worldgen number allowed to be zero or negative —
+ * a viewport can open anywhere in the unbounded world.
+ */
+function coord(v: unknown, name: string): number {
+  if (typeof v !== 'number' || !Number.isFinite(v) || !Number.isInteger(v)) {
+    throw new Error(`worldgen: ${name} must be a finite integer`);
+  }
+  return v;
 }
 
 export function parseWorldgenParams(raw: unknown): WorldgenParams {
@@ -98,15 +123,21 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     blockSize[d] = pair(blockSizeRaw[d], `blockSize.${d}`);
   }
   const quotaRaw = (r['shopQuota'] ?? {}) as Record<string, unknown>;
+  const waterRaw = (r['water'] ?? {}) as Record<string, unknown>;
   return {
+    windowX: coord(r['windowX'], 'windowX'),
+    windowY: coord(r['windowY'], 'windowY'),
     widthTiles: num(r['widthTiles'], 'widthTiles'),
     heightTiles: num(r['heightTiles'], 'heightTiles'),
-    arterialsX: num(r['arterialsX'], 'arterialsX'),
-    arterialsY: num(r['arterialsY'], 'arterialsY'),
+    arterialSpacing: num(r['arterialSpacing'], 'arterialSpacing'),
     arterialWidth: num(r['arterialWidth'], 'arterialWidth'),
     secondaryWidth: num(r['secondaryWidth'], 'secondaryWidth'),
     blockSize,
     fields: parseFields(r['fields']),
+    water: {
+      scale: num(waterRaw['scale'], 'water.scale'),
+      width: num(waterRaw['width'], 'water.width'),
+    },
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
     turf: parseTurf(r['turf']),
     shopQuota: {
@@ -116,6 +147,5 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     },
     playerSpawnCount: num(r['playerSpawnCount'], 'playerSpawnCount'),
     playerSpawnMinDist: num(r['playerSpawnMinDist'], 'playerSpawnMinDist'),
-    waterWidth: num(r['waterWidth'], 'waterWidth'),
   };
 }

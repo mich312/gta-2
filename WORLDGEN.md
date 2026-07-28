@@ -659,3 +659,51 @@ districts that fade, real edges, beaches that grade into water. Step 4 is
 the biggest single win for *game* code (traffic, roadblocks, routing).
 After step 6, §8's islands, hills and nature are content on a clean
 substrate instead of passes 18 through 26 of a pile.
+
+---
+
+## 10. The unbounded world (implemented)
+
+Fourth wave, and the payoff of §9's discipline: **the world no longer has
+edges**. Implemented, tested and gated — this section records the design
+as built.
+
+**The principle: no pass may depend on the map's extent.** Every layer is
+a pure function of (seed, GLOBAL tile coordinate): fields sample an
+infinite plane; arterials are a jittered lattice whose line k is
+`hash(seed, axis, k)` (`roads.ts: arterialCoord`); waterways are noise-
+contour bands; and everything between arterials generates per **cell** —
+the region between adjacent lattice lines — from rng derived from
+`hash(seed, cell index)`. Density is no longer one radial core but an
+infinite lattice of hashed city cores (`fields.ts: cityCore`) with open
+country between them: cities forever, in every direction.
+
+**A session materialises a window.** `params.windowX/windowY` plus the
+existing width/height select a viewport; `CityMap` keeps window-local
+coordinates, so the sim, prediction, wire protocol and client never
+learned the world grew. Wire positions are varint (§8.1), so a window at
+tile one million costs three bytes a coordinate, same as one at the
+origin. `mapgen --wx/--wy/--size` opens a viewport anywhere.
+
+**The invariant that makes it real** (`windows.test.ts`): two overlapping
+windows of the same seed agree tile-for-tile in their overlap interior.
+The rim is the documented exception: carving passes (shops, landmarks)
+skip footprints not fully inside their own window, so views may differ
+within one cell span of a window edge — confined there by construction.
+
+**Quotas became coverage.** Per-window counts ("4 hospitals") are
+meaningless on an infinite plane, so hospitals and police stations sit on
+a deterministic lattice (every second cell each way, offset apart) and
+shop kinds on their own lattices with pitch derived from the old quota —
+"you are never more than N cells from a gun shop" is now a guarantee
+(§6.2's doctrine), not a spawn-table hope. Turf, player spawns and the
+list-only amenity scans stay window-scoped deliberately: they are session
+furniture, not world features.
+
+**What "nearly" still means.** The *design* is unbounded; a *session*
+still materialises one finite window (walls at its edge), because the
+server's population systems (peds, traffic, pickups) iterate global lists
+and interest management assumes one arena. The remaining work for
+walk-forever play is server-side streaming: chunk-backed `CityMap`
+queries, population that follows players (§8.1's spawner rework), and
+respawn/turf semantics per region. Worldgen is no longer the blocker.

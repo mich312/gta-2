@@ -76,7 +76,13 @@ function commitCrimes(targetLevel: number): GameState {
     if (p1.mode === 'dead' && p1.respawnAtTick !== null && state.tick >= p1.respawnAtTick) {
       cmds.push({ type: 'respawnPlayer', playerId: 1, loadout: PISTOL });
     }
-    state = step(state, { 1: fire(seq++, aim) }, cmds, map);
+    // The crook keeps moving while shooting. Standing still, they are a
+    // stationary suspect — and since the bust-standoff fix an officer who
+    // reaches one ARRESTS them, which zeroes heat and resets the spree this
+    // fixture exists to build. Legging it is what makes you shootable-at
+    // and un-arrestable; it is also what an actual spree looks like.
+    const moving = { ...fire(seq++, aim), right: t % 120 < 60, left: t % 120 >= 60 };
+    state = step(state, { 1: moving }, cmds, map);
   }
   return state;
 }
@@ -356,9 +362,14 @@ describe('escalation by kind', () => {
     stars: number,
     ticks: number,
     seed = 55,
+    at?: { x: number; y: number },
   ): { state: GameState; peakDriving: number; peakCars: number } {
     let state = createGameState(seed);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    // Roadblock tests hand a lane position: blocks are thrown across the
+    // road AHEAD of the fugitive, so a fugitive off in the countryside (or
+    // wherever the seed's spawn landed) may have no kerb ahead to build on.
+    if (at) state.players.byId[1]!.pos = { x: at.x, y: at.y };
     let peakDriving = 0;
     let peakCars = 0;
     for (let i = 0; i < ticks; i++) {
@@ -415,8 +426,9 @@ describe('escalation by kind', () => {
   });
 
   it('four stars throws roadblocks across the road', () => {
-    const three = chaseAt(3, 1500, 61).peakCars;
-    const four = chaseAt(4, 1500, 61).peakCars;
+    const lane = straightEastLane(map);
+    const three = chaseAt(3, 1500, 61, lane).peakCars;
+    const four = chaseAt(4, 1500, 61, lane).peakCars;
     // Roadblock cruisers are additional to pursuit cruisers.
     expect(four).toBeGreaterThan(three);
   });
@@ -429,7 +441,7 @@ describe('escalation by kind', () => {
     // carried a permanent one-bit disagreement with the server — the bot
     // harness read it as an endless hash desync. Found by the harness, fixed
     // at the spawn, pinned here.
-    const { state } = chaseAt(4, 1500, 61);
+    const { state } = chaseAt(4, 1500, 61, straightEastLane(map));
     for (const id of state.vehicles.ids) {
       const v = state.vehicles.byId[id]!;
       expect(v.pos.x * 8, `vehicle ${id} pos.x ${v.pos.x}`).toBeCloseTo(

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import worldgenJson from '../data/worldgen.json';
 import { deriveSeed } from '../src/rng/prng.js';
 import { parseWorldgenParams } from '../src/world/params.js';
-import { makeFields, valueNoise } from '../src/world/fields.js';
+import { cityCore, makeFields, valueNoise } from '../src/world/fields.js';
 import { districtClassifier } from '../src/world/districts.js';
 import { generateCity } from '../src/world/generate.js';
 import { DISTRICT_TYPES } from '../src/world/types.js';
@@ -30,37 +30,54 @@ describe('fields (L0)', () => {
     }
   });
 
-  it('density peaks at the core and falls to the rim', () => {
+  it('every city core projects a city, with countryside between them', () => {
     for (const seed of SEEDS) {
       const f = makeFields(seed, params);
-      const atCore = f.density(Math.round(f.core.x), Math.round(f.core.y));
-      const atCorner = f.density(2, 2);
-      expect(atCore).toBeGreaterThan(0.8);
-      expect(atCorner).toBeLessThan(0.35);
+      // Cores anywhere on the unbounded lattice — including far out and at
+      // negative indices — are density peaks.
+      for (const [ci, cj] of [
+        [0, 0],
+        [3, -2],
+        [-100, 55],
+      ] as const) {
+        const core = cityCore(seed, params, ci, cj);
+        expect(
+          f.density(Math.round(core.x), Math.round(core.y)),
+          `seed ${seed} core (${ci},${cj})`,
+        ).toBeGreaterThan(0.5);
+      }
+      // And somewhere in a lattice cell the ground is open country.
+      const s = params.fields.citySpacing;
+      let min = 1;
+      for (let gy = 0; gy < s; gy += 8) {
+        for (let gx = 0; gx < s; gx += 8) {
+          min = Math.min(min, f.density(gx, gy));
+        }
+      }
+      expect(min, `seed ${seed} has no countryside`).toBeLessThan(params.fields.residential);
     }
   });
 });
 
 describe('district classification (L1)', () => {
-  it('every district type appears, and downtown sits nearer the core than industry', () => {
+  it('every district type appears, and downtown outranks industry on density', () => {
     for (const seed of SEEDS) {
       const classify = districtClassifier(seed, params);
       const f = makeFields(seed, params);
       const counts = new Map<string, number>();
-      let dtDist = 0;
+      let dtDensity = 0;
       let dtN = 0;
-      let indDist = 0;
+      let indDensity = 0;
       let indN = 0;
       for (let ty = 0; ty < params.heightTiles; ty += 2) {
         for (let tx = 0; tx < params.widthTiles; tx += 2) {
           const d = DISTRICT_TYPES[classify(tx, ty)] as string;
           counts.set(d, (counts.get(d) ?? 0) + 1);
-          const dist = Math.hypot(tx - f.core.x, ty - f.core.y);
           if (d === 'downtown') {
-            dtDist += dist;
+            dtDensity += f.density(tx, ty);
             dtN++;
           } else if (d === 'industrial') {
-            indDist += dist;
+            indDensity += f.density(tx, ty);
             indN++;
           }
         }
@@ -68,8 +85,8 @@ describe('district classification (L1)', () => {
       for (const type of DISTRICT_TYPES) {
         expect(counts.get(type) ?? 0, `seed ${seed} has no ${type}`).toBeGreaterThan(0);
       }
-      // The concentric promise: downtown is the centre, industry the rim.
-      expect(dtDist / dtN).toBeLessThan(indDist / indN);
+      // The concentric promise: downtown is the peak, industry the fringe.
+      expect(dtDensity / dtN).toBeGreaterThan(indDensity / indN);
     }
   });
 

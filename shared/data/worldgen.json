@@ -1,8 +1,9 @@
 {
+  "windowX": 0,
+  "windowY": 0,
   "widthTiles": 240,
   "heightTiles": 240,
-  "arterialsX": 3,
-  "arterialsY": 3,
+  "arterialSpacing": 60,
   "arterialWidth": 4,
   "secondaryWidth": 3,
   "blockSize": {
@@ -30,12 +31,17 @@
   "fields": {
     "noiseTiles": 40,
     "densityNoise": 0.22,
-    "coreRadius": 0.62,
+    "citySpacing": 288,
+    "coreRadius": 0.55,
     "downtown": 0.76,
     "commercial": 0.52,
     "residential": 0.26,
     "parkWildness": 0.68,
     "grit": 0.48
+  },
+  "water": {
+    "scale": 220,
+    "width": 0.018
   },
   "parkedCarSpacing": 14,
   "shopQuota": {
@@ -45,7 +51,6 @@
   },
   "playerSpawnCount": 16,
   "playerSpawnMinDist": 30,
-  "waterWidth": 10,
   "turf": {
     "cellTiles": 12,
     "gangCount": 4

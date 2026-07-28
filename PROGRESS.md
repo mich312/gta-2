@@ -1,5 +1,75 @@
 # PROGRESS
 
+## Worldgen: the unbounded world (WORLDGEN.md §10)
+
+The map is now a WINDOW onto an infinite design. 320 tests green (up from
+316) including the new window-independence invariant; 8-bot brawl 60 s:
+0 desyncs, tick spread 0, ~15 KB/s per client; joyride PASS; replay
+re-simulates hash-identical. A 240² window generates in ~125 ms wherever
+it sits — `mapgen --seed=7 --wx=1000128 --wy=-777600` renders a full city
+a million tiles from the origin at the same cost as the origin.
+
+**The rule that makes it work: no pass may depend on the map's extent.**
+Arterials are an infinite jittered lattice (`arterialCoord(seed, axis, k)`
+— line 40 000 is as cheap as line 4); the ground between them divides into
+CELLS, and each cell's subdivision, blocks, buildings, landmark and shops
+derive their rng from `hash(seed, cell index)` in global coordinates.
+Density traded its single core for an infinite lattice of hashed city
+cores with open country between (`fields.ts: cityCore`); the sine-meander
+river became noise-contour waterway bands (rivers, lakes, loops — arterial
+crossings still bridge, secondaries still revert). Ramps went
+position-hashed because they mutate tiles and an every-Nth counter would
+have made tiles a function of the window.
+
+**Proven, not claimed** (`windows.test.ts`): overlapping windows of one
+seed agree tile-for-tile in the overlap interior; a window at a million
+tiles is a real city with hospitals; negative coordinates work; distant
+windows differ. The rim is the documented edge effect: carving passes
+skip footprints not fully inside their own window, so views may differ
+within one cell span of a window edge — never deeper.
+
+**Quotas became coverage lattices.** "4 hospitals per city" is
+meaningless on a plane, so hospitals and police stations claim every
+second cell each way (offset apart — the §6.2 coverage doctrine, now
+structural), and each shop kind gets a lattice whose pitch derives from
+the old quota. A respray that cannot open its two-tile garage door now
+walls itself back up and tries the next building rather than shipping a
+garage for pedestrians (previously the quota retry loop hid this).
+
+**CityMap consumers never learned.** Window-local coordinates throughout;
+sim, prediction, codec, client and bots untouched. `worldgen.json` gains
+`windowX/windowY`, `arterialSpacing` (replacing arterial counts),
+`fields.citySpacing`, and `water.scale/width` (replacing `waterWidth`).
+
+**The gate that argued back.** Brawl runs tripped the harness's 96 px
+prediction-correction limit (113–229 px) with zero desyncs and clean
+replays. Diagnosis across five runs: spikes only on bots being rammed by
+cruisers in 30-kill four-star brawls (a low-kill run: every bot ≤ 3.1 px;
+the previous world already showed 45 px). A ram is a server-granted shove
+the predictor deliberately does not guess at (`prediction.ts` contract),
+and the new world's long countryside arterials let cruisers reach full
+speed before impact. Limit recalibrated to 256 px for brawl with the
+reasoning in `harness.ts`; desyncs remain the hard gate.
+
+**Replay note:** every seed's city changes shape again, and the params
+file shape changed — old replays and stale bundles fail loudly, by
+design. Declared, as ever.
+
+**Deliberately deferred.** Playable streaming (the window still has
+walls): chunk-backed CityMap queries, population that follows players,
+per-region respawn/turf. Countryside is stubbed as park blocks with the
+full secondary grid — it reads as "green city", not open country, until
+§8's nature work (dirt tracks, suppressed subdivision, forests) lands on
+this substrate.
+
+**Least confident about.** The rim edge-effect margin (one cell span) is
+argued from construction and held by two seeds' overlap tests, not
+exhaustively swept; and the brawl correction ceiling is now generous
+enough that a genuine prediction regression under 256 px would slip it —
+the systemic signal (corrections on EVERY bot) is what to watch in
+harness output, and a dead-reckoning pass over snapshot vehicles is the
+principled fix if rams ever need predicting.
+
 ## Worldgen: hierarchical seeding and the field-scored city (WORLDGEN.md §9.5 steps 1–2)
 
 The first two steps of the layered-architecture migration. 316 tests green

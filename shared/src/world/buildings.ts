@@ -56,6 +56,9 @@ function isRoad(ctx: Ctx, tx: number, ty: number): boolean {
 function laySidewalk(ctx: Ctx, b: BlockRect): void {
   for (let ty = b.y; ty < b.y + b.h; ty++) {
     for (let tx = b.x; tx < b.x + b.w; tx++) {
+      // Blocks can overhang the window (the world continues past it); a
+      // negative tx would otherwise index into the previous row.
+      if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
       const perimeter = tx === b.x || ty === b.y || tx === b.x + b.w - 1 || ty === b.y + b.h - 1;
       if (!perimeter) continue;
       if (ctx.tiles[ty * ctx.W + tx] === T_WATER) continue; // no kerb on a river
