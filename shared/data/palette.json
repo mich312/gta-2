@@ -189,6 +189,14 @@
   "icecreamTrim": "#e8628a",
   "diggerBody": "#e0a828",
   "diggerArm": "#4a4e55",
-  "tankBody": "#4a533c",
-  "tankTrim": "#333a2a"
+  "tankBody": "#59654a",
+  "tankTrim": "#2a3022",
+  "garbageTrim": "#2b4a33",
+  "garbageRib": "#33573d",
+  "icecreamPink": "#e8628a",
+  "icecreamCone": "#e0b878",
+  "diggerDark": "#6b7060",
+  "tankTread": "#22261c",
+  "tankBarrel": "#1b1f18",
+  "gangStripe": "#12161c"
 }

@@ -40,9 +40,14 @@ export class SpriteSheet {
 
   async load(): Promise<void> {
     try {
-      const meta = (await (await fetch('sprites.meta.json')).json()) as SheetMeta;
+      // Root-absolute, not relative. The sheet lives at the site root
+      // whatever page asked for it, and a relative path silently resolved
+      // against the PAGE — so any page not at `/` 404'd and every sprite in
+      // the game fell back to a coloured rectangle. It cost an afternoon of
+      // believing the evidence harness was lying.
+      const meta = (await (await fetch('/sprites.meta.json')).json()) as SheetMeta;
       const img = new Image();
-      img.src = 'sprites.png';
+      img.src = '/sprites.png';
       await img.decode();
       this.frames = meta.frames;
       this.scale = meta.scale || 2;
