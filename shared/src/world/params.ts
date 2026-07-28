@@ -15,8 +15,27 @@ export interface WorldgenParams {
   secondaryWidth: number;
   /** Per-district [min, max] target block extent in tiles. */
   blockSize: Record<DistrictType, [number, number]>;
-  /** How many Voronoi seeds each district type gets. */
-  districtSeeds: Record<DistrictType, number>;
+  /**
+   * The L0 field layer (WORLDGEN.md §9.2). Districts are classified by
+   * scoring these fields, not placed as Voronoi seeds: `downtown`,
+   * `commercial` and `residential` are descending thresholds on the
+   * density field; below them the rim splits industrial/residential on
+   * the grit field, and `parkWildness` cuts green pockets anywhere
+   * outside the core.
+   */
+  fields: {
+    /** Base noise wavelength, in tiles. */
+    noiseTiles: number;
+    /** Noise amplitude added to radial density (fraction of full scale). */
+    densityNoise: number;
+    /** Radius at which density reaches 0, as a fraction of min(W, H). */
+    coreRadius: number;
+    downtown: number;
+    commercial: number;
+    residential: number;
+    parkWildness: number;
+    grit: number;
+  };
   /** Roughly one parked car every N road-edge tiles (district-independent for now). */
   parkedCarSpacing: number;
   shopQuota: { gun: number; clothing: number; spray: number };
@@ -57,15 +76,26 @@ function pair(v: unknown, name: string): [number, number] {
   return [min, max];
 }
 
+function parseFields(raw: unknown): WorldgenParams['fields'] {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    noiseTiles: num(r['noiseTiles'], 'fields.noiseTiles'),
+    densityNoise: num(r['densityNoise'], 'fields.densityNoise'),
+    coreRadius: num(r['coreRadius'], 'fields.coreRadius'),
+    downtown: num(r['downtown'], 'fields.downtown'),
+    commercial: num(r['commercial'], 'fields.commercial'),
+    residential: num(r['residential'], 'fields.residential'),
+    parkWildness: num(r['parkWildness'], 'fields.parkWildness'),
+    grit: num(r['grit'], 'fields.grit'),
+  };
+}
+
 export function parseWorldgenParams(raw: unknown): WorldgenParams {
   const r = (raw ?? {}) as Record<string, unknown>;
   const blockSizeRaw = (r['blockSize'] ?? {}) as Record<string, unknown>;
-  const seedsRaw = (r['districtSeeds'] ?? {}) as Record<string, unknown>;
   const blockSize = {} as Record<DistrictType, [number, number]>;
-  const districtSeeds = {} as Record<DistrictType, number>;
   for (const d of DISTRICT_TYPES) {
     blockSize[d] = pair(blockSizeRaw[d], `blockSize.${d}`);
-    districtSeeds[d] = num(seedsRaw[d], `districtSeeds.${d}`);
   }
   const quotaRaw = (r['shopQuota'] ?? {}) as Record<string, unknown>;
   return {
@@ -76,7 +106,7 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     arterialWidth: num(r['arterialWidth'], 'arterialWidth'),
     secondaryWidth: num(r['secondaryWidth'], 'secondaryWidth'),
     blockSize,
-    districtSeeds,
+    fields: parseFields(r['fields']),
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
     turf: parseTurf(r['turf']),
     shopQuota: {

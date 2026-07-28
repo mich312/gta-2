@@ -1,7 +1,7 @@
 import { assignTurf } from './turf.js';
-import { seedRng } from '../rng/prng.js';
+import { deriveSeed, seedRng } from '../rng/prng.js';
 import type { WorldgenParams } from './params.js';
-import { placeDistrictSeeds, districtLookup } from './districts.js';
+import { districtClassifier } from './districts.js';
 import { carveRiver, generateRoads } from './roads.js';
 import { fillBlock } from './buildings.js';
 import {
@@ -26,14 +26,18 @@ import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE, type CityMap } from './types.js';
  * ships seed+params in the welcome message, and the client regenerates the
  * identical map locally — geometry never crosses the wire.
  *
- * Generation order (fixed): district seeds → road graph (arterials +
- * subdivision) → blocks → sidewalks + building footprints → shops →
- * parking/vehicle spawns → player spawns. One rng consumed in fixed order.
+ * Generation order (fixed): fields/classification → river → road graph
+ * (arterials + subdivision) → blocks → sidewalks + building footprints →
+ * landmarks → shops → parking/vehicle spawns → player spawns.
+ *
+ * Randomness is hierarchically seeded (WORLDGEN.md §9.3): every pass draws
+ * from its own stream, derived from (seed, pass name). Adding a draw to one
+ * pass therefore never shifts what any other pass generates — pass order
+ * stays load-bearing for data dependencies only, and the sim (which seeds
+ * from the bare seed) can never collide with a worldgen stream.
  */
 export function generateCity(seed: number, params: WorldgenParams): CityMap {
-  // Offset the seed stream so the sim (which starts from seedRng(seed))
-  // and worldgen never share a sequence.
-  let rng = seedRng(seed ^ 0x5f3759df);
+  const stream = (pass: string): number => seedRng(deriveSeed(seed, `worldgen.${pass}`));
 
   const W = params.widthTiles;
   const H = params.heightTiles;
@@ -66,9 +70,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     turfHomes: [],
   };
 
-  let seeds;
-  [seeds, rng] = placeDistrictSeeds(params, rng);
-  const districtIdxAt = districtLookup(seeds);
+  const districtIdxAt = districtClassifier(seed, params);
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       map.district[ty * W + tx] = districtIdxAt(tx, ty);
@@ -76,11 +78,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   }
 
   // The river goes in first so the road generator lays its grid around it.
-  const river = carveRiver(map.tiles, W, H, params.waterWidth, rng);
-  rng = river.rng;
+  const river = carveRiver(map.tiles, W, H, params.waterWidth, stream('river'));
 
-  const roads = generateRoads(map.tiles, params, districtIdxAt, rng);
-  rng = roads.rng;
+  const roads = generateRoads(map.tiles, params, districtIdxAt, stream('roads'));
   map.blocks = roads.blocks;
 
   // Where an ARTERIAL was carved straight over the river, that becomes a
@@ -93,17 +93,18 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     map.tiles[i] = bridged ? T_BRIDGE : T_WATER;
   }
 
+  let blockRng = stream('blocks');
   for (const block of map.blocks) {
-    rng = fillBlock(map.tiles, W, H, map.buildings, block, rng);
+    blockRng = fillBlock(map.tiles, W, H, map.buildings, block, blockRng);
   }
 
   // Landmarks first: they stamp big footprints, and shops pick doorways from
   // the building list afterwards.
-  rng = placeLandmarks(map, rng);
-  rng = placeShops(map, params, rng);
+  placeLandmarks(map, stream('landmarks'));
+  placeShops(map, params, stream('shops'));
   registerClinics(map);
-  rng = placeVehicleSpawns(map, params, rng);
-  rng = placePlayerSpawns(map, params, rng);
+  placeVehicleSpawns(map, params, stream('vehicles'));
+  placePlayerSpawns(map, params, stream('playerSpawns'));
   placeParking(map);
   placePedSpawns(map);
   placeProps(map);

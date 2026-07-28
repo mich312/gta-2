@@ -21,7 +21,7 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
-import { clearSpot, roadLane } from './helpers.js';
+import { clearSpot, roadLane, straightEastLane } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -271,8 +271,10 @@ describe('wanted + police', () => {
     // its own test, because the level-3 chase above used to rest on it not
     // happening and nobody would have noticed if it stopped.
     let state = commitCrimes(3);
-    const lane = roadLane(map);
-    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    // A quiet straight street: officers must be able to pull up and close on
+    // foot, which a junction-riddled or dead-end spot can quietly prevent.
+    const lane = straightEastLane(map);
+    state.players.byId[1]!.pos = { x: lane.x + 5 * TILE_SIZE, y: lane.y };
 
     const events: SimEvent[] = [];
     for (let i = 0; i < 600; i++) {
@@ -509,8 +511,16 @@ describe('escalation by kind', () => {
     // arrived pointing away drove a circle the width of a block, never closed,
     // and hit the bail-out — the officer lost the car within half a second and
     // ran the rest. It should U-turn and drive.
-    const start = { x: 1000, y: 1000 };
-    const targetAt = { x: 1240, y: 1000 };
+    //
+    // Staged on a found straight street, not a hard-coded coordinate: any
+    // worldgen change can put a building or the river under a magic number.
+    // Four tiles wide — an arterial — because a U-turn needs a road wider
+    // than the car's turning arc; a three-tile side street boxed in by
+    // buildings is a three-point-turn problem, which is not what this
+    // test is about.
+    const lane = straightEastLane(map, 14, 4);
+    const start = { x: lane.x, y: lane.y };
+    const targetAt = { x: lane.x + 240, y: lane.y };
     let state = wedged(start, targetAt);
     state.vehicles.byId[501]!.heading = Math.PI; // facing directly away
     const before = Math.hypot(start.x - targetAt.x, start.y - targetAt.y);

@@ -1,6 +1,7 @@
 import { rayWallDistance } from '../src/sim/weapons.js';
+import { drivableTile } from '../src/sim/roadgrid.js';
 import { isSolidAtWorld } from '../src/world/collide.js';
-import type { CityMap, VehicleSpawn } from '../src/world/types.js';
+import { TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.js';
 
 /**
  * Geometry helpers for tests.
@@ -56,6 +57,37 @@ export function roadLane(map: CityMap, need = 120, marginPx = 64): VehicleSpawn 
     if (d >= need) return s;
   }
   throw new Error('no clear lane on this map');
+}
+
+/**
+ * The right-hand (southern) lane at the west end of a straight, junction-free
+ * east–west street: `runTiles` of three-wide carriageway with unbroken kerbs
+ * both sides, so nothing can turn off mid-test.
+ *
+ * The predecessor of this helper required an exactly-two-tile road and only
+ * checked for cross-streets at the start tile. Two-tile roads are rare
+ * accidents of the generator (secondaries are three wide), and a junction
+ * part-way down the run let the ambient driver turn off before reaching
+ * whatever the test had staged in the lane — which looks like an AI bug and
+ * is really a staging bug.
+ */
+export function straightEastLane(
+  map: CityMap,
+  runTiles = 14,
+  widthTiles = 3,
+): { x: number; y: number } {
+  for (let ty = 6; ty < map.heightTiles - 6; ty++) {
+    for (let tx = 6; tx < map.widthTiles - 6; tx++) {
+      let ok = true;
+      for (let i = 0; i < runTiles && ok; i++) {
+        for (let r = 0; r < widthTiles && ok; r++) ok = drivableTile(map, tx + i, ty + r);
+        if (ok) ok = !drivableTile(map, tx + i, ty - 1) && !drivableTile(map, tx + i, ty + widthTiles);
+      }
+      // Right-hand traffic: eastbound keeps to the southern row.
+      if (ok) return { x: (tx + 0.5) * TILE_SIZE, y: (ty + widthTiles - 0.5) * TILE_SIZE };
+    }
+  }
+  throw new Error('no straight junction-free street on this map');
 }
 
 /**

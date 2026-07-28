@@ -16,6 +16,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import { assignGoto, isAiDriver, stepTrafficPanic } from '../src/sim/traffic.js';
 import { planRoute } from '../src/sim/roadgrid.js';
+import { straightEastLane } from './helpers.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE } from '../src/world/types.js';
@@ -128,27 +129,12 @@ function census(seed: number, ticks = 2400): Census {
 }
 
 /**
- * A long straight eastbound stretch: returns the centre of the right-hand lane
- * at the west end, so a test car can be dropped on it and driven east.
+ * A long straight eastbound stretch: the centre of the right-hand lane at
+ * the west end of a junction-free street, so a test car can be dropped on
+ * it and driven east with nowhere to turn off.
  */
 function eastboundLane(minRunTiles = 14): { x: number; y: number } {
-  for (let ty = 6; ty < map.heightTiles - 6; ty++) {
-    for (let tx = 6; tx < map.widthTiles - 6; tx++) {
-      if (!isDrivable(tx, ty)) continue;
-      let run = 0;
-      for (let i = 1; i <= minRunTiles + 2; i++) {
-        if (!isDrivable(tx + i, ty)) break;
-        run++;
-      }
-      if (run < minRunTiles) continue;
-      // Two tiles of carriageway across, so there is a right-hand lane at all.
-      if (!isDrivable(tx, ty + 1) || isDrivable(tx, ty + 2)) continue;
-      if (isDrivable(tx, ty - 1)) continue;
-      // Eastbound keeps to the southern half.
-      return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 1.5) * TILE_SIZE };
-    }
-  }
-  throw new Error('no straight two-tile road on this map');
+  return straightEastLane(map, minRunTiles);
 }
 
 /** Put an ambient driver at the wheel of a freshly spawned car. */

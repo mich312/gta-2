@@ -129,7 +129,20 @@ describe('media', () => {
   });
 
   it('a player cannot walk into the river', () => {
-    const { tx, ty } = aWaterTile();
+    // A water tile with a WALKABLE bank above it: the first water tile in
+    // row-major order can sit under a building's edge, and a walker starting
+    // inside a wall proves nothing about the river.
+    function approachableWater(): { tx: number; ty: number } {
+      for (let ty = 3; ty < map.heightTiles; ty++) {
+        for (let tx = 0; tx < map.widthTiles; tx++) {
+          if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) continue;
+          if (isSolidTile(map, tx, ty - 1, 'land') || isSolidTile(map, tx, ty - 2, 'land')) continue;
+          return { tx, ty };
+        }
+      }
+      throw new Error('no approachable bank');
+    }
+    const { tx, ty } = approachableWater();
     // Start on the bank just above the water and walk straight at it.
     let state = createGameState(5);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);

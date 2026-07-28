@@ -557,7 +557,12 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // the player is watching most closely. There are only ever a handful of
     // them on foot, so the delta traffic this costs is nothing; the 200-strong
     // crowd is where that argument still bites, and it keeps its 10 Hz.
-    if (bestD > 24) {
+    // Close to just inside arrest reach, never flush. The standoff used to
+    // be a flat 24 px against a bustRadius of 22, so an officer who had
+    // finished approaching stood half a pixel outside hands-on range and
+    // shot a stationary suspect forever — whether an arrest ever landed
+    // depended on where the last 4 px stride happened to fall.
+    if (bestD > t.bustRadius - 2) {
       const moveSpeed = copStats(cop.kind).moveSpeed;
       const dirX = (target.pos.x - cop.pos.x) / bestD;
       const dirY = (target.pos.y - cop.pos.y) / bestD;

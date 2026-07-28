@@ -27,12 +27,15 @@
       30
     ]
   },
-  "districtSeeds": {
-    "downtown": 1,
-    "residential": 4,
-    "industrial": 2,
-    "commercial": 2,
-    "park": 2
+  "fields": {
+    "noiseTiles": 40,
+    "densityNoise": 0.22,
+    "coreRadius": 0.62,
+    "downtown": 0.76,
+    "commercial": 0.52,
+    "residential": 0.26,
+    "parkWildness": 0.68,
+    "grit": 0.48
   },
   "parkedCarSpacing": 14,
   "shopQuota": {

@@ -1,5 +1,78 @@
 # PROGRESS
 
+## Worldgen: hierarchical seeding and the field-scored city (WORLDGEN.md §9.5 steps 1–2)
+
+The first two steps of the layered-architecture migration. 316 tests green
+(up from 310), 8-bot brawl 60 s: 0 desyncs, tick spread 0, ~13 KB/s per
+client against the 50 KB/s gate, replay re-simulates hash-identical.
+Generation is 99–154 ms at 240² (was ~56 ms; the classifier samples three
+noise fields per tile).
+
+**Hierarchical seeding.** `deriveSeed(seed, label)` (FNV-1a + avalanche,
+integer ops only) gives every worldgen pass its own rng stream —
+`worldgen.river`, `worldgen.roads`, `worldgen.blocks`, `worldgen.landmarks`,
+`worldgen.shops`, `worldgen.vehicles`, `worldgen.playerSpawns` — replacing
+the single thread that made any added draw reshape every city. The standing
+`ROADMAP.md` risk "RNG-order churn invalidates old replays: any phase adding
+a draw" is retired for cross-pass effects: a pass can now grow draws freely
+and only its own output moves. Pass order stays load-bearing for data
+dependencies only.
+
+**Fields and classification.** `world/fields.ts` is L0 of the layer stack:
+integer-hash value noise (same mixing family as turf's `hash2`, no
+transcendentals, bit-identical on every host) shaped into `density` (radial
+falloff from a seed-jittered core + noise), `wildness` and `grit`
+(noise + map-edge affinity). `districts.ts` now *scores* these instead of
+painting nearest-Voronoi-seed patches: density thresholds give downtown →
+commercial → residential as concentric rings around a core that is visibly
+the centre, the rim splits industrial/residential on grit, and wildness cuts
+park pockets anywhere outside the core. Rendered across seeds 7/42/1234/
+90210: every city now has a legible downtown, a commercial ring, industry at
+the edges, and no colour confetti. Borders are noise-ragged, never straight.
+
+**The knife-edge the new maps exposed.** Police on foot stopped closing at a
+flat 24 px, but `bustRadius` is 22: an officer who had finished approaching
+stood half a pixel outside hands-on range and shot a stationary suspect
+forever. Old maps passed the arrest test because the last 4 px stride
+happened to land inside the window; the first new map parked all six cops at
+22.5 px and the test went red. The standoff is now `bustRadius - 2` — the
+sim change this wave makes besides worldgen, and it makes "stand still and
+you get nicked, not shot" true by construction instead of by luck.
+
+**Test staging hardened.** `straightEastLane(map, run, width)` in
+`test/helpers.ts` finds a junction-free straight corridor with unbroken
+kerbs (the old `eastboundLane` wanted an exactly-two-tile road — a rare
+generator accident — and only checked for cross-streets at the start tile,
+so ambient drivers could turn off mid-test). The cruiser U-turn test stages
+on a 4-wide arterial stretch because a 3-wide street boxed in by buildings
+is a three-point-turn problem; the walk-into-the-river test now picks a
+water tile with a walkable bank instead of assuming the first one in
+row-major order has one; the hard-coded `{x:1000, y:1000}` police staging is
+gone. New `fields.test.ts` pins: noise determinism/bounds, density
+core-to-rim gradient, all five district types present on every seed,
+downtown mean distance-to-core below industrial's, ≥75 % neighbour agreement
+(the anti-confetti bar turf already uses), and stream independence.
+
+**Replay note** (per the risk table): every seed's city changes shape —
+district layout, therefore roads, buildings, spawns, everything. Replays
+recorded before this wave no longer re-simulate. Expected, deliberate,
+stated. `worldgen.json` loses `districtSeeds`, gains `fields`
+(thresholds + noise scale); the params parser hard-fails on the old file
+shape, so a stale client bundle cannot silently generate a different city.
+
+**Deliberately deferred.** Steps 3–6 of the migration (transition
+ladders/ecotones, the road graph, parcels with frontage, content-layer
+queries); density modulation of `fillBlock` coverage and amenity spacing
+(the field exists, consumers still read district type); `mapgen --layer`
+debug rendering; any map-size change.
+
+**Least confident about.** The classification thresholds (`fields` in
+`worldgen.json`) are tuned by eye against four seeds; a pathological seed
+could still produce a lopsided city — the invariant tests bound presence and
+contiguity, not beauty. And the cop-standoff change alters every chase's
+approach geometry by 4 px; the police suite is green but that mechanic has
+more tests than any other because it keeps deserving them.
+
 ## Car AI: drivers that react, and cars that can be sent somewhere
 
 The top two recommendations of `CAR-AI.md` §7, plus the desync its
