@@ -116,4 +116,5 @@ re-simulating to identical hashes is the desync alarm.
   its own street and not the block behind it.
 
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
-direction, and `PROGRESS.md` for the per-phase log.
+direction, and `PROGRESS.md` for the per-phase log. `GTA.md` is the current
+forward plan — seven complaints from playing it, costed and ordered.
