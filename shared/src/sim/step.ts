@@ -18,6 +18,7 @@ import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
+import { stepGangFights } from './gangwar.js';
 import {
   stepBoarding,
   stepTraffic,
@@ -141,6 +142,7 @@ export function step(
   stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  stepGangFights(next, map, events);
   // Drivers hear the same shots the crowd does. After every system that can
   // fire a gun or blow something up, so the whole tick's noise is in one
   // place; the flight response itself runs when traffic next steps.

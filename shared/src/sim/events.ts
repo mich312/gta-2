@@ -59,6 +59,15 @@ export type SimEvent =
       kind: string;
       playerId: number | null;
     }
+  | {
+      /** Two gangs shooting at each other, for the feed. */
+      type: 'gangFight';
+      tick: number;
+      gangId: number;
+      rivalId: number;
+      x: number;
+      y: number;
+    }
   | { type: 'propDown'; tick: number; kind: string; x: number; y: number }
   | { type: 'propUp'; tick: number; kind: string; x: number; y: number }
   | {

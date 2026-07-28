@@ -159,6 +159,15 @@ export class Hud {
       this.notice(`${GANG_NAMES[event.gangId - 1] ?? 'a gang'} wants you off their streets`);
     }
     if (event.type === 'jailCardUsed') this.notice('you walk — card spent');
+    // A firefight two streets away is worth knowing about: it is the clearest
+    // sign the city has business of its own. Rate-limited by the feed itself,
+    // which keeps five lines and drops the oldest.
+    if (event.type === 'gangFight') {
+      const a = GANG_NAMES[event.gangId - 1] ?? 'a gang';
+      const b = GANG_NAMES[event.rivalId - 1] ?? 'a gang';
+      const line = `${a} and ${b} are at it`;
+      if (this.feed[this.feed.length - 1]?.text !== line) this.notice(line);
+    }
   }
 
   /**

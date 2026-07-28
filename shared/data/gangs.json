@@ -1,6 +1,10 @@
 {
   "cellTiles": 12,
   "memberEvery": 4,
+  "engageRadius": 110,
+  "fightTimeoutTicks": 300,
+  "maxConcurrentFights": 8,
+  "contestedOnly": true,
   "gangs": [
     {
       "id": 1,

@@ -283,6 +283,17 @@ export interface GangsTuning {
   cellTiles: number;
   /** One pedestrian in this many, on a gang's turf, is one of theirs. */
   memberEvery: number;
+  /** How close a rival has to be before a gang member squares up. */
+  engageRadius: number;
+  /** A fight nobody wins in this long breaks off. */
+  fightTimeoutTicks: number;
+  /**
+   * Ceiling on fights running at once, city-wide. Without it the gangs kill
+   * each other off in minutes and the streets go quiet.
+   */
+  maxConcurrentFights: number;
+  /** Fights only start on ground the shooter's gang does not hold. */
+  contestedOnly: boolean;
   gangs: GangDef[];
 }
 
@@ -558,6 +569,15 @@ function parseGangsTuning(raw: unknown): GangsTuning {
   return {
     cellTiles: num(r['cellTiles'], 'gangs.cellTiles'),
     memberEvery: num(r['memberEvery'], 'gangs.memberEvery'),
+    engageRadius: num(r['engageRadius'], 'gangs.engageRadius'),
+    fightTimeoutTicks: num(r['fightTimeoutTicks'], 'gangs.fightTimeoutTicks'),
+    // A cap of zero is a coherent setting — it turns gang war off — so it
+    // cannot go through `num`, which refuses zero.
+    maxConcurrentFights:
+      typeof r['maxConcurrentFights'] === 'number' && r['maxConcurrentFights'] >= 0
+        ? r['maxConcurrentFights']
+        : 8,
+    contestedOnly: r['contestedOnly'] !== false,
     gangs: list.map((g, i) => {
       const gr = (g ?? {}) as Record<string, unknown>;
       const id = gr['id'];
@@ -577,6 +597,10 @@ function parseGangsTuning(raw: unknown): GangsTuning {
 const DEFAULT_GANGS: GangsTuning = {
   cellTiles: 12,
   memberEvery: 4,
+  engageRadius: 110,
+  fightTimeoutTicks: 300,
+  maxConcurrentFights: 8,
+  contestedOnly: true,
   gangs: [
     { id: 1, name: 'Kessler Row', color: '#c8543c', rivals: [2, 3] },
     { id: 2, name: 'Sunnyside', color: '#4aa86a', rivals: [1, 4] },

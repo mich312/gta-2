@@ -106,7 +106,14 @@ export interface ProjectileState {
   fuseAtTick: number;
 }
 
-export type PedMode = 'walk' | 'flee' | 'hostile' | 'downed';
+export type PedMode =
+  | 'walk'
+  | 'flee'
+  /** Squaring up to the PLAYER, on their own turf. See peds.ts. */
+  | 'hostile'
+  /** Squaring up to a RIVAL GANG, on contested ground. See gangwar.ts. */
+  | 'fighting'
+  | 'downed';
 
 export interface PedState {
   id: number;
