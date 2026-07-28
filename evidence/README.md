@@ -18,9 +18,22 @@ readily enough and never on cue.
 
 | file | what it shows |
 |---|---|
+| `street-traffic.png` | One junction of a live game, captured from a browser against a real server. The point is the traffic: a purple coupe, a tan saloon, a red sports car, an orange hatch, two green estates, a taxi and an ambulance, all in one frame. Before R2 every civilian car in that shot would have been the same shape in a different colour. |
 | `vehicles.png` | Every kind in `vehicles.json`, at game scale, through the real `drawVehicle`. The point is the silhouettes side by side: colour variation existed long before shape variation did, so ten colours of one car looked like variety and a street full of them did not. Six civilian bodies now differ in outline as well as paint, and the two-wheelers carry a visible rider — composited at the saddle, the same mechanism the tank's turret uses. The sheet found its own bug on first run: `moto` and `bicycle` drew as a solid red fallback rectangle, because they were given a colour axis in the art and left out of the renderer's painted-kinds set. |
 
 | `airstrip.png` | A generated city with two airstrips in the countryside to the north — the dark strips in open ground. They are placed on a lattice rather than rolled, because "there is an airfield, and it is over there" is a fact a player should be able to rely on. Retake with `pnpm mapgen --seed=1`. |
+
+`ci/play.mjs` drives the real game in a real browser: it starts a session,
+takes the kit the proving ground issues, and photographs what happens. Every
+action goes through the ordinary input path, keys and mouse — `window.__debug`
+is read, never written, so it is used to know when a thing has happened
+rather than to make it happen.
+
+```bash
+PROVING_GROUND=1 PORT=8099 node server/dist/index.js
+pnpm --filter client dev -- --port 5199
+node ci/play.mjs "http://localhost:5199/?server=ws://127.0.0.1:8099" shots
+```
 
 Retake the vehicle sheet with
 `node ci/shot.mjs http://localhost:5173/vehicle-sheet.html evidence/vehicles.png '#sheet'`.
