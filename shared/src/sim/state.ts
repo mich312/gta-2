@@ -202,6 +202,12 @@ export interface TrafficDriver {
   route: number[] | null;
   /** Offset of the corner currently being driven at. Always even. */
   routeIdx: number;
+  /**
+   * Ticks this driver has been at the wheel. Past `traffic.tripTicks` they
+   * look for a kerb, park, and get out as a pedestrian — the other half of
+   * somebody getting in. Off the wire like the rest of this record.
+   */
+  trip: number;
 }
 
 export interface PlayerState {
@@ -474,6 +480,7 @@ function cloneTrafficDrivers(
         mission: d.mission,
         route: d.route ? d.route.slice() : null,
         routeIdx: d.routeIdx,
+        trip: d.trip,
       };
     }
   }

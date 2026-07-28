@@ -217,6 +217,12 @@ export interface TrafficTuning {
    * sim/signals.ts because this file deliberately imports nothing at all —
    * TypeScript is structural, so the two shapes satisfy each other.
    */
+  /** How close a pedestrian has to be to a parked car to get into it. */
+  boardRadius: number;
+  /** Odds per tick that SOMEBODY in the city gets in, at most one. */
+  boardChance: number;
+  /** Ticks an ambient driver stays at the wheel before parking and walking off. */
+  tripTicks: number;
   signals: {
     greenTicks: number;
     amberTicks: number;
@@ -713,6 +719,9 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     reverseTicks: n('reverseTicks'),
     decisionCadenceTicks: n('decisionCadenceTicks'),
     turnChance: n('turnChance'),
+    boardRadius: n('boardRadius'),
+    boardChance: n('boardChance'),
+    tripTicks: n('tripTicks'),
     signals: parseSignals(r['signals']),
     panicSpeed: n('panicSpeed'),
     panicTicks: n('panicTicks'),
@@ -746,6 +755,9 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   reverseTicks: 30,
   decisionCadenceTicks: 21,
   turnChance: 0.25,
+  boardRadius: 40,
+  boardChance: 0.05,
+  tripTicks: 1800,
   signals: { greenTicks: 90, amberTicks: 24, junctionOffsetTicks: 37, lookaheadPx: 60 },
   panicSpeed: 150,
   panicTicks: 210,

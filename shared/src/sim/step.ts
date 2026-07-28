@@ -18,7 +18,13 @@ import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
-import { stepTraffic, stepTrafficPanic, stepTrafficPopulation, tryCarjack } from './traffic.js';
+import {
+  stepBoarding,
+  stepTraffic,
+  stepTrafficPanic,
+  stepTrafficPopulation,
+  tryCarjack,
+} from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
 import { stepFittings } from './fittings.js';
@@ -104,6 +110,7 @@ export function step(
     if (!v || v.driverId !== null) continue;
     stepVehicleCoasting(v, map, next, next, events);
   }
+  stepBoarding(next, map);
   stepTrafficPopulation(next, map);
 
   stepWeapons(next, inputs, map, events);

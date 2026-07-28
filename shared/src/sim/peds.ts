@@ -114,6 +114,12 @@ export function stepPeds(
       for (const vid of state.vehicles.ids) {
         const v = state.vehicles.byId[vid];
         if (!v) continue;
+        // A parked, empty car is street furniture, not a threat. Before this
+        // it scared people off the pavement beside it, which among other
+        // things meant nobody could ever stand close enough to get IN one
+        // (J3): boarding wants a walking pedestrian, and this made every
+        // pedestrian near a parked car a fleeing one.
+        if (v.driverId === null && v.speed === 0) continue;
         const loud = Math.abs(v.speed) >= 84;
         const dx = ped.pos.x - v.pos.x;
         const dy = ped.pos.y - v.pos.y;
