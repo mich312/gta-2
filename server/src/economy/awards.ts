@@ -1,4 +1,5 @@
 import { parseDistrictParams, type DistrictParams } from './districts.js';
+import { parseSecretParams, type SecretParams } from './secrets.js';
 export interface EconomyParams {
   startingCash: number;
   killAward: number;
@@ -28,6 +29,8 @@ export interface EconomyParams {
    */
   /** District standing thresholds; see economy/districts.ts. */
   districts: DistrictParams;
+  /** Hidden-package reach and rewards; see economy/secrets.ts. */
+  secrets: SecretParams;
   crush: {
     base: number;
     byKind: Record<string, number>;
@@ -83,6 +86,7 @@ export function parseEconomyParams(raw: unknown): EconomyParams {
     },
     crush: parseCrush(r['crush']),
   districts: parseDistrictParams(r['districts']),
+  secrets: parseSecretParams(r['secrets']),
   };
 }
 

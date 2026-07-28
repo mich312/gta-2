@@ -119,6 +119,29 @@ export class GameServer {
     // releasing an escortee. Drained here so it reaches the sim through the
     // same command path as everything else missions do.
     for (const cmd of this.missions.drainCommands()) this.session.queueCommand(cmd);
+
+    // Hidden packages: proximity, server-side, touching nothing in the sim.
+    for (const find of this.economy.secrets.step(this.session.state, this.session.map)) {
+      if (find.reward > 0) this.economy.creditSecret(find.playerId, find.reward, find.found);
+      const conn = this.byPlayer.get(find.playerId);
+      conn?.send({
+        type: 'event',
+        tick: this.session.state.tick,
+        event: {
+          type: 'notice',
+          text:
+            find.reward > 0
+              ? `package ${find.found} of ${find.total} — $${find.reward}`
+              : `package ${find.found} of ${find.total}`,
+        },
+      });
+      conn?.send({
+        type: 'secrets',
+        found: this.economy.secrets.indicesOf(find.playerId),
+        total: find.total,
+      });
+      if (find.reward > 0) conn?.send({ type: 'wallet', ...this.economy.walletOf(find.playerId) });
+    }
     for (const n of outcome.notices) {
       this.byPlayer.get(n.playerId)?.send({
         type: 'event',

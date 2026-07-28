@@ -48,5 +48,6 @@
     "gangCount": 7
   },
   "dayLengthSec": 1440,
-  "nightCrowdScale": 0.55
+  "nightCrowdScale": 0.55,
+  "packageCount": 100
 }

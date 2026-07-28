@@ -15,6 +15,7 @@ import { Ledger } from './ledger.js';
 import { Accounts } from './accounts.js';
 import { AwardTracker, type EconomyParams } from './awards.js';
 import { Standings } from './districts.js';
+import { Secrets, parseSecretParams } from './secrets.js';
 import { MemoryStore, type PersistenceStore } from './store.js';
 
 /**
@@ -65,6 +66,8 @@ export class Economy {
   private readonly awards: AwardTracker;
   /** Where each player is known, and what that buys them. See districts.ts. */
   private readonly standings: Standings;
+  /** Who has found which hidden packages. See secrets.ts. */
+  readonly secrets: Secrets;
   /** Latest state/map, stashed by processTick so `credit` knows where you are. */
   private currentState: GameState | null = null;
   private currentMap: CityMap | null = null;
@@ -88,6 +91,7 @@ export class Economy {
     this.accounts = new Accounts(store);
     this.awards = new AwardTracker(params);
     this.standings = new Standings(params.districts);
+    this.secrets = new Secrets(params.secrets);
   }
 
   private ledgerFor(accountKey: string): Ledger {
@@ -116,6 +120,7 @@ export class Economy {
     this.usernameByPlayer.delete(playerId);
     this.multiplierByPlayer.delete(playerId);
     this.standings.forget(playerId);
+    this.secrets.forget(playerId);
     this.lifetimeByPlayer.delete(playerId);
   }
 
@@ -126,6 +131,23 @@ export class Economy {
 
   multiplierOf(playerId: number): number {
     return this.multiplierByPlayer.get(playerId) ?? 1;
+  }
+
+  /**
+   * Pay for crossing a hidden-package threshold.
+   *
+   * Straight through the same ledger as everything else, but NOT through
+   * `credit` — a package reward must not be multiplied. The multiplier says
+   * what the next thing you do is worth; a find is a fixed prize for a fixed
+   * number of them, and scaling it by a streak you happened to be on would
+   * make the same hundredth package worth ten times as much to one player.
+   */
+  creditSecret(playerId: number, amount: number, at: number): void {
+    const key = this.keyByPlayer.get(playerId);
+    if (!key || amount <= 0) return;
+    if (this.ledgerFor(key).append(key, amount, `package:${at}`, `package:${key}:${at}`)) {
+      this.lifetimeByPlayer.set(playerId, (this.lifetimeByPlayer.get(playerId) ?? 0) + amount);
+    }
   }
 
   /** Where this player is known, and how well. */

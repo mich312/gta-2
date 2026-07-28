@@ -318,6 +318,46 @@ export function placeParking(map: CityMap): void {
   map.parkingSpots = spots;
 }
 
+/**
+ * Hidden packages: a hundred of them, in places you would not walk past.
+ *
+ * "Hard to reach" is done by preferring tiles with the FEWEST open
+ * neighbours — alley dead-ends, the far side of a fence, the gap behind a
+ * building. A package on an open pavement is not hidden, it is litter.
+ *
+ * Every one is on ground a person can stand on, because a package you cannot
+ * reach is worse than no package at all — there is a test.
+ */
+export function placePackages(map: CityMap, params: WorldgenParams): void {
+  const want = params.packageCount;
+  if (want <= 0) return;
+  const open = (tx: number, ty: number): boolean => {
+    const tile = t(map, tx, ty);
+    return tile === T_SIDEWALK || tile === T_PARK || tile === T_LOT;
+  };
+  // Score every candidate by how enclosed it is, then take the most enclosed
+  // — deterministically, and spread by a stride so they are not all in one
+  // alley.
+  const scored: Array<{ x: number; y: number; enclosure: number }> = [];
+  for (let ty = 1; ty < map.heightTiles - 1; ty++) {
+    for (let tx = 1; tx < map.widthTiles - 1; tx++) {
+      if (!open(tx, ty)) continue;
+      let walls = 0;
+      for (let j = -1; j <= 1; j++) {
+        for (let i = -1; i <= 1; i++) {
+          if (i === 0 && j === 0) continue;
+          if (!open(tx + i, ty + j)) walls++;
+        }
+      }
+      if (walls < 5) continue; // an open pavement is not a hiding place
+      scored.push({ x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE, enclosure: walls });
+    }
+  }
+  scored.sort((a, b) => b.enclosure - a.enclosure || a.y - b.y || a.x - b.x);
+  const stride = Math.max(1, Math.floor(scored.length / want));
+  map.packages = scored.filter((_, i) => i % stride === 0).slice(0, want);
+}
+
 /** Every 5th sidewalk tile, row-major: plenty of deterministic ped spots. */
 export function placePedSpawns(map: CityMap): void {
   const spawns: Vec2[] = [];

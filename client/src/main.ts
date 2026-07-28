@@ -128,6 +128,8 @@ let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
 let catalog: Catalog | null = null;
+/** Hidden packages this player has already found; the rest still glint. */
+let foundPackages = new Set<number>();
 /** Station currently playing, so a change can be announced once. */
 let lastStation: number | null = null;
 
@@ -381,6 +383,9 @@ function handleServerMessage(msg: ServerMessage): void {
       case 'wallet':
         hud.setWallet(msg.cash, msg.multiplier, msg.standing);
         break;
+      case 'secrets':
+        foundPackages = new Set(msg.found);
+        break;
       case 'exports':
         hud.setExports(msg.kinds, msg.bonus);
         break;
@@ -506,6 +511,7 @@ function frame(now: number): void {
         // function of it, and rendering the phase three ticks in the past
         // would show a light the cars in front had already obeyed.
         tick: predictor.predicted ? sync.latest?.tick ?? 0 : 0,
+        foundPackages,
         dt: frameMs / 1000,
         nowMs: now,
       }

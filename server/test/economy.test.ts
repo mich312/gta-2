@@ -418,6 +418,12 @@ describe('score multiplier', () => {
       "acctLedger.append(key, this.params.startingCash", // opening balance
       'ledger.append(key, -item.price', // a purchase is a debit
       'ledger.append(key, item.price', // its refund
+      // A hidden-package reward (L2), deliberately unmultiplied. The
+      // multiplier says what the NEXT thing you do is worth; a package
+      // threshold is a fixed prize for a fixed number of finds, and scaling
+      // it by whatever streak you happened to be on would make the same
+      // hundredth package worth ten times as much to one player as another.
+      'ledgerFor(key).append(key, amount, `package:',
     ];
     for (const e of exempt) expect(src, `exempt site missing: ${e}`).toContain(e);
     // exempt sites + the single credit() site

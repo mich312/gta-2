@@ -41,6 +41,8 @@ export interface WorldgenParams {
   dayLengthSec: number;
   /** How much of the daytime crowd is out at the dead of night. */
   nightCrowdScale: number;
+  /** Hidden packages per city. See amenities.placePackages. */
+  packageCount: number;
 }
 
 function parseTurf(raw: unknown): { cellTiles: number; gangCount: number } {
@@ -100,6 +102,8 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
       r['nightCrowdScale'] <= 1
         ? r['nightCrowdScale']
         : 0.55,
+    packageCount:
+      typeof r['packageCount'] === 'number' && r['packageCount'] >= 0 ? r['packageCount'] : 100,
     shopQuota: {
       gun: num(quotaRaw['gun'], 'shopQuota.gun'),
       clothing: num(quotaRaw['clothing'], 'shopQuota.clothing'),

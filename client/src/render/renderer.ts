@@ -106,6 +106,8 @@ export interface Scene {
   remotes: RenderWorld;
   /** Server tick being rendered. Traffic signals are a function of it. */
   tick: number;
+  /** Hidden packages this player has found; the rest are still worth taking. */
+  foundPackages?: ReadonlySet<number>;
   /** Seconds since the previous frame, for effects. */
   dt: number;
   /** Wall-clock ms, for strobes and flicker. */
@@ -326,6 +328,7 @@ export function render(
     lights.point(dx(cx), dy(cy), reach * RENDER_SCALE, 'shop', 0.5);
   }
 
+  drawPackages(ctx, map, cam, scene, dx, dy, lights);
   drawSignals(ctx, map, cam, scene.tick, dx, dy, lights);
 
   drawProps(ctx, sprites, scene.remotes.props, dx, dy);
@@ -503,6 +506,47 @@ export function render(
  */
 function dayLengthSec(map: CityMap): number {
   return map.dayLengthSec > 0 ? map.dayLengthSec : 1440;
+}
+
+/**
+ * Hidden packages, drawn where the map says they are.
+ *
+ * Never streamed: the client generated the same city from the same seed, so
+ * the positions are already here and the only thing the server has to say is
+ * which ones YOU have found. One found is drawn dim and pays nothing; your
+ * neighbour's find is still there for you. That is the whole design.
+ */
+function drawPackages(
+  ctx: CanvasRenderingContext2D,
+  map: CityMap,
+  cam: Vec2,
+  scene: Scene,
+  dx: (x: number) => number,
+  dy: (y: number) => number,
+  lights: LightPass,
+): void {
+  const found = scene.foundPackages;
+  const R = RENDER_SCALE;
+  for (let i = 0; i < map.packages.length; i++) {
+    const at = map.packages[i] as Vec2;
+    if (
+      at.x < cam.x - 20 ||
+      at.y < cam.y - 20 ||
+      at.x > cam.x + VIEW_W + 20 ||
+      at.y > cam.y + VIEW_H + 20
+    ) {
+      continue;
+    }
+    const taken = found?.has(i) === true;
+    const x = dx(at.x);
+    const y = dy(at.y);
+    // A slow glint rather than the pickups' bob: it should read as something
+    // left behind, not as something laid out for you.
+    const pulse = taken ? 0 : 0.5 + 0.5 * Math.sin(scene.nowMs * 0.002 + i);
+    ctx.fillStyle = taken ? 'rgba(120, 130, 145, 0.35)' : '#f0e2a0';
+    ctx.fillRect(x - 2 * R, y - 2 * R, 4 * R, 4 * R);
+    if (!taken) lights.point(x, y, (6 + pulse * 4) * R, 'shop', 0.25 + pulse * 0.2);
+  }
 }
 
 /** Traffic-signal colours, ordered so the array index is the lamp position. */

@@ -57,6 +57,16 @@ export type ServerMessage =
       standing: Record<string, number>;
     }
   | {
+      /**
+       * Which hidden packages THIS player has found. Indices into
+       * `map.packages`, which the client already generated from the seed —
+       * so a hundred finds cost a hundred small integers, once.
+       */
+      type: 'secrets';
+      found: number[];
+      total: number;
+    }
+  | {
       /** Vehicle kinds the crushers are paying over the odds for right now. */
       type: 'exports';
       kinds: string[];
@@ -147,6 +157,7 @@ const SERVER_MESSAGE_TYPES = new Set([
   'account',
   'error',
   'exports',
+  'secrets',
   'missionState',
 ]);
 

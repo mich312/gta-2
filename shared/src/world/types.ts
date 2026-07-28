@@ -155,6 +155,13 @@ export interface CityMap {
   policeStations: Vec2[];
   /** Car crushers: drive one in, leave on foot and better off. */
   cranes: Vec2[];
+  /**
+   * Hidden packages. Positions only — finding one is a per-ACCOUNT fact held
+   * server-side, never a sim pickup, because a one-time find in a city with
+   * thirty people in it is dead by the second hour. The world is shared; the
+   * finding is personal. See server/src/economy/secrets.ts.
+   */
+  packages: Vec2[];
   /** Ringing phones: the city's way of offering you work. */
   payphones: Vec2[];
   /** Gang id per turf cell, row-major. 0 = nobody's. */

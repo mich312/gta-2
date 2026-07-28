@@ -51,5 +51,26 @@
       "flamethrower",
       "mines"
     ]
+  },
+  "secrets": {
+    "reach": 26,
+    "rewards": [
+      {
+        "at": 10,
+        "cash": 2000
+      },
+      {
+        "at": 25,
+        "cash": 6000
+      },
+      {
+        "at": 50,
+        "cash": 18000
+      },
+      {
+        "at": 100,
+        "cash": 60000
+      }
+    ]
   }
 }
