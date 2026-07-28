@@ -124,6 +124,22 @@ function aimOf(scene: Scene, driverId: number | null): number | null {
 }
 
 /**
+ * Cop kinds that fly. Mirrors the `flies` flag in police.json — the sim owns
+ * the behaviour, this owns which of them go above the street rather than in
+ * it, and the police test is what keeps the two in step.
+ */
+const AIR_KINDS = new Set(['heli', 'gunship']);
+
+/**
+ * How far above the street a helicopter sits, in world px.
+ *
+ * Drawn as a lift on the sprite with the shadow left on the ground: the GAP
+ * between the two is the whole of what says "that is in the air", exactly as
+ * it does for a car mid-stunt-jump.
+ */
+const AIR_HEIGHT = 26;
+
+/**
  * The sprite to sit on a two-wheeler, for whoever is at the bars.
  *
  * Null for an empty bike, and null for anything with a roof — `drawVehicle`
@@ -543,8 +559,15 @@ export function render(
     ctx.fill();
   }
 
+  // Air units are drawn LAST, after everything on the ground, so a
+  // helicopter passes over the street rather than behind a lamp post.
+  const airborne: typeof scene.remotes.cops = [];
   for (const c of scene.remotes.cops) {
     const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
+    if (c.cop.health > 0 && AIR_KINDS.has(c.cop.kind)) {
+      airborne.push(c);
+      continue;
+    }
     // The uniform says which force you have brought down on yourself. Police
     // blue, SWAT charcoal, federal navy, army olive — you should be able to
     // tell what is chasing you without reading the star count.
@@ -669,6 +692,30 @@ export function render(
       scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
       riderSprite(scene, scene.local?.vehicleId === null ? null : (scene.local?.id ?? null)),
     );
+  }
+
+  // Air support, over the top of the whole street.
+  //
+  // A helicopter is a COP in the sim — same table, same targeting, same
+  // corpse timer — and the only thing the renderer has to know is that it is
+  // not standing on the ground. The lift plus a shadow left where the shadow
+  // belongs is what sells it, the same trick a car mid-stunt-jump uses.
+  for (const c of airborne) {
+    const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
+    const sx = dx(c.x);
+    const sy = dy(c.y);
+    const lift = AIR_HEIGHT * RENDER_SCALE;
+    const fp = sprites.footprint(c.cop.kind);
+    drawShadow(ctx, sx, sy, fp.rx * 0.5, fp.ry * 0.5, AIR_HEIGHT);
+    // The searchlight: a cone under the aircraft, pointed the way it is
+    // going. It is the reason the thing is frightening rather than merely
+    // present — you can see exactly what it can see.
+    const beam = getTuning().police.kinds[c.cop.kind]?.searchlight ?? 0;
+    if (beam > 0) {
+      lights.point(sx, sy, beam * RENDER_SCALE * 0.55, 'shop', 0.5, 'none');
+      lights.cone(sx, sy, angle, beam * RENDER_SCALE, 'head', 0.42, 'none');
+    }
+    sprites.draw(ctx, c.cop.kind, sx, sy - lift, angle);
   }
 
   effects.drawParticles(ctx, originX, originY, lights);

@@ -35,6 +35,10 @@ async function main(): Promise<void> {
   const kinds = Object.keys(getVehicleTuning('car') ? vehiclesJson : {}).filter(
     (k) => k !== 'fire',
   );
+  // Aircraft are police UNITS rather than vehicles — they live in
+  // police.json, not vehicles.json — but this is the sheet where you want to
+  // see them beside everything else they have to read as different from.
+  kinds.push('heli', 'gunship');
 
   const canvas = document.getElementById('sheet') as HTMLCanvasElement;
   const rows = Math.ceil(kinds.length / COLS);
@@ -61,6 +65,11 @@ async function main(): Promise<void> {
     const cy = (8 + row * CELL_H + CELL_H / 2) * RENDER_SCALE;
     ctx.fillStyle = '#c8d0d8';
     ctx.fillText(kind, (col * CELL_W + 4) * RENDER_SCALE, cy);
+    // The aircraft have no vehicle tuning; draw them as plain sprites.
+    if (kind === 'heli' || kind === 'gunship') {
+      sprites.draw(ctx, kind, cx, cy, 0);
+      return;
+    }
     const t = getVehicleTuning(kind);
     drawVehicle(
       ctx,

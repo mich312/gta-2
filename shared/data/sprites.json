@@ -8302,6 +8302,240 @@
      "z": 8
     }
    ]
+  },
+  "heli": {
+   "w": 43,
+   "h": 43,
+   "pivot": [
+    21,
+    21
+   ],
+   "rotations": 32,
+   "shapes": [
+    {
+     "disc": [
+      21,
+      21,
+      19
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.22,
+     "noOutline": true
+    },
+    {
+     "disc": [
+      21,
+      21,
+      13
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.16,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      3,
+      20,
+      14,
+      3
+     ],
+     "color": "copCarBody",
+     "z": 6
+    },
+    {
+     "rect": [
+      2,
+      17,
+      3,
+      9
+     ],
+     "color": "copCarPanel",
+     "z": 7
+    },
+    {
+     "ellipse": [
+      24,
+      21.5,
+      10,
+      6
+     ],
+     "color": "copCarBody",
+     "z": 8,
+     "noise": 0.02
+    },
+    {
+     "poly": [
+      [
+       28,
+       17
+      ],
+      [
+       33,
+       20
+      ],
+      [
+       33,
+       23
+      ],
+      [
+       28,
+       26
+      ]
+     ],
+     "color": "carGlass",
+     "z": 10,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      16,
+      14,
+      16,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "rect": [
+      16,
+      27,
+      16,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "rect": [
+      19,
+      20,
+      2,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 15
+    }
+   ]
+  },
+  "gunship": {
+   "w": 43,
+   "h": 43,
+   "pivot": [
+    21,
+    21
+   ],
+   "rotations": 32,
+   "shapes": [
+    {
+     "disc": [
+      21,
+      21,
+      19
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.22,
+     "noOutline": true
+    },
+    {
+     "disc": [
+      21,
+      21,
+      13
+     ],
+     "color": "rotorBlur",
+     "z": 16,
+     "alpha": 0.16,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      3,
+      20,
+      14,
+      3
+     ],
+     "color": "armyShirt",
+     "z": 6
+    },
+    {
+     "rect": [
+      2,
+      17,
+      3,
+      9
+     ],
+     "color": "armyVest",
+     "z": 7
+    },
+    {
+     "ellipse": [
+      24,
+      21.5,
+      10,
+      6
+     ],
+     "color": "armyShirt",
+     "z": 8,
+     "noise": 0.02
+    },
+    {
+     "poly": [
+      [
+       28,
+       17
+      ],
+      [
+       33,
+       20
+      ],
+      [
+       33,
+       23
+      ],
+      [
+       28,
+       26
+      ]
+     ],
+     "color": "carGlass",
+     "z": 10,
+     "noOutline": true
+    },
+    {
+     "rect": [
+      16,
+      14,
+      16,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "rect": [
+      16,
+      27,
+      16,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 4
+    },
+    {
+     "rect": [
+      19,
+      20,
+      2,
+      2
+     ],
+     "color": "gunMetal",
+     "z": 15
+    }
+   ]
   }
  }
 }

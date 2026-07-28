@@ -70,7 +70,13 @@ export function anyCopSees(state: GameState, map: CityMap, p: PlayerState): bool
  */
 function copSees(map: CityMap, cop: CopState, p: PlayerState, range: number): boolean {
   if ((p.powerFlags & POWER_INVISIBLE) !== 0) return false;
-  return hasLineOfSight(map, cop, p, range);
+  const stats = copStats(cop.kind);
+  // A unit in the air sees over everything, and much further. This is the
+  // whole of what a helicopter is for: without it, "turn one corner" is the
+  // entire escape at four stars, because there is no corner that breaks line
+  // of sight from above. You go under something, or you shoot it down.
+  if (stats.flies) return dist(cop.pos.x, cop.pos.y, p.pos.x, p.pos.y) <= (stats.sightRange || range);
+  return hasLineOfSight(map, cop, p, stats.sightRange || range);
 }
 
 /**
@@ -210,6 +216,9 @@ function copStats(kind: string): CopKindTuning {
       burstCount: 0,
       burstPauseTicks: 0,
       frontalDamage: 1,
+      flies: false,
+      sightRange: 0,
+      searchlight: 0,
     }
   );
 }
@@ -328,12 +337,32 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
     const spawns = map.vehicleSpawns;
     if (spawns.length === 0) return;
     const anchor = waveAnchor(since, wave, spawns.length);
+    // The wave's STAGING point: the first kerbside spot in the ring, from
+    // the hashed anchor. Every unit of the wave is placed near this one, and
+    // that is what makes a response arrive along a street.
+    //
+    // Simply taking the unitIndex-th valid point was the first attempt and
+    // it does not hold: the spawn list is row-major over the whole window, so
+    // two consecutive VALID points can be on opposite sides of the ring when
+    // the scan crosses a district. A five-unit wave measured 1126 px across.
+    let staging: { x: number; y: number } | null = null;
+    for (let i = 0; i < spawns.length && !staging; i++) {
+      const c = spawns[(anchor + i) % spawns.length];
+      if (!c) continue;
+      const d = dist(c.x, c.y, p.pos.x, p.pos.y);
+      if (d >= t.spawnMinDist && d <= t.spawnMaxDist) staging = c;
+    }
+    if (!staging) return;
+
     let found = 0;
     for (let i = 0; i < spawns.length; i++) {
       const candidate = spawns[(anchor + i) % spawns.length];
       if (!candidate) continue;
       const d = dist(candidate.x, candidate.y, p.pos.x, p.pos.y);
       if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
+      // Near the staging point, so the wave lands together rather than
+      // wherever the scan happened to find room.
+      if (dist(candidate.x, candidate.y, staging.x, staging.y) > t.waveSpreadPx) continue;
       // Take the unitIndex-th valid point, not the first: two units of the
       // same wave must not be handed the same patch of kerb.
       if (found++ < unitIndex) continue;
@@ -352,7 +381,10 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
       // mid-chase instead would drop a vehicle wherever the officer happened
       // to be standing — usually a pavement — where it wedges on the first
       // tick. A kerbside spawn point is on a road by construction.
-      if (unit.vehicle) motorise(state, cop, candidate.heading, unit.vehicle);
+      // A flying unit is already in its vehicle: the kind IS the aircraft.
+      if (unit.vehicle && !copStats(unit.kind).flies) {
+        motorise(state, cop, candidate.heading, unit.vehicle);
+      }
       return; // at most one spawn per tick: a ramp, not a wall
     }
     return;
@@ -373,6 +405,8 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
  */
 function tryBust(state: GameState, cop: CopState, target: PlayerState, events: SimEvent[]): boolean {
   const t = getTuning().police;
+  // Nobody puts hands on you from a helicopter.
+  if (copStats(cop.kind).flies) return false;
   if (target.mode !== 'foot') return false;
   if (dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y) > t.bustRadius) return false;
   const speed = Math.sqrt(target.vel.x * target.vel.x + target.vel.y * target.vel.y);
@@ -983,6 +1017,26 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // ignores its standoff — you cannot cordon somebody you cannot find, and
     // the search has to be allowed to walk right up to the last-seen point.
     const standoff = seen ? Math.max(t.bustRadius - 2, copStats(cop.kind).preferredRange) : t.bustRadius - 2;
+    // In the air: straight at the goal, over everything. No tile collision,
+    // no being shoved by traffic, no wall-slide — and no arrest, because
+    // nobody gets out (see the `tryBust` gate below).
+    if (copStats(cop.kind).flies) {
+      const moveSpeed = copStats(cop.kind).moveSpeed;
+      if (goalD > 1) {
+        cop.vel.x = q8(((goalX - cop.pos.x) / goalD) * moveSpeed);
+        cop.vel.y = q8(((goalY - cop.pos.y) / goalD) * moveSpeed);
+        cop.pos.x = q8(cop.pos.x + cop.vel.x * DT);
+        cop.pos.y = q8(cop.pos.y + cop.vel.y * DT);
+      } else {
+        cop.vel.x = 0;
+        cop.vel.y = 0;
+      }
+      if (seen && cop.fireCooldown === 0 && bestD <= t.fireRange) {
+        copFire(state, map, cop, target, events);
+      }
+      continue;
+    }
+
     if (goalD > standoff) {
       const moveSpeed = copStats(cop.kind).moveSpeed;
       const dirX = (goalX - cop.pos.x) / goalD;

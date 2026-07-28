@@ -79,6 +79,30 @@
       "burstCount": 3,
       "burstPauseTicks": 34,
       "frontalDamage": 0.75
+    },
+    "heli": {
+      "health": 260,
+      "weapon": "copPistol",
+      "moveSpeed": 150,
+      "preferredRange": 90,
+      "burstCount": 3,
+      "burstPauseTicks": 40,
+      "frontalDamage": 1,
+      "flies": true,
+      "sightRange": 520,
+      "searchlight": 150
+    },
+    "gunship": {
+      "health": 300,
+      "weapon": "copRifle",
+      "moveSpeed": 158,
+      "preferredRange": 110,
+      "burstCount": 4,
+      "burstPauseTicks": 34,
+      "frontalDamage": 1,
+      "flies": true,
+      "sightRange": 560,
+      "searchlight": 170
     }
   },
   "dismountDist": 150,
@@ -145,6 +169,11 @@
         "kind": "patrol",
         "count": 1,
         "vehicle": "copcar"
+      },
+      {
+        "kind": "heli",
+        "count": 1,
+        "vehicle": null
       }
     ],
     "5": [
@@ -157,6 +186,11 @@
         "kind": "swat",
         "count": 2,
         "vehicle": "copcar"
+      },
+      {
+        "kind": "heli",
+        "count": 1,
+        "vehicle": null
       }
     ],
     "6": [
@@ -169,10 +203,16 @@
         "kind": "fed",
         "count": 2,
         "vehicle": "copcar"
+      },
+      {
+        "kind": "gunship",
+        "count": 1,
+        "vehicle": null
       }
     ]
   },
   "wavePeriodTicks": 330,
+  "waveSpreadPx": 260,
   "roadblockVehicle": {
     "4": "copcar",
     "5": "copcar",

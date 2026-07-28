@@ -1261,6 +1261,141 @@ describe('the difficulty pass (P2)', () => {
   });
 });
 
+describe('air support (S1)', () => {
+  /** A helicopter on the case, and a player it is after. */
+  function withHeli(seed: number, kind = 'heli'): { state: GameState; at: { x: number; y: number } } {
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    const lane = straightEastLane(map);
+    const at = { x: lane.x, y: lane.y };
+    state.players.byId[1]!.pos = { x: at.x, y: at.y };
+    const cop = createCop(900, { x: at.x - 400, y: at.y }, 260, kind);
+    cop.targetId = 1;
+    cop.lastSeenX = at.x;
+    cop.lastSeenY = at.y;
+    insertEntity(state.cops, cop);
+    return { state, at };
+  }
+
+  it('a helicopter flies: no walls, no traffic, straight at you', () => {
+    // The whole point of the unit. On the ground, 400 px through a city
+    // means corners; in the air it means 400 px.
+    const f = withHeli(900);
+    let state = f.state;
+    for (let i = 0; i < 60; i++) {
+      const p = state.players.byId[1]!;
+      p.pos = { x: f.at.x, y: f.at.y };
+      p.heat = 410;
+      p.health = 500;
+      state = step(state, {}, [], map);
+    }
+    const c = state.cops.byId[900]!;
+    const d = Math.hypot(c.pos.x - f.at.x, c.pos.y - f.at.y);
+    // Closed most of the gap in two seconds, which nothing on foot could.
+    expect(d).toBeLessThan(200);
+  });
+
+  it('...and sees over everything, which is what makes it frightening', () => {
+    // A helicopter overhead is what stops "turn one corner" being the whole
+    // of an escape: there is no corner that breaks line of sight from above.
+    const t = getTuning().police;
+    expect(t.kinds['heli']!.flies).toBe(true);
+    expect(t.kinds['heli']!.sightRange).toBeGreaterThan(t.sightRange);
+
+    // Parked inside a building — invisible to anybody on the street, and in
+    // plain view from the air.
+    let solid = { x: 0, y: 0 };
+    outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
+      for (let tx = 4; tx < map.widthTiles - 4; tx++) {
+        if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) {
+          solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+          break outer;
+        }
+      }
+    }
+    let state = createGameState(901);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    state.players.byId[1]!.pos = { x: solid.x, y: solid.y };
+    state.players.byId[1]!.heat = 410;
+    const heli = createCop(901, { x: solid.x - 120, y: solid.y }, 260, 'heli');
+    heli.targetId = 1;
+    insertEntity(state.cops, heli);
+    for (let i = 0; i < 30; i++) {
+      state.players.byId[1]!.pos = { x: solid.x, y: solid.y };
+      state.players.byId[1]!.heat = 410;
+      state = step(state, {}, [], map);
+    }
+    // Never loses them, so the cool-down clock never starts.
+    expect(state.cops.byId[901]!.searchTicks).toBe(0);
+    expect(state.players.byId[1]!.unseenTicks).toBe(0);
+  });
+
+  it('nobody is arrested from a helicopter', () => {
+    // It has no doors for this purpose. Without the guard, the cheapest
+    // arrest in the game would be one from 30 metres up.
+    const f = withHeli(902);
+    let state = f.state;
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 300; i++) {
+      const p = state.players.byId[1]!;
+      p.pos = { x: f.at.x, y: f.at.y };
+      p.vel = { x: 0, y: 0 }; // stationary: the arrestable case
+      p.heat = 410;
+      p.health = 900;
+      state = step(state, {}, [], map, events);
+    }
+    // Some other unit may well have turned out and nicked them; what must
+    // not happen is the HELICOPTER doing it.
+    const byHeli = events.filter((e) => e.type === 'busted' && e.copId === 901);
+    expect(byHeli.length).toBe(0);
+  });
+
+  it('a helicopter can be shot down, and stops being a pursuer when it is', () => {
+    // It is a CopState like any other, so damageCop, the corpse timer and
+    // the pursuit drop-out all apply for free. That reuse is the reason it
+    // is a cop rather than a vehicle.
+    const f = withHeli(903);
+    const state = f.state;
+    const heli = state.cops.byId[900]!;
+    damageCop(state, heli, 10_000, 1, []);
+    expect(heli.health).toBe(0);
+    expect(heli.targetId).toBeNull();
+    // And the sky stops watching: with it down, the cool-down clock starts
+    // running where a live one pinned it at zero. That is the escape the
+    // player bought by shooting it down.
+    const after = step(state, {}, [], map);
+    expect(after.players.byId[1]!.heat).toBeGreaterThan(0); // shooting it is a crime
+    expect(after.players.byId[1]!.unseenTicks).toBeGreaterThan(0);
+  });
+
+  it('air support arrives from four stars, not before', () => {
+    // A helicopter at one star would make the bottom of the ladder
+    // unescapable, which is the opposite of what Wave P is for.
+    const waves = getTuning().police.waves;
+    const flies = (level: string): boolean =>
+      (waves[level] ?? []).some((u) => getTuning().police.kinds[u.kind]?.flies === true);
+    expect(flies('1')).toBe(false);
+    expect(flies('2')).toBe(false);
+    expect(flies('3')).toBe(false);
+    expect(flies('4')).toBe(true);
+    expect(flies('6')).toBe(true);
+  });
+
+  it('every flying kind has a sprite and never gets a ground vehicle', () => {
+    // The kind IS the aircraft; handing one a cruiser would park a
+    // helicopter on the kerb.
+    for (const [name, k] of Object.entries(getTuning().police.kinds)) {
+      if (!k.flies) continue;
+      expect(k.searchlight, name).toBeGreaterThan(0);
+      for (const units of Object.values(getTuning().police.waves)) {
+        for (const u of units) {
+          if (u.kind === name) expect(u.vehicle, `${name} in a wave`).toBeNull();
+        }
+      }
+    }
+  });
+});
+
 describe('escalation by kind (I1)', () => {
   /** Hold a player at `stars` long enough for the response to turn out. */
   function forceAt(stars: number, ticks = 400): GameState {

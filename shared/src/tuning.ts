@@ -259,6 +259,14 @@ export interface PoliceTuning {
   waves: Record<string, Array<{ kind: string; count: number; vehicle: string | null }>>;
   /** Ticks from the start of one wave to the start of the next. */
   wavePeriodTicks: number;
+  /**
+   * How far the units of one wave may be spread around its staging point.
+   *
+   * The property this buys is "the response arrived from a direction". A
+   * couple of blocks: wide enough that a five-unit wave finds room on a
+   * normal street, tight enough that it is recognisably one arrival.
+   */
+  waveSpreadPx: number;
   /** What a roadblock is made of at each wanted level. */
   roadblockVehicle: Record<string, string>;
   /**
@@ -298,6 +306,21 @@ export interface CopKindTuning {
    * than going round.
    */
   frontalDamage: number;
+  /**
+   * This unit flies.
+   *
+   * It ignores the ground — no tile collision, no being shoved by cars — and
+   * it does not make arrests, because nobody gets out. What it is FOR is
+   * sight: a helicopter overhead is what stops "turn one corner" being the
+   * whole of an escape at four stars, because there is no corner that breaks
+   * line of sight from above. You go under something, or you shoot it down.
+   * See GTA.md S1.
+   */
+  flies: boolean;
+  /** How far this unit can see, overriding `police.sightRange`. 0 = the default. */
+  sightRange: number;
+  /** Length of its searchlight cone in px, or 0 for no light. */
+  searchlight: number;
 }
 
 export interface PedTuning {
@@ -761,6 +784,9 @@ function parseCopKinds(raw: unknown): Record<string, CopKindTuning> {
       burstCount: optNum(r['burstCount'], 0),
       burstPauseTicks: optNum(r['burstPauseTicks'], 0),
       frontalDamage: optNum(r['frontalDamage'], 1),
+      flies: r['flies'] === true,
+      sightRange: optNum(r['sightRange'], 0),
+      searchlight: optNum(r['searchlight'], 0),
     };
   }
   return out;
@@ -853,6 +879,7 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     kinds: parseCopKinds(r['kinds']),
     waves: parseWaves(r['waves']),
     wavePeriodTicks: optNum(r['wavePeriodTicks'], 300),
+    waveSpreadPx: optNum(r['waveSpreadPx'], 260),
     roadblockVehicle: parseStringMap(r['roadblockVehicle']),
     vehicleCaps: parseNumberMap(r['vehicleCaps']),
     rangeSpread: optNum(r['rangeSpread'], 0),
@@ -1288,6 +1315,7 @@ const DEFAULT_POLICE: PoliceTuning = {
   spawnMaxDist: 640,
   waves: {},
   wavePeriodTicks: 300,
+  waveSpreadPx: 260,
   roadblockVehicle: {},
   vehicleCaps: {},
   rangeSpread: 1.6,
@@ -1321,10 +1349,10 @@ const DEFAULT_POLICE: PoliceTuning = {
   bustSpeedMax: 40,
   tiers: ['patrol', 'patrol', 'patrol', 'swat', 'fed', 'army'],
   kinds: {
-    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73, preferredRange: 0, burstCount: 3, burstPauseTicks: 22, frontalDamage: 1 },
-    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79, preferredRange: 0, burstCount: 2, burstPauseTicks: 26, frontalDamage: 0.6 },
-    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88, preferredRange: 130, burstCount: 5, burstPauseTicks: 30, frontalDamage: 1 },
-    army: { health: 220, weapon: 'copRifle', moveSpeed: 77, preferredRange: 150, burstCount: 3, burstPauseTicks: 34, frontalDamage: 0.75 },
+    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73, preferredRange: 0, burstCount: 3, burstPauseTicks: 22, frontalDamage: 1, flies: false, sightRange: 0, searchlight: 0 },
+    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79, preferredRange: 0, burstCount: 2, burstPauseTicks: 26, frontalDamage: 0.6, flies: false, sightRange: 0, searchlight: 0 },
+    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88, preferredRange: 130, burstCount: 5, burstPauseTicks: 30, frontalDamage: 1, flies: false, sightRange: 0, searchlight: 0 },
+    army: { health: 220, weapon: 'copRifle', moveSpeed: 77, preferredRange: 150, burstCount: 3, burstPauseTicks: 34, frontalDamage: 0.75, flies: false, sightRange: 0, searchlight: 0 },
   },
 };
 
