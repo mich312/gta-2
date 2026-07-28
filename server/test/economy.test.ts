@@ -424,6 +424,14 @@ describe('score multiplier', () => {
       // it by whatever streak you happened to be on would make the same
       // hundredth package worth ten times as much to one player as another.
       'ledgerFor(key).append(key, amount, `package:',
+      // Proving-ground cash, and exempt for a stronger reason than the
+      // others: it is not earnings at all. The multiplier prices what you
+      // did; nobody did anything. It is ledgered rather than conjured
+      // because the ledger's whole promise is that money never appears
+      // without a line saying where it came from, and "somebody pressed P in
+      // the debug room" is a perfectly good line. The room only exists when
+      // the session was started with PROVING_GROUND=1.
+      "ledgerFor(key).append(key, amount, 'proving-ground'",
     ];
     for (const e of exempt) expect(src, `exempt site missing: ${e}`).toContain(e);
     // exempt sites + the single credit() site

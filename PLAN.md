@@ -179,6 +179,10 @@ interface InputIntent {          // exactly the brief's shape
   fire: boolean;
   aimAngle: number;              // radians, clamped by sanitizeInput()
   action: boolean;               // context: enter/exit vehicle, buy, etc.
+  viewTick: number;              // fractional server tick this input's collision
+                                 // world was sampled at; 0 = no opinion. The
+                                 // server rewinds to it before resolving what
+                                 // this input hit — see sim/rewind.ts.
 }
 
 type ClientMessage =
@@ -429,6 +433,20 @@ entry is server-granted via `action` intent — the client never predicts entry
 itself, it plays a reach animation until the snapshot confirms. If phase 3
 "feels laggy on entry", this seam is why, and we tune the animation, not the
 authority model.
+
+*How this actually landed.* The "dynamic entities don't block the prediction"
+half did not survive contact: not predicting the car in front means driving
+through it for a whole round trip and then being yanked back to where you
+really stopped, which is worse than any correction it avoids. Vehicle bodies
+— and, since colliders became one shape, people on foot against them — are
+predicted. What stayed server-granted is exactly the list this paragraph
+cares about: entering and exiting, damage, wrecks. The correction that
+predicting dynamics WOULD have cost is paid off by lag compensation instead:
+the client stamps each intent with the moment its collision world is sampled
+at (`InputIntent.viewTick`), and the server rewinds vehicle poses to that
+moment before judging the contact (`sim/rewind.ts`). Detection rewinds, the
+response lands on the live entity. Contested entry is still resolved by the
+server alone, so the paragraph's worst case is untouched.
 
 **3. The economy/sim boundary under mid-session mutation.**
 The brief's "loadout read once at spawn" and "shops you walk into" pull

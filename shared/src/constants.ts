@@ -15,8 +15,16 @@
  * that answers casualties.
  * 7: `pedDown` and `copDown` carry the position they went down at, so the
  * client can throw blood for the commonest killing in the game.
+ * 8: `InputIntent` gained `viewTick` — which moment of the world the client
+ * was looking at when it made this input, so the server can judge the
+ * collisions it produced against that same moment (lag compensation; see
+ * sim/rewind.ts). It is a required field on the wire, so a client that does
+ * not send it cannot be decoded. The vehicle tuning payload also lost
+ * `enterRadius` and gained `enterReach`: the door is measured from the
+ * bodywork now rather than from the vehicle's centre, which is the only
+ * measure that reaches the front of a bus.
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;

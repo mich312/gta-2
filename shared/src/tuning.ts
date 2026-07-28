@@ -22,7 +22,15 @@ export interface VehicleTuning {
   minSteerSpeedFrac: number;
   /** Speed multiplier applied on hitting a wall or another car. */
   crashDamp: number;
-  enterRadius: number;
+  /**
+   * How far past the BODYWORK you can be and still open a door, px — not a
+   * distance from the centre, which is what `enterRadius` used to be. See
+   * `distanceToBox`. Renamed rather than retuned so nobody reads the smaller
+   * number as a shorter reach: 20 past the panels is 25.5 from the centre of
+   * a car's flank, where 26 from the centre used to be, and 41 from the
+   * centre of a bus's nose, where 26 did not reach the paint.
+   */
+  enterReach: number;
   /** Collision box half-extent (cars are boxes for tile collision). */
   halfExtent: number;
   /**
@@ -61,6 +69,34 @@ export interface VehicleTuning {
    * tells the guns to fire down the aim rather than down the bonnet.
    */
   turretOffset: number | null;
+  /**
+   * Drive straight over anything lighter than this, px-mass, instead of
+   * bumping into it. 0 — the default, and every vehicle but one — means
+   * nothing gets driven over.
+   *
+   * A threshold rather than a list of kinds so it stays a fact about weight:
+   * the tank's 2.0 falls in the gap between the heaviest thing it flattens
+   * (an ambulance at 1.5) and the lightest thing that stops it (a truck at
+   * 2.2), and any vehicle added later sorts itself.
+   */
+  crushesBelowMass: number;
+  /**
+   * Speed kept per tick while grinding over something, so driving over a car
+   * costs a little momentum instead of being free. 1 — the default — is no
+   * loss at all.
+   *
+   * Per TICK rather than per car, unlike the flat one-off a prop takes
+   * (`props.crashSpeedLoss`). A bollard is a discrete thing you smash
+   * through; a car under a tank is 62 px of obstacle you are on top of for
+   * most of a second, and charging by the tick needs no memory of which cars
+   * have already been paid for — which is what lets both hosts agree without
+   * any new state on the wire.
+   *
+   * It is self-limiting and cannot pin the tank: drag takes `speed * (1 - x)`
+   * per tick while the throttle puts back a flat `accel * DT`, so the two
+   * meet at a speed well above zero and the tank always grinds through.
+   */
+  crushSpeedLoss: number;
 }
 
 export interface WeaponTuning {
@@ -508,7 +544,7 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     turnRate: n('turnRate'),
     minSteerSpeedFrac: n('minSteerSpeedFrac'),
     crashDamp: n('crashDamp'),
-    enterRadius: n('enterRadius'),
+    enterReach: n('enterReach'),
     halfExtent: n('halfExtent'),
     halfLength: n('halfLength'),
     halfWidth: n('halfWidth'),
@@ -521,6 +557,10 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     medium: r['medium'] === 'water' ? 'water' : 'land',
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
     turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
+    crushesBelowMass:
+      typeof r['crushesBelowMass'] === 'number' ? r['crushesBelowMass'] : 0,
+    crushSpeedLoss:
+      typeof r['crushSpeedLoss'] === 'number' ? r['crushSpeedLoss'] : 1,
   };
 }
 

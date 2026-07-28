@@ -740,6 +740,10 @@ function writeIntent(w: Writer, i: InputIntent): void {
   w.u8(bits);
   w.q256(i.aimAngle);
   w.int(i.slot);
+  // Fractional server tick, on the 1/256 grid, as a plain unsigned: it is a
+  // whole tick count for all of a session's first four hours, so the varint
+  // stays short. 0 is "no opinion" and costs one byte.
+  w.big(Math.round(i.viewTick * 256));
 }
 
 function readIntent(r: Reader): InputIntent {
@@ -759,6 +763,7 @@ function readIntent(r: Reader): InputIntent {
     horn: (bits & 128) !== 0,
     aimAngle: r.q256(),
     slot: r.int(),
+    viewTick: r.big() / 256,
   };
 }
 

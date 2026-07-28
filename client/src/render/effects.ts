@@ -1,8 +1,13 @@
 import palette from 'shared/data/palette.json';
 import { RENDER_SCALE } from './config.js';
-import type { LightPass } from './lighting.js';
+import type { LightKind, LightPass } from './lighting.js';
 
 const MAX_PARTICLES = 600;
+/**
+ * Transient lights alive at once. Small on purpose: these are the loudest
+ * things on screen, and a dozen of them overlapping is a white frame.
+ */
+const MAX_FLASHES = 24;
 /**
  * Blood now lands as a dozen-odd separate droplet marks per casualty instead
  * of three stamped stains, which is the whole point of it — but it also means
@@ -52,6 +57,18 @@ interface Particle {
  * edge the way burnt asphalt does, and is drawn at exactly the blast radius, so
  * what you see is the area that actually hurt.
  */
+/** A light with a lifetime: a fireball, a muzzle flash, a blown transformer. */
+interface Flash {
+  x: number;
+  y: number;
+  radius: number;
+  kind: LightKind;
+  life: number;
+  maxLife: number;
+  /** Alpha at the instant it is born. */
+  peak: number;
+}
+
 type DecalShape = 'rect' | 'ellipse' | 'scorch';
 
 interface Decal {
@@ -131,6 +148,7 @@ function getScorchTexture(): HTMLCanvasElement {
 export class Effects {
   private particles: Particle[] = [];
   private decals: Decal[] = [];
+  private flashes: Flash[] = [];
   private nextParticle = 0;
   private nextDecal = 0;
 
@@ -189,12 +207,34 @@ export class Effects {
       d.life -= step;
       if (d.life <= 0) this.decals.splice(i, 1);
     }
+    for (let i = this.flashes.length - 1; i >= 0; i--) {
+      const f = this.flashes[i] as Flash;
+      f.life -= step;
+      if (f.life <= 0) this.flashes.splice(i, 1);
+    }
+  }
+
+  /**
+   * A light that exists for a moment and then does not: the fireball of a car
+   * going up, the flash off a barrel.
+   *
+   * Kept here rather than in the light pass because it is a world-space thing
+   * with a lifetime, and this is where world-space things with lifetimes live.
+   * Without it the only illumination an explosion threw was the glow on its
+   * own sparks — the street it happened in stayed exactly as dark as it was.
+   */
+  flash(x: number, y: number, radius: number, kind: LightKind, life: number, peak = 1): void {
+    if (this.flashes.length >= MAX_FLASHES) this.flashes.shift();
+    this.flashes.push({ x, y, radius, kind, life, maxLife: life, peak });
   }
 
   // ── emitters ───────────────────────────────────────────────────────────────
 
   /** Muzzle flash: a short cone of sparks plus a puff of lit smoke. */
   muzzleFlash(x: number, y: number, angle: number): void {
+    // One frame of light off the barrel. Short enough that it reads as a
+    // flash rather than a lamp, bright enough to find you in an alley.
+    this.flash(x, y, 34, 'muzzle', 0.09, 0.85);
     for (let i = 0; i < 7; i++) {
       const spread = (Math.random() - 0.5) * 0.55;
       const speed = 130 + Math.random() * 190;
@@ -393,6 +433,11 @@ export class Effects {
     // Drawn at the true blast diameter: the mark left behind is the area the
     // falloff actually reached, not a square 1.5x guess at it.
     this.addDecal(x, y, 0, radius * 2, radius * 2, 'rgba(12, 10, 10, 0.5)', 40, 'scorch');
+    // The blast lights the street it happens in, and it reaches a good deal
+    // further than the fireball does. Two flashes: a hard white one that is
+    // gone in a fifth of a second, and the fire under it burning down.
+    this.flash(x, y, radius * 2.4, 'muzzle', 0.22, 1);
+    this.flash(x, y, radius * 1.6, 'fire', 0.85, 0.8);
     for (let i = 0; i < 26; i++) {
       const a = (i / 26) * Math.PI * 2 + Math.random() * 0.3;
       const speed = 60 + Math.random() * radius * 2.2;
@@ -590,5 +635,19 @@ export class Effects {
       }
     }
     ctx.restore();
+
+    for (const f of this.flashes) {
+      const t = f.life / f.maxLife;
+      // Fades on a curve, not a ramp: the first third of a flash is most of
+      // what the eye gets, and a linear fade reads as a dimmer being turned.
+      lights.point(
+        originX + f.x * RENDER_SCALE,
+        originY + f.y * RENDER_SCALE,
+        f.radius * RENDER_SCALE * (1.25 - 0.25 * t),
+        f.kind,
+        f.peak * t * t,
+        'dynamic',
+      );
+    }
   }
 }

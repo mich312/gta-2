@@ -7,11 +7,13 @@ import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
-import type { EntityTable } from './entities.js';
+import { boxesOverlap, distanceToBox, poseIn, vehicleBox, vehicleBoxAt } from './bodies.js';
+import type { Pose, VehicleWorld } from './bodies.js';
 import type { SimEvent } from './events.js';
 import {
   collisionDamage,
   damageVehicle,
+  detonateVehicle,
   kerbStrike,
   partsSteerPull,
   vehiclePower,
@@ -19,6 +21,10 @@ import {
 import { creditGangKill } from './respect.js';
 import { anyCopSees } from './police.js';
 import { applyDamage } from './weapons.js';
+
+// `VehicleWorld` and `Pose` moved to bodies.ts when people started colliding
+// with cars too, but they are still part of this module's public face.
+export type { Pose, VehicleWorld } from './bodies.js';
 
 /** Closing speed below which a scrape is just a scrape. */
 const WALL_HIT_MIN_SPEED = 54;
@@ -38,74 +44,36 @@ const KERB_TYRE_SPEED = 140;
  * not rigid-body anything. Deterministic trig only — this runs in prediction.
  */
 
-/**
- * The slice of the world a vehicle needs in order to notice other vehicles.
- *
- * A narrow read-only view rather than the whole GameState, because the client
- * has to be able to supply one: it holds the latest snapshot, not a
- * simulation. `GameState` satisfies this structurally, so the server passes
- * itself and nothing changes there.
- */
-export interface VehicleWorld {
-  vehicles: EntityTable<VehicleState>;
-}
-
 /** What two vehicles touching tells the rest of the system. */
 interface VehicleContact {
+  /** The live vehicle — what the shove and the damage are applied TO. */
   other: VehicleState;
+  /** Where it was when we hit it. The same as its live pose unless the
+   * contact was resolved on a viewer's delayed clock. */
+  pose: Pose;
   /** Where they met, in world coordinates. Routes the damage to a zone. */
   x: number;
   y: number;
 }
 
+/** Do these two vehicles' bodies overlap, where they each are right now? */
+export function vehiclesOverlap(a: VehicleState, b: VehicleState): boolean {
+  return boxesOverlap(vehicleBox(a), vehicleBox(b));
+}
+
 /**
- * Do two oriented body boxes overlap? Separating-axis test, four axes.
+ * Does a `heavy` simply drive over a `victim`, rather than bumping into it?
  *
- * This replaced an axis-aligned square of the STRIKER's own `halfExtent`,
- * used for both vehicles and both axes. For a car that was 18 × 18 against a
- * body 26 long and 14 wide, so it was too wide and too short at once: two cars
- * in adjacent lanes on a two-tile street sit 16 px apart, 16 < 18, and they
- * collided eight times per pass and shredded 44% of each other's health
- * without their bodies ever coming near touching. Nose-to-tail, a car could
- * bury a third of its length in the one in front before anything noticed.
- *
- * Only exact operations (multiply, add, compare, absolute value) and the
- * deterministic trig table, so it is safe in prediction.
+ * A pure function of the two kinds' tuning, which is what lets the client
+ * predict it: whether the tank stops is decided identically on both hosts,
+ * and only what happens to the car underneath is the server's business. Get
+ * this wrong in either direction and the tank stops dead on one host and
+ * drives on in the other — the exact disagreement lag compensation exists to
+ * remove, reintroduced by the feature.
  */
-export function boxesOverlap(a: VehicleState, b: VehicleState): boolean {
-  const ta = getVehicleTuning(a.kind);
-  const tb = getVehicleTuning(b.kind);
-  const dx = b.pos.x - a.pos.x;
-  const dy = b.pos.y - a.pos.y;
-
-  // Broad phase: no pair of boxes can touch further apart than the sum of
-  // their diagonals, and most pairs are nowhere near.
-  const reach = ta.halfLength + ta.halfWidth + tb.halfLength + tb.halfWidth;
-  if (dx * dx + dy * dy > reach * reach) return false;
-
-  const ac = dCos(a.heading);
-  const as = dSin(a.heading);
-  const bc = dCos(b.heading);
-  const bs = dSin(b.heading);
-
-  /** True if this axis separates them — one clear axis means no contact. */
-  const separated = (ux: number, uy: number): boolean => {
-    const d = dx * ux + dy * uy;
-    const dist = d < 0 ? -d : d;
-    const af = ta.halfLength * (ac * ux + as * uy);
-    const ar = ta.halfWidth * (-as * ux + ac * uy);
-    const bf = tb.halfLength * (bc * ux + bs * uy);
-    const br = tb.halfWidth * (-bs * ux + bc * uy);
-    const ra = (af < 0 ? -af : af) + (ar < 0 ? -ar : ar);
-    const rb = (bf < 0 ? -bf : bf) + (br < 0 ? -br : br);
-    return dist > ra + rb;
-  };
-
-  if (separated(ac, as)) return false;
-  if (separated(-as, ac)) return false;
-  if (separated(bc, bs)) return false;
-  if (separated(-bs, bc)) return false;
-  return true;
+export function crushes(heavyKind: string, victimKind: string): boolean {
+  const limit = getVehicleTuning(heavyKind).crushesBelowMass;
+  return limit > 0 && getVehicleTuning(victimKind).mass < limit;
 }
 
 function overlappingVehicle(
@@ -113,22 +81,131 @@ function overlappingVehicle(
   self: VehicleState,
 ): VehicleContact | null {
   if (!world) return null;
+  const selfBox = vehicleBox(self);
+  const selfReach = selfBox.halfLength + selfBox.halfWidth;
   for (const id of world.vehicles.ids) {
     if (id === self.id) continue;
     const other = world.vehicles.byId[id];
     if (!other) continue;
-    if (boxesOverlap(self, other)) {
+    // Nothing this one drives over can stop it — including the wreck it made
+    // of that car a moment ago, which would otherwise be a tank sitting on
+    // top of its own kill unable to get off it.
+    if (crushes(self.kind, other.kind)) continue;
+    const pose = poseIn(world, other);
+    // Distance reject before the trig. `boxesOverlap` has a broad phase of its
+    // own, but it runs after both boxes are built, and building one costs a
+    // sine and a cosine — the whole expense on a street of parked cars none of
+    // which are anywhere near.
+    //
+    // `halfLength + halfWidth`, which is EXACTLY the reach the inner broad
+    // phase uses, so hoisting the test in front of the trig cannot change any
+    // answer. Tempting and wrong: `halfLength` alone. A box reaches
+    // sqrt(hl² + hw²) from its centre, not hl, so two cars meeting corner to
+    // corner touch with their centres 26.4 px apart while `hl + hl` is 24 —
+    // and the contact gets thrown away before anything looks at it. Which is
+    // the exact class of bug this whole change is about.
+    const ot = getVehicleTuning(other.kind);
+    const reach = selfReach + ot.halfLength + ot.halfWidth;
+    const rdx = pose.x - self.pos.x;
+    const rdy = pose.y - self.pos.y;
+    if (rdx * rdx + rdy * rdy > reach * reach) continue;
+    if (boxesOverlap(selfBox, vehicleBoxAt(other.kind, pose.x, pose.y, pose.heading))) {
       // The midpoint of the two centres is the contact point, near enough:
       // head-on it lands in front of you, side-swiped it lands on the side
       // that was swiped, which is all the damage map needs to know.
       return {
         other,
-        x: (self.pos.x + other.pos.x) * 0.5,
-        y: (self.pos.y + other.pos.y) * 0.5,
+        pose,
+        x: (self.pos.x + pose.x) * 0.5,
+        y: (self.pos.y + pose.y) * 0.5,
       };
     }
   }
   return null;
+}
+
+/**
+ * Drive over everything `heavy` is currently standing on.
+ *
+ * Two halves with different owners, which is the whole shape of this
+ * function. The DRAG is part of how the tank moves, so it runs on both hosts
+ * and the client predicts it; the WRECKAGE is somebody else's vehicle, so it
+ * happens only where `sim` is non-null. Splitting them the other way — drag
+ * on the server alone — would have the client running ahead by the entire
+ * slowdown and being corrected for it once per car.
+ *
+ * The car goes up on the spot rather than catching light and going up seven
+ * seconds later somewhere behind you: a tank rolling down a street leaves a
+ * line of fireballs, which is the whole point of driving one.
+ *
+ * It is destroyed through the ordinary path — `damageVehicle` for exactly its
+ * remaining health, so ignition, the arson charge and the `vehicleBurning`
+ * event all happen the way they do for any other kill — and then detonated
+ * immediately instead of on the burn fuse. Unlike a chain reaction this
+ * cannot recurse: a blast only ever *ignites* the vehicles around it, so the
+ * depth here is one, and the crusher itself is shielded from the blast it
+ * just caused. Driving over a car is free; the tank is what it is.
+ *
+ * Crushing is charged as arson and not as a traffic accident, which is the
+ * opposite of the call made for an ordinary shunt — and for the same reason.
+ * There, nothing at the call site can tell a deliberate ram from a bad line
+ * through a junction. Here there is nothing to tell apart: you were driving a
+ * tank, and the car was underneath it.
+ */
+function driveOverCrushables(
+  world: VehicleWorld | null,
+  heavy: VehicleState,
+  sim: GameState | null,
+  events: SimEvent[],
+): void {
+  if (!world) return;
+  const t = getVehicleTuning(heavy.kind);
+  if (t.crushesBelowMass <= 0) return;
+  const box = vehicleBox(heavy);
+  let dragged = false;
+  // Snapshot the ids: destroying one ignites its neighbours, and iteration
+  // order must not depend on what that does to the table.
+  for (const id of [...world.vehicles.ids]) {
+    if (id === heavy.id) continue;
+    const other = world.vehicles.byId[id];
+    if (!other || !crushes(heavy.kind, other.kind)) continue;
+    // Detected where the DRIVER saw it, exactly like the contact it replaces:
+    // on the server that is the pose rewound to the driver's clock, on the
+    // client it is the delayed view it draws. Same instant, same verdict.
+    const pose = poseIn(world, other);
+    if (!boxesOverlap(box, vehicleBoxAt(other.kind, pose.x, pose.y, pose.heading))) continue;
+
+    // The drag runs on BOTH hosts — it is part of how the tank moves, and a
+    // client that did not predict it would run ahead by the whole slowdown
+    // and be corrected for it on every car. Repeated multiplication in
+    // sorted-id order, never Math.pow, which is not pinned across engines.
+    heavy.speed = heavy.speed * t.crushSpeedLoss;
+    dragged = true;
+
+    // What becomes of the car is the server's alone, and it happens to the
+    // LIVE one rather than to the pose we detected against. A wreck is
+    // already flat: it still drags, it does not explode twice.
+    if (!sim) continue;
+    const victim = sim.vehicles.byId[id];
+    if (!victim || victim.condition !== 'ok') continue;
+    damageVehicle(
+      sim,
+      victim,
+      victim.health,
+      events,
+      heavy.driverId !== null && heavy.driverId >= 0 ? heavy.driverId : null,
+      victim.pos.x,
+      victim.pos.y,
+    );
+    // Re-read rather than trusting the binding: `damageVehicle` decides
+    // whether that was enough to light it, and only something it actually
+    // lit is ours to set off.
+    const lit = sim.vehicles.byId[id];
+    if (lit && lit.condition === 'burning') {
+      detonateVehicle(sim, lit, events, heavy.id);
+    }
+  }
+  if (dragged) heavy.speed = q8(heavy.speed);
 }
 
 /** Ticks a pair stays immune after a shunt. See `GameState.vehicleHitTick`. */
@@ -207,6 +284,8 @@ function integrateVehicle(
       });
     }
   }
+  // Anything it drove over: the drag on both hosts, the wreckage on one.
+  driveOverCrushables(world, v, sim, events ?? []);
   const hit = overlappingVehicle(world, v);
   if (hit) {
     const other = hit.other;
@@ -220,10 +299,13 @@ function integrateVehicle(
     // that increases the distance between the centres is a move out, and it is
     // always allowed — which is also simply what "momentum transfer, not a
     // brick wall" was supposed to mean.
-    const odx0 = beforeX - other.pos.x;
-    const ody0 = beforeY - other.pos.y;
-    const odx1 = v.pos.x - other.pos.x;
-    const ody1 = v.pos.y - other.pos.y;
+    // Against the pose we HIT, not the live one: on a lag-compensated world
+    // those differ, and mixing the two would have a car escaping a contact it
+    // never made.
+    const odx0 = beforeX - hit.pose.x;
+    const ody0 = beforeY - hit.pose.y;
+    const odx1 = v.pos.x - hit.pose.x;
+    const ody1 = v.pos.y - hit.pose.y;
     if (odx1 * odx1 + ody1 * ody1 > odx0 * odx0 + ody0 * ody0) {
       v.pos.x = q8(v.pos.x);
       v.pos.y = q8(v.pos.y);
@@ -439,10 +521,14 @@ export function tryEnterVehicle(
     if (v.condition === 'wreck') continue; // scenery, not transport
     if (Math.abs(v.speed) > MAX_BOARDING_SPEED) continue;
     const t = getVehicleTuning(v.kind);
-    const dx = v.pos.x - p.pos.x;
-    const dy = v.pos.y - p.pos.y;
-    const d = Math.sqrt(dx * dx + dy * dy);
-    if (d <= t.enterRadius && d < bestD) {
+    // From the BODYWORK, not the centre. Measured from the centre, a door
+    // reach that suits a car does not reach the front of a bus: a bus is 42 px
+    // long, so its bumper is already 21 px out, and once people stopped being
+    // able to walk INTO a vehicle the old rule stranded you against the nose
+    // of the biggest ones with the door refusing to open. Nearest by the same
+    // measure, so the vehicle you are touching is the one you get in.
+    const d = distanceToBox(p.pos.x, p.pos.y, vehicleBox(v));
+    if (d <= t.enterReach && d < bestD) {
       best = v;
       bestD = d;
     }

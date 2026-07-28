@@ -1,5 +1,5 @@
-import type { FullSnapshot, Vec2 } from 'shared';
-import { PLAYER_RADIUS } from 'shared';
+import type { BodyBox, FullSnapshot, Vec2 } from 'shared';
+import { PLAYER_RADIUS, vehicleBoxAt } from 'shared';
 import type { NetStats } from './stats.js';
 
 export interface OverlayFrame {
@@ -16,6 +16,29 @@ export interface OverlayFrame {
   authoritativePos: Vec2 | null;
   desyncs: number;
   fullResyncs: number;
+  /**
+   * Vehicle bodies where THIS FRAME draws them, which is also where the
+   * predictor collides against them. Drawn from the interpolated world rather
+   * than the snapshot on purpose: the snapshot is three ticks further down
+   * the road, and a collider box drawn there would sit next to its own car
+   * and look like the bug it is not.
+   */
+  vehicleBodies: Array<{ x: number; y: number; heading: number; kind: string }>;
+}
+
+/** Trace an oriented box, corner to corner. */
+function strokeBox(ctx: CanvasRenderingContext2D, b: BodyBox): void {
+  const fx = b.cos * b.halfLength;
+  const fy = b.sin * b.halfLength;
+  const rx = -b.sin * b.halfWidth;
+  const ry = b.cos * b.halfWidth;
+  ctx.beginPath();
+  ctx.moveTo(b.x + fx + rx, b.y + fy + ry);
+  ctx.lineTo(b.x + fx - rx, b.y + fy - ry);
+  ctx.lineTo(b.x - fx - rx, b.y - fy - ry);
+  ctx.lineTo(b.x - fx + rx, b.y - fy + ry);
+  ctx.closePath();
+  ctx.stroke();
 }
 
 /** Debug overlay, toggled with `~`. */
@@ -39,6 +62,15 @@ export class DebugOverlay {
           PLAYER_RADIUS * 2 - 1,
           PLAYER_RADIUS * 2 - 1,
         );
+      }
+      // The real thing a car collides with, and the whole reason this
+      // overlay is worth having: an oriented box you can hold up against the
+      // sprite. Everything that asks how big a car is — the contact, the
+      // run-over, the traffic AI's obstacle model — asks `vehicleBoxAt`, so
+      // this IS the collider and not a drawing of one.
+      ctx.strokeStyle = '#ffaa00';
+      for (const v of f.vehicleBodies) {
+        strokeBox(ctx, vehicleBoxAt(v.kind, v.x - f.cam.x, v.y - f.cam.y, v.heading));
       }
     }
 

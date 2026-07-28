@@ -30,6 +30,16 @@ export interface ServerConfig {
    * served separately by Vite.
    */
   clientDir: string | null;
+  /**
+   * Put a proving ground in the city: a room that hands out vehicles and kit
+   * for nothing, so a physics change can be driven at.
+   *
+   * Off unless asked for, and it has to stay that way: it is a free-cars
+   * room, and a session with one is not a session anybody's economy means
+   * anything in. It reaches worldgen as a parameter rather than a private
+   * server flag, so the client builds the same city from the same numbers.
+   */
+  provingGround: boolean;
 }
 
 function envInt(v: string | undefined, fallback: number): number {
@@ -51,5 +61,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     roam: env['ROAM'] !== '0',
     interestRadius: envInt(env['INTEREST_RADIUS'], 600),
     clientDir: env['CLIENT_DIR'] ?? null,
+    provingGround: env['PROVING_GROUND'] === '1' || env['PROVING_GROUND'] === 'true',
   };
 }

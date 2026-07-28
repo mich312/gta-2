@@ -3,7 +3,6 @@ import {
   type FullSnapshot,
   type PlayerState,
   type Vec2,
-  INTERNAL_WIDTH,
   TILE_SIZE,
   T_BUILDING,
   T_LOT,
@@ -17,6 +16,7 @@ import {
   T_SAND,
   T_FLOOR,
 } from 'shared';
+import { viewport } from './viewport.js';
 
 /** On-screen size of the map panel, in world (HUD) pixels. */
 const SIZE = 74;
@@ -107,7 +107,7 @@ export class Minimap {
     if (!map || !center) return;
     if (!this.texture) this.texture = this.bake(map);
 
-    const x0 = INTERNAL_WIDTH - SIZE - 4;
+    const x0 = viewport.w - SIZE - 4;
     const y0 = 4;
 
     ctx.save();
@@ -195,7 +195,9 @@ export class Minimap {
       dot(
         (shop.doorX + 0.5) * TILE_SIZE,
         (shop.doorY + 0.5) * TILE_SIZE,
-        shop.kind === 'gun'
+        shop.kind === 'depot'
+          ? '#7ad46a'
+          : shop.kind === 'gun'
           ? '#c8583c'
           : shop.kind === 'spray'
             ? '#c8a03c'

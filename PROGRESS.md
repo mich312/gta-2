@@ -1,5 +1,6 @@
 # PROGRESS
 
+<<<<<<< HEAD
 ## Worldgen §11 delivered: countryside, store, and the walls come off
 
 The full §11 plan (WORLDGEN.md), shipped in four commits. 468 tests
@@ -34,6 +35,306 @@ spike at each rebase (~40-90 per roam run) — correct but optimizable.
 clean sockets); the browser-side rebase snap; and mission/economy state
 that references old-window coordinates beyond the abandon-on-cross rule.
 
+=======
+## A room to test in
+
+580 tests green (up from 564; 16 new). 8-bot joyride lockstep, 0 desyncs,
+replay re-simulates hash-identical. Off unless asked for.
+
+`PROVING_GROUND=1` puts one room in the city and starts you on its doorstep.
+Walk in and the shop keys hand over a tank, a car, six cars laid out in a row
+to drive down, a bus, a truck, every weapon, full health and $10,000 — free.
+The four vehicle rows are the four cases the crush rule has: something it
+flattens, a row of them, and the two sizes that stop it.
+
+**It changes nothing about the city.** `placeProvingGround` runs dead last in
+worldgen, after every pass that reads the tile grid, and draws no random
+number — so the same seed gives the same streets, buildings, parked cars,
+props and pickups with the room and without it. That property is the whole
+reason the room is trustworthy: a bug you find with it open is still there
+when you close it. Three seeds pin it, pass by pass, plus a tile-by-tile diff
+that allows changes only inside the room's own footprint. This file already
+had the scar tissue explaining why worldgen passes must not quietly feed each
+other (see `registerClinics`), and going last is the only placement that
+cannot.
+
+**It is a worldgen parameter, not a server flag.** The client builds the map
+itself from what the welcome message carries, so a server-side-only toggle
+would have the two hosts disagreeing about where the walls are. Verified over
+a live socket: the client's own `generateCity` produces the room.
+
+**The one thing it does change is where you start**, and deliberately.
+`pickSpawn` chooses uniformly from `playerSpawns` and the ordinary list is
+spread across the city, so "near spawn point zero" would have put you next to
+the room one time in however many spawns exist. The room exists to save time;
+a treasure hunt for it is the opposite.
+
+**Nothing of the economy is reused.** No price, no ledger line for the goods,
+no standings, no district. Threading "except when it's free" through the shop
+would have put a hole in the one system in the game that is about scarcity, so
+the depot answers first and on its own; the client borrows the shop panel and
+nothing else. What it hands out arrives as ordinary `SimCommand`s that already
+existed — `spawnVehicle`, `grantWeapon`, `healPlayer` — so nothing here can
+produce a state the ordinary game could not, and a proving-ground session
+still records and replays like any other.
+
+**The economy caught me.** Adding free cash tripped `no new earning path can
+bypass the chokepoint unnoticed` — a tripwire that enumerates every ledger
+write and fails on a new one until somebody decides. Exactly the right
+question to be asked. The cash is ledgered (money must never appear without a
+line saying where from, debug money included) and listed exempt from the score
+multiplier, because it is not earnings: the multiplier prices what you did,
+and nobody did anything.
+
+**Verification.** Sixteen new tests, and a live socket run of both paths: with
+the flag, the client builds the room, spawns on its doorstep and collects a
+tank, six cars, a bus and the cash; without it, a client asking for a tank on
+a normal server is told "no such item" and no tank appears.
+
+**Least confident about.** The room is a carved shop interior, so it is as big
+as the building that happened to be nearest — usable, but not a hangar. Free
+cars in a session anyone can join is a real hazard and the only thing standing
+in front of it is the env var being off by default and a loud line at startup.
+
+## The tank drives over cars
+
+564 tests green (up from 542; 22 new). 8-bot brawl and joyride lockstep, 0
+desyncs, replay re-simulates hash-identical.
+
+A tank flattens anything lighter than a truck and keeps going; the car it
+drove over explodes on the spot; the tank and whoever is inside it are
+untouched by the blast. Anything its own size or bigger — truck, fire engine,
+bus, garbage lorry, digger — stops it dead, exactly as another car would.
+
+**A threshold, not a list.** `crushesBelowMass: 2.0` on the tank, and nothing
+else in the game has the key at all. 2.0 sits in the gap between the heaviest
+thing a tank flattens (an ambulance, 1.5) and the lightest thing that stops it
+(a truck, 2.2), so it stays a fact about weight and any vehicle added later
+sorts itself without anyone editing a list of kinds.
+
+**The half that has to be predicted.** Whether the tank STOPS is a pure
+function of the two kinds' tuning, so the client decides it identically — get
+that wrong and the tank halts on one host and drives on for the other, and
+every crushed car costs a car-length correction: precisely the disagreement
+the lag-compensation work exists to remove, reintroduced by a feature. What
+stays server-side is the car's fate. The same rule that keeps a tank from
+being blocked by a live car also keeps it from being blocked by the wreck it
+just made, which would otherwise leave it sitting on top of its own kill.
+
+**Destroyed through the ordinary path, detonated early.** `damageVehicle` for
+exactly the car's remaining health, so ignition, the arson charge and the
+`vehicleBurning` event happen the way they do for any other kill — then set
+off immediately rather than on the seven-second burn fuse, because a fuse
+would put the fireball somewhere behind you long after the thing that caused
+it. It cannot recurse: a blast only ever *ignites* what is around it, so the
+depth is one. Crushing is charged as arson rather than as a traffic accident,
+which is the opposite of the call made for an ordinary shunt and for the same
+reason — there, nothing at the call site can tell a deliberate ram from a bad
+line through a junction; here there is nothing to tell apart.
+
+**The shield covers the crew.** `blast` gained a shielded vehicle, and it
+spares anyone riding in it as well as the bodywork. The first version shielded
+only the hull, and the tests caught what that meant: the tank survived the
+line of cars and the driver did not, so the tank coasted to a halt with a dead
+man at the controls two cars in. "The tank is not damaged" has to mean the
+tank, not its paint.
+
+**What still scratches it, honestly.** Every blast the tank CAUSES is
+shielded. A parked car close enough to catch fire from one of those blasts
+goes up later on its own fuse, and by then it is an ordinary exploding car
+that happens to be near a tank: eight cars in a row cost ten points of 1600.
+Left that way deliberately — the alternative is making a tank blast-proof
+against everything, which is a much larger claim than "crushing is free".
+
+**Verification.** Nineteen new tests: each light kind flattened and each heavy
+kind stopping it, with the blocked cases asserting the tank actually REACHED
+what stopped it; the car reaching `wreck` without ever being observed
+`burning`, which is what distinguishes exploding on the spot from smouldering
+on a fuse; a line of eight; a car proving it cannot do any of this; and the
+client-mode prediction pinned directly by running the shared step with
+`sim === null`, which is exactly what the predictor passes.
+
+**And it costs you something.** Driving over a car with no momentum lost read
+as weightless, which was the one thing flagged as unresolved above and turned
+out to be right. `crushSpeedLoss: 0.96` — speed kept per TICK while grinding
+over something, not the flat one-off a prop takes (`props.crashSpeedLoss`,
+0.92). A bollard is a discrete thing you smash through; a car under a tank is
+62 px of obstacle you are on top of for most of a second, and charging by the
+tick needs no memory of which cars have already been paid for, which is what
+lets both hosts agree without a byte of new state on the wire.
+
+Swept, not guessed: 0.98 dips to 98% of top speed and cannot be felt, 0.95
+halves it, 0.92 slows the tank so much it fails to reach the sixth car in the
+line at all. 0.96 gives a 25% dip for a single car with full recovery on the
+far side, and a continuous plough through a row of them settling near 60% —
+slower going, which is what it should be, rather than a crawl.
+
+It cannot pin the tank, and that is arithmetic rather than luck: drag takes
+`speed * 0.04` per tick while the throttle puts back a flat `accel * DT`, so
+the two meet at 63 px/s and the tank always grinds through. A tank that could
+be stalled by parked cars would be a tank you could trap.
+
+The drag runs on BOTH hosts, and that is the whole reason `crushUnderneath`
+became `driveOverCrushables`: the slowdown is part of how the tank moves, so
+the client predicts it, while the wreckage stays with whoever holds `sim`.
+Splitting it the other way — drag on the server alone — would have the client
+running ahead by the entire slowdown and being corrected for it once per car,
+which is the same mistake as not predicting the pass-through, just quieter.
+
+**Least confident about.** The 2.0 crush threshold is still a first guess at
+where "bigger than a tank" should fall, and 0.96 is a judgement about feel
+made against a speed trace rather than in a browser — both are one number in
+`vehicles.json`.
+
+## Colliders on one clock and one shape: cars, people, and a server that goes back and looks
+
+542 tests green (up from 507; 35 new across three files). 8-bot brawl and
+joyride harness runs lockstep with 0 desyncs at ~11 KB/s per client against
+the 50 KB/s gate, corrections 2.65–3.03 px, replay re-simulates
+hash-identical. Wire contract bumped to protocol 8.
+
+Three separate faults, all reported as "the colliders still don't work
+reliably", and they are three because a collider has three ways of being
+wrong: the wrong shape, missing entirely, or right on one host and right on
+the other about a different moment.
+
+**A car hit you with a shape that was not a car.** `stepVehicleImpacts` — the
+run-over test, and therefore every car-versus-person contact in the game —
+used an axis-aligned square of `halfExtent`: 9 px, against a body 12 long and
+5.5 wide, and it never turned with the car. So it was three pixels too short
+and three and a half too wide at the same time. A bonnet buried a quarter of
+itself in you before anything registered; a car in the next lane ran you over
+from a clear three pixels off your shoulder; and on the diagonal it was wrong
+by the whole difference between a square and a car. This is the same square
+that was taken out of the car-to-car contact one release ago, still in place
+on the path where a person is the one being hit — and it explains both
+complaints people had, "it hit me and it was not touching me" and "it drove
+through me". Everything now asks `bodies.ts` how big a car is: the contact,
+the run-over, the props a car smashes, the traffic AI's obstacle model, the
+shadow it casts, and the debug overlay, which draws the oriented box itself
+rather than a picture of one.
+
+**Nothing on foot collided with a car at all.** Not the player, not the
+crowd, not the police: `stepPlayerMovement`, `stepPeds` and the officer walk
+all collided against the tile grid and nothing else. You walked through a
+parked car as though it were fog, and so did the queue of pedestrians at a
+red light, straight through the bonnets. The most conspicuous solid object in
+the game was the one thing you could not bump into. `pushOutOfVehicles`
+resolves it as a push-out rather than a blocked move, for the same reason the
+car-to-car contact allows any move that separates: a hard block traps anyone
+who ends up inside a body — a car parking on them, a run-over knockback, a
+spawn — with no legal position and every escape undone. Push-out always
+reduces the overlap, so it always terminates. Velocity loses only the
+component driving into the body, so walking along a flank slides; a push that
+would put somebody inside a wall is refused, because pinned against a car is
+better than extruded through a building.
+
+**And the two hosts were judging the same contact at different moments.**
+This is the one the last release left standing and named as the remaining
+trade: the client draws remote cars `INTERP_DELAY_TICKS` (~100 ms) in the past
+and collides against exactly those positions, because a collider that
+disagrees with the sprite is one you cannot aim. The server has no such delay.
+Add half a round trip and the same bumper sits three or four ticks — most of a
+car length at road speed — apart on the two clocks. Tailgating, the client
+stops against a car the server still has down the road, gets pushed forward,
+and re-predicts the same contact next tick, for as long as you follow
+anybody. Head-on it fires the other way and yanks you backwards into a crash
+you had not had yet.
+
+Neither host is wrong; they are looking at different moments. So the client
+now says which moment: `InputIntent.viewTick`, its render clock in fractional
+ticks, quantised to the same 1/256 grid the wire carries. The server keeps
+`MAX_REWIND_TICKS` of vehicle poses in `state.vehicleTrail` — server-only sim
+state, like `trafficDrivers` and `vehicleHitTick`, off the snapshot diff and
+off the desync hash — and reconstructs that moment with the same lerp the
+client's interpolator uses, over the same two ticks, so in the ordinary case
+the two views are the same numbers. Detection rewinds; the RESPONSE — the
+shove, the damage, the wreck — still lands on the live car, which is what
+keeps this lag compensation rather than time travel. `viewTick` arrives over
+the wire, so it is clamped rather than trusted, and 0 means "no opinion" and
+gets the present: bots, tests and a browser's first second are unaffected.
+
+Measured on a tailgate at city speed with one tick of wire latency, running a
+real `Predictor` against a real `step()`: worst correction **8.125 px without,
+0 px with**.
+
+The price is the standard one and worth naming: the car that gets shunted
+was, on its own screen, slightly past the point of impact, so it reads as a
+late nudge. The alternative is what the game did before — the driver who
+aimed the shunt misses, and gets corrected for it.
+
+**Verification.** New: the box is 12 by 5.5 and not a 9 px square, and the
+same spot is a hit head-on and a miss broadside; walking into a parked car
+stops at its flank; a car that parks on top of you pushes you out instead of
+trapping you; a push into a wall is refused; walking along a flank keeps the
+along-component; the crowd walks round cars; the push-out separates exactly
+and is null when there is nothing to resolve; the rewind honours fractions of
+a tick, clamps a client asking too far back, ignores cars that did not exist
+then, applies the response to the live car, and keeps a bounded trail; the
+server's rewound world reproduces the client's `vehiclesAsDrawn` to nine
+decimal places; and the tailgate scenario above, which fails on the old code
+with an 8 px correction.
+
+**One defect found by verifying, not by testing.** The broad-phase reject
+that keeps the trig off ten thousand pairs a tick was written as
+`halfLength + radius` — and a box reaches `sqrt(hl² + hw²)` from its centre,
+not `hl`. So two cars meeting corner to corner (centres 25.28 px apart,
+genuinely overlapping) and anybody standing against a car's corner (18.6 px
+from its centre, genuinely touching) were thrown away before the real test
+ever saw them: a new missed-collision bug, inside the change that exists to
+fix missed collisions, in the one piece of it written as an optimisation
+rather than as behaviour. Both sites now use `halfLength + halfWidth`, which
+is exactly the reach `boxesOverlap`'s own broad phase uses — so hoisting the
+test in front of the trig provably cannot change an answer. Two regression
+tests pin it, and both fail on the code as first committed. The first draft
+of the car-to-car one passed against the bug because it staged the cars at
+the origin, where the map edge is solid and a WALL hit was what stopped
+them; it is now staged mid-field, and that trap is written down in the test.
+
+**A second defect, found by asking about tanks.** Making people solid against
+cars has a consequence the change did not follow through: you now stand
+against the BODYWORK, and `tryEnterVehicle` measured the door from the
+vehicle's CENTRE. A bus is 42 px long, so its bumper is 21 px out and the
+push-out leaves you at 27.1 — outside the 26 px the door reached, with
+nothing you could do about it. The bus and the garbage truck became
+unboardable from directly in front or behind. The tank, the vehicle the
+question was about, survives at 25.1 with nine tenths of a pixel to spare,
+which is luck rather than design. Nothing caught it: no unit test walks up to
+a bus, and the bot harness scripts never board one either.
+
+The door is now measured from the bodywork (`distanceToBox`), which is what
+"how close am I to that car" should always have meant — a fixed
+centre-distance gets stranger the longer the vehicle is. `enterRadius` is
+renamed `enterReach` rather than retuned, so nobody reads the smaller number
+as a shorter reach: 20 px past the panels is 25.5 from the centre of a car's
+flank, where 26 from the centre used to be, and 41 from the centre of a bus's
+nose, where 26 never reached the paint at all. Carjacking uses the same door
+and the same measure. Every land vehicle is now boardable from all eight
+approaches, pinned per kind by a test that is red on both of the previous two
+commits.
+
+**On probes that agree with you.** The first version of that boarding probe
+reported every vehicle unboardable from every angle — including on the code
+from before any of this work. It walked for a fixed ninety ticks and pressed
+E once at the end, so the player slid past the car and pressed from 160 px
+away. Two earlier drafts of the corner-contact tests had the same shape of
+flaw: staged at the origin, where a car's near side is outside the map and
+therefore solid, so a WALL hit was what stopped the car and the test passed
+against the bug it was written for. Three times in one change, a test agreed
+with the code for the wrong reason. Every regression test here is now checked
+red against the commit it was written to catch.
+
+**Least confident about.** The 1/8 px separation skin is set to one step of
+the `q8` grid because exactly flush does not survive the round trip through
+the deterministic trig table and the position quantiser — sound, but it is the
+kind of constant that wants a second pair of eyes. Bullets and blasts still
+treat a car as a circle (`vehicleHitRadius`), which is now the last place the
+game disagrees with itself about how big a car is; it is left alone on purpose
+— that radius is tuned into weapon ranges, blast falloff and mine clearance,
+so changing it is a weapons change with a tuning pass attached, not a collider
+fix. And lag compensation has only been measured in the harness and in tests,
+never against a real link with real jitter.
+>>>>>>> origin/main
 
 ## Worldgen: quays line the waterways, and a drowned road end is tested
 

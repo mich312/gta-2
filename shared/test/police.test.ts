@@ -462,15 +462,32 @@ describe('escalation by kind', () => {
     ticks: number,
     seed = 55,
     at?: { x: number; y: number },
-  ): { state: GameState; peakDriving: number; peakCars: number } {
+    drive = false,
+  ): { state: GameState; peakDriving: number; peakCars: number; peakBlocks: number } {
     let state = createGameState(seed);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
     // Roadblock tests hand a lane position: blocks are thrown across the
     // road AHEAD of the fugitive, so a fugitive off in the countryside (or
     // wherever the seed's spawn landed) may have no kerb ahead to build on.
     if (at) state.players.byId[1]!.pos = { x: at.x, y: at.y };
+    if (at && drive) {
+      // Roadblocks are thrown AHEAD of a fleeing DRIVER; a walker never
+      // rates one. Put the fugitive in a car barrelling east up the lane.
+      state = step(
+        state,
+        {},
+        [{ type: 'spawnVehicle', vehicleId: 777, kind: 'car', x: at.x, y: at.y, heading: 0 }],
+        map,
+      );
+      const p = state.players.byId[1]!;
+      const v = state.vehicles.byId[777]!;
+      v.driverId = 1;
+      p.vehicleId = 777;
+      p.mode = 'driving';
+    }
     let peakDriving = 0;
     let peakCars = 0;
+    let peakBlocks = 0;
     for (let i = 0; i < ticks; i++) {
       const p = state.players.byId[1]!;
       p.heat = stars * 100 + 10; // hold the tier steady
@@ -480,6 +497,11 @@ describe('escalation by kind', () => {
       // during the step, but stays above the bust threshold when the police
       // step runs, which is exactly the state of somebody legging it.
       p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      // Driving stagings leave the fugitive PARKED, engine running: the
+      // roadblock's ahead-point follows the vehicle heading, so it lands
+      // 420 px up this straight street where kerbside spawns exist — and a
+      // driver cannot be arrested through the windscreen, so the chase
+      // holds. A held top speed just wedged the car in the first corner.
       if (p.mode === 'dead') {
         p.health = 100;
         p.mode = 'foot';
@@ -491,8 +513,23 @@ describe('escalation by kind', () => {
         state.cops.ids.filter((c) => state.cops.byId[c]!.vehicleId !== null).length,
       );
       peakCars = Math.max(peakCars, copCars(state));
+      // A roadblock's signature is the PAIR: two driverless cruisers
+      // parked within a couple of car lengths of each other, across the
+      // road. A single driverless cruiser is just a dismounted officer's.
+      const parked: Array<{ x: number; y: number }> = [];
+      for (const id of state.vehicles.ids) {
+        const v = state.vehicles.byId[id]!;
+        if (v.kind === 'copcar' && v.driverId === null) parked.push({ x: v.pos.x, y: v.pos.y });
+      }
+      let pairs = 0;
+      for (let a = 0; a < parked.length; a++) {
+        for (let b = a + 1; b < parked.length; b++) {
+          if (Math.hypot(parked[a]!.x - parked[b]!.x, parked[a]!.y - parked[b]!.y) < 48) pairs++;
+        }
+      }
+      peakBlocks = Math.max(peakBlocks, pairs);
     }
-    return { state, peakDriving, peakCars };
+    return { state, peakDriving, peakCars, peakBlocks };
   }
 
   function copCars(state: GameState): number {
@@ -525,11 +562,19 @@ describe('escalation by kind', () => {
   });
 
   it('four stars throws roadblocks across the road', () => {
-    const lane = straightEastLane(map);
-    const three = chaseAt(3, 1500, 61, lane).peakCars;
-    const four = chaseAt(4, 1500, 61, lane).peakCars;
-    // Roadblock cruisers are additional to pursuit cruisers.
-    expect(four).toBeGreaterThan(three);
+    // Measured directly as DRIVERLESS cruisers — a roadblock is parked
+    // stock, a pursuit car has an officer in it. Comparing total car
+    // counts saturated against the per-player cop ceiling and proved
+    // nothing on maps where pursuit alone reaches it.
+    // A roadblock is built ON a kerbside spawn point within 90 px of the
+    // spot 420 px ahead of the fugitive. A parked driver's ahead-point is
+    // FIXED, so stage the car exactly one roadblockAheadDist west of a
+    // real spawn — the trigger then has a guaranteed site every attempt.
+    const site = map.vehicleSpawns[0]!;
+    const lane = { x: site.x - getTuning().police.roadblockAheadDist, y: site.y };
+    const three = chaseAt(3, 1500, 61, lane, true).peakBlocks;
+    const four = chaseAt(4, 1500, 61, lane, true).peakBlocks;
+    expect(four, 'no roadblock pair at four stars').toBeGreaterThan(three);
   });
 
   it('every vehicle the chase creates sits on the wire grid', () => {

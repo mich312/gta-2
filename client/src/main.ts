@@ -8,8 +8,6 @@ import {
   type Vec2,
   Predictor,
   SnapshotSync,
-  INTERNAL_HEIGHT,
-  INTERNAL_WIDTH,
   TICK_MS,
   TILE_SIZE,
   districtAt,
@@ -29,6 +27,7 @@ import {
   vehicleWear,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
+import { viewport } from './render/viewport.js';
 import { cameraLead, computeCamera, render, type Scene } from './render/renderer.js';
 import { SpriteSheet } from './render/sprites.js';
 import { TileLayer } from './render/tiles.js';
@@ -74,7 +73,7 @@ function serverUrl(): string {
 function drawFatal(ctx: CanvasRenderingContext2D, text: string): void {
   ctx.save();
   ctx.fillStyle = 'rgba(10, 6, 8, 0.82)';
-  ctx.fillRect(0, INTERNAL_HEIGHT / 2 - 22, INTERNAL_WIDTH, 44);
+  ctx.fillRect(0, viewport.h / 2 - 22, viewport.w, 44);
   ctx.fillStyle = '#ff8a7a';
   ctx.font = '8px monospace';
   ctx.textAlign = 'center';
@@ -90,11 +89,24 @@ function drawFatal(ctx: CanvasRenderingContext2D, text: string): void {
   }
   lines.push(line.trim());
   lines.slice(0, 4).forEach((l, i) => {
-    ctx.fillText(l, INTERNAL_WIDTH / 2, INTERNAL_HEIGHT / 2 - 8 + i * 10);
+    ctx.fillText(l, viewport.w / 2, viewport.h / 2 - 8 + i * 10);
   });
   ctx.textAlign = 'left';
   ctx.restore();
 }
+
+/**
+ * Debug override for the hour, `?night=0.85`. A day is 24 minutes long, so
+ * without it the only way to look at the night lighting is to wait for it.
+ */
+function nightOverride(): number | null {
+  const raw = new URLSearchParams(location.search).get('night');
+  if (raw === null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : null;
+}
+
+const forcedNight = nightOverride();
 
 function playerName(): string {
   let name = sessionStorage.getItem('playerName');
@@ -117,6 +129,15 @@ const sprites = new SpriteSheet();
 const tiles = new TileLayer(sprites);
 const effects = new Effects();
 const lights = new LightPass();
+{
+  // An escape hatch for a machine that cannot afford the pass: `?lights=cheap`
+  // keeps the grade and the lamps but drops the shadow casting and the bloom,
+  // which are the only two parts that measured as costing anything at all.
+  // `?lights=off` leaves the scene ungraded.
+  const q = new URLSearchParams(location.search).get('lights');
+  if (q === 'off') lights.enabled = false;
+  else if (q === 'cheap') lights.cheap = true;
+}
 const playerPose = new PoseSmoother();
 const vehiclePose = new PoseSmoother();
 const hud = new Hud();
@@ -235,11 +256,15 @@ function onStateUpdated(ackSeq: number | null): void {
  * see is what you should be able to hear.
  */
 function listen(x: number, y: number): { dist: number; pan: number } {
-  const cx = cam.x + VIEW_CENTER_X;
-  const cy = cam.y + VIEW_CENTER_Y;
+  // Half the viewport, live: the frame follows the window now, so a listener
+  // offset frozen at module load would put the ears in the wrong place on
+  // every screen that is not exactly the design size.
+  const halfW = viewport.w / 2;
+  const cx = cam.x + halfW;
+  const cy = cam.y + viewport.h / 2;
   const dx = x - cx;
   const dy = y - cy;
-  return { dist: Math.hypot(dx, dy), pan: Math.max(-1, Math.min(1, dx / VIEW_CENTER_X)) };
+  return { dist: Math.hypot(dx, dy), pan: Math.max(-1, Math.min(1, dx / halfW)) };
 }
 
 /** Turn the sim's discrete events into muzzle flashes, sparks, stains and noise. */
@@ -492,9 +517,6 @@ const MAX_FRAME_MS = 250;
 let last = performance.now();
 let acc = 0;
 let cam: Vec2 = { x: 0, y: 0 };
-/** Half the viewport, in world px — the listener offset for positional audio. */
-const VIEW_CENTER_X = INTERNAL_WIDTH / 2;
-const VIEW_CENTER_Y = INTERNAL_HEIGHT / 2;
 /** Smoothed camera lead. Eased so a hard corner glides instead of snapping. */
 let lead: Vec2 = { x: 0, y: 0 };
 
@@ -511,7 +533,7 @@ function frame(now: number): void {
     localTick++;
     const shown = playerPose.sample(1);
     const playerScreen = shown ? { x: shown.x - cam.x, y: shown.y - cam.y } : null;
-    const intent = input.sample(seq++, localTick, playerScreen);
+    const intent = input.sample(seq++, localTick, playerScreen, interp.viewTick());
     conn.sendInput(sync.ackTick, [intent]);
     predictor.applyLocalInput(intent, map);
     playerPose.advance(playerPoseNow());
@@ -584,6 +606,7 @@ function frame(now: number): void {
         foundPackages,
         dt: frameMs / 1000,
         nowMs: now,
+        night: forcedNight,
         // The newest authoritative tick, not the last acked one: traffic
         // signals are a function of it, and rendering the phase three ticks
         // in the past would show a light the cars in front had already
@@ -666,6 +689,26 @@ function frame(now: number): void {
     authoritativePos: authoritative?.pos ?? null,
     desyncs: sync.desyncs,
     fullResyncs: sync.fullResyncs,
+    vehicleBodies: overlay.visible
+      ? [
+          ...interp.sample(playerId, null).vehicles.map((rv) => ({
+            x: rv.x,
+            y: rv.y,
+            heading: rv.heading,
+            kind: rv.vehicle.kind,
+          })),
+          ...(drivenCar
+            ? [
+                {
+                  x: drivenCar.pos.x,
+                  y: drivenCar.pos.y,
+                  heading: drivenCar.heading,
+                  kind: drivenCar.kind,
+                },
+              ]
+            : []),
+        ]
+      : [],
   });
 
   // E2E/debug affordance: lets automated tests read the local player's

@@ -4,8 +4,13 @@ import vehiclesJson from 'shared/data/vehicles.json';
 import {
   type FullSnapshot,
   type VehicleState,
+  NULL_INPUT,
+  createGameState,
   createVehicle,
   initTuning,
+  insertEntity,
+  recordVehicleTrail,
+  rewoundWorld,
 } from 'shared';
 import { INTERP_DELAY_TICKS, Interpolator } from '../src/net/interpolation.js';
 
@@ -87,5 +92,59 @@ describe('what you collide with is what you can see', () => {
     mine.zones[0] = 42;
     expect(snap.vehicles[0]!.pos.x).toBe(300);
     expect(snap.vehicles[0]!.zones[0]).toBe(0);
+  });
+});
+
+describe('and the server agrees, because it goes back and looks', () => {
+  it("the rewound world reproduces the client's collision world to the pixel", () => {
+    // The other half of "you hit what you see". The client colliding on its
+    // own delayed timeline only helps if the SERVER resolves the same contact
+    // on that timeline too — otherwise the disagreement simply changes sign:
+    // the client stops against a bumper that on the server is still a body
+    // length down the road, and gets pushed forward for it, tick after tick,
+    // for as long as it follows anybody.
+    //
+    // So the client reports the exact moment it was looking at, and the
+    // server reconstructs it from its own trail. Same two ticks, same
+    // fraction, same arithmetic — these two numbers are the same number.
+    const interp = new Interpolator();
+    const speedPerTick = 200 / 30;
+    const state = createGameState(1);
+    const car = createVehicle(1, 'car', { x: 100, y: 100 }, 0);
+    insertEntity(state.vehicles, car);
+    for (let t = 0; t <= 40; t++) {
+      const x = 100 + t * speedPerTick;
+      interp.push(snapAt(t, x));
+      // The server's trail records the same end-of-tick positions the
+      // snapshots carry, which is exactly why this works.
+      state.tick = t;
+      car.pos.x = x;
+      recordVehicleTrail(state);
+      interp.advance(1000 / 30);
+    }
+    state.tick = 41;
+
+    const clientSees = interp.vehiclesAsDrawn()[0]!;
+    const serverSees = rewoundWorld(state, {
+      ...NULL_INPUT,
+      viewTick: interp.viewTick(),
+    }).poses?.[1];
+
+    expect(serverSees).toBeDefined();
+    expect(serverSees!.x).toBeCloseTo(clientSees.pos.x, 9);
+    expect(serverSees!.y).toBeCloseTo(clientSees.pos.y, 9);
+    // ...and it is genuinely a rewind, not the present dressed up: the live
+    // car is a couple of ticks further on.
+    expect(car.pos.x - serverSees!.x).toBeGreaterThan(speedPerTick);
+  });
+
+  it('a client that reports no view gets the present, exactly as before', () => {
+    // Bots, tests, and a browser in its first frames before a snapshot has
+    // landed. The mechanism has to be optional or it becomes a requirement
+    // for anything that speaks the protocol.
+    const state = createGameState(1);
+    insertEntity(state.vehicles, createVehicle(1, 'car', { x: 100, y: 100 }, 0));
+    recordVehicleTrail(state);
+    expect(rewoundWorld(state, { ...NULL_INPUT, viewTick: 0 }).poses).toBeUndefined();
   });
 });

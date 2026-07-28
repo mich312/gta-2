@@ -324,6 +324,13 @@ export function blast(
   attackerId: number,
   events: SimEvent[],
   exceptVehicleId: number | null = null,
+  /**
+   * A vehicle this blast does not touch, nor anyone riding in it. Used when
+   * something caused the explosion by driving over the thing that exploded:
+   * a tank that flattens a car is not hurt by the car it flattened, and
+   * neither is whoever is driving the tank.
+   */
+  shieldedVehicleId: number | null = null,
 ): void {
   const r2 = radius * radius;
   const falloff = (dx: number, dy: number): number => {
@@ -343,12 +350,19 @@ export function blast(
   for (const pid of state.players.ids) {
     const p = state.players.byId[pid];
     if (!p || p.mode === 'dead') continue;
+    // The shield covers the crew, not just the hull. Without this a tank
+    // survives driving over a car and the person inside it does not — the
+    // blast goes off under the tracks, and the driver is sitting on top of
+    // it. Shielding the vehicle alone made crushing cost a life instead of
+    // costing paint, which is not what "the tank is not damaged" means.
+    if (shieldedVehicleId !== null && p.vehicleId === shieldedVehicleId) continue;
     const dmg = falloff(p.pos.x - cx, p.pos.y - cy);
     if (dmg > 0) applyDamage(state, p, dmg, attackerId, 'explosion', events);
   }
   for (const cid of [...state.cops.ids]) {
     const c = state.cops.byId[cid];
     if (!c) continue;
+    if (shieldedVehicleId !== null && c.vehicleId === shieldedVehicleId) continue;
     const dmg = falloff(c.pos.x - cx, c.pos.y - cy);
     if (dmg > 0) damageCop(state, c, dmg, attackerId, events);
   }
@@ -365,7 +379,7 @@ export function blast(
     if (dmg > 0) damageProp(state, prop, dmg, events, attackerId);
   }
   for (const vid of state.vehicles.ids) {
-    if (vid === exceptVehicleId) continue;
+    if (vid === exceptVehicleId || vid === shieldedVehicleId) continue;
     const other = state.vehicles.byId[vid];
     if (!other || other.condition !== 'ok') continue;
     const dmg = falloff(other.pos.x - cx, other.pos.y - cy);
@@ -379,7 +393,13 @@ export function blast(
   }
 }
 
-function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
+export function detonateVehicle(
+  state: GameState,
+  v: VehicleState,
+  events: SimEvent[],
+  /** Spared the blast — whatever caused it by driving over `v`. */
+  shieldedVehicleId: number | null = null,
+): void {
   const t = getVehicleTuning(v.kind);
   // Whoever lit it owns the deaths. Falling back to the driver reads well for
   // a crash — you drove it into a wall, the casualties are yours — but it is
@@ -394,6 +414,7 @@ function explode(state: GameState, v: VehicleState, events: SimEvent[]): void {
     v.igniterId ?? v.driverId ?? -1,
     events,
     v.id,
+    shieldedVehicleId,
   );
 
   v.condition = 'wreck';
@@ -510,7 +531,7 @@ export function stepVehicleDamage(state: GameState, events: SimEvent[]): void {
 
   for (const id of detonating) {
     const v = state.vehicles.byId[id];
-    if (v && v.condition === 'burning') explode(state, v, events);
+    if (v && v.condition === 'burning') detonateVehicle(state, v, events);
   }
 
   const minDist2 = 260 * 260;
@@ -535,7 +556,18 @@ export function stepVehicleDamage(state: GameState, events: SimEvent[]): void {
   }
 }
 
-/** Bullets hit cars too. Radius is the collision box, near enough. */
+/**
+ * Bullets hit cars too. A circle, not the body box.
+ *
+ * Deliberately still a circle, and worth saying why now that everything a car
+ * BUMPS into uses its real oriented box (see bodies.ts). This radius feeds
+ * ray casts, blast falloff and mine drop clearance, all of which are tuned
+ * around it, and a car is a target you shoot at rather than a shape you have
+ * to fit past — being a little generous at the flanks reads as a car being
+ * easy to hit rather than as a collider in the wrong place. Swapping it for a
+ * ray-versus-box test is a weapons change, not a collider fix, and belongs
+ * with the tuning pass that would have to follow it.
+ */
 export function vehicleHitRadius(v: VehicleState): number {
   return getVehicleTuning(v.kind).halfExtent + PLAYER_RADIUS * 0.5;
 }

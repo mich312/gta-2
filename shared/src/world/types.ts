@@ -128,7 +128,16 @@ export interface Building {
   district: DistrictType;
 }
 
-export type ShopKind = 'gun' | 'clothing' | 'spray' | 'clinic';
+export type ShopKind =
+  | 'gun'
+  | 'clothing'
+  | 'spray'
+  | 'clinic'
+  /**
+   * The proving ground: a debug room that hands out vehicles and kit for
+   * nothing. Only ever present when `WorldgenParams.provingGround` is on.
+   */
+  | 'depot';
 
 export interface Shop {
   kind: ShopKind;

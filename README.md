@@ -14,9 +14,16 @@ node server/dist/index.js          # terminal 1 — server on ws://127.0.0.1:808
 pnpm --filter client dev           # terminal 2 — Vite on http://localhost:5173
 ```
 
-Open http://localhost:5173 in as many tabs as you like (4–8 players).
-The client connects to `ws://<hostname>:8080` by default; override with
-`?server=ws://host:port`.
+Open http://localhost:5173 in as many tabs as you like (4–8 players). The game
+fills the browser window: the world view grows with it, at a zoom that keeps
+the art on whole pixels.
+
+| Query parameter | Effect |
+| --- | --- |
+| `?server=ws://host:port` | connect elsewhere (default `ws://<hostname>:8080`) |
+| `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
+| `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
+| `?lights=off` | no lighting pass at all |
 
 ### Controls
 
@@ -31,7 +38,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | R / G | answer a ringing payphone / walk away from the job |
 | M | mute / unmute sound |
 | L / K | log in / register (optional — guests always play) |
-| ` (backquote) | debug overlay: tick, RTT, bandwidth, hitboxes, prediction ghost |
+| ` (backquote) | debug overlay: tick, RTT, bandwidth, hitboxes (including the oriented box a car really collides with), prediction ghost |
 
 ### Server environment variables
 
@@ -44,7 +51,26 @@ The client connects to `ws://<hostname>:8080` by default; override with
 | `ROAM` | `1` | the window follows the players — the world is infinite in all directions (`0` pins it) |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
+| `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |
+
+### Testing a physics change
+
+```bash
+PROVING_GROUND=1 node server/dist/index.js
+```
+
+You spawn on the doorstep of a proving ground: walk in and the shop keys
+(`Y U I O H J N P`) hand over a tank, a car, six cars laid out in a row to
+drive down, a bus, a truck, every weapon, full health, and $10,000 — free, and
+with no ledger, standings or district in the way. Green on the minimap.
+
+Turning it on changes nothing about the city: the same seed gives the same
+streets, buildings, parked cars, props and pickups with the room and without
+it, so a bug you find with it open is still there when you close it. The one
+thing it does change is where you start, which is the point. Everything it
+hands out arrives as an ordinary `SimCommand`, so the session still records and
+replays like any other.
 
 `node:sqlite` needs Node 22.5+ (22.5–22.12 also need `--experimental-sqlite`)
 from a build compiled with SQLite support. Where it is missing — the runtime
@@ -84,9 +110,11 @@ re-simulating to identical hashes is the desync alarm.
   only through recorded SimCommands.
 - `client/` — Vite + Canvas 2D. Rendering and input only; predicts the local
   player with rewind/replay reconciliation, interpolates everything else. The
-  world view stays 480×270 world pixels but is drawn into a backing store twice
-  that size, and the local player is sampled between simulation ticks so motion
-  is continuous at any display rate.
+  world view is sized to the browser window (480×270 world pixels at 1080p, up
+  to a 700×400 ceiling) and drawn into a backing store twice that size, and the
+  local player is sampled between simulation ticks so motion is continuous at
+  any display rate. Lights are shadow-cast against the tile grid — a lamp lights
+  its own street and not the block behind it.
 
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
 direction, and `PROGRESS.md` for the per-phase log.

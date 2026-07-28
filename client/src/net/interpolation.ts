@@ -8,7 +8,7 @@ import type {
   PropState,
   VehicleState,
 } from 'shared';
-import { TICK_MS, TICK_RATE, clamp } from 'shared';
+import { TICK_MS, TICK_RATE, clamp, q256 } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
 export const INTERP_DELAY_TICKS = 3;
@@ -103,6 +103,24 @@ export class Interpolator {
     // that the buffer no longer brackets us.
     this.renderTick = Math.min(this.renderTick, latest.tick);
     this.renderTick = Math.max(this.renderTick, latest.tick - BUFFER_TICKS);
+    // On the 1/256-tick grid, which is the grid the wire carries `viewTick`
+    // on. Quantising the clock ITSELF rather than the number we send is what
+    // makes the server's rewind reproduce this frame's collision world
+    // exactly instead of approximately — both hosts then lerp the same two
+    // ticks by the same fraction. 1/256 of a tick is 13 microseconds; nothing
+    // on screen can tell.
+    this.renderTick = q256(this.renderTick);
+  }
+
+  /**
+   * The server tick this frame's collision world is sampled at.
+   *
+   * Sent with every input so the server can judge that input's collisions
+   * against the same moment — see `rewoundWorld`. Zero before the first
+   * snapshot arrives, which the server reads as "no opinion".
+   */
+  viewTick(): number {
+    return this.synced ? this.renderTick : 0;
   }
 
   /**

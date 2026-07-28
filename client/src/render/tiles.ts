@@ -16,21 +16,25 @@ import {
   T_RAMP,
   T_FLOOR,
   TILE_SIZE,
+  RIGHT_SIGN,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
   CHUNK_BUILDS_PER_FRAME,
   CHUNK_CACHE_LIMIT,
   CHUNK_TILES,
-  DEVICE_H,
-  DEVICE_W,
   RENDER_SCALE,
   SHADOW_DEPTH,
   SUN_X,
   SUN_Y,
   WALL_DEPTH,
 } from './config.js';
+import { hash2 } from './noise.js';
 import type { SpriteSheet } from './sprites.js';
+import { viewport } from './viewport.js';
+
+/** The proving ground's colour: deliberately unlike any shop's. */
+const DEPOT_ACCENT = '#5aa84e';
 
 const CHUNK_WORLD = CHUNK_TILES * TILE_SIZE;
 const CHUNK_DEVICE = CHUNK_WORLD * RENDER_SCALE;
@@ -42,21 +46,31 @@ const RUN_ROAD = 8;
 /** Carriageway width at which a street counts as a main road. */
 const ARTERIAL_WIDTH = 4;
 
+/**
+ * Where the centre line falls inside one carriageway tile, as a fraction of
+ * the tile from its low edge — or null when the centre is not in this tile.
+ *
+ * The old rule was "the far edge of tile `floor(width / 2) - 1`", which is the
+ * middle only when the road is an even number of tiles across. Every secondary
+ * road in this city is three tiles wide, so the line landed on the boundary
+ * between the first tile and the second, and the street had a lane and a half
+ * on one side of it and half a lane on the other.
+ *
+ * The sim never agreed: `laneOptions` has always put the two lanes at the true
+ * centre of the drivable span, plus and minus a quarter of its width. This is
+ * the paint catching up, and it is a pure function so the arithmetic can be
+ * checked without a canvas.
+ */
+export function laneCentreInTile(width: number, index: number): number | null {
+  if (width < 2) return null;
+  const at = width / 2 - index;
+  return at > 0 && at <= 1 ? at : null;
+}
+
 interface Chunk {
   canvas: HTMLCanvasElement;
   /** Frame counter of last use, for eviction. */
   touched: number;
-}
-
-/** Stable, cheap 2D hash — the source of every "random" detail below. */
-function hash2(x: number, y: number, salt = 0): number {
-  let h = Math.imul(x, 0x27d4eb2d) ^ Math.imul(y, 0x165667b1) ^ Math.imul(salt, 0x9e3779b9);
-  h ^= h >>> 15;
-  h = Math.imul(h, 0x2c1b3c6d);
-  h ^= h >>> 12;
-  h = Math.imul(h, 0x297a2d39);
-  h ^= h >>> 15;
-  return (h >>> 0) / 4294967296;
 }
 
 function shade(hex: string, amount: number, towards = '#0b111c'): string {
@@ -120,8 +134,8 @@ export class TileLayer {
 
     const cx0 = Math.floor(cam.x / CHUNK_WORLD);
     const cy0 = Math.floor(cam.y / CHUNK_WORLD);
-    const cx1 = Math.floor((cam.x + DEVICE_W / RENDER_SCALE) / CHUNK_WORLD);
-    const cy1 = Math.floor((cam.y + DEVICE_H / RENDER_SCALE) / CHUNK_WORLD);
+    const cx1 = Math.floor((cam.x + viewport.w) / CHUNK_WORLD);
+    const cy1 = Math.floor((cam.y + viewport.h) / CHUNK_WORLD);
 
     let budget = CHUNK_BUILDS_PER_FRAME;
     for (let cy = cy0; cy <= cy1; cy++) {
@@ -513,12 +527,16 @@ export class TileLayer {
     ctx.fillRect(x, y, s, TD);
     if (!shop) return;
 
+    // The proving ground is not a shop and should not look like one: a
+    // green you will not mistake for a gun shop from across a junction.
     const accent =
       shop.kind === 'gun'
         ? palette.shopGun
         : shop.kind === 'clothing'
           ? palette.shopClothing
-          : palette.shopSpray;
+          : shop.kind === 'depot'
+            ? DEPOT_ACCENT
+            : palette.shopSpray;
     const r = shop.interior;
     const inRoom = tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h;
     if (!inRoom) {
@@ -532,7 +550,7 @@ export class TileLayer {
 
     // A respray is a garage: keep the floor clear so a car can be driven in,
     // and mark the bay out instead of furnishing it.
-    if (shop.kind === 'spray') {
+    if (shop.kind === 'spray' || shop.kind === 'depot') {
       ctx.fillStyle = shade(accent, 0.55);
       const stripe = Math.max(1, s);
       if (ty === r.y) ctx.fillRect(x, y + 3 * s, TD, stripe);
@@ -668,17 +686,21 @@ export class TileLayer {
     vertical: boolean,
   ): void {
     const t = RENDER_SCALE; // 1 world px
-    const mid = width / 2 - 1;
 
-    // Centre line: dashes along the direction of travel.
-    if (width >= 2 && index === Math.floor(mid)) {
+    // Centre line: dashes along the direction of travel, down the true middle
+    // of the carriageway. See `laneCentreInTile`.
+    const centreInTile = laneCentreInTile(width, index);
+    if (centreInTile !== null) {
       ctx.fillStyle = palette.roadLane;
+      // Rounded to a whole device pixel, so an odd width does not put the line
+      // on a half pixel and let the filter smear it across two.
+      const at = Math.round(centreInTile * TD - t / 2);
       const dashes = 2;
       const dashLen = TD / (dashes * 2);
       for (let d = 0; d < dashes; d++) {
         const off = d * dashLen * 2 + dashLen / 2;
-        if (vertical) ctx.fillRect(x + TD - t, y + off, t, dashLen);
-        else ctx.fillRect(x + off, y + TD - t, dashLen, t);
+        if (vertical) ctx.fillRect(x + at, y + off, t, dashLen);
+        else ctx.fillRect(x + off, y + at, dashLen, t);
       }
     }
     // Edge lines, held one pixel off the kerb.
@@ -701,9 +723,24 @@ export class TileLayer {
     const ahead = vertical ? this.junctionAt(tx, ty + 1) || this.junctionAt(tx, ty - 1) : this.junctionAt(tx + 1, ty) || this.junctionAt(tx - 1, ty);
     if (!ahead || width < ARTERIAL_WIDTH) return;
     const forward = vertical ? this.junctionAt(tx, ty + 1) : this.junctionAt(tx + 1, ty);
-    ctx.fillStyle = palette.roadStop;
-    if (vertical) ctx.fillRect(x, forward ? y + TD - 3 * t : y + t, TD, 2 * t);
-    else ctx.fillRect(forward ? x + TD - 3 * t : x + t, y, 2 * t, TD);
+
+    // A stop line holds the traffic going INTO the junction, so it covers that
+    // half of the carriageway and stops at the centre line. Painted across the
+    // full width — which is what it used to do — it told drivers coming the
+    // other way to stop at a junction they were leaving.
+    //
+    // `index` counts from the low edge of the run, so the approaching half is
+    // the one this direction's traffic keeps to: driving on the right, that is
+    // the low side heading south or west and the high side heading north or
+    // east. Only the direction with the junction in front of it is marked.
+    const dirIdx = vertical ? (forward ? 1 : 3) : forward ? 0 : 2;
+    const onHighSide = (RIGHT_SIGN[dirIdx] as number) > 0;
+    const approaching = onHighSide ? index >= width / 2 : index < width / 2;
+    if (approaching) {
+      ctx.fillStyle = palette.roadStop;
+      if (vertical) ctx.fillRect(x, forward ? y + TD - 3 * t : y + t, TD, 2 * t);
+      else ctx.fillRect(forward ? x + TD - 3 * t : x + t, y, 2 * t, TD);
+    }
 
     // Zebra: stripes spaced to fill exactly one tile, whatever TILE_SIZE is.
     ctx.fillStyle = palette.roadCrossing;
@@ -960,7 +997,12 @@ export class TileLayer {
       }
       const x = (shop.doorX - tx0) * TD;
       const y = (shop.doorY - ty0) * TD;
-      const accent = shop.kind === 'gun' ? palette.shopGun : palette.shopClothing;
+      const accent =
+        shop.kind === 'depot'
+          ? DEPOT_ACCENT
+          : shop.kind === 'gun'
+            ? palette.shopGun
+            : palette.shopClothing;
       const s = RENDER_SCALE;
 
       ctx.fillStyle = shade(accent, 0.45);

@@ -11,8 +11,10 @@ import {
   getTuning,
   PROTOCOL_VERSION,
   binaryCodec,
+  depotRow,
   parseClientMessage,
 } from 'shared';
+import { grantDepotRow } from '../provingGround.js';
 import type { ServerConfig } from '../config.js';
 import type { Session } from '../session.js';
 import type { Economy } from '../economy/economy.js';
@@ -293,6 +295,33 @@ export class GameServer {
       }
       case 'buy': {
         if (conn.playerId === null) break;
+        // The proving ground is checked FIRST and answers on its own. It has
+        // no price, no ledger line for the goods, no standings and no
+        // district — threading "except when it's free" through the shop would
+        // put a hole in the one system in the game that is about scarcity.
+        // It only answers at all when the session was started with the room
+        // in it, so a client cannot ask a normal server for a tank.
+        if (this.session.worldgen.provingGround && depotRow(msg.itemId)) {
+          const grant = grantDepotRow(
+            this.session.state,
+            this.session.map,
+            conn.playerId,
+            msg.itemId,
+            Object.keys(getTuning().weapons),
+            () => this.session.allocateEntityId(),
+          );
+          for (const cmd of grant.commands) this.session.queueCommand(cmd);
+          if (grant.cash > 0) {
+            this.economy.creditDebug(conn.playerId, grant.cash, `${this.session.state.tick}`);
+          }
+          conn.send({
+            type: 'event',
+            tick: this.session.state.tick,
+            event: { type: 'notice', text: grant.message },
+          });
+          conn.send({ type: 'wallet', ...this.economy.walletOf(conn.playerId) });
+          break;
+        }
         const result = this.economy.buy(conn.playerId, msg.itemId, this.session.state, this.session.map);
         if (result.command) this.session.queueCommand(result.command);
         conn.send({ type: 'event', tick: this.session.state.tick, event: { type: 'notice', text: result.message } });

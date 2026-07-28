@@ -50,6 +50,10 @@ const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   // the hospital landmarks after those exist. Listed only to satisfy the
   // exhaustive record.
   clinic: [],
+  // Neither of these picks its building from a district preference: a
+  // clinic reuses a hospital door, and the proving ground takes whatever is
+  // nearest to where players appear.
+  depot: [],
 };
 
 function t(map: CityMap, tx: number, ty: number): number {
@@ -1063,6 +1067,73 @@ export function placeRuralSites(
         continue;
     }
     register(kind, cell, at.x, at.y, w, h);
+  }
+}
+
+/**
+ * The proving ground: one room, as close to where players appear as a
+ * carvable building gets.
+ *
+ * Runs DEAD LAST in generation — after every other pass, including the ones
+ * that read the tile grid to place parking, props, pickups and spawns — and
+ * draws no random number. Both of those are deliberate. Carving a room
+ * changes tiles, and this file already has the scar tissue to prove that a
+ * pass which quietly feeds a later one moves player spawns two districts
+ * away (see `registerClinics`). Going last means turning the proving ground
+ * on cannot move anything: the same seed gives the same city with it and
+ * without it, so a bug you found with the room open is still there when you
+ * close it.
+ *
+ * Nearest to `playerSpawns[0]` rather than anywhere clever, because the whole
+ * point is that you can find it without being told where it is.
+ */
+export function placeProvingGround(map: CityMap): void {
+  const home = map.playerSpawns[0];
+  if (!home) return;
+  const used = new Set(map.shops.map((s) => s.buildingIndex));
+
+  // Every candidate, nearest first. A stable sort on a plain distance keeps
+  // it deterministic without an rng draw; ties break on building index.
+  const byDistance = map.buildings
+    .map((b, bi) => {
+      const cx = (b.x + b.w / 2) * TILE_SIZE;
+      const cy = (b.y + b.h / 2) * TILE_SIZE;
+      const dx = cx - home.x;
+      const dy = cy - home.y;
+      return { bi, d2: dx * dx + dy * dy };
+    })
+    .filter(({ bi }) => !used.has(bi))
+    .sort((a, b) => a.d2 - b.d2 || a.bi - b.bi);
+
+  for (const { bi } of byDistance) {
+    const building = map.buildings[bi] as Building;
+    if (Math.min(building.w, building.h) < 3) continue;
+    if (!insideWindow(map, building.x, building.y, building.w, building.h)) continue;
+    const door = findDoorway(map, building);
+    if (!door) continue;
+    // A wide door, like a respray: you want to be able to drive a tank back
+    // in as well as walk out.
+    const room = carveInterior(map, building, door, true);
+    if (!room) continue;
+    map.shops.push({
+      kind: 'depot',
+      doorX: door.x,
+      doorY: door.y,
+      buildingIndex: bi,
+      interior: room.interior,
+      entryX: room.entryX,
+      entryY: room.entryY,
+    });
+    // You start at the door. `pickSpawn` chooses uniformly from this list and
+    // the ordinary list is spread across the whole city, so leaving it alone
+    // meant landing near the room one time in however many spawns there are —
+    // which is a treasure hunt, and the room exists to save time. This is the
+    // ONLY thing the proving ground changes outside its own four walls, and
+    // it changes nothing about the city itself: the tiles, the buildings, the
+    // parked cars, the props and the pickups are all identical with it and
+    // without it.
+    map.playerSpawns = [{ x: (door.x + 0.5) * TILE_SIZE, y: (door.y + 0.5) * TILE_SIZE }];
+    return;
   }
 }
 
