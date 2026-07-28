@@ -1,6 +1,7 @@
 import {
   type CityMap,
   type GameState,
+  type PlayerState,
   type SimCommand,
   type SimEvent,
   type Vec2,
@@ -76,6 +77,8 @@ export interface ActiveMission {
   wantKind?: string;
   /** For a race: every checkpoint, in order. `marker` is the next one. */
   route?: Vec2[];
+  /** Which link of the employer's chain this is, or undefined off-chain. */
+  chainStep?: number;
   /** For an escape: tick the hold completes on, or null before it starts. */
   holdUntilTick?: number | null;
   /** For an escort: the pedestrian in your care. */
@@ -103,6 +106,9 @@ export interface MissionView {
   marker: Vec2 | null;
   /** Every remaining checkpoint, for a race. The first is `marker`. */
   route: Vec2[];
+  /** Where this sits in the employer's chain, 0/0 when off-chain. */
+  chainStep: number;
+  chainOf: number;
 }
 
 /** The offer board. Two green, three yellow, two red, as the original did. */
@@ -127,6 +133,30 @@ const SPECS: MissionSpec[] = [
 /** How close counts as reaching a marker, px. */
 const MARKER_REACH = 60;
 
+/**
+ * What each gang asks of you, in order.
+ *
+ * Short on purpose: four to six jobs. A twenty-mission chain in a persistent
+ * world is a commitment the player cannot pause, and this game has no
+ * cutscenes to carry one — four is enough to feel like a relationship and
+ * short enough to finish in a sitting. Each chain escalates in tier, so a
+ * gang's last job is their best-paying one.
+ *
+ * Indexes into SPECS, so a chain cannot ask for a job that does not exist.
+ * Per (player, gang) and persisted with the account, which is what makes it a
+ * relationship rather than a session.
+ */
+const CHAINS: number[][] = [
+  // Kessler Row: bodies first, then their rivals' ground, then the big one.
+  [0, 3, 4, 6],
+  // Sunnyside: errands, then a race, then a delivery.
+  [1, 8, 2, 5],
+  // The Quay: a sweep, an escort, an escape, a delivery.
+  [1, 12, 7, 5],
+  // Halloran: hits, a race, and a bomb on somebody's doorstep.
+  [0, 3, 9, 11],
+];
+
 const WANTED_KINDS = ['bus', 'firetruck', 'ambulance', 'truck', 'taxi'];
 
 export interface MissionOutcome {
@@ -145,6 +175,40 @@ export class Missions {
   /** Rotates which spec a given phone offers, so a phone is not one job forever. */
   private offerCursor = 0;
   private pendingCommands: SimCommand[] = [];
+  /** How far each player has got with each gang. `${playerId}:${gangId}`. */
+  private readonly chain = new Map<string, number>();
+
+  chainStep(playerId: number, gangId: number): number {
+    return this.chain.get(`${playerId}:${gangId}`) ?? 0;
+  }
+
+  private setChainStep(playerId: number, gangId: number, step: number): void {
+    this.chain.set(`${playerId}:${gangId}`, step);
+  }
+
+  /** Restored on login, so a relationship is not a session. */
+  seedChains(playerId: number, saved: Record<string, number> | undefined): void {
+    if (!saved) return;
+    for (const [gang, step] of Object.entries(saved)) {
+      if (typeof step === 'number' && step > 0) this.chain.set(`${playerId}:${gang}`, step);
+    }
+  }
+
+  /** Everything this player has done with everybody, for persistence. */
+  chainsOf(playerId: number): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [key, step] of this.chain) {
+      const [pid, gang] = key.split(':');
+      if (Number(pid) === playerId && gang) out[gang] = step;
+    }
+    return out;
+  }
+
+  /** How far along, for the HUD: "job 3 of 5". */
+  chainProgress(playerId: number, gangId: number): { step: number; of: number } {
+    const chain = CHAINS[(gangId - 1) % CHAINS.length] ?? [];
+    return { step: this.chainStep(playerId, gangId), of: chain.length };
+  }
 
   /** How close you have to be to answer. */
   private readonly reach = 40;
@@ -166,6 +230,8 @@ export class Missions {
         secondsLeft: 0,
         marker: null,
         route: [],
+        chainStep: 0,
+        chainOf: 0,
       };
     }
     return {
@@ -178,6 +244,9 @@ export class Missions {
       secondsLeft: Math.max(0, Math.ceil((m.deadlineTick - tick) / TICK_RATE)),
       marker: m.marker,
       route: m.route ? m.route.slice(m.progress) : [],
+      // A chain the player cannot see is a chain that feels like coincidence.
+      chainStep: m.chainStep === undefined ? 0 : m.chainStep + 1,
+      chainOf: m.chainStep === undefined ? 0 : this.chainProgress(playerId, m.employer).of,
     };
   }
 
@@ -203,12 +272,56 @@ export class Missions {
       return `${gangName(employer)} would not give you the time of day`;
     }
 
-    // Walk the board from a rotating start so the same phone does not offer
-    // the same job forever, and take the first one they trust you with.
+    // A gang you have worked for asks for the next thing on their list. Only
+    // once you have earned the tier it sits at, so a chain cannot smuggle you
+    // past the respect gate — it decides WHAT they say next, not whether they
+    // will talk to you at all.
+    let spec: MissionSpec | null = null;
+    const step = this.chainStep(playerId, employer);
+    const chain = CHAINS[(employer - 1) % CHAINS.length] ?? [];
+    const next = step < chain.length ? SPECS[chain[step] as number] : undefined;
     const offers = SPECS.filter((s) => standing >= s.needs);
     if (offers.length === 0) return `${gangName(employer)} has nothing for you yet`;
-    const spec = offers[this.offerCursor % offers.length] as MissionSpec;
+
+    // The chain's next link first, then the flat board — and the board is a
+    // genuine fallback rather than a formality. Setting a job up can fail for
+    // reasons that have nothing to do with the player (an escort needs
+    // somebody on the street to escort), and a chain that refuses in that
+    // case would leave them unable to get work from that gang ever again.
+    const candidates: Array<{ spec: MissionSpec; step: number | null }> = [];
+    if (next && standing >= next.needs) candidates.push({ spec: next, step });
+    for (let i = 0; i < offers.length; i++) {
+      candidates.push({ spec: offers[(this.offerCursor + i) % offers.length] as MissionSpec, step: null });
+    }
     this.offerCursor++;
+
+    let lastWhy = `${gangName(employer)} has nothing for you yet`;
+    for (const candidate of candidates) {
+      const built = this.build(playerId, p, employer, candidate.spec, candidate.step, state, map);
+      if (typeof built === 'string') {
+        lastWhy = built;
+        continue;
+      }
+      this.active.set(playerId, built);
+      return null;
+    }
+    return lastWhy;
+  }
+
+  /**
+   * Turn a spec into a live mission, or say why it cannot be one right now.
+   * Separated from `take` so the chain can fall back to the board when a
+   * particular job has no way to exist at this moment.
+   */
+  private build(
+    playerId: number,
+    p: PlayerState,
+    employer: number,
+    spec: MissionSpec,
+    chainStep: number | null,
+    state: GameState,
+    map: CityMap,
+  ): ActiveMission | string {
 
     const mission: ActiveMission = {
       id: this.nextId++,
@@ -219,6 +332,7 @@ export class Missions {
       progress: 0,
       marker: null,
     };
+    if (chainStep !== null) mission.chainStep = chainStep;
     if (spec.kind === 'delivery') {
       mission.wantKind = WANTED_KINDS[mission.id % WANTED_KINDS.length] as string;
       mission.marker = nearestCrane(map, p.pos);
@@ -249,8 +363,7 @@ export class Missions {
       const rival = getTuning().gangs.gangs.find((g) => g.id === employer)?.rivals[0] ?? 0;
       mission.marker = homeOf(map, rival);
     }
-    this.active.set(playerId, mission);
-    return null;
+    return mission;
   }
 
   /** Commands the take() above queued, drained by the caller. */
@@ -407,6 +520,9 @@ export class Missions {
       if (m.progress >= m.spec.count) {
         this.release(out, m);
         this.active.delete(playerId);
+        // Only a job that was ON the chain advances it. Finishing a flat-board
+        // job for them is work, not progress through their story.
+        if (m.chainStep !== undefined) this.setChainStep(playerId, m.employer, m.chainStep + 1);
         creditGangFavour(p, m.employer, getTuning().respect.missionFavour);
         out.completed.push({ playerId, employer: m.employer, pay: m.spec.pay });
         out.notices.push({

@@ -92,16 +92,21 @@ describe('payphone missions (H3)', () => {
     expect(green.take(1, state, map)).toBeNull();
     expect(green.activeFor(1)!.spec.tier).toBe('green');
 
-    // With standing, the board opens up. Take repeatedly and a better tier
-    // must eventually be offered.
+    // With standing, the board opens up. Work through their chain and a
+    // better tier must eventually be offered.
+    //
+    // FINISHING each job rather than abandoning it, because a chain (N3) only
+    // advances on completion — abandoning correctly leaves you on the same
+    // link, so a loop that abandons is offered the same job forever.
     const rich = new Missions();
     state.players.byId[1]!.respect[gang - 1] = 40;
     const tiers = new Set<string>();
-    for (let i = 0; i < 7; i++) {
-      rich.take(1, state, map);
-      const active = rich.activeFor(1);
-      if (active) tiers.add(active.spec.tier);
-      rich.abandon(1);
+    for (let i = 0; i < 10; i++) {
+      if (rich.take(1, state, map) !== null) break;
+      const active = rich.activeFor(1)!;
+      tiers.add(active.spec.tier);
+      active.progress = active.spec.count;
+      rich.step([], state, map);
     }
     expect(tiers.has('red')).toBe(true);
   });
@@ -198,12 +203,16 @@ describe('three more mission kinds (N1)', () => {
     const missions = new Missions();
     const p = state.players.byId[1]!;
     p.respect = p.respect.map(() => 60);
-    // Take jobs until the rotating board offers the one we want.
-    for (let i = 0; i < 40; i++) {
-      missions.abandon(1);
+    // Work through the board until the kind we want comes up. Completing,
+    // not abandoning: a chain only advances on completion (N3), so a loop
+    // that abandons is offered the same first link forever.
+    for (let i = 0; i < 60; i++) {
       const why = missions.take(1, state, map);
       expect(why, `attempt ${i}`).toBeNull();
-      if (missions.activeFor(1)?.spec.kind === kind) return { missions, state };
+      const active = missions.activeFor(1)!;
+      if (active.spec.kind === kind) return { missions, state };
+      active.progress = active.spec.count;
+      missions.step([], state, map);
     }
     throw new Error(`board never offered a ${kind}`);
   }
@@ -296,8 +305,7 @@ describe('three more mission kinds (N1)', () => {
     const missions = new Missions();
     state.players.byId[1]!.respect = state.players.byId[1]!.respect.map(() => 60);
     const seen = new Set<string>();
-    for (let i = 0; i < 40; i++) {
-      missions.abandon(1);
+    for (let i = 0; i < 60; i++) {
       if (missions.take(1, state, map) !== null) continue;
       const m = missions.activeFor(1);
       if (!m) continue;
@@ -305,6 +313,8 @@ describe('three more mission kinds (N1)', () => {
       const view = missions.view(1, state.tick);
       expect(view.active).toBe(true);
       expect(view.text.length).toBeGreaterThan(0);
+      m.progress = m.spec.count;
+      missions.step([], state, map);
     }
     // All six verbs are reachable from the board.
     for (const kind of ['hit', 'sweep', 'delivery', 'escape', 'race', 'bomb']) {
@@ -334,14 +344,18 @@ describe('escort, and losing the car (N2)', () => {
     state.players.byId[1]!.pos = { x: p.pos.x, y: p.pos.y };
 
     const missions = new Missions();
-    for (let i = 0; i < 40; i++) {
-      missions.abandon(1);
-      if (missions.take(1, state, map) !== null) continue;
-      if (missions.activeFor(1)?.spec.kind === kind) {
+    for (let i = 0; i < 60; i++) {
+      if (missions.take(1, state, map) !== null) break;
+      const active = missions.activeFor(1)!;
+      if (active.spec.kind === kind) {
         // Carry out whatever take() queued, e.g. assigning the escortee.
         state = step(state, {}, missions.drainCommands(), map);
         return { missions, state };
       }
+      state = step(state, {}, missions.drainCommands(), map);
+      active.progress = active.spec.count;
+      const out = missions.step([], state, map);
+      state = step(state, {}, out.commands, map);
     }
     throw new Error(`board never offered a ${kind}`);
   }
@@ -436,5 +450,90 @@ describe('escort, and losing the car (N2)', () => {
     const out = missions.step([], state, map);
     expect(out.notices.some((n) => /write-off/.test(n.text))).toBe(true);
     expect(missions.activeFor(1)).toBeUndefined();
+  });
+});
+
+describe('chains (N3)', () => {
+  it('finishing a chain job offers the next one from that gang', () => {
+    const { state, gang } = atPhone();
+    const missions = new Missions();
+    state.players.byId[1]!.respect = state.players.byId[1]!.respect.map(() => 60);
+    expect(missions.chainStep(1, gang)).toBe(0);
+
+    expect(missions.take(1, state, map)).toBeNull();
+    const first = missions.activeFor(1)!;
+    expect(first.chainStep).toBe(0);
+
+    // Finish it.
+    first.progress = first.spec.count;
+    missions.step([], state, map);
+    expect(missions.chainStep(1, gang)).toBe(1);
+
+    // The next phone on their ground offers the next link, not the same one.
+    expect(missions.take(1, state, map)).toBeNull();
+    expect(missions.activeFor(1)!.chainStep).toBe(1);
+  });
+
+  it('abandoning does not advance the chain', () => {
+    const { state, gang } = atPhone();
+    const missions = new Missions();
+    state.players.byId[1]!.respect = state.players.byId[1]!.respect.map(() => 60);
+    expect(missions.take(1, state, map)).toBeNull();
+    missions.abandon(1);
+    expect(missions.chainStep(1, gang)).toBe(0);
+  });
+
+  it('a chain cannot smuggle you past the respect gate', () => {
+    // It decides WHAT they say next, not whether they will talk to you.
+    //
+    // Checked against standing AT THE MOMENT OF THE OFFER, not against a
+    // fixed number: finishing a job earns respect with the employer, so the
+    // tiers legitimately open up as you work. The property is that they never
+    // open up EARLY.
+    const { state, gang } = atPhone();
+    const missions = new Missions();
+    for (let i = 0; i < 6; i++) {
+      const standing = state.players.byId[1]!.respect[gang - 1] ?? 0;
+      if (missions.take(1, state, map) !== null) break;
+      const m = missions.activeFor(1)!;
+      expect(m.spec.needs, `job ${i}`).toBeLessThanOrEqual(standing);
+      m.progress = m.spec.count;
+      missions.step([], state, map);
+    }
+    expect(missions.chainStep(1, gang)).toBeGreaterThan(0);
+  });
+
+  it('two players walk their own chains', () => {
+    const { state, gang } = atPhone();
+    const missions = new Missions();
+    let s = step(state, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'other' }], map);
+    const phone = map.payphones.find((q) => gangAt(map, q.x, q.y) === gang)!;
+    s.players.byId[1]!.pos = { x: phone.x, y: phone.y };
+    s.players.byId[2]!.pos = { x: phone.x, y: phone.y };
+    s.players.byId[1]!.respect = s.players.byId[1]!.respect.map(() => 60);
+    s.players.byId[2]!.respect = s.players.byId[2]!.respect.map(() => 60);
+
+    expect(missions.take(1, s, map)).toBeNull();
+    missions.activeFor(1)!.progress = missions.activeFor(1)!.spec.count;
+    missions.step([], s, map);
+
+    expect(missions.chainStep(1, gang)).toBe(1);
+    expect(missions.chainStep(2, gang)).toBe(0);
+  });
+
+  it('a finished chain rolls over to the flat board rather than dead-ending', () => {
+    const { state, gang } = atPhone();
+    const missions = new Missions();
+    state.players.byId[1]!.respect = state.players.byId[1]!.respect.map(() => 60);
+    const { of } = missions.chainProgress(1, gang);
+    for (let i = 0; i < of + 3; i++) {
+      const why = missions.take(1, state, map);
+      expect(why, `job ${i}`).toBeNull();
+      const m = missions.activeFor(1)!;
+      m.progress = m.spec.count;
+      missions.step([], state, map);
+    }
+    // Still offering work after the chain ran out.
+    expect(missions.take(1, state, map)).toBeNull();
   });
 });

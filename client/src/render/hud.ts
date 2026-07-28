@@ -13,6 +13,9 @@ export interface MissionView {
   marker: { x: number; y: number } | null;
   /** Remaining checkpoints for a race; the first of them is `marker`. */
   route?: Array<{ x: number; y: number }>;
+  /** Position in the employer's chain, 0/0 when this is off-chain work. */
+  chainStep?: number;
+  chainOf?: number;
 }
 
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
@@ -290,7 +293,9 @@ export class Hud {
       ctx.font = '8px monospace';
       ctx.fillStyle =
         m.tier === 'red' ? '#e07a6a' : m.tier === 'yellow' ? '#e0c86a' : '#8fd6a0';
-      ctx.fillText(`${m.employer.toUpperCase()} — ${m.text}`, INTERNAL_WIDTH / 2, 34);
+      const chain =
+        m.chainOf && m.chainStep ? `  [${m.chainStep}/${m.chainOf}]` : '';
+      ctx.fillText(`${m.employer.toUpperCase()} — ${m.text}${chain}`, INTERNAL_WIDTH / 2, 34);
       ctx.fillStyle = m.secondsLeft <= 15 ? '#e05555' : '#c0cad0';
       ctx.fillText(
         `${m.progress}/${m.target}   ${m.secondsLeft}s`,
