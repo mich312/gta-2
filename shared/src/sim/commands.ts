@@ -47,4 +47,14 @@ export type SimCommand =
       playerId: number | null;
     }
   /** Into the back of an ambulance or a taxi: off the map until dropped off. */
-  | { type: 'despawnPed'; pedId: number };
+  | { type: 'despawnPed'; pedId: number }
+  /**
+   * The window learns to walk (WORLDGEN.md §11.2 B2/B3): the session's
+   * viewport onto the unbounded world moves to a new origin. Players (and
+   * the vehicles they are driving) shift by the pixel delta into the new
+   * frame; every ambient entity — AI traffic, peds, cops, props, pickups,
+   * projectiles — despawns with the old region, and the session reseeds
+   * the new one with ordinary spawn commands in the same tick. Recorded
+   * like every command, so a replay re-walks the same world.
+   */
+  | { type: 'rebase'; windowX: number; windowY: number; dxPx: number; dyPx: number };

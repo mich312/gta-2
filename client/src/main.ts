@@ -1,4 +1,5 @@
 import {
+  type WorldgenParams,
   type Catalog,
   type CityMap,
   type GameEvent,
@@ -137,6 +138,8 @@ let playerId = -1;
 let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
+let lastSeed = 0;
+let lastWorldgen: WorldgenParams | null = null;
 let catalog: Catalog | null = null;
 /** Hidden packages this player has already found; the rest still glint. */
 let foundPackages = new Set<number>();
@@ -406,6 +409,8 @@ function handleServerMessage(msg: ServerMessage): void {
             hud.notice(why);
           }
         }
+        lastSeed = msg.seed;
+        lastWorldgen = msg.worldgen;
         map = generateCity(msg.seed, msg.worldgen);
         tiles.setMap(map);
         minimap.setMap(map);
@@ -413,6 +418,19 @@ function handleServerMessage(msg: ServerMessage): void {
         sync.applyServerMessage(msg);
         stats.onSnapshot();
         onStateUpdated(null);
+        break;
+      case 'rebase':
+        // The session window moved (ROAM=1). Regenerate at the new origin;
+        // the snapshot right behind this message is already in the new
+        // frame, so prediction reconciles into it on arrival. One visible
+        // snap at the boundary is the accepted cost.
+        if (lastWorldgen !== null) {
+          lastWorldgen = { ...lastWorldgen, windowX: msg.windowX, windowY: msg.windowY };
+          map = generateCity(lastSeed, lastWorldgen);
+          tiles.setMap(map);
+          minimap.setMap(map);
+          hud.notice('leaving the region — the world continues');
+        }
         break;
       case 'snapshot':
         sync.applyServerMessage(msg);
