@@ -18,7 +18,7 @@ import { stepProps, stepVehicleImpacts, stepWeapons } from './weapons.js';
 import { PARTS_MECHANICAL, stepVehicleDamage } from './vehicleDamage.js';
 import { stepPolice } from './police.js';
 import { stepPeds } from './peds.js';
-import { stepTraffic, stepTrafficPopulation, tryCarjack } from './traffic.js';
+import { stepTraffic, stepTrafficPanic, stepTrafficPopulation, tryCarjack } from './traffic.js';
 import { stepPickups } from './pickups.js';
 import { stepProjectiles } from './projectiles.js';
 import { stepFittings } from './fittings.js';
@@ -41,8 +41,8 @@ import { PLAYER_RADIUS } from '../constants.js';
  * Fixed sub-order (all iteration in sorted-id order):
  *   commands → action edges (enter/exit) → player/vehicle movement →
  *   driverless vehicles coast → weapons → projectiles → vehicle impacts →
- *   police → peds → vehicle damage/explosions → prop repair → pickups →
- *   stunts → frenzy.
+ *   police → peds → driver panic → vehicle damage/explosions → prop repair →
+ *   pickups → stunts → frenzy.
  */
 export function step(
   state: GameState,
@@ -117,6 +117,10 @@ export function step(
   stepVehicleDamage(next, events);
   stepPolice(next, map, events);
   stepPeds(next, map, events);
+  // Drivers hear the same shots the crowd does. After every system that can
+  // fire a gun or blow something up, so the whole tick's noise is in one
+  // place; the flight response itself runs when traffic next steps.
+  stepTrafficPanic(next, map, events);
   stepProps(next, events);
   stepPickups(next, events);
   stepRespectDecay(next);
