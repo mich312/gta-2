@@ -36,6 +36,9 @@ const GANG_TINT: Record<number, string> = {
   2: '#4aa86a',
   3: '#4a7ac8',
   4: '#a86ac8',
+  5: '#c8a03c',
+  6: '#3cc8b4',
+  7: '#c85a8c',
 };
 
 /**
@@ -54,7 +57,11 @@ export function vehicleSpriteName(kind: string, id: number, gangId = 0): string 
   // A gang car wears its gang's colours, not a colour off the rank: the whole
   // reason it exists is that you can tell whose street you are on by what is
   // parked on it.
-  if (kind === 'gangcar') return `gangcar_v${Math.max(0, Math.min(3, gangId - 1))}`;
+  // Four liveries for seven gangs: the colours wrap. A body shell is not the
+  // identifier — the tint, the turf wash and the respect bar all carry the
+  // gang, and minting three more near-identical car sprites would cost sheet
+  // space to say something already said three ways.
+  if (kind === 'gangcar') return `gangcar_v${Math.max(0, gangId - 1) % 4}`;
   return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
 }
 

@@ -42,6 +42,9 @@ const TURF_TINT: Record<number, string> = {
   2: '#4aa86a',
   3: '#4a7ac8',
   4: '#a86ac8',
+  5: '#c8a03c',
+  6: '#3cc8b4',
+  7: '#c85a8c',
 };
 
 /**

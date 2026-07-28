@@ -20,8 +20,24 @@ export interface MissionView {
 
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
 /** Gang colours, in gang-id order. Mirrors shared/data/gangs.json. */
-const GANG_COLORS = ['#c8543c', '#4aa86a', '#4a7ac8', '#a86ac8'];
-const GANG_NAMES = ['Kessler Row', 'Sunnyside', 'The Quay', 'Halloran'];
+const GANG_COLORS = [
+  '#c8543c',
+  '#4aa86a',
+  '#4a7ac8',
+  '#a86ac8',
+  '#c8a03c',
+  '#3cc8b4',
+  '#c85a8c',
+];
+const GANG_NAMES = [
+  'Kessler Row',
+  'Sunnyside',
+  'The Quay',
+  'Halloran',
+  'Marrow Street',
+  'The Vaults',
+  'Ostrey',
+];
 
 interface FeedLine {
   text: string;
@@ -312,8 +328,12 @@ export class Hud {
     // On its own backing panel because the first version drew 3px bars
     // straight onto the road and was, in practice, invisible.
     if (me.respect.length > 0) {
-      const bw = 26;
-      const gap = 4;
+      // Narrower bars rather than fewer of them. Seven at the old 26px is
+      // 220px of a 480px screen; showing only the nearby gangs would fit, but
+      // the panel's whole reason for existing is that pleasing one gang
+      // displeases another, and hiding four of them hides the mechanic.
+      const bw = me.respect.length > 4 ? 14 : 26;
+      const gap = me.respect.length > 4 ? 3 : 4;
       const panelW = me.respect.length * (bw + gap) + 10;
       const panelH = 20;
       const panelX = INTERNAL_WIDTH / 2 - panelW / 2;

@@ -31,4 +31,4 @@ export const RESUME_GRACE_MS = 120_000;
 export const SNAPSHOT_RING_TICKS = 90;
 
 /** Hard ceiling on gangs, and therefore the width of a respect vector. */
-export const MAX_GANGS = 4;
+export const MAX_GANGS = 7;

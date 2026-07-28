@@ -12,7 +12,8 @@
       "color": "#c8543c",
       "rivals": [
         2,
-        3
+        3,
+        5
       ]
     },
     {
@@ -21,7 +22,8 @@
       "color": "#4aa86a",
       "rivals": [
         1,
-        4
+        4,
+        7
       ]
     },
     {
@@ -40,6 +42,33 @@
       "rivals": [
         2,
         3
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Marrow Street",
+      "color": "#c8a03c",
+      "rivals": [
+        1,
+        6
+      ]
+    },
+    {
+      "id": 6,
+      "name": "The Vaults",
+      "color": "#3cc8b4",
+      "rivals": [
+        5,
+        7
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Ostrey",
+      "color": "#c85a8c",
+      "rivals": [
+        2,
+        6
       ]
     }
   ]
