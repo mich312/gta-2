@@ -328,7 +328,7 @@ function drivePursuit(
   if (cop.stuckTicks < 0) {
     cop.stuckTicks++;
     const away = wrapAngle(want - v.heading);
-    driveVehicle(v, -1, away > 0 ? -1 : 1, map, state, events, false, 1);
+    driveVehicle(v, -1, away > 0 ? -1 : 1, map, state, state, events, false, 1);
     if (cop.stuckTicks === 0) cop.stuckTicks = STUCK_AFTER_REVERSE;
     ride();
     return;
@@ -368,7 +368,7 @@ function drivePursuit(
       : t.copCarSpeed * (absErr > 1.2 ? 0.3 : absErr > 0.5 ? 0.6 : 1);
   const throttle = v.speed < cruise ? 1 : v.speed > cruise * 1.2 ? -1 : 0;
   const steer = clamp(err * PURSUIT_STEER_GAIN, -1, 1);
-  driveVehicle(v, throttle, steer, map, state, events, false, 1);
+  driveVehicle(v, throttle, steer, map, state, state, events, false, 1);
 
   // "Not closing" rather than merely "not moving": closing speed is the
   // forward velocity projected onto the bearing of the TARGET, not of the

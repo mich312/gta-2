@@ -2,7 +2,7 @@ import type { PlayerState, VehicleState } from '../sim/state.js';
 import { clonePlayer, cloneVehicle } from '../sim/state.js';
 import type { InputIntent } from '../sim/input.js';
 import { stepPlayerMovement } from '../sim/player.js';
-import { stepVehicleDriving } from '../sim/vehicle.js';
+import { stepVehicleDriving, type VehicleWorld } from '../sim/vehicle.js';
 import type { CityMap } from '../world/types.js';
 
 const MAX_PENDING = 120;
@@ -13,10 +13,16 @@ const MAX_PENDING = 120;
  * input lag) and are kept pending; on each snapshot we rewind to the
  * authoritative player/vehicle and replay everything newer than ackSeq.
  *
- * Deliberately NOT predicted (server-granted, per plan): entering/exiting
- * vehicles, and collision against other dynamic entities. Those resolve on
- * the server and arrive as corrections, which stay small because everything
- * else is bit-exact shared code.
+ * Collision against other vehicles IS predicted, from the newest snapshot.
+ * It used to be excluded on the theory that dynamic entities are the
+ * server's business, and the cost of that was the one thing you could feel:
+ * you drove through a parked car for a whole round trip and were then yanked
+ * back to where you actually stopped. Most of what you hit is stationary, so
+ * the snapshot's position for it is exact and the prediction is right.
+ *
+ * What stays server-granted: entering and exiting vehicles, damage, wrecks,
+ * and the shove given to the car you hit. Guessing at those would be
+ * predicting somebody else's health.
  */
 export class Predictor {
   predicted: PlayerState | null = null;
@@ -26,6 +32,27 @@ export class Predictor {
   maxCorrection = 0;
 
   private pending: InputIntent[] = [];
+  /** Newest authoritative view of other vehicles, for collision prediction. */
+  private world: VehicleWorld | null = null;
+
+  /**
+   * Hand the predictor the newest snapshot's vehicles.
+   *
+   * CLONED, not borrowed: predicting a collision shoves the car you hit, and
+   * the caller's array is the live snapshot that the renderer and the
+   * interpolator are reading. Rebuilt once per snapshot, not once per
+   * replayed input, so the cost is a few dozen small objects at 30 Hz.
+   */
+  setWorld(vehicles: readonly VehicleState[]): void {
+    const ids: number[] = [];
+    const byId: Record<number, VehicleState> = {};
+    for (const v of vehicles) {
+      ids.push(v.id);
+      byId[v.id] = cloneVehicle(v);
+    }
+    ids.sort((a, b) => a - b);
+    this.world = { vehicles: { ids, byId } };
+  }
 
   /** Call once per local tick with the input just sent to the server. */
   applyLocalInput(intent: InputIntent, map: CityMap): void {
@@ -78,8 +105,9 @@ export class Predictor {
     map: CityMap,
   ): void {
     if (p.mode === 'driving' && v) {
-      // Prediction ignores other dynamic entities: state=null.
-      stepVehicleDriving(v, intent, map, null);
+      // Sees the world, may not change it: the second argument stays null,
+      // so damage and the other car's shove remain the server's to decide.
+      stepVehicleDriving(v, intent, map, this.world, null);
       p.pos.x = v.pos.x;
       p.pos.y = v.pos.y;
       p.lastInputSeq = intent.seq;

@@ -143,6 +143,9 @@ export class Bot {
           me.vehicleId !== null
             ? (this.sync.latest?.vehicles.find((v) => v.id === me.vehicleId) ?? null)
             : null;
+        // Same collision context the browser client gets, so the harness
+        // measures the prediction players actually run.
+        if (this.sync.latest) this.predictor.setWorld(this.sync.latest.vehicles);
         this.predictor.reconcile(me, myVehicle, ackSeq, this.map);
       }
     }

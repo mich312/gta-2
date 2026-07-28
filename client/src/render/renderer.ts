@@ -32,6 +32,22 @@ const GANG_TINT: Record<number, string> = {
   4: '#a86ac8',
 };
 
+/**
+ * Which sprite a vehicle is drawn with.
+ *
+ * Exported and tested because the interesting failure here was silent: the
+ * driver's own vehicle was drawn with a hardcoded 'car', so getting into a
+ * boat put you in a car. Only the local player was affected — everybody else
+ * saw the right sprite — which is exactly the kind of thing that survives a
+ * casual look at a screenshot.
+ *
+ * Anything with a sprite of its own uses it; the generic car is the only kind
+ * that comes in colours, so it is the only one that varies by id.
+ */
+export function vehicleSpriteName(kind: string, id: number): string {
+  return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+}
+
 /** Uniform per force, so what is chasing you is legible at a glance. */
 const COP_TINT: Record<string, string> = {
   patrol: '#3a5fb0',
@@ -55,6 +71,9 @@ export interface Scene {
   localPos: { x: number; y: number; angle: number } | null;
   /** Predicted vehicle when the local player is driving, smoothed. */
   localVehicle: {
+    /** What you are actually driving. Without it the driver's own vehicle
+     *  was drawn as a car whatever it was — a boat included. */
+    kind: string;
     pos: Vec2;
     heading: number;
     speed: number;
@@ -133,12 +152,10 @@ function weaponOf(p: PlayerState): WeaponTuning | null {
  * Which way an avatar's BODY points: wherever it is aiming, which is wherever
  * the mouse is.
  *
- * There is nothing else it could be. Movement on foot is aim-relative — `up`
- * runs towards the pointer and the strafe keys sidestep across it — so the
- * facing IS the frame the controls are expressed in, and drawing the body at
- * anything else (the direction of travel, say) would leave the avatar pointing
- * one way while `up` sent it another. Sidestepping therefore looks like
- * sidestepping, which is what it is.
+ * Movement is screen-relative, so the facing and the direction of travel are
+ * independent — which is the point. You can back away from something while
+ * still covering it, and walking left while looking right looks like exactly
+ * that.
  */
 
 /** Per-entity walk-cycle state, keyed by table and id. */
@@ -396,7 +413,7 @@ export function render(
       lights,
       effects,
       scene.local?.vehicleId ?? 0,
-      'car',
+      scene.localVehicle.kind,
       scene.localVehicle.pos.x,
       scene.localVehicle.pos.y,
       scene.localVehicle.heading,
@@ -637,9 +654,7 @@ function drawVehicle(
   const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
   const y = dy(wy) - lift;
-  // Anything with a sprite of its own uses it; the generic car is the only
-  // kind that comes in colours, so it is the only one that varies by id.
-  const name = kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+  const name = vehicleSpriteName(kind, id);
   const fp = sprites.footprint(name);
   const shrink = z > 0 ? 0.75 : 1;
   drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);

@@ -84,7 +84,7 @@ export function step(
     if (p.mode === 'driving' && p.vehicleId !== null) {
       const v = next.vehicles.byId[p.vehicleId];
       if (v) {
-        stepVehicleDriving(v, input, map, next, events, p.z > 0);
+        stepVehicleDriving(v, input, map, next, next, events, p.z > 0);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
         if (input) {
@@ -102,7 +102,7 @@ export function step(
   for (const id of next.vehicles.ids) {
     const v = next.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
-    stepVehicleCoasting(v, map, next, events);
+    stepVehicleCoasting(v, map, next, next, events);
   }
   stepTrafficPopulation(next, map);
 

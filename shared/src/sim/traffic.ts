@@ -548,7 +548,7 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
       // a fresh direction from wherever it managed to reach. This is the only
       // path in the whole system that ever selects reverse.
       driver.stuck++;
-      driveVehicle(v, -1, 0, map, state, events, false, 1);
+      driveVehicle(v, -1, 0, map, state, state, events, false, 1);
       if (driver.stuck === 0) driver.dir = chooseDir(state, map, v, nearestCardinal(v.heading));
       continue;
     }
@@ -573,7 +573,7 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
     // Wheel, pedals and physics: every tick, steering recomputed each time so
     // the car tracks its lane instead of holding a stale wheel for 100 ms.
     const { throttle, steer, personBlocked } = laneControl(state, map, v, driver);
-    driveVehicle(v, throttle, steer, map, state, events, false, 1);
+    driveVehicle(v, throttle, steer, map, state, state, events, false, 1);
 
     // Wedged? Count it, and past the limit back out. A driver waiting for
     // somebody to finish crossing gets three times the patience of one nosed

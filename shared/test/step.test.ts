@@ -107,17 +107,17 @@ describe('step', () => {
     expect(state.players.byId[1]!.vel.y).toBe(0);
   });
 
-  it('runs towards the mouse: movement is relative to the aim, not the screen', () => {
-    // Pick an open spot so nothing is clipping a wall, and drive each of the
-    // four keys at four different aim angles. `up` must always go where the
-    // player is pointing; `right` must always be a quarter turn clockwise of
-    // it on a y-down screen, and so on round.
+  it('the keys mean the same thing wherever the mouse is pointing', () => {
+    // Screen-relative on foot: `up` goes up the screen whatever the aim is.
+    // Aim-relative movement was tried and reverted — it made every key change
+    // meaning as the mouse moved, so you could not walk a straight line while
+    // looking around.
     const spot = { x: map.playerSpawns[0]!.x, y: map.playerSpawns[0]!.y };
     const keys = [
-      { name: 'up', input: { up: true }, offset: 0 },
-      { name: 'right', input: { right: true }, offset: HALF_PI },
-      { name: 'down', input: { down: true }, offset: PI },
-      { name: 'left', input: { left: true }, offset: -HALF_PI },
+      { name: 'up', input: { up: true }, want: -HALF_PI },
+      { name: 'right', input: { right: true }, want: 0 },
+      { name: 'down', input: { down: true }, want: HALF_PI },
+      { name: 'left', input: { left: true }, want: PI },
     ];
 
     for (const aimAngle of [0, HALF_PI, PI, -HALF_PI * 0.5]) {
@@ -125,8 +125,6 @@ describe('step', () => {
         let state = createGameState(12);
         state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
         state.players.byId[1]!.pos = { ...spot };
-        // Two ticks is enough to have velocity without having travelled far
-        // enough to reach anything solid, whatever the map looks like here.
         for (let i = 0; i < 2; i++) {
           state = step(
             state,
@@ -136,17 +134,19 @@ describe('step', () => {
           );
         }
         const vel = state.players.byId[1]!.vel;
-        expect(Math.hypot(vel.x, vel.y)).toBeGreaterThan(0);
+        expect(Math.hypot(vel.x, vel.y), `${key.name} @ ${aimAngle}`).toBeGreaterThan(0);
         const heading = Math.atan2(vel.y, vel.x);
-        const want = wrapAngle(aimAngle + key.offset);
-        expect(Math.abs(wrapAngle(heading - want))).toBeLessThan(0.02);
+        // The aim must not appear in the answer at all.
+        expect(
+          Math.abs(wrapAngle(heading - key.want)),
+          `${key.name} @ aim ${aimAngle}`,
+        ).toBeLessThan(0.02);
       }
     }
   });
 
   it('two keys at once are no faster than one', () => {
-    // The diagonal correction has to survive the rotation into aim space, or
-    // running forwards-and-right is 41% quicker than running forwards.
+    // Or running up-and-right is 41% quicker than running up.
     const speeds = [{ up: true }, { up: true, right: true }].map((keys) => {
       let state = createGameState(13);
       state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);

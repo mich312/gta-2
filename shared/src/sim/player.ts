@@ -33,31 +33,27 @@ export function stepPlayerMovement(
   const { walkSpeed, accel } = getTuning().player;
   const maxDelta = accel * DT;
 
-  // Movement is relative to where the player is AIMING, not to the screen: up
-  // runs towards the mouse, down backs away from it, left and right sidestep
-  // across it. Screen-relative movement made the two halves of the control
-  // scheme disagree — you pointed the pointer at a doorway and then held a key
-  // that had nothing to do with it, and the avatar ran off at whatever angle
-  // the two happened to make.
+  // Movement on foot is SCREEN-relative: up goes up, left goes left, and the
+  // mouse only decides which way you are pointing, and therefore shooting.
   //
-  // Screen y points down, so the driver's right of a heading is a quarter turn
-  // clockwise: right = (-sin, cos).
+  // This was briefly aim-relative — `up` ran towards the pointer and the side
+  // keys sidestepped across it — on the theory that the facing should be the
+  // frame the controls are expressed in. In the hand it was worse: the
+  // direction a key sends you then changes every time the mouse moves, so no
+  // key has a fixed meaning and walking a straight line while looking around
+  // is impossible. Aim-relative is right for a twin-stick pad and wrong for
+  // WASD.
+  //
+  // Screen y points down, so `up` is negative y.
   let dx = 0;
   let dy = 0;
   if (input) {
-    const forward = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-    const strafe = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-    if (forward !== 0 || strafe !== 0) {
-      const cos = dCos(p.aimAngle);
-      const sin = dSin(p.aimAngle);
-      dx = cos * forward - sin * strafe;
-      dy = sin * forward + cos * strafe;
-      // A rotation preserves length, so this is the same diagonal correction
-      // as before: two keys at once must not be faster than one.
-      if (forward !== 0 && strafe !== 0) {
-        dx *= INV_SQRT2;
-        dy *= INV_SQRT2;
-      }
+    dx = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    dy = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+    // Two keys at once must not be faster than one.
+    if (dx !== 0 && dy !== 0) {
+      dx *= INV_SQRT2;
+      dy *= INV_SQRT2;
     }
   }
 

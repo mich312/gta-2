@@ -183,6 +183,10 @@ function vehiclePoseNow(): { x: number; y: number; angle: number } | null {
 function onStateUpdated(ackSeq: number | null): void {
   if (!sync.latest || !map) return;
   interp.push(sync.latest);
+  // Collision prediction reads the newest authoritative positions, not the
+  // ~100 ms interpolated ones: for the parked cars that make up most of what
+  // you hit, the snapshot is exact.
+  predictor.setWorld(sync.latest.vehicles);
   const me = sync.latest.players.find((p) => p.id === playerId);
   if (me) {
     const myVehicle =
@@ -469,6 +473,7 @@ function frame(now: number): void {
         localVehicle:
           driving && smoothVehicle
             ? {
+                kind: predictor.predictedVehicle?.kind ?? 'car',
                 pos: smoothVehicle,
                 heading: smoothVehicle.angle,
                 speed: predictor.predictedVehicle?.speed ?? 0,

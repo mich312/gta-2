@@ -22,7 +22,7 @@ The client connects to `ws://<hostname>:8080` by default; override with
 
 | Input | Action |
 | --- | --- |
-| WASD / arrows | walk, drive (up=throttle, down=brake/reverse, left/right=steer) |
+| WASD / arrows | walk (screen-relative: up goes up), drive (up=throttle, down=brake/reverse, left/right=steer) |
 | Mouse | aim; click or Space to fire, on foot or out of a car window |
 | E / Enter | enter/exit car, context action |
 | F | use the car's fitting: fire the guns, drop a mine or slick, arm the bomb |

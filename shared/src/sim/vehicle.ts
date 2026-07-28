@@ -7,6 +7,7 @@ import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
+import type { EntityTable } from './entities.js';
 import type { SimEvent } from './events.js';
 import { collisionDamage, damageVehicle } from './vehicleDamage.js';
 import { anyCopSees } from './police.js';
@@ -17,15 +18,27 @@ import { anyCopSees } from './police.js';
  * not rigid-body anything. Deterministic trig only — this runs in prediction.
  */
 
+/**
+ * The slice of the world a vehicle needs in order to notice other vehicles.
+ *
+ * A narrow read-only view rather than the whole GameState, because the client
+ * has to be able to supply one: it holds the latest snapshot, not a
+ * simulation. `GameState` satisfies this structurally, so the server passes
+ * itself and nothing changes there.
+ */
+export interface VehicleWorld {
+  vehicles: EntityTable<VehicleState>;
+}
+
 function overlappingVehicle(
-  state: GameState | null,
+  world: VehicleWorld | null,
   self: VehicleState,
   half: number,
 ): VehicleState | null {
-  if (!state) return null; // prediction ignores dynamic entities (plan §7)
-  for (const id of state.vehicles.ids) {
+  if (!world) return null;
+  for (const id of world.vehicles.ids) {
     if (id === self.id) continue;
-    const other = state.vehicles.byId[id];
+    const other = world.vehicles.byId[id];
     if (!other) continue;
     if (
       Math.abs(other.pos.x - self.pos.x) < half * 2 &&
@@ -41,7 +54,19 @@ function overlappingVehicle(
 function integrateVehicle(
   v: VehicleState,
   map: CityMap,
-  state: GameState | null,
+  /**
+   * What this vehicle can SEE. Supplied by the server from its own state and
+   * by the client from the newest snapshot, so a car stops against a parked
+   * car on the client at the moment of impact instead of driving through it
+   * and being yanked back when the correction lands.
+   */
+  world: VehicleWorld | null,
+  /**
+   * What this vehicle may CHANGE. Non-null only on the server: damage,
+   * wrecks and the shove given to the car you hit are authoritative, and a
+   * client that guessed at them would be predicting somebody else's health.
+   */
+  sim: GameState | null,
   events?: SimEvent[],
   airborne = false,
 ): void {
@@ -65,12 +90,12 @@ function integrateVehicle(
     const closing = Math.abs(v.speed);
     v.speed = -v.speed * t.crashDamp; // crunch + slight rebound
     if (Math.abs(v.speed) < 10) v.speed = 0;
-    if (state && closing > 54) {
-      damageVehicle(state, v, collisionDamage(v.kind, closing) * 0.7, events ?? []);
+    if (sim && closing > 54) {
+      damageVehicle(sim, v, collisionDamage(v.kind, closing) * 0.7, events ?? []);
     }
   }
-  const hit = overlappingVehicle(state, v, t.halfExtent);
-  if (hit && state) {
+  const hit = overlappingVehicle(world, v, t.halfExtent);
+  if (hit) {
     // Momentum transfer, not a brick wall. The old behaviour reverted the
     // position and zeroed the speed, so a parked car stopped a 330 px/s
     // impact dead — you could not shunt, nudge or plough anything.
@@ -80,15 +105,20 @@ function integrateVehicle(
     const shove = v.speed * 0.55;
     // The struck car is pushed along the striker's heading; the striker keeps
     // a little of its momentum rather than stopping.
+    // Shoving the struck car is part of the collision RESPONSE, so the
+    // client predicts it too — otherwise the server's car retreats, ours
+    // does not, and the two disagree by a car length after a few seconds of
+    // leaning on it. Safe because the client's world view is its own clone.
+    // Damage is the part that stays authoritative.
     if (hit.condition !== 'wreck' && Math.abs(shove) > Math.abs(hit.speed)) {
       hit.heading = v.heading;
       hit.speed = q8(shove);
     }
     v.speed = q8(-v.speed * t.crashDamp);
     if (Math.abs(v.speed) < 10) v.speed = 0;
-    if (closing > 36) {
-      damageVehicle(state, v, collisionDamage(v.kind, closing), events ?? []);
-      damageVehicle(state, hit, collisionDamage(hit.kind, closing), events ?? []);
+    if (sim && closing > 36) {
+      damageVehicle(sim, v, collisionDamage(v.kind, closing), events ?? []);
+      damageVehicle(sim, hit, collisionDamage(hit.kind, closing), events ?? []);
     }
   }
   v.pos.x = q8(v.pos.x);
@@ -129,13 +159,16 @@ export function stepVehicleDriving(
   v: VehicleState,
   input: InputIntent | undefined,
   map: CityMap,
-  state: GameState | null,
+  /** What it can see. The client passes the newest snapshot; see VehicleWorld. */
+  world: VehicleWorld | null,
+  /** What it may change. Server only. */
+  sim: GameState | null = null,
   events?: SimEvent[],
   airborne = false,
 ): void {
   const throttle = input ? (input.up ? 1 : 0) - (input.down ? 1 : 0) : 0;
   const steer = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
-  driveVehicle(v, throttle, steer, map, state, events, airborne);
+  driveVehicle(v, throttle, steer, map, world, sim, events, airborne);
 }
 
 /**
@@ -160,7 +193,8 @@ export function driveVehicle(
   throttleIn: number,
   steerIn: number,
   map: CityMap,
-  state: GameState | null,
+  world: VehicleWorld | null,
+  sim: GameState | null = null,
   events?: SimEvent[],
   airborne = false,
   authorityFloor = 0,
@@ -208,19 +242,20 @@ export function driveVehicle(
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
-  integrateVehicle(v, map, state, events, airborne);
+  integrateVehicle(v, map, world, sim, events, airborne);
 }
 
 /** Driverless vehicles coast to a stop. */
 export function stepVehicleCoasting(
   v: VehicleState,
   map: CityMap,
-  state: GameState | null,
+  world: VehicleWorld | null,
+  sim: GameState | null = null,
   events?: SimEvent[],
 ): void {
   const t = getVehicleTuning(v.kind);
   v.speed = approach(v.speed, 0, t.friction * DT);
-  integrateVehicle(v, map, state, events);
+  integrateVehicle(v, map, world, sim, events);
 }
 
 const MAX_BOARDING_SPEED = 24;
