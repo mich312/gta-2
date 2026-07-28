@@ -111,6 +111,212 @@ marking gang cars there marked every car as nobody's; it happens inside
 know that barrels are gameplay and lamp posts are decoration — the first
 attempt left two barrels in one city and none in another.
 
+## What a body looks like, and what the blood does
+
+Two questions about the same picture. 332 tests green; this is all renderer,
+no sim behaviour changed except one event gaining a position.
+
+**A body was the wrong shape.** It was the standing sprite squashed along the
+SCREEN's vertical axis, which is wrong in a way that is obvious once said out
+loud: which way the screen happens to be pointing has nothing to do with which
+way somebody fell. A body that went down facing east was squeezed across its
+own waist and just looked like a smaller person standing up. From above, a
+standing person is a compact blob — head, shoulders, the tops of the feet —
+and somebody on the ground is that same person seen along their whole length.
+So the stretch is applied in the BODY's frame now: half again as long
+head-to-toe, a little narrower across, lying down the axis they fell along.
+The sprite still uses its own baked rotation; the context is rotated, scaled
+and unrotated around it so nothing is rotated twice.
+`evidence/street-blood-1-spray.png` is the difference.
+
+**The blood didn't do anything.** Ten droplets sprayed out and evaporated in
+mid-air while three stains appeared instantly on the ground beneath them,
+unrelated to any of the droplets and at full size from the first frame. Three
+changes, each cheap:
+
+- Particles can now `settle` — a droplet lays a small mark where it comes to
+  rest, so the arc of stains on the ground IS the arc the blood took. The
+  ones thrown hardest travel furthest and leave the finest marks.
+- Decals can now `spreadSec` — a stain eases out to full size instead of
+  being stamped. Blood spreads; a mark that is already finished when it
+  appears reads as texture that was always there.
+- The pool under a body grows with the body's AGE, which every kind of body
+  already carries: a pedestrian's `timer` counts down, an officer's
+  `idleTicks` counts up, a player's `respawnAtTick` counts down. Deriving it
+  means a corpse that comes into view a minute after it was made arrives with
+  a finished pool rather than starting to bleed on sight. It is three hashed,
+  overlapping blobs down the body's axis rather than one ellipse — a single
+  ellipse is the shape of a thing that was printed, not one that leaked.
+
+**And the commonest killing in the game threw no blood at all.** `shot` says
+where a round stopped, never whether it stopped in a person or a wall, so
+shooting a pedestrian produced sparks off stone and nothing else — only
+player kills and run-overs ever bled. `pedDown` and `copDown` now carry the
+position they went down at. Protocol 7.
+
+**Least confident about.** The pools are on the generous side at play zoom —
+three bodies together make a sizeable red mass — and `MAX_DECALS` went from
+220 to 460 to stop a firefight evicting every tyre mark in the district,
+which is headroom bought rather than a problem solved.
+
+## The ambulance turns out
+
+The city had an ambulance JOB and no ambulance SERVICE. One pedestrian "kill"
+in `downOneIn` leaves somebody down but alive on a 45-second bleed-out clock,
+and the only thing that could ever do anything about it was a player who
+happened to be driving an ambulance and happened to be looking — so in every
+session where nobody was playing that job, every casualty ever produced died
+on the pavement. `jobs.ts` even said so in a comment: *"NOT built: ambulances
+that turn out on their own. That needs an AI driver with a destination, which
+the traffic layer does not have a notion of yet."* The traffic layer has had
+`assignGoto` since the car-AI work; this is the thing it was for. 332 tests
+green (up from 324), 6-bot brawl lockstep with 0 desyncs, replay
+hash-identical.
+
+**What it does.** A casualty who has been down for `responseDelaySec` and whom
+no player-driven ambulance is closing on gets a van sent to them: the nearest
+kerbside spot to the scene that is far enough from every player that nobody
+watches it appear, driving on `assignGoto`, parking on `holdAt`, treating for
+`treatSec` and putting them back on their feet at full health. Miss the window
+and they become a body like any other — the failure has no event of its own
+because it is just the bleed-out clock running out. The whole of the
+bookkeeping is `GameState.ambulanceCalls`, which never goes on the wire, for
+the same reason `trafficDrivers` does not: what a client sees is a van pulling
+up and somebody getting up.
+
+**It must lose the race to a player.** The job is the better content and keeps
+first refusal: the service waits six seconds before noticing anybody and
+stands off any casualty a player-driven ambulance is within `playerClaimDist`
+of. What it takes away is not the fare — it is the certainty that an unclaimed
+casualty dies.
+
+**Two new primitives in the traffic layer, and one de-duplication.** `holdAt`
+parks an AI driver where it stands (a new `tend` mission) — without it,
+arriving reverts the driver to cruise and it simply drives off again, which is
+no use to anything that needed the car to BE somewhere. `aiSpawnPlacement` /
+`putAiVehicle` are the ambient spawner's own lane-placement and rolling-start
+logic, lifted out so dispatch gets it too, plus a `prefer` bearing so a van is
+put down facing the call: one facing away has to complete a U-turn first, and
+a U-turn is taken at `turnSpeed`. A driver on a `goto` now presses on at
+`panicSpeed` rather than ambling at `cruiseSpeed`, because an ambulance
+answering somebody bleeding out at 62 px/s arrives after the funeral.
+
+**Three things measured in a live session, not guessed.** Over ten seeds with
+a casualty put down near the player: routing straight at the casualty found no
+route at all in three of them — `planRoute` only snaps a destination onto the
+road grid within three tiles, and a ped who has wandered into a plaza is
+further than that — so dispatch silently did nothing, *after* turning a van
+out, leaking an ambulance per attempt. Dispatch now picks the nearest drivable
+tile within `crewReach` and routes there, and checks the route before anything
+is created. Sending the van from the nearest hospital read beautifully and
+played terribly: the hospital is routinely most of a kilometre from the
+accident and the van spent the whole clock in traffic, so it is the nearest
+unit that goes. And a van can wedge — nosed into a gap it cannot take,
+reversing, trying again — which is bounded for a car with nowhere to be and
+unbounded for one under orders; a call that stops making progress is abandoned
+and remembered for five seconds, so the next attempt comes from a different
+street. Nine casualties in ten are now reached, at a mean of twenty seconds
+into a forty-five second clock.
+
+**And then it was looked at.** Everything on this branch that draws — the
+bodies, the dropped guns, the van — had been shipped unverified, twice
+flagged as such. A scratch scenario server (`index.ts`'s own boot, holding the
+Session) staged casualties around whichever browser turned up, and the
+screenshots are in `evidence/`. Two things came out of it. The van reads
+exactly as intended: it drives in, parks on the road beside the scene, and the
+patient gets up. And a casualty was drawn identically to a corpse — which was
+harmless when nothing could be done for either, and wrong the moment an
+ambulance was on its way to one of them. `drawBody` now takes an `alive` flag:
+a body is flat, drained and still; a casualty keeps its colour over a smaller,
+fresher pool and breathes on a slow sine. `evidence/street-down.png` is the
+two of them side by side.
+
+**Least confident about.** `crewReach` (180 px) is the number that decides how
+much of "the ambulance came" is the van and how much is imagined paramedics:
+it exists because a third of casualties are further than that from any road,
+and it means the van can be parked most of a screen away when somebody stands
+up. The one-in-ten failure rate is a judgement about how much tension a
+casualty should carry, not a measurement of anything.
+
+## Five reported bugs: colliders, boats, stars, bodies, and people who shoot back
+
+Five things reported from play, fixed together because three of them are the
+same complaint — the world does not keep what happens to it. 324 tests green
+(up from 310), 8-bot brawl lockstep with 0 desyncs at ~13 KB/s per client
+against the 50 KB/s gate, replay re-simulates hash-identical.
+
+**Colliders were on a different clock from the sprites.** Remote entities are
+drawn `INTERP_DELAY_TICKS` (~100 ms) in the past so they interpolate smoothly,
+but the predictor collided the local car against `sync.latest` — the newest
+snapshot, three ticks ahead of the sprite it belonged to. Every moving car's
+collider therefore sat over half a car length down the road from the car you
+could see: you crashed into empty tarmac and drove through the one in front.
+`Interpolator.vehiclesAsDrawn()` now hands the predictor the same positions
+the renderer is about to use. Parked cars — most of what anyone hits — are
+identical on both timelines, which is why this survived so long.
+
+**The server's input buffer only ever grew.** A client makes one intent a tick
+and the server eats at most one a tick, so the rates match but the phases do
+not: a tick that finds the queue empty consumes nothing (the last keys are
+held) while the intent it was waiting for arrives and queues behind the next.
+There was no path back down, so the buffer settled at the worst jitter the
+link had EVER shown and stayed there — a fifth of a second of standing
+latency, and at the `MAX_INPUT_LAG_TICKS` cap it silently dropped intents the
+client had already predicted. `measureBacklog` watches the buffer's low-water
+mark over a one-second window: depth that never got used is latency nobody
+asked for, and it drains one intent per tick. A buffer that did run dry is
+doing its job and is left alone.
+
+**Getting out of a boat was impossible.** Not hard — impossible. A mooring is
+a tile of open water in every direction by construction, a boat's hull holds
+its centre 11 px off any bank, and the three spots a car steps into are all
+inside `halfExtent + PLAYER_RADIUS + 11`. Every one of them was river, so
+pressing E aboard did nothing, ever. Water craft now search tile CENTRES out
+to four tiles, nearest first: a player box is 12 px across and a tile is 16,
+so the centre of any non-solid tile is a spot you provably fit in — which a
+ring of bearings does not give you, because it can thread between two
+candidate tiles and report the whole bank as blocked.
+
+**The wanted level survived your own death.** It was always per-player state
+(`heat` on `PlayerState`, `wantedLevel` derived from it), but nothing cleared
+it when that player died, so you woke up at the hospital still four-starred
+with the same force re-acquiring on the spawn tick. `clearWanted` is now one
+function used by the arrest, the respray and dying, and it releases the
+officers already pointed at you as well as the stars.
+
+**Bodies stay.** A pedestrian shot dead used to be erased on the frame it
+happened; so did an officer. Both now lie where they fell for `corpseSec`.
+Peds carry a `dead` mode; an officer needs no new field at all, because
+`health <= 0` already rides the wire and is already hashed. A body is
+scenery: shots pass through it, cars do not re-run it over thirty times a
+second, traffic does not queue behind it, and it witnesses no crimes — that
+last one mattered, since a corpse was reporting car thefts from the pavement.
+
+**Some of the crowd shoot back, and their gun stays behind.** One pedestrian
+in `armedOneIn` is carrying — a pure function of the id, like gang membership,
+so it costs nothing on the wire. Shoot one and they do not flee: they hold a
+grudge against whoever pulled the trigger for `grudgeTicks`, close, and fire.
+The gang-hostility path and this one are now one shooter with two ways of
+acquiring a target. Anybody armed who dies drops their weapon as a new
+`weapon` pickup that can be picked up once and rots off the street; so do
+police, which is what makes shooting back at them worth doing.
+
+**Verification.** New tests: the boat exit across twelve moorings (ashore,
+dry, within wading distance); wanted level per-player and wiped by death
+through to respawn; armed peds returning fire while everyone else runs;
+grudges lapsing; the dropped gun being collectable once and expiring; bodies
+stopping no bullets; the interpolated collision world matching the drawn
+world to the pixel; and the input buffer draining after a jitter storm — that
+last one fails on the old code with the buffer pinned at 5 ticks for ever.
+
+**Least confident about.** The rendering of bodies and dropped guns is drawn
+rather than sprited (the same character sprite squashed towards the ground
+over a pool, and a gunmetal bar) and has not been eyeballed in a real
+browser — the sim behaviour is pinned by tests, the look is not. Colliding on
+the render timeline is the right call for "you hit what you see", but it
+trades against the server's own timeline: a fast head-on closing pair will
+still correct, just in the other direction from before. `armedOneIn: 7` with
+`gangPistol` is a first guess at how dangerous a street should feel.
 
 ## Car AI: drivers that react, and cars that can be sent somewhere
 

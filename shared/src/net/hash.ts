@@ -126,6 +126,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, ped.health);
     h = hashNumber(h, ped.timer);
     h = hashNumber(h, ped.escortOf ?? -1);
+    h = hashNumber(h, ped.targetId ?? -1);
   }
   for (const prop of snap.props) {
     h = hashNumber(h, prop.id);
@@ -144,6 +145,8 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, pu.pos.y);
     h = hashBool(h, pu.active);
     h = hashNumber(h, pu.respawnAtTick ?? -1);
+    h = hashString(h, pu.weaponId);
+    h = hashNumber(h, pu.ammo);
   }
 
   for (const pr of snap.projectiles) {

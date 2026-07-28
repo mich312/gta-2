@@ -18,6 +18,7 @@ export * from './sim/roadgrid.js';
 export * from './sim/signals.js';
 export * from './sim/daynight.js';
 export * from './sim/peds.js';
+export * from './sim/ambulance.js';
 export * from './sim/pickups.js';
 export * from './sim/frenzy.js';
 export * from './sim/step.js';

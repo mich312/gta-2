@@ -3,7 +3,14 @@ import { RENDER_SCALE } from './config.js';
 import type { LightPass } from './lighting.js';
 
 const MAX_PARTICLES = 600;
-const MAX_DECALS = 220;
+/**
+ * Blood now lands as a dozen-odd separate droplet marks per casualty instead
+ * of three stamped stains, which is the whole point of it — but it also means
+ * one firefight used to churn through the entire decal pool and evict every
+ * tyre mark and scorch in the neighbourhood. A decal is one small ellipse;
+ * the extra headroom is cheaper than the thing it protects.
+ */
+const MAX_DECALS = 460;
 
 interface Particle {
   alive: boolean;
@@ -22,6 +29,16 @@ interface Particle {
   additive: boolean;
   /** Spawns a small light while alive. */
   glow: number;
+  /**
+   * Width of the mark this particle leaves where it comes to rest, or 0 for
+   * one that simply fades.
+   *
+   * Blood used to spray ten droplets that vanished in mid-air while three
+   * stains appeared instantly on the ground beneath, unrelated to any of
+   * them. Landing the droplets is the difference between a spray and a
+   * decoration: where the blood goes is where the blood ends up.
+   */
+  settle: number;
 }
 
 /**
@@ -48,6 +65,37 @@ interface Decal {
   /** Seconds remaining; skid marks outlive blood. */
   life: number;
   maxLife: number;
+  /**
+   * Seconds this mark takes to reach full size, or 0 to appear whole.
+   *
+   * Blood spreads. A stain that snaps to its final size the instant somebody
+   * is hit reads as a texture that was always there; one that creeps outwards
+   * over a second and a half reads as something that is happening.
+   */
+  spreadSec: number;
+}
+
+/**
+ * The blood palette, dark to light.
+ *
+ * Three tones rather than one flat maroon: a pool is darkest where it is
+ * deepest, the spray that carries furthest is the thinnest and brightest, and
+ * a single colour for all of it was the main reason the old stains read as
+ * printed texture rather than liquid.
+ */
+export const BLOOD_DEEP = 'rgba(74, 9, 16, 0.72)';
+export const BLOOD_POOL = 'rgba(104, 15, 22, 0.60)';
+export const BLOOD_DROP = 'rgba(122, 20, 26, 0.55)';
+/** How long a stain stays on the tarmac. */
+export const BLOOD_LIFE_SEC = 26;
+
+/**
+ * Spreading, eased out: fastest at the moment it lands, then creeping.
+ * Liquid running out across asphalt does not spread linearly.
+ */
+export function spreadEase(t: number): number {
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return 1 - (1 - c) * (1 - c);
 }
 
 let scorchTexture: HTMLCanvasElement | null = null;
@@ -101,6 +149,7 @@ export class Effects {
         color: '#fff',
         additive: false,
         glow: 0,
+        settle: 0,
       });
     }
   }
@@ -113,6 +162,20 @@ export class Effects {
       p.life -= step;
       if (p.life <= 0) {
         p.alive = false;
+        // Where it landed is where the stain is.
+        if (p.settle > 0) {
+          this.addDecal(
+            p.x,
+            p.y,
+            Math.random() * Math.PI,
+            p.settle,
+            p.settle * (0.6 + Math.random() * 0.5),
+            BLOOD_DROP,
+            BLOOD_LIFE_SEC,
+            'ellipse',
+            0.25,
+          );
+        }
         continue;
       }
       const damping = Math.max(0, 1 - p.drag * step);
@@ -213,34 +276,81 @@ export class Effects {
   }
 
   /** A hit on something living: a spray plus a lasting stain. */
-  blood(x: number, y: number, angle: number): void {
-    for (let i = 0; i < 10; i++) {
+  blood(x: number, y: number, angle: number, force = 1): void {
+    // The spray. Every droplet lands and leaves what it was carrying, so the
+    // arc of stains on the ground is the arc the blood actually took — the
+    // faster ones travel further and make the finer marks at the far end.
+    const drops = Math.round(9 + 7 * force);
+    for (let i = 0; i < drops; i++) {
       const spread = (Math.random() - 0.5) * 1.5;
-      const speed = 45 + Math.random() * 170;
+      const fast = Math.random();
+      const speed = (40 + fast * 190) * force;
       this.spawn(
         x,
         y,
         Math.cos(angle + spread) * speed,
         Math.sin(angle + spread) * speed,
-        0.2 + Math.random() * 0.25,
-        1.6,
+        0.16 + Math.random() * 0.26,
+        1.4 + fast * 1.4,
         palette.blood,
         false,
-        6,
+        7,
+        0,
+        // Thrown hardest, spread thinnest: the far marks are the small ones.
+        1.4 + (1 - fast) * 2.6,
       );
     }
-    for (let i = 0; i < 3; i++) {
-      this.addDecal(
-        x + (Math.random() - 0.5) * 9,
-        y + (Math.random() - 0.5) * 9,
-        Math.random() * Math.PI,
-        4 + Math.random() * 6,
-        3 + Math.random() * 5,
-        'rgba(96, 16, 26, 0.62)',
-        24,
-        'ellipse',
+    // A fine mist that never lands, to give the spray some volume in the air.
+    for (let i = 0; i < 4; i++) {
+      const spread = (Math.random() - 0.5) * 2.2;
+      this.spawn(
+        x,
+        y,
+        Math.cos(angle + spread) * 30 * force,
+        Math.sin(angle + spread) * 30 * force,
+        0.22,
+        2.6,
+        palette.blood,
+        false,
+        5,
       );
     }
+    // ...and the wound itself, spreading where they were hit.
+    this.addDecal(
+      x,
+      y,
+      angle,
+      7 + 4 * force,
+      5 + 3 * force,
+      BLOOD_POOL,
+      BLOOD_LIFE_SEC,
+      'ellipse',
+      1.1,
+    );
+  }
+
+  /**
+   * Blood running out of something that has stopped moving.
+   *
+   * Emitted by the body renderer rather than by an event, on a slow cadence,
+   * so the pool under a corpse keeps creeping outward for a few seconds after
+   * they go down instead of being stamped on the ground complete. The mark is
+   * laid down the body's own axis: what runs out of somebody lying in the
+   * road runs along them, not in a neat circle around them.
+   */
+  bleed(x: number, y: number, angle: number, reach: number): void {
+    const off = (Math.random() - 0.5) * reach;
+    this.addDecal(
+      x + Math.cos(angle) * off,
+      y + Math.sin(angle) * off,
+      angle,
+      5 + Math.random() * reach,
+      4 + Math.random() * reach * 0.6,
+      Math.random() < 0.4 ? BLOOD_DEEP : BLOOD_POOL,
+      BLOOD_LIFE_SEC,
+      'ellipse',
+      1.4,
+    );
   }
 
   /** Prop destroyed: chunks of debris thrown outwards. */
@@ -371,8 +481,9 @@ export class Effects {
     color: string,
     life: number,
     shape: DecalShape = 'rect',
+    spreadSec = 0,
   ): void {
-    const decal: Decal = { x, y, angle, w, h, color, shape, life, maxLife: life };
+    const decal: Decal = { x, y, angle, w, h, color, shape, life, maxLife: life, spreadSec };
     if (this.decals.length < MAX_DECALS) {
       this.decals.push(decal);
       return;
@@ -392,6 +503,7 @@ export class Effects {
     additive: boolean,
     drag: number,
     glow = 0,
+    settle = 0,
   ): void {
     const p = this.particles[this.nextParticle % MAX_PARTICLES] as Particle;
     this.nextParticle++;
@@ -407,6 +519,7 @@ export class Effects {
     p.additive = additive;
     p.drag = drag;
     p.glow = glow;
+    p.settle = settle;
   }
 
   // ── drawing ────────────────────────────────────────────────────────────────
@@ -421,8 +534,11 @@ export class Effects {
       ctx.fillStyle = d.color;
       ctx.translate(originX + d.x * RENDER_SCALE, originY + d.y * RENDER_SCALE);
       ctx.rotate(d.angle);
-      const w = d.w * RENDER_SCALE;
-      const h = d.h * RENDER_SCALE;
+      // Still spreading? Ease out, so it runs fastest at the moment it lands.
+      const spread =
+        d.spreadSec > 0 ? spreadEase(1 - Math.max(0, d.life - (d.maxLife - d.spreadSec)) / d.spreadSec) : 1;
+      const w = d.w * spread * RENDER_SCALE;
+      const h = d.h * spread * RENDER_SCALE;
       if (d.shape === 'scorch') {
         ctx.drawImage(getScorchTexture(), -w / 2, -h / 2, w, h);
       } else if (d.shape === 'ellipse') {

@@ -191,6 +191,50 @@ describe('boats', () => {
     expect(boxInSolid(map, boat.pos, 11, 'water')).toBe(false);
   });
 
+  it('you can get back off a boat, and you land on dry ground', () => {
+    // A mooring is a tile of open water in every direction by construction,
+    // and a car's three exit spots all sit within one boat-length of the
+    // hull — so every one of them landed in the river and pressing E in a
+    // boat did nothing at all, for ever. Once aboard, you were aboard.
+    for (const mooring of map.boatSpawns.slice(0, 12)) {
+      let state = createGameState(21);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'sailor' }], map);
+      state = step(
+        state,
+        {},
+        [
+          {
+            type: 'spawnVehicle',
+            vehicleId: 60,
+            kind: 'boat',
+            x: mooring.x,
+            y: mooring.y,
+            heading: mooring.heading,
+          },
+        ],
+        map,
+      );
+      state.players.byId[1]!.pos = { x: mooring.x, y: mooring.y };
+      state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+      expect(state.players.byId[1]!.mode).toBe('driving');
+
+      // Release the action key, then press it again: enter/exit is an edge.
+      state = step(state, { 1: { ...NULL_INPUT, seq: 2, tick: 2 } }, [], map);
+      state = step(state, { 1: { ...NULL_INPUT, seq: 3, tick: 3, action: true } }, [], map);
+
+      const ashore = state.players.byId[1]!;
+      expect(ashore.mode).toBe('foot');
+      expect(ashore.vehicleId).toBeNull();
+      // Ashore, not overboard — and within wading distance of the boat.
+      expect(boxInSolid(map, ashore.pos, 6, 'land')).toBe(false);
+      const boat = state.vehicles.byId[60]!;
+      expect(boat.driverId).toBeNull();
+      expect(Math.hypot(ashore.pos.x - boat.pos.x, ashore.pos.y - boat.pos.y)).toBeLessThanOrEqual(
+        4 * TILE_SIZE + 1,
+      );
+    }
+  });
+
   it('a car cannot be driven into the river', () => {
     const mooring = map.boatSpawns[0]!;
     let state = createGameState(8);

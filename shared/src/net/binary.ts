@@ -109,8 +109,10 @@ const TAG_FULL = 2;
 const TAG_INPUT = 3;
 
 const PLAYER_MODES = ['foot', 'driving', 'dead'] as const;
-// Append-only: the index is the wire format, so a new mode goes on the end.
-const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'fighting', 'following'] as const;
+// Append-only, both of them: the index IS the wire value. Two branches each
+// appended to this list; the one already on main keeps its indices and the
+// other two go after it.
+const PED_MODES = ['walk', 'flee', 'hostile', 'downed', 'dead', 'fighting', 'following'] as const;
 const PICKUP_KINDS = [
   'health',
   'armour',
@@ -122,6 +124,7 @@ const PICKUP_KINDS = [
   'invis',
   'reload',
   // Append-only: the index is the wire format.
+  'weapon',
   'multi',
   'cash',
 ] as const;
@@ -538,6 +541,7 @@ const PED_CODECS: Array<FieldCodec<PedState>> = [
   f('health', (w, p) => w.f64(p.health), (r, o) => (o['health'] = r.f64())),
   f('timer', (w, p) => w.int(p.timer), (r, o) => (o['timer'] = r.int())),
   f('escortOf', (w, p) => w.optInt(p.escortOf), (r, o) => (o['escortOf'] = r.optInt())),
+  f('targetId', (w, p) => w.optInt(p.targetId), (r, o) => (o['targetId'] = r.optInt())),
 ];
 
 const PROP_CODECS: Array<FieldCodec<PropState>> = [
@@ -580,6 +584,10 @@ const PICKUP_CODECS: Array<FieldCodec<PickupState>> = [
     (w, p) => w.optInt(p.respawnAtTick),
     (r, o) => (o['respawnAtTick'] = r.optInt()),
   ),
+  // Empty on every worldgen crate, so per-field diffing means the fixed
+  // furniture pays for these once, at creation, and never again.
+  f('weaponId', (w, p) => w.str(p.weaponId), (r, o) => (o['weaponId'] = r.str())),
+  f('ammo', (w, p) => w.int(p.ammo), (r, o) => (o['ammo'] = r.int())),
 ];
 
 // ------------------------------------------------------------ table codecs

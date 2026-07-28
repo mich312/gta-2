@@ -150,7 +150,7 @@ function fireCarGuns(
   }
   for (const pedId of state.peds.ids) {
     const ped = state.peds.byId[pedId];
-    if (!ped) continue;
+    if (!ped || ped.mode === 'dead') continue; // a body does not stop a bullet
     consider(
       rayCircleDistance(ox, oy, dirX, dirY, ped.pos.x, ped.pos.y, PLAYER_RADIUS),
       () => (hitPedId = pedId),

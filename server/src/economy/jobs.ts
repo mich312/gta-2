@@ -20,9 +20,11 @@ import {
  * player's hit-and-run is another player's fare. Nothing else in this
  * project couples two players' play that cheaply.
  *
- * NOT built: ambulances that turn out on their own to casualties nobody has
- * claimed. That needs an AI driver with a destination, which the traffic
- * layer does not have a notion of yet.
+ * The city now answers casualties on its own as well (`sim/ambulance.ts`),
+ * which this has to be read against: the service waits `responseDelaySec`
+ * before it notices anybody and stands off any casualty a player-driven
+ * ambulance is already closing on, so the job keeps first refusal. What the
+ * service takes away is the certainty that an unclaimed casualty dies.
  */
 
 export interface JobsParams {
@@ -169,6 +171,7 @@ export class Jobs {
           // 'walk'`: a pedestrian standing next to a car is already in
           // `flee`, so that test never matched a single fare.
           if (!ped || ped.mode === 'downed' || ped.mode === 'hostile') continue;
+          if (ped.mode === 'dead') continue; // no fares from the mortuary
           if (ped.gangId !== 0) continue;
           if (!within(ped.pos, v.pos, this.params.pickupRadius)) continue;
           if (Math.abs(v.speed) > 30) continue;

@@ -212,9 +212,13 @@ describe('gang war (J4)', () => {
       state = step(state, { 1: { ...NULL_INPUT, seq: i + 1, tick: state.tick } }, [], map, events);
     }
     expect(events.some((e) => e.type === 'gangFight')).toBe(true);
-    // Somebody died out there...
-    const died = !state.peds.byId[5001] || !state.peds.byId[5002];
-    expect(died).toBe(true);
+    // Somebody died out there — a body now stays where it fell, so death is
+    // health at zero rather than an entry disappearing.
+    const down = (id: number): boolean => {
+      const ped = state.peds.byId[id];
+      return ped === undefined || ped.health <= 0;
+    };
+    expect(down(5001) || down(5002)).toBe(true);
     // ...and it changed nothing about how anybody feels about the player.
     expect([...state.players.byId[1]!.respect]).toEqual(before);
   });

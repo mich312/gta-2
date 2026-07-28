@@ -207,10 +207,11 @@ function vehiclePoseNow(): { x: number; y: number; angle: number } | null {
 function onStateUpdated(ackSeq: number | null): void {
   if (!sync.latest || !map) return;
   interp.push(sync.latest);
-  // Collision prediction reads the newest authoritative positions, not the
-  // ~100 ms interpolated ones: for the parked cars that make up most of what
-  // you hit, the snapshot is exact.
-  predictor.setWorld(sync.latest.vehicles);
+  // Collision prediction reads the positions the renderer is about to DRAW,
+  // not the newest ones off the wire — see Interpolator.vehiclesAsDrawn. For
+  // the parked cars that make up most of what you hit the two are identical;
+  // for anything moving, the snapshot is three ticks ahead of its own sprite.
+  predictor.setWorld(interp.vehiclesAsDrawn());
   const me = sync.latest.players.find((p) => p.id === playerId);
   if (me) {
     const myVehicle =
@@ -270,8 +271,10 @@ function onGameEvent(event: GameEvent): void {
     audio.play('impact', hit.dist, hit.pan);
   } else if (event.type === 'runOver') {
     // A car connecting with somebody. Non-fatal hits used to have no outward
-    // sign at all — the victim's HUD flashed and nothing else happened.
-    effects.blood(event.x, event.y, event.angle);
+    // sign at all — the victim's HUD flashed and nothing else happened. The
+    // spray scales with the speed: being clipped at a walking pace and being
+    // hit by a bus at 300 px/s should not throw the same amount of blood.
+    effects.blood(event.x, event.y, event.angle, 1 + Math.min(1.4, event.speed / 190));
     const at = listen(event.x, event.y);
     audio.play('thud', at.dist, at.pan);
   } else if (event.type === 'horn') {
@@ -334,13 +337,25 @@ function onGameEvent(event: GameEvent): void {
     if (event.playerId === playerId && event.distance > 40) {
       hud.notice(`stunt jump — ${event.distance}px`);
     }
+  } else if (event.type === 'casualtySaved') {
+    // Somebody the city got to in time. The same chime a pickup makes, which
+    // is the one sound in the game that already means "that went well".
+    const at = listen(event.x, event.y);
+    audio.play('pickup', at.dist, at.pan);
   } else if (event.type === 'pickupTaken') {
     const at = listen(event.x, event.y);
     audio.play('pickup', at.dist, at.pan);
+  } else if (event.type === 'pedDown' || event.type === 'copDown') {
+    // The commonest killing in the game, and until the event carried a
+    // position it was the only one that threw nothing: `shot` says where the
+    // round stopped, never whether it stopped in somebody.
+    effects.blood(event.x, event.y, Math.random() * Math.PI * 2, 1.15);
+    const at = listen(event.x, event.y);
+    audio.play('death', at.dist, at.pan);
   } else if (event.type === 'kill') {
     const victim = sync.latest?.players.find((p) => p.id === event.victimId);
     if (victim) {
-      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2);
+      effects.blood(victim.pos.x, victim.pos.y, Math.random() * Math.PI * 2, 1.35);
       const at = listen(victim.pos.x, victim.pos.y);
       audio.play('death', at.dist, at.pan);
     }
@@ -548,13 +563,14 @@ function frame(now: number): void {
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
-        // The predicted tick, not the last acked one: traffic signals are a
-        // function of it, and rendering the phase three ticks in the past
-        // would show a light the cars in front had already obeyed.
-        tick: predictor.predicted ? sync.latest?.tick ?? 0 : 0,
         foundPackages,
         dt: frameMs / 1000,
         nowMs: now,
+        // The newest authoritative tick, not the last acked one: traffic
+        // signals are a function of it, and rendering the phase three ticks
+        // in the past would show a light the cars in front had already
+        // obeyed.
+        tick: sync.latest.tick,
       }
     : null;
   render(screen, map, scene, cam, sprites, tiles, effects, lights);

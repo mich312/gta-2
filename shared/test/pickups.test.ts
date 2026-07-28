@@ -239,19 +239,20 @@ describe('cash on the ground (O1)', () => {
     s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
     const spot = clearSpot(map, s.players.byId[1]!.pos, 40);
     insertEntity(s.peds, createPed(700, { x: spot.x, y: spot.y }, 30));
-    const before = s.pickups.ids.length;
+    // Counted by kind, not by total: somebody armed also drops their gun, and
+    // that drop is about what they were carrying rather than about who is
+    // owed for it.
+    const cash = (): number =>
+      s.pickups.ids.map((id) => s.pickups.byId[id]!).filter((pu) => pu.kind === 'cash').length;
+    const before = cash();
     damagePed(s, s.peds.byId[700]!, 999, 1, []);
-    const dropped = s.pickups.ids
-      .map((id) => s.pickups.byId[id]!)
-      .filter((pu) => pu.kind === 'cash');
-    expect(dropped.length).toBe(1);
-    expect(s.pickups.ids.length).toBe(before + 1);
+    expect(cash()).toBe(before + 1);
 
-    // A gang-war casualty (attacker -1) leaves nothing: nobody earned it.
+    // A gang-war casualty (attacker -1) leaves no cash: nobody earned it.
     insertEntity(s.peds, createPed(701, { x: spot.x, y: spot.y }, 30));
-    const was = s.pickups.ids.length;
+    const was = cash();
     damagePed(s, s.peds.byId[701]!, 999, -1, []);
-    expect(s.pickups.ids.length).toBe(was);
+    expect(cash()).toBe(was);
   });
 
   it('a wad nobody takes does not litter the city for ever', () => {

@@ -107,12 +107,15 @@ describe('weapon noise (M2)', () => {
     const before = state.players.byId[1]!.heat;
     // Held in place: a ped that has been shot flees, and a fleeing ped walks
     // out of the firing line before the next round arrives.
-    for (let i = 0; i < 60 && state.peds.byId[800]; i++) {
+    for (let i = 0; i < 60 && state.peds.byId[800]?.health! > 0; i++) {
       const victim = state.peds.byId[800];
       if (victim) victim.pos = { x: spot.x, y: spot.y };
       state = fire(state, aim, i + 1);
     }
-    expect(state.peds.byId[800] ?? null).toBeNull();
+    // A body stays where it fell now, so death is a mode rather than an
+    // absence: shot dead, down or gone all count.
+    const victim = state.peds.byId[800];
+    expect(victim === undefined || victim.health <= 0).toBe(true);
     expect(state.players.byId[1]!.heat).toBeGreaterThan(before);
   });
 
