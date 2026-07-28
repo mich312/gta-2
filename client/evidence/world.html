@@ -47,7 +47,9 @@ const hidden = document.createElement('canvas');
 document.body.appendChild(hidden);
 hidden.style.position = 'absolute';
 hidden.style.left = '-10000px';
-const screen = setupCanvas(hidden);
+// Fixed: the page crops known rectangles out of the backing store, so it
+// must not depend on the size of whatever browser happens to run it.
+const screen = setupCanvas(hidden, { fixed: { w: INTERNAL_WIDTH, h: INTERNAL_HEIGHT } });
 const sprites = new SpriteSheet();
 const tiles = new TileLayer(sprites);
 const effects = new Effects();

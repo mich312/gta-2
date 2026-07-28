@@ -39,8 +39,11 @@ import type { RenderWorld } from '../net/interpolation.js';
 import type { SpriteSheet } from './sprites.js';
 import type { TileLayer } from './tiles.js';
 import { BLOOD_DROP, BLOOD_POOL, type Effects } from './effects.js';
-import type { LightPass } from './lighting.js';
-import { DEVICE_H, DEVICE_W, RENDER_SCALE, SUN_X, SUN_Y, VIEW_H, VIEW_W } from './config.js';
+import { flicker, lampCharacter, type LightPass } from './lighting.js';
+import type { Occluder } from './shadows.js';
+import { RENDER_SCALE, SUN_X, SUN_Y } from './config.js';
+import { hash2 } from './noise.js';
+import { viewport } from './viewport.js';
 
 const REMOTE_COLORS = ['#e05555', '#55b0e0', '#57c98a', '#d3a24a', '#b06ad6', '#5fd6c9', '#d66a9c'];
 const LOCAL_COLOR = '#f2f2f2';
@@ -145,6 +148,13 @@ export interface Scene {
   /** Wall-clock ms, for strobes and flicker. */
   nowMs: number;
   /**
+   * Force the hour, 0 (midday) to 1 (midnight), instead of reading it off the
+   * tick. A debug affordance — `?night=` — because a full day is 24 minutes
+   * long and the lighting work is otherwise unreviewable without waiting for
+   * dusk. Never set in normal play.
+   */
+  night?: number | null;
+  /**
    * Newest authoritative sim tick. Two things want it, for unrelated reasons.
    *
    * Traffic signals are a pure function of it, so a light is computed rather
@@ -173,13 +183,13 @@ export function computeCamera(
   local: Vec2 | null,
   lead: Vec2 | null = null,
 ): Vec2 {
-  const w = map?.widthPx ?? VIEW_W;
-  const h = map?.heightPx ?? VIEW_H;
+  const w = map?.widthPx ?? viewport.w;
+  const h = map?.heightPx ?? viewport.h;
   const cx = (local ? local.x : w / 2) + (lead?.x ?? 0);
   const cy = (local ? local.y : h / 2) + (lead?.y ?? 0);
   return {
-    x: clamp(cx - VIEW_W / 2, 0, Math.max(0, w - VIEW_W)),
-    y: clamp(cy - VIEW_H / 2, 0, Math.max(0, h - VIEW_H)),
+    x: clamp(cx - viewport.w / 2, 0, Math.max(0, w - viewport.w)),
+    y: clamp(cy - viewport.h / 2, 0, Math.max(0, h - viewport.h)),
   };
 }
 
@@ -315,13 +325,13 @@ export function render(
   const { ctx } = screen;
   worldTransform(ctx);
   ctx.fillStyle = '#0a0d11';
-  ctx.fillRect(0, 0, DEVICE_W, DEVICE_H);
+  ctx.fillRect(0, 0, viewport.deviceW, viewport.deviceH);
 
   if (!map || !scene) {
     ctx.fillStyle = '#8a939e';
     ctx.font = `${10 * RENDER_SCALE}px monospace`;
     ctx.textAlign = 'center';
-    ctx.fillText('connecting…', DEVICE_W / 2, DEVICE_H / 2);
+    ctx.fillText('connecting…', viewport.deviceW / 2, viewport.deviceH / 2);
     ctx.textAlign = 'left';
     return;
   }
@@ -329,7 +339,7 @@ export function render(
   // The hour, from the tick being rendered. A pure function of it, like the
   // traffic signals: nothing about the clock is on the wire, and two players
   // on the same corner see the same sky because they compute the same number.
-  lights.setNight(nightAmount(timeOfDay(scene.tick, dayLengthSec(map))));
+  lights.setNight(scene.night ?? nightAmount(timeOfDay(scene.tick, dayLengthSec(map))));
 
   // One rounded origin for the whole frame. Every world position derives from
   // it, so the scene translates as a rigid body: no seams between cached
@@ -338,6 +348,12 @@ export function render(
   const originY = Math.round(-cam.y * RENDER_SCALE);
   const dx = (wx: number): number => originX + Math.round(wx * RENDER_SCALE);
   const dy = (wy: number): number => originY + Math.round(wy * RENDER_SCALE);
+
+  // What the light pass needs to know to work out what is standing in front of
+  // a lamp: the city, where world origin landed on screen this frame, and
+  // everything with a body between the two.
+  lights.setWorld(map, originX, originY);
+  lights.setOccluders(collectOccluders(scene, cam));
 
   tiles.draw(ctx, cam, originX, originY);
   effects.update(scene.dt);
@@ -349,24 +365,37 @@ export function render(
   const lit = 0.15 + 0.85 * lights.nightAmount;
   for (const prop of scene.remotes.props) {
     if (prop.kind !== 'lamp' || !prop.intact) continue;
-    // A touch of flicker, keyed off the prop id so lamps are out of phase.
-    const flicker = 0.88 + 0.12 * Math.sin(scene.nowMs * 0.004 + prop.id * 2.3);
-    lights.point(dx(prop.pos.x), dy(prop.pos.y), 34 * RENDER_SCALE, 'lamp', 0.52 * flicker * lit);
+    // Every lamp on this street is a different lamp: most steady, some
+    // humming, one on the way out, the odd dead one that tries and fails.
+    // Character comes off the id, so it is the same lamp for every player.
+    const f = flicker(lampCharacter(prop.id), prop.id, scene.nowMs);
+    lights.point(
+      dx(prop.pos.x),
+      dy(prop.pos.y),
+      34 * RENDER_SCALE,
+      'lamp',
+      0.5 * f * lit,
+      'static',
+    );
   }
+  drawWindows(map, cam, lit, scene.nowMs, dx, dy, lights);
   for (const shop of map.shops) {
     const wx = (shop.doorX + 0.5) * TILE_SIZE;
     const wy = (shop.doorY + 0.5) * TILE_SIZE;
-    if (wx < cam.x - 32 || wy < cam.y - 32 || wx > cam.x + VIEW_W + 32 || wy > cam.y + VIEW_H + 32) {
+    if (wx < cam.x - 32 || wy < cam.y - 32 || wx > cam.x + viewport.w + 32 || wy > cam.y + viewport.h + 32) {
       continue;
     }
-    lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45 * lit);
+    // A sign over a door, on a tube old enough to stutter now and then.
+    const sign = flicker('neon', shop.doorX * 31 + shop.doorY, scene.nowMs);
+    lights.point(dx(wx), dy(wy), 22 * RENDER_SCALE, 'shop', 0.45 * lit * sign, 'static');
     // The room behind the door is lit too, or walking in is walking into a
-    // dark hole in the middle of a lit street.
+    // dark hole in the middle of a lit street. Shadowed, which is what makes
+    // the light spill out through the doorway and nowhere else.
     const r = shop.interior;
     const cx = (r.x + r.w / 2) * TILE_SIZE;
     const cy = (r.y + r.h / 2) * TILE_SIZE;
     const reach = Math.max(r.w, r.h) * TILE_SIZE * 0.8;
-    lights.point(dx(cx), dy(cy), reach * RENDER_SCALE, 'shop', 0.5);
+    lights.point(dx(cx), dy(cy), reach * RENDER_SCALE, 'shop', 0.5, 'static');
   }
 
   drawPackages(ctx, map, cam, scene, dx, dy, lights);
@@ -631,8 +660,8 @@ function drawPackages(
     if (
       at.x < cam.x - 20 ||
       at.y < cam.y - 20 ||
-      at.x > cam.x + VIEW_W + 20 ||
-      at.y > cam.y + VIEW_H + 20
+      at.x > cam.x + viewport.w + 20 ||
+      at.y > cam.y + viewport.h + 20
     ) {
       continue;
     }
@@ -645,6 +674,155 @@ function drawPackages(
     ctx.fillStyle = taken ? 'rgba(120, 130, 145, 0.35)' : '#f0e2a0';
     ctx.fillRect(x - 2 * R, y - 2 * R, 4 * R, 4 * R);
     if (!taken) lights.point(x, y, (6 + pulse * 4) * R, 'shop', 0.25 + pulse * 0.2);
+  }
+}
+
+/**
+ * How tall things stand, in world pixels, for the shadows they throw.
+ *
+ * The numbers matter against `LIGHT_HEIGHT`, not on their own: a person at 9
+ * is taller than a headlight at 4 and shorter than a street lamp at 30, so the
+ * same pedestrian throws a shadow down the whole street in front of a car and
+ * a stub of one under a lamp post. That ratio is the entire model.
+ */
+const BODY_HEIGHT = 9;
+const CAR_HEIGHT = 7;
+
+/** Reused every frame: the light pass reads it and never keeps it. */
+const occluders: Occluder[] = [];
+
+/**
+ * The bodies and cars close enough to the view to be worth casting.
+ *
+ * A margin of one screen beyond the frame, because a shadow is thrown by
+ * something that need not be visible itself — the whole point of the long
+ * shadow a headlight throws is that you see it before you see what is making
+ * it. Parked and moving cars alike: an empty car parked across a beam stops it
+ * just as well as one with a driver.
+ */
+function collectOccluders(scene: Scene, cam: Vec2): Occluder[] {
+  occluders.length = 0;
+  const x0 = cam.x - viewport.w * 0.5;
+  const y0 = cam.y - viewport.h * 0.5;
+  const x1 = cam.x + viewport.w * 1.5;
+  const y1 = cam.y + viewport.h * 1.5;
+  const inView = (x: number, y: number): boolean => x > x0 && y > y0 && x < x1 && y < y1;
+  const body = (x: number, y: number): void => {
+    if (!inView(x, y)) return;
+    occluders.push({
+      x,
+      y,
+      r: PLAYER_RADIUS,
+      halfLong: 0,
+      halfWide: 0,
+      heading: 0,
+      height: BODY_HEIGHT,
+    });
+  };
+
+  for (const r of scene.remotes.players) body(r.x, r.y);
+  for (const c of scene.remotes.cops) body(c.x, c.y);
+  for (const pd of scene.remotes.peds) {
+    // The dead lie down. A body on the tarmac is not a wall.
+    if (pd.ped.mode === 'dead' || pd.ped.mode === 'downed') continue;
+    body(pd.x, pd.y);
+  }
+  if (scene.localPos && scene.local?.mode !== 'driving') body(scene.localPos.x, scene.localPos.y);
+
+  const car = (x: number, y: number, heading: number, kind: string): void => {
+    if (!inView(x, y)) return;
+    const t = getVehicleTuning(kind);
+    occluders.push({
+      x,
+      y,
+      r: 0,
+      halfLong: t.halfExtent,
+      halfWide: t.halfExtent * 0.55,
+      heading,
+      height: CAR_HEIGHT,
+    });
+  };
+  for (const rv of scene.remotes.vehicles) {
+    car(rv.x, rv.y, rv.heading, rv.vehicle.kind);
+  }
+  if (scene.localVehicle) {
+    car(
+      scene.localVehicle.pos.x,
+      scene.localVehicle.pos.y,
+      scene.localVehicle.heading,
+      scene.localVehicle.kind,
+    );
+  }
+  return occluders;
+}
+
+/** Windows lit in one frame, whatever the view size. Bounds the worst block. */
+const MAX_WINDOWS = 96;
+/** Share of a building's edge tiles with somebody still up. */
+const WINDOW_ODDS = 0.26;
+
+/**
+ * Lit windows, after dark.
+ *
+ * The single cheapest thing that turns a grid of dark roofs back into a city:
+ * a scatter of warm rectangles around the edge of every block, out of phase,
+ * a few of them the flickering blue of a television nobody is watching. Which
+ * windows are lit is a hash of the tile, so it is the same building every
+ * night and for every player, and it costs no state.
+ *
+ * They cast nothing — a window is already at the wall it would be occluded
+ * by — which is what keeps a hundred of them affordable.
+ */
+function drawWindows(
+  map: CityMap,
+  cam: Vec2,
+  lit: number,
+  nowMs: number,
+  dx: (x: number) => number,
+  dy: (y: number) => number,
+  lights: LightPass,
+): void {
+  // Nothing to see until the light has actually gone.
+  if (lit < 0.35) return;
+  const x0 = cam.x - TILE_SIZE;
+  const y0 = cam.y - TILE_SIZE;
+  const x1 = cam.x + viewport.w + TILE_SIZE;
+  const y1 = cam.y + viewport.h + TILE_SIZE;
+  let budget = MAX_WINDOWS;
+
+  for (const b of map.buildings) {
+    if (budget <= 0) return;
+    const bx0 = b.x * TILE_SIZE;
+    const by0 = b.y * TILE_SIZE;
+    const bx1 = (b.x + b.w) * TILE_SIZE;
+    const by1 = (b.y + b.h) * TILE_SIZE;
+    if (bx1 < x0 || by1 < y0 || bx0 > x1 || by0 > y1) continue;
+
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        // Edge tiles only: the middle of a block has no outside wall.
+        const edgeX = tx === b.x ? -1 : tx === b.x + b.w - 1 ? 1 : 0;
+        const edgeY = ty === b.y ? -1 : ty === b.y + b.h - 1 ? 1 : 0;
+        if (edgeX === 0 && edgeY === 0) continue;
+        const r = hash2(tx, ty, 0x77d1);
+        if (r > WINDOW_ODDS) continue;
+        const wx = (tx + 0.5 + edgeX * 0.42) * TILE_SIZE;
+        const wy = (ty + 0.5 + edgeY * 0.42) * TILE_SIZE;
+        if (wx < x0 || wy < y0 || wx > x1 || wy > y1) continue;
+        if (budget-- <= 0) return;
+        // One in eight is a television: cooler, and never still.
+        const tv = r < WINDOW_ODDS * 0.13;
+        const id = tx * 7919 + ty;
+        const f = tv ? 0.4 + 0.6 * flicker('fire', id, nowMs) : 1;
+        lights.point(
+          dx(wx),
+          dy(wy),
+          (tv ? 7 : 9) * RENDER_SCALE,
+          tv ? 'blue' : 'window',
+          (tv ? 0.3 : 0.34) * lit * f,
+        );
+      }
+    }
   }
 }
 
@@ -684,8 +862,8 @@ function drawSignals(
     if (
       head.x < cam.x - 24 ||
       head.y < cam.y - 24 ||
-      head.x > cam.x + VIEW_W + 24 ||
-      head.y > cam.y + VIEW_H + 24
+      head.x > cam.x + viewport.w + 24 ||
+      head.y > cam.y + viewport.h + 24
     ) {
       continue;
     }
@@ -702,7 +880,9 @@ function drawSignals(
     ctx.fillRect(sx - 2 * R, sy - 2 * R, 4 * R, 4 * R);
     ctx.fillStyle = SIGNAL_COLORS[colour];
     ctx.fillRect(sx - 1 * R, sy - 1 * R, 2 * R, 2 * R);
-    lights.point(sx, sy, 7 * R, colour === 'green' ? 'lamp' : 'red', 0.3);
+    // Dimmer than it was, because the bloom now carries it: every junction
+    // arm has a head, and at the old alpha a night grid read as fairy lights.
+    lights.point(sx, sy, 7 * R, colour === 'green' ? 'lamp' : 'red', 0.22, 'static');
   }
 }
 
@@ -1291,13 +1471,17 @@ export function drawVehicle(
     const phase = Math.sin(nowMs * 0.012 + id) > 0;
     const bx = x + Math.cos(heading) * 2 * RENDER_SCALE;
     const by = y + Math.sin(heading) * 2 * RENDER_SCALE;
-    lights.point(bx, by, 20 * RENDER_SCALE, phase ? 'red' : 'blue', 0.8);
+    // Shadowed: a strobe that throws the shape of the street across the
+    // buildings is most of what makes a chase read as a chase.
+    lights.point(bx, by, 22 * RENDER_SCALE, phase ? 'red' : 'blue', 0.85, 'dynamic');
   }
 
   if (condition === 'burning') {
     effects.fire(wx, wy);
-    const flicker = 0.7 + 0.3 * Math.sin(nowMs * 0.02 + id);
-    lights.point(x, y, 30 * RENDER_SCALE, 'head', 0.75 * flicker);
+    // The one light in the game that is allowed to overshoot: a flame that
+    // only ever dims reads as a lamp on a dimmer, not as something alight.
+    const f = flicker('fire', id, nowMs);
+    lights.point(x, y, 32 * RENDER_SCALE, 'fire', 0.8 * f, 'dynamic');
   }
 
   // Rubber goes down whoever is driving and whatever the lights are doing:
@@ -1345,7 +1529,8 @@ export function drawVehicle(
       heading,
       (both ? 66 : 46) * RENDER_SCALE,
       'head',
-      both ? 0.42 : 0.3,
+      both ? 0.46 : 0.32,
+      'dynamic',
     );
   }
   const braking = speed < 0 || Math.abs(speed) < 7;

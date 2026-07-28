@@ -11,6 +11,7 @@ import { TILE_SIZE, type CityMap } from '../world/types.js';
 import {
   CARDINALS,
   CARDINAL_ANGLE,
+  RIGHT_SIGN,
   dirIsOpen,
   drivableAt,
   drivableTile,
@@ -88,11 +89,6 @@ function pickKind(state: GameState): string {
  * moving at 10 Hz is the stutter.
  */
 
-/**
- * Which way is a driver's RIGHT, per cardinal, as a signed step along the
- * perpendicular axis. Screen y points down, so the right of "east" is south.
- */
-const RIGHT_SIGN = [1, -1, -1, 1] as const;
 /**
  * Widest carriageway that still counts as a road with sides to it, in tiles
  * (the generator's widest is `worldgen.arterialWidth`). Anything wider is a

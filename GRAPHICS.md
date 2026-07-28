@@ -171,6 +171,233 @@ pre-baked textures. Two full-screen composites and one blit per light. The grade
 is deliberately gentle — it exists to give the lights somewhere to land, not to
 hide the art the tile layer just spent its budget drawing.
 
+### The frame fills the window
+
+The view used to be a fixed 480×270 world pixels, blitted into the largest
+whole multiple of its 960×540 backing store that fitted the window and
+letterboxed for the rest. That is exact on a 1920×1080 or a 3840×2160 display
+and wrong everywhere else: a 1440p monitor played inside black bars with a
+third of its glass unused, and an ultrawide lost half of it.
+
+`render/viewport.ts` inverts the rule. Pick the zoom first — preferring a whole
+multiple of `RENDER_SCALE`, so one backing-store pixel still covers a whole
+number of CSS pixels and nearest-neighbour upscaling stays even — then let the
+world view grow to whatever the window has room for:
+
+| window | view (world px) | zoom | canvas |
+| --- | --- | --- | --- |
+| 1920×1080 | 480×270 | 4 | 1920×1080 |
+| 2560×1440 | 640×360 | 4 | 2560×1440 |
+| 3440×1440 | 574×240 | 6 | 3444×1440 |
+| 1366×768 | 683×384 | 2 | 1366×768 |
+| 3840×2160 | 480×270 | 8 | 3840×2160 |
+
+The reference resolutions are unchanged, which matters: the HUD, the camera
+lead and every balance number were tuned against that frame.
+
+The field of view has a ceiling — 700×400 world pixels — for two reasons. The
+server only streams entities within `INTEREST_RADIUS` (600 px), so a view whose
+half-diagonal approaches that would show streets the server has already decided
+are empty; and an unbounded 32:9 monitor would hand its owner three times the
+situational awareness of a laptop. At the ceiling the half-diagonal is 403 px.
+
+Everything downstream reads the live `viewport` rather than a constant: the
+tile layer's visible-chunk span, the HUD and minimap anchors, the mouse-to-world
+mapping, the positional-audio listener, and the light pass's buffers, which
+resize with it.
+
+### Light that the city can stop
+
+The lights were radial gradients blitted over the finished scene, which meant a
+street lamp lit the inside of the block behind it and a headlight beam went
+straight through a tower. `render/shadows.ts` fixes that, and it is the cheap
+half of what a 2D ray tracer does: instead of marching a ray per pixel, take the
+silhouette edges of everything solid near the light and extrude them away from
+it. The union of those quads is exactly the set of points no ray reaches —
+computed in geometry rather than in samples, a few dozen fills instead of a few
+hundred thousand traces.
+
+The occluders are tiles. The city is a grid and buildings own whole cells, so
+the silhouette of a block is a handful of axis-aligned segments and finding them
+is a scan over the tiles the light can reach. Only the faces that look at the
+light and have open ground across them are emitted — the seams inside a block
+are already in shadow. Endpoints come out in a consistent rotational order about
+the light so every quad winds the same way and one non-zero fill unions them;
+wound inconsistently, two overlapping quads cancel and a bright seam opens down
+the middle of a wall's shadow. The far edge is a three-point fan rather than a
+single chord, because a chord across a wide angle cuts back inside the arc it
+stands in for, which shows up in play as a bright wedge sitting on a building.
+
+Four things make it read as lighting rather than as stencilling.
+
+**Nothing is a point source, so nothing casts a hard edge.** The silhouette is
+cast several times over from points spread across the lamp's own face, each at a
+fraction of full strength: where every sample agrees you get the umbra, and
+along the edges, where only some do, you get a penumbra. It widens with distance
+from the occluder exactly as it does in the world — sharp where a wall meets the
+ground, soft where the same wall's shadow ends — which is something a blur
+cannot do at any radius, because a blur softens the root as much as the tip.
+Measured: the soft edge is more than three times wider 60 px past a wall than 4
+px past it, and collapses to nothing when the source radius is set to zero.
+
+`destination-out` is multiplicative, so N punches at alpha `a` leave `(1 - a)^N`
+rather than `1 - Na`. Assuming otherwise leaves an umbra 37% too bright;
+`sampleAlpha` solves for the alpha that lands it where it belongs.
+
+**Shadows end, and how far away depends on how high the light hangs.** A
+shadow's length is `d · h / (H − h)` — the occluder's height against the light's.
+A pedestrian under a street lamp 30 units up throws a stub; the same pedestrian
+in a headlight, which sits at 4, below their own shoulders, throws one down the
+whole street. That ratio is most of why headlights look like headlights, and it
+is two lines.
+
+**A shadow is not a dimmer copy of the light casting it.** It used to be: a
+sixth of the lamp was left standing so that shadows were not holes, which made
+every shadow a darker version of the same sodium orange. What actually fills a
+shadow at night is the sky. So the light left standing drops to 6%, and the rest
+comes back as a cool wash — the coverage field weighted by the light's own
+falloff, recoloured, added at `SKY_BOUNCE`. Sampled either side of a wall: the
+lit tarmac is (149, 138, 123) and the shadow is (33, 38, 50). Warm to cool, not
+bright to dark, which is the single most reliable tell between a photograph of a
+street at night and a render of one.
+
+That weighting is why the coverage is built in its own buffer rather than
+punched into the light and subtracted back out. `destination-out` computes
+`dst · (1 − srcAlpha)`, not a difference, so subtracting a half-transparent
+light from itself leaves a quarter of it standing — and the sky lands in that,
+ringing every lamp in the city with a blue halo. The probe that caught it: a
+pixel in clear light measured 8% *brighter* with a shadow nearby than without
+one.
+
+**People and cars cast too, not just the city.** A pedestrian is a disc, so its
+silhouette is the chord between the two tangent points; a car is an oriented box
+and contributes the one or two faces the light can see. Both exact rather than
+approximated, because a pedestrian is twelve pixels across and a circle standing
+in for a car is visibly the wrong shape at the far end of a beam. Parked cars,
+bins and lamp posts are deliberately left out: a static light's shadows are
+baked, and anything permanently standing in one would force it recomputed every
+frame for a shadow that never changes. What moves is what earns the cost.
+
+**Static lights are baked, moving ones are rationed.** A lamp post has not moved
+since worldgen, so its shadow is the same answer every frame: rendered once into
+its own sprite and blitted thereafter, keyed on kind, radius and world position
+— until somebody walks under it, at which point that lamp falls back to the
+per-frame path for as long as they are there. Headlights, sirens, fires and
+muzzle flashes always recompute, up to `MAX_SHADOW_LIGHTS` a frame, sorted by
+how much screen they cover, so the beam of the car you are driving always wins
+and the twelfth siren three blocks away is the one that goes flat.
+
+The best of it is free: a shop's interior light is inside a room whose walls are
+solid tiles, so the light spills out through the doorway and nowhere else,
+without anybody writing a doorway case.
+
+### The paint, and where the lights stand
+
+Two things on the road surface were saying something false.
+
+**The centre line was not in the centre.** The rule was "the far edge of tile
+`floor(width / 2) - 1`", which is the middle only on a road with an even number
+of tiles across it. Every secondary road in this city is three tiles wide, so
+the line landed on the boundary between the first tile and the second, and the
+street had a lane and a half on one side and half a lane on the other. The
+simulation never agreed with the paint: `laneOptions` has always put the two
+lanes at the true centre of the drivable span, plus and minus a quarter of its
+width. `laneCentreInTile` is the paint catching up — and it is a pure function,
+so the arithmetic is checked without a canvas.
+
+**Every junction was a string of fairy lights.** Signal heads were emitted per
+approach *tile*, so a four-tile arterial arm carried four of them strung right
+across the carriageway, half standing over the lanes going the other way — 2465
+heads in a city with 228 junctions. A head belongs on the kerb at the near right
+of one approach, and that is a local test: a tile carries the head when the tile
+one step further towards the driver's right is not another approach tile of the
+same junction. The kerb-most tile of each run wins, one head per arm falls out,
+and the count drops to 755 — four on a crossroads, three on a T-junction, and a
+carriageway split by a central reservation correctly gets one per side.
+
+Which half of a road belongs to which direction is now one fact, `RIGHT_SIGN` in
+`roadgrid.ts`, read by the lane model, the signal heads and the stop lines
+alike. The stop lines moved with it: they stop at the centre line instead of
+crossing it, because a stop line spanning the full width was telling the traffic
+leaving a junction to halt at it.
+
+### Lamps that behave like lamps
+
+The old flicker was one sine per lamp, out of phase by id — a gentle collective
+breathing that nothing in a real street does. What a street actually has is a
+majority of steady lamps, a few that hum, one on the way out that stutters, and
+the odd dead one that flashes once a minute and gives up. `lampCharacter(id)`
+draws which from a hash of the prop id, so a given lamp is the same lamp for
+every player and for the whole session, and `flicker()` is a pure function of
+wall-clock, so it is identical at 30 fps and at 144.
+
+The same model drives the fire on a burning car (the one light allowed to
+overshoot — a flame that only ever dims reads as a lamp on a dimmer), the
+occasional stutter of a shop's neon, and the television flicker in about one lit
+window in eight.
+
+Those windows are the cheapest thing here and close to the most valuable: a
+scatter of warm rectangles around the edge of every block after dark, hashed off
+the tile so it is the same building every night. They cast nothing — a window is
+already at the wall it would be occluded by — which is what keeps a hundred of
+them affordable.
+
+Explosions and gunfire now light the street too. `Effects.flash` is a light with
+a lifetime in world space: a fireball throws a hard white flash that is gone in
+a fifth of a second over a slower fire burning down, and every round fired puts
+one frame of light on the wall next to you. Before, the only illumination an
+explosion produced was the glow on its own sparks.
+
+### The pass, and what it costs
+
+Lights accumulate into their own buffer rather than straight onto the frame,
+which is what lets them be post-processed as a group. The buffer is then
+downscaled and added back a second time — a bloom, and what stops a bright lamp
+reading as a sticker of a lamp.
+
+Two measurements shaped the implementation, both taken driving at night on a
+1280×720 backing store:
+
+- A single smoothed 6× magnification of the bloom straight onto the frame cost
+  **16 ms**. It is a slow path in the browser's rasteriser and it alone put a
+  1440p window under 60 fps. Interpolating up to half size instead costs a
+  quarter of the pixels, and doubling *that* with no filter is exactly one world
+  pixel per step — which is what this art is made of anyway.
+- Baking is the other expensive thing, and driving down a lit street brings a
+  whole row of new lamps into view at once. Bakes are rationed separately and
+  hard: `MAX_LIGHT_BAKES` is 2 a frame, which is still four times faster than a
+  car passes lamp posts. The few that miss out are drawn flat for a frame or two
+  at the edge of the screen.
+
+And one that only showed up once bodies started casting. The sky pass needs two
+working buffers, and sharing one pair at the maximum sprite size cost **16 ms**
+on its own — because `copy` and `source-in` are *unbounded* composite
+operations: they clear everything outside what is being drawn, so a 136-pixel
+lamp paid for 262,144 pixels of work instead of 18,496. Fourteen times over, for
+every lamp with somebody standing under it. The buffers are now kept per sprite
+size, and sizes cluster hard because every street lamp has the same radius.
+
+The interesting part is that neither half showed it alone: with bodies off it
+was free, and with the sky pass off it was free, because the cost was the number
+of lights the bodies pushed onto the per-frame path multiplied by what that path
+wasted.
+
+With all of it in place, frame times over 14 seconds of continuous driving at
+night:
+
+```
+1920x1080 (960x540 backing)    p50 16.7  p95 16.7  p99 16.8
+2560x1440 (1280x720 backing)   p50 16.7  p95 16.7  p99 16.8
+```
+
+A flat 60 at both — 1440p carries a 78% larger backing store, soft shadows off
+the city and off everything moving in it, and the bloom, and no letterbox.
+
+`?lights=cheap` keeps the grade and the lamps and drops the shadows and the
+bloom, for a machine that cannot afford them; `?lights=off` leaves the scene
+ungraded. `?night=0..1` forces the hour, because a day is 24 minutes long and
+none of the above is reviewable without it.
+
 ### Tooling
 
 ```bash
