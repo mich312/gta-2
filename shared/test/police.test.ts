@@ -15,7 +15,7 @@ import {
   wantedLevelOf,
   type GameState,
 } from '../src/sim/state.js';
-import { insertEntity } from '../src/sim/entities.js';
+import { insertEntity, removeEntity } from '../src/sim/entities.js';
 import { applyDamage, damageCop } from '../src/sim/weapons.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
@@ -439,14 +439,23 @@ describe('wanted + police', () => {
     // The headline number of P1, asserted rather than argued. Before it, the
     // answer was "never": the decay gate was held shut by officers the
     // spawner produced in proportion to the wanted level itself.
+    //
+    // This measures the DECAY CURVE — what "you got away" costs in seconds —
+    // so any officer who turns out is removed as they arrive. Getting away is
+    // the premise, not the thing under test; whether the police can find you
+    // is `pnpm chase` and the pursuit tests. Without this the run ended in an
+    // arrest at 14 s, which the loop below would have read as an escape,
+    // because being booked clears the heat too.
     let state = createGameState(11);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
     state.players.byId[1]!.heat = 500;
     let ticks = 0;
     for (; ticks < 30 * 120; ticks++) {
       state = step(state, {}, [], map);
+      for (const id of state.cops.ids.slice()) removeEntity(state.cops, id);
       if (state.players.byId[1]!.heat === 0) break;
     }
+    expect(state.players.byId[1]!.mode).toBe('foot'); // got away, not booked
     expect(state.players.byId[1]!.heat).toBe(0);
     // Long enough to be an achievement, short enough to attempt. The window
     // is wide on purpose — it is a design target, not a golden value.
@@ -668,10 +677,16 @@ describe('escalation by kind', () => {
   });
 
   it('an officer who cannot find the suspect gives up, rather than hunting for ever (P1a)', () => {
-    // Target parked inside a building: never visible, never reachable. The
-    // old force would drive at the wall until the stuck-counter took the car
-    // away and then stand there indefinitely, because pursuit read
-    // `target.pos` directly and nobody could ever be given the slip.
+    // Target inside a building: never visible, never reachable. The old force
+    // would drive at the wall until the stuck counter took the car away and
+    // then stand there indefinitely, because pursuit read `target.pos`
+    // directly and nobody could ever be given the slip.
+    //
+    // On FOOT deliberately. The first version of this put the officer in a
+    // cruiser and measured a searchTicks of 17 against an expected 240 — the
+    // officer had not given up, they had been killed, because a car driven
+    // into a building damages itself and eventually detonates. The rule under
+    // test is about the officer, so do not hand them a bomb.
     const t = getTuning().police;
     let solid = { x: 0, y: 0 };
     outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
@@ -682,15 +697,27 @@ describe('escalation by kind', () => {
         }
       }
     }
-    let state = wedged({ x: solid.x - 300, y: solid.y }, solid);
+    let state = createGameState(71);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    state.players.byId[1]!.pos = { x: solid.x, y: solid.y };
+    const cop = createCop(500, { x: solid.x - 300, y: solid.y }, t.copHealth);
+    cop.targetId = 1;
+    insertEntity(state.cops, cop);
+
     // Held above a star throughout, so giving up is the search expiring and
     // not the suspect simply becoming uninteresting.
-    for (let i = 0; i < t.searchGiveUpTicks + 30; i++) {
+    //
+    // The window is cool-down PLUS give-up, because the two run in sequence:
+    // while the suspect is still hot the radio keeps handing units a current
+    // position and the search clock stays at zero. It only starts once the
+    // trail goes cold. See `radioUpdate`.
+    for (let i = 0; i < t.wantedCooldownTicks + t.searchGiveUpTicks + 60; i++) {
       state.players.byId[1]!.heat = 410;
       state = step(state, {}, [], map);
     }
     const after = state.cops.byId[500];
     expect(after).toBeDefined();
+    expect(after!.health).toBeGreaterThan(0); // gave up, rather than died
     expect(after!.targetId).toBeNull();
     expect(after!.searchTicks).toBeGreaterThanOrEqual(t.searchGiveUpTicks);
   });
@@ -917,6 +944,158 @@ describe('arrest (F2): busted is not wasted', () => {
   });
 });
 
+describe('waves and equipment (P3)', () => {
+  /** Hold a player at `stars`, moving, and watch the street. */
+  function watch(stars: number, ticks: number): { spawnTicks: number[]; kinds: string[] } {
+    let state = createGameState(303);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    const spawnTicks: number[] = [];
+    const kinds: string[] = [];
+    const seen = new Set<number>();
+    for (let i = 0; i < ticks; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = stars * 100 + 10;
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      if (p.mode === 'dead') {
+        p.mode = 'foot';
+        p.health = 100;
+        p.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map);
+      for (const id of state.cops.ids) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        spawnTicks.push(i);
+        kinds.push(state.cops.byId[id]!.kind);
+      }
+    }
+    return { spawnTicks, kinds };
+  }
+
+  it('a wave arrives together, then the street goes quiet', () => {
+    // The whole point. The drip this replaced put one officer on the street
+    // every 18 ticks for as long as you stayed wanted — pressure with no
+    // shape, and no gap in which P1's cool-down could ever start running.
+    const t = getTuning().police;
+    const { spawnTicks } = watch(4, t.wavePeriodTicks * 2);
+    expect(spawnTicks.length).toBeGreaterThan(2);
+    // Consecutive arrivals inside a wave are one spawn cadence apart...
+    const gaps = spawnTicks.slice(1).map((v, i) => v - (spawnTicks[i] as number));
+    expect(Math.min(...gaps)).toBeLessThanOrEqual(t.spawnCooldownTicks + 1);
+    // ...and somewhere in there is a lull several times longer than that.
+    expect(Math.max(...gaps)).toBeGreaterThan(t.spawnCooldownTicks * 3);
+  });
+
+  it('a wave is a composition, not more of one kind', () => {
+    // Escalation by KIND was always the stated design; before P3 a level
+    // fielded exactly one, so "escalation" and "a bigger number" were the
+    // same thing above three stars.
+    const mixed = getTuning().police.waves['5'] ?? [];
+    expect(mixed.length).toBeGreaterThan(1);
+    expect(new Set(mixed.map((u) => u.kind)).size).toBeGreaterThan(1);
+    const { kinds } = watch(5, getTuning().police.wavePeriodTicks);
+    expect(new Set(kinds).size).toBeGreaterThan(1);
+  });
+
+  it('the wave clock restarts when the level goes up, not when it comes down', () => {
+    // A new star is a new call. Without the restart, escalating mid-lull left
+    // the bigger force waiting ten seconds before turning out, so the wanted
+    // level meant nothing for the length of a gap.
+    let state = createGameState(304);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    state.players.byId[1]!.heat = 210;
+    state = step(state, {}, [], map);
+    const started = state.players.byId[1]!.wantedSinceTick;
+    expect(started).toBeGreaterThanOrEqual(0);
+
+    for (let i = 0; i < 30; i++) state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.wantedSinceTick).toBe(started); // steady: unchanged
+
+    state.players.byId[1]!.heat = 510; // up two stars
+    state = step(state, {}, [], map);
+    const restarted = state.players.byId[1]!.wantedSinceTick;
+    expect(restarted).toBeGreaterThan(started);
+
+    state.players.byId[1]!.heat = 210; // back down: one call-out, one rhythm
+    state = step(state, {}, [], map);
+    expect(state.players.byId[1]!.wantedSinceTick).toBe(restarted);
+  });
+
+  it('every wave names a kind and a vehicle the game actually has', () => {
+    // A wave table is data, and data can name something that does not exist.
+    // The failure mode is an invisible officer or a car with no sprite.
+    const t = getTuning().police;
+    for (const [level, units] of Object.entries(t.waves)) {
+      for (const u of units) {
+        expect(t.kinds[u.kind], `waves.${level} kind ${u.kind}`).toBeDefined();
+        if (u.vehicle) {
+          expect(getVehicleTuning(u.vehicle), `waves.${level} vehicle ${u.vehicle}`).toBeDefined();
+        }
+      }
+    }
+    for (const [level, kind] of Object.entries(t.roadblockVehicle)) {
+      expect(getVehicleTuning(kind), `roadblockVehicle.${level}`).toBeDefined();
+    }
+  });
+
+  it('a wave lands as a group, not scattered to four corners', () => {
+    // The units of one wave come off consecutive kerbside points from a
+    // single hashed anchor, so a response arrives along a street.
+    const t = getTuning().police;
+    let state = createGameState(305);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    const at = { ...state.players.byId[1]!.pos };
+    const born = new Map<number, { x: number; y: number }>();
+    for (let i = 0; i < t.wavePeriodTicks; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 510;
+      p.pos = { x: at.x, y: at.y }; // pinned, so this measures the anchor
+      state = step(state, {}, [], map);
+      for (const id of state.cops.ids) {
+        if (born.has(id)) continue;
+        const c = state.cops.byId[id]!;
+        born.set(id, { x: c.pos.x, y: c.pos.y });
+      }
+    }
+    const points = [...born.values()];
+    expect(points.length).toBeGreaterThan(1);
+    // Bounded against the SPAWN RING rather than a round number: units are
+    // placed between spawnMinDist and spawnMaxDist of the suspect, so two
+    // independently-chosen points could be the ring's full diameter apart.
+    // Coming off one anchor keeps them inside half of that, which is the
+    // property being claimed — "they arrived from a direction", not "they
+    // arrived on the same paving slab".
+    const ringDiameter = t.spawnMaxDist * 2;
+    const first = points[0] as { x: number; y: number };
+    for (const q of points) {
+      expect(Math.hypot(q.x - first.x, q.y - first.y)).toBeLessThan(ringDiameter / 2);
+    }
+  });
+
+  it('...and the same wave lands in the same place every time', () => {
+    // The anchor is hashed off (wantedSinceTick, wave) rather than drawn, so
+    // every unit of a wave computes it identically — and so does a replay.
+    const spots = (): string => {
+      let state = createGameState(306);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+      const at = { ...state.players.byId[1]!.pos };
+      for (let i = 0; i < 200; i++) {
+        const p = state.players.byId[1]!;
+        p.heat = 510;
+        p.pos = { x: at.x, y: at.y };
+        state = step(state, {}, [], map);
+      }
+      return state.cops.ids
+        .map((id) => {
+          const c = state.cops.byId[id]!;
+          return `${c.kind}@${Math.round(c.pos.x)},${Math.round(c.pos.y)}`;
+        })
+        .join(' ');
+    };
+    expect(spots()).toBe(spots());
+  });
+});
+
 describe('the difficulty pass (P2)', () => {
   /**
    * A player and an officer on a verified clear line at a chosen separation.
@@ -1108,10 +1287,18 @@ describe('escalation by kind (I1)', () => {
   it('each tier fields a different force, not more of the last one', () => {
     // The point of the ladder: a fifth patrolman is the same problem as the
     // fourth. These must differ in KIND.
-    expect(kindsPresent(forceAt(2))).toEqual(new Set(['patrol']));
-    expect(kindsPresent(forceAt(4))).toEqual(new Set(['swat']));
-    expect(kindsPresent(forceAt(5))).toEqual(new Set(['fed']));
-    expect(kindsPresent(forceAt(6))).toEqual(new Set(['army']));
+    //
+    // Asserted as "the tier's own kind turns out" rather than "only that
+    // kind does", because P3 made a wave a COMPOSITION — a four-star
+    // response is a SWAT pair with a patrol car in support, and pinning it
+    // to a single kind would forbid the mixing that is the feature.
+    expect(kindsPresent(forceAt(2))).toContain('patrol');
+    expect(kindsPresent(forceAt(4))).toContain('swat');
+    expect(kindsPresent(forceAt(5))).toContain('fed');
+    expect(kindsPresent(forceAt(6))).toContain('army');
+    // And the ladder is a ladder: nothing below turns out the tier above.
+    expect(kindsPresent(forceAt(2))).not.toContain('army');
+    expect(kindsPresent(forceAt(4))).not.toContain('army');
   });
 
   it('the ceiling is six, and heat cannot climb past it', () => {
@@ -1139,9 +1326,12 @@ describe('escalation by kind (I1)', () => {
     expect(original.length).toBeGreaterThan(0);
     expect(original.every((id) => state.cops.byId[id]!.kind === 'patrol')).toBe(true);
 
+    // Straight to the top of the ladder. A rise in the wanted level restarts
+    // the wave clock, so the bigger force turns out at once rather than
+    // waiting out the lull the two-star wave was in.
     for (let i = 0; i < 60; i++) {
       const p = state.players.byId[1]!;
-      p.heat = 610; // straight to the top of the ladder
+      p.heat = 610;
       p.vel = { x: getTuning().player.walkSpeed, y: 0 };
       state = step(state, {}, [], map);
     }
@@ -1155,12 +1345,16 @@ describe('escalation by kind (I1)', () => {
     // ...and the reinforcements are army.
     const fresh = state.cops.ids.filter((id) => !original.includes(id));
     expect(fresh.length).toBeGreaterThan(0);
-    expect(fresh.every((id) => state.cops.byId[id]!.kind === 'army')).toBe(true);
+    // The six-star wave leads with army and carries federal support, so the
+    // test is that no PATROLMAN turned out for it — not that every reinforcement
+    // is the same kind.
+    expect(fresh.some((id) => state.cops.byId[id]!.kind === 'army')).toBe(true);
+    expect(fresh.every((id) => state.cops.byId[id]!.kind !== 'patrol')).toBe(true);
   });
 
   it('the cop kind survives the wire and the hash', () => {
     const state = forceAt(6);
-    expect(kindsPresent(state)).toEqual(new Set(['army']));
+    expect(kindsPresent(state)).toContain('army');
     expect(hashState(state)).toBe(hashState(state));
   });
 });

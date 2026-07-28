@@ -391,6 +391,11 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
   ),
   f('heat', (w, p) => w.f64(p.heat), (r, o) => (o['heat'] = r.f64())),
   f('unseenTicks', (w, p) => w.uint(p.unseenTicks), (r, o) => (o['unseenTicks'] = r.uint())),
+  f(
+    'wantedSinceTick',
+    (w, p) => w.int(p.wantedSinceTick),
+    (r, o) => (o['wantedSinceTick'] = r.int()),
+  ),
   f('frenzyTarget', (w, p) => w.int(p.frenzyTarget), (r, o) => (o['frenzyTarget'] = r.int())),
   f('frenzyKills', (w, p) => w.int(p.frenzyKills), (r, o) => (o['frenzyKills'] = r.int())),
   f(

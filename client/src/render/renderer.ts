@@ -107,6 +107,22 @@ const COP_TINT: Record<string, string> = {
   army: '#4a5334',
 };
 
+/**
+ * The sprite each tier turns out in.
+ *
+ * A tier used to be the patrol figure under a different tint, which reads at
+ * a glance as "that officer is standing in a different light" rather than as
+ * "that is a different force". They are built off the same anatomy on
+ * purpose, so the four still read as the same species — a helmet and a visor,
+ * a long coat, webbing and a rifle. See GTA.md P3b.
+ */
+const COP_SPRITE: Record<string, string> = {
+  patrol: 'cop',
+  swat: 'copSwat',
+  fed: 'copFed',
+  army: 'copArmy',
+};
+
 /** World px a walking entity covers per animation frame. */
 const STRIDE = 7;
 /** Sprite variant counts, mirroring shared/data/sprites.json. */
@@ -506,7 +522,8 @@ export function render(
       continue;
     }
     const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
-    drawCharacter(ctx, sprites, `cop_f${frame}`, dx(c.x), dy(c.y), angle, tint);
+    const base = COP_SPRITE[c.cop.kind] ?? 'cop';
+    drawCharacter(ctx, sprites, `${base}_f${frame}`, dx(c.x), dy(c.y), angle, tint);
   }
   for (const r of scene.remotes.players) {
     const key = `p${r.player.id}`;

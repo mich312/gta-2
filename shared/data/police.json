@@ -95,7 +95,8 @@
       "searchGiveUpTicks": 150,
       "rangeSpread": 2.2,
       "speedSpread": 2.0,
-      "roadblocksFromStar": 5
+      "roadblocksFromStar": 5,
+      "wavePeriodTicks": 420
     },
     "normal": {},
     "hard": {
@@ -108,7 +109,77 @@
       "rangeSpread": 0.9,
       "speedSpread": 0.7,
       "carsFromStar": 2,
-      "roadblocksFromStar": 3
+      "roadblocksFromStar": 3,
+      "wavePeriodTicks": 240
     }
+  },
+  "waves": {
+    "1": [
+      {
+        "kind": "patrol",
+        "count": 1,
+        "vehicle": null
+      }
+    ],
+    "2": [
+      {
+        "kind": "patrol",
+        "count": 2,
+        "vehicle": null
+      }
+    ],
+    "3": [
+      {
+        "kind": "patrol",
+        "count": 2,
+        "vehicle": "copcar"
+      }
+    ],
+    "4": [
+      {
+        "kind": "swat",
+        "count": 2,
+        "vehicle": "copcar"
+      },
+      {
+        "kind": "patrol",
+        "count": 1,
+        "vehicle": "copcar"
+      }
+    ],
+    "5": [
+      {
+        "kind": "fed",
+        "count": 2,
+        "vehicle": "copcar"
+      },
+      {
+        "kind": "swat",
+        "count": 2,
+        "vehicle": "copcar"
+      }
+    ],
+    "6": [
+      {
+        "kind": "army",
+        "count": 2,
+        "vehicle": "tank"
+      },
+      {
+        "kind": "fed",
+        "count": 2,
+        "vehicle": "copcar"
+      }
+    ]
+  },
+  "wavePeriodTicks": 330,
+  "roadblockVehicle": {
+    "4": "copcar",
+    "5": "copcar",
+    "6": "tank"
+  },
+  "vehicleCaps": {
+    "copcar": 6,
+    "tank": 2
   }
 }

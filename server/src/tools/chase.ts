@@ -30,6 +30,15 @@ import { loadSharedTuning, loadWorldgenParams } from '../tuning.js';
  *    police weaker moves both, and a police force you can ignore by standing
  *    still is not a difficulty fix, it is a broken one.
  *
+ * **What the escape number does not show.** The driver here is an autopilot:
+ * throttle down, steering off the nearest pursuer. It does not use the map —
+ * it will not duck into an alley, go under a bridge or swap cars, which is
+ * how a person actually breaks line of sight. So above three stars nearly
+ * every failed run is `caught` rather than `still wanted`, and what that
+ * measures is the autopilot's driving, not whether the escape exists. The
+ * mechanism itself is pinned by unit tests: the decay curve, the search
+ * expiring, and the radio going quiet once the trail is cold.
+ *
  * Not a test, because the honest form of both numbers is a distribution over
  * seeds and a test wants a threshold. Run it when the police numbers move.
  *
@@ -91,10 +100,12 @@ function spawn(map: CityMap, seed: number, heat: number): GameState {
  * runs at 73 px/s against a walk of 78. Measuring an escape with an input
  * that cannot escape measures the input.
  */
-function timeToEscape(map: CityMap, seed: number, stars: number, windowSec: number): number | null {
+type Escape = { at: number } | { failed: 'died' | 'still wanted'; heatLeft: number };
+
+function timeToEscape(map: CityMap, seed: number, stars: number, windowSec: number): Escape {
   let state = spawn(map, seed, stars * 100 + 10);
   const me0 = state.players.byId[1];
-  if (!me0) return null;
+  if (!me0) return { failed: 'died', heatLeft: 0 };
   // A car under the driver, and the door already open.
   state = step(
     state,
@@ -115,12 +126,42 @@ function timeToEscape(map: CityMap, seed: number, stars: number, windowSec: numb
 
   for (let i = 0; i < windowSec * 30; i++) {
     const me = state.players.byId[1];
-    if (!me || me.mode === 'dead') return null;
-    if (me.heat === 0) return i / 30;
-    // Foot to the floor, with a turn every couple of seconds — the crude
-    // approximation of "keep going and take corners". Alternating the turn
-    // keeps it in the map rather than driving into the same wall for 90 s.
-    const turn = Math.floor(i / 70) % 4;
+    // Which kind of failure matters: "they caught me" and "I never got clear"
+    // are different verdicts on the same escape, and a bare null hides it.
+    if (!me) return { failed: 'died', heatLeft: 0 };
+    if (me.mode === 'dead') return { failed: 'died', heatLeft: Math.round(me.heat) };
+    if (me.heat === 0) return { at: i / 30 };
+    // Drive AWAY from the nearest officer, rather than turning on a fixed
+    // schedule. The scheduled version was the first draft and it flattered
+    // nobody: every failed run was "caught", because an autopilot holding the
+    // throttle down and turning every 2.3 seconds drives into things and gets
+    // boxed in. Steering off the nearest pursuer is the crudest input that is
+    // still recognisably fleeing, which is what the number is supposed to be
+    // about.
+    const car = me.vehicleId === null ? null : state.vehicles.byId[me.vehicleId];
+    let steer = 0;
+    if (car) {
+      let near: { x: number; y: number } | null = null;
+      let bestD = Infinity;
+      for (const cid of state.cops.ids) {
+        const c = state.cops.byId[cid];
+        if (!c || c.health <= 0) continue;
+        const d = Math.hypot(c.pos.x - me.pos.x, c.pos.y - me.pos.y);
+        if (d < bestD) {
+          bestD = d;
+          near = c.pos;
+        }
+      }
+      if (near) {
+        // Positive error = the pursuer is off to the left of the nose, so
+        // turn right, and vice versa. Wrapped to (-pi, pi].
+        const away = Math.atan2(me.pos.y - near.y, me.pos.x - near.x);
+        const err = Math.atan2(Math.sin(away - car.heading), Math.cos(away - car.heading));
+        steer = err > 0.2 ? 1 : err < -0.2 ? -1 : 0;
+      } else {
+        steer = Math.floor(i / 70) % 4 === 1 ? 1 : 0;
+      }
+    }
     state = step(
       state,
       {
@@ -129,15 +170,16 @@ function timeToEscape(map: CityMap, seed: number, stars: number, windowSec: numb
           seq: i + 2,
           tick: i,
           up: true,
-          left: turn === 1,
-          right: turn === 3,
+          left: steer < 0,
+          right: steer > 0,
         },
       },
       [],
       map,
     );
   }
-  return null;
+  const last = state.players.byId[1];
+  return { failed: 'still wanted', heatLeft: Math.round(last?.heat ?? 0) };
 }
 
 /** Seconds until death at a pinned star level, or null if they outlast it. */
@@ -179,18 +221,22 @@ function main(): void {
   console.log(`chase bench — ${args.seeds.length} seeds, ${args.windowSec}s window\n`);
   for (const stars of args.stars) {
     const escapes = args.seeds.map((s) => timeToEscape(map, s, stars, args.windowSec));
-    const got = escapes.filter((e): e is number => e !== null);
+    const got = escapes.filter((e): e is { at: number } => 'at' in e).map((e) => e.at);
+    const died = escapes.filter((e) => 'failed' in e && e.failed === 'died').length;
     const moving = args.seeds.map((s) => timeToDie(map, s, stars, true, args.windowSec));
     const still = args.seeds.map((s) => timeToDie(map, s, stars, false, args.windowSec));
     const alive = (xs: Array<number | null>): number[] => xs.filter((x): x is number => x !== null);
     console.log(
       `${stars} stars  escape ${got.length}/${args.seeds.length}` +
         (got.length > 0 ? ` in ${median(got).toFixed(1)}s` : '') +
+        (died > 0 ? ` (${died} caught)` : '') +
         `  |  survive moving ${show(alive(moving).length === moving.length ? median(alive(moving)) : null, args.windowSec)}s` +
         `  still ${show(alive(still).length === still.length ? median(alive(still)) : null, args.windowSec)}s`,
     );
     console.log(
-      `          escapes [${escapes.map((e) => show(e, args.windowSec)).join(' ')}]` +
+      `          escapes [${escapes
+        .map((e) => ('at' in e ? e.at.toFixed(1) : e.failed === 'died' ? 'caught' : `${e.heatLeft}h`))
+        .join(' ')}]` +
         `  moving [${moving.map((e) => show(e, args.windowSec)).join(' ')}]` +
         `  still [${still.map((e) => show(e, args.windowSec)).join(' ')}]`,
     );

@@ -406,6 +406,17 @@ export interface PlayerState {
    * for ever.
    */
   unseenTicks: number;
+  /**
+   * Tick the current wanted level began, or -1 while clean.
+   *
+   * The whole of the wave clock. Which wave is on the street is
+   * `floor((tick - wantedSinceTick) / wavePeriodTicks)` — derived, not
+   * counted, so it costs one field instead of two and cannot drift between
+   * hosts. Set when heat first crosses into a star and cleared when it comes
+   * back down, so a chase that goes 2 -> 4 -> 2 stars is one call-out with
+   * one rhythm rather than three restarts.
+   */
+  wantedSinceTick: number;
   /** Kills still needed to complete a frenzy, or 0 when not running. */
   frenzyTarget: number;
   frenzyKills: number;
@@ -650,6 +661,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     // the last offence or sighting, and starting it saturated would have a
     // brand-new player shedding heat at the maximum rate on their first tick.
     unseenTicks: 0,
+    wantedSinceTick: -1,
     frenzyTarget: 0,
     frenzyKills: 0,
     frenzyEndsAtTick: null,

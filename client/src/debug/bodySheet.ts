@@ -36,11 +36,18 @@ const ROWS: Row[] = [
   { label: 'dead, on the back', name: 'pedDeadB', variants: PED_VARIANTS, alive: false, ageSec: 6 },
   { label: 'downed, still breathing', name: 'pedDowned', variants: PED_VARIANTS, alive: true, ageSec: 6 },
   { label: 'officer', name: 'copDead', variants: 0, alive: false, ageSec: 6 },
+  { label: 'on their feet: patrol', name: 'cop', variants: 0, alive: false, ageSec: 0 },
+  { label: 'SWAT', name: 'copSwat', variants: 0, alive: false, ageSec: 0 },
+  { label: 'federal', name: 'copFed', variants: 0, alive: false, ageSec: 0 },
+  { label: 'army', name: 'copArmy', variants: 0, alive: false, ageSec: 0 },
   // Four, not six. The sheet took the pedestrian's variant count for every
   // row and drew two fallback rectangles where playerDeadA_v4 and _v5 would
   // have been — which is the contact sheet doing its job, on itself.
   { label: 'player', name: 'playerDeadA', variants: PLAYER_VARIANTS, alive: false, ageSec: 6 },
 ];
+
+/** Rows drawn upright rather than on the floor. */
+const STANDING = new Set(['ped', 'cop', 'copSwat', 'copFed', 'copArmy']);
 
 /** Angles across a row: a body lies whichever way it fell. */
 const ANGLES = [0, Math.PI / 6, Math.PI / 3, Math.PI / 2, (2 * Math.PI) / 3, Math.PI, -Math.PI / 2];
@@ -80,7 +87,9 @@ async function main(): Promise<void> {
     ANGLES.forEach((angle, i) => {
       const cx = (LABEL_W + i * CELL + CELL / 2) * RENDER_SCALE;
       const name = row.variants > 0 ? `${row.name}_v${i % row.variants}` : row.name;
-      if (row.name === 'ped') {
+      // The standing rows go through drawCharacter, which is what the game
+      // uses for anybody still upright.
+      if (STANDING.has(row.name)) {
         drawCharacter(ctx, sprites, `${name}_f0`, cx, cy, angle, '#7a7f6d');
         return;
       }

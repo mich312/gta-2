@@ -230,6 +230,23 @@ export interface PoliceTuning {
    * the weapon's own. Accuracy did not fall off with distance at all before,
    * so the far end of a cordon was as lethal as the near end.
    */
+  /**
+   * What each wanted level turns out, in arrival order. Keyed by star count
+   * as a string, because JSON. See GTA.md P3a and `waveUnits`.
+   */
+  waves: Record<string, Array<{ kind: string; count: number; vehicle: string | null }>>;
+  /** Ticks from the start of one wave to the start of the next. */
+  wavePeriodTicks: number;
+  /** What a roadblock is made of at each wanted level. */
+  roadblockVehicle: Record<string, string>;
+  /**
+   * How many of each police vehicle kind may exist at once.
+   *
+   * Per kind because `maxCopCars` is a reasonable number of patrol cars and
+   * an absurd number of tanks. Falls back to `maxCopCars` for anything not
+   * listed.
+   */
+  vehicleCaps: Record<string, number>;
   rangeSpread: number;
   /** Ditto for a target moving at `spreadReferenceSpeed`. */
   speedSpread: number;
@@ -719,6 +736,46 @@ function parseCopKinds(raw: unknown): Record<string, CopKindTuning> {
   return out;
 }
 
+function parseWaves(
+  raw: unknown,
+): Record<string, Array<{ kind: string; count: number; vehicle: string | null }>> {
+  const out: Record<string, Array<{ kind: string; count: number; vehicle: string | null }>> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [level, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(v)) throw new Error(`police: waves.${level} must be an array`);
+    out[level] = v.map((e, i) => {
+      const r = (e ?? {}) as Record<string, unknown>;
+      const kind = r['kind'];
+      if (typeof kind !== 'string') throw new Error(`police: waves.${level}[${i}].kind`);
+      const vehicle = r['vehicle'];
+      return {
+        kind,
+        count: Math.max(1, Math.round(num(r['count'], `police.waves.${level}[${i}].count`))),
+        vehicle: typeof vehicle === 'string' && vehicle ? vehicle : null,
+      };
+    });
+  }
+  return out;
+}
+
+function parseStringMap(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return out;
+}
+
+function parseNumberMap(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+  }
+  return out;
+}
+
 function parsePoliceTuning(raw: unknown): PoliceTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   const n = (k: string): number => num(r[k], `police.${k}`);
@@ -764,6 +821,10 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     bustSpeedMax: n('bustSpeedMax'),
     tiers: parseTiers(r['tiers']),
     kinds: parseCopKinds(r['kinds']),
+    waves: parseWaves(r['waves']),
+    wavePeriodTicks: optNum(r['wavePeriodTicks'], 300),
+    roadblockVehicle: parseStringMap(r['roadblockVehicle']),
+    vehicleCaps: parseNumberMap(r['vehicleCaps']),
     rangeSpread: optNum(r['rangeSpread'], 0),
     speedSpread: optNum(r['speedSpread'], 0),
     spreadReferenceSpeed: optNum(r['spreadReferenceSpeed'], 200),
@@ -1195,6 +1256,10 @@ const DEFAULT_POLICE: PoliceTuning = {
   weapon: 'copPistol',
   spawnMinDist: 260,
   spawnMaxDist: 640,
+  waves: {},
+  wavePeriodTicks: 300,
+  roadblockVehicle: {},
+  vehicleCaps: {},
   rangeSpread: 1.6,
   speedSpread: 1.4,
   spreadReferenceSpeed: 200,

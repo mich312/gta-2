@@ -106,6 +106,44 @@ export function isCoolingDown(p: PlayerState): boolean {
   return p.unseenTicks >= getTuning().police.wantedCooldownTicks;
 }
 
+/**
+ * The radio.
+ *
+ * A unit is dispatched to where the suspect was reported, and by the time it
+ * has driven three streets the suspect is somewhere else. On its own that
+ * makes the police unable to find a moving target at all: a probe of the
+ * three-star chase had two cars circling 300 px away — just outside the 260 px
+ * they can see — for the whole of a wave, then giving up, having never once
+ * had eyes on a player walking in a straight line.
+ *
+ * What was missing is the thing every real dispatcher does: while the suspect
+ * is still *hot*, the units en route get updated coordinates. The old code got
+ * this for free by being omniscient, and P1 removed omniscience without
+ * putting anything in its place.
+ *
+ * The gate is `isCoolingDown`, so this cannot undo the escape. `unseenTicks`
+ * resets on any sighting AND on any fresh offence (`addHeat`), which is
+ * exactly the right definition of hot: keep committing crimes, or stay in
+ * view, and the radio keeps talking. Go quiet for `wantedCooldownTicks` and
+ * it stops — the units already out keep looking with the last position they
+ * were given, and the search runs down as before.
+ */
+function radioUpdate(state: GameState, p: PlayerState): void {
+  const t = getTuning().police;
+  if (state.tick % t.spawnCooldownTicks !== 0) return;
+  if (isCoolingDown(p)) return;
+  for (const cid of state.cops.ids) {
+    const cop = state.cops.byId[cid];
+    if (!cop || cop.targetId !== p.id || copIsDown(cop)) continue;
+    cop.lastSeenX = q8(p.pos.x);
+    cop.lastSeenY = q8(p.pos.y);
+    // Back on the trail: the clock that gives up is about losing the
+    // suspect, and a unit with a current position has not lost them.
+    cop.searchTicks = 0;
+    cop.searchDir = -1;
+  }
+}
+
 /** Officers still on their feet, for the spawn budget. Bodies are not police. */
 function liveCopCount(state: GameState): number {
   let n = 0;
@@ -176,6 +214,50 @@ function copStats(kind: string): CopKindTuning {
   );
 }
 
+/**
+ * The units a given wanted level turns out, flattened into arrival order.
+ *
+ * A wave is a COMPOSITION, which is the whole difference between this and the
+ * drip it replaces: one officer every 18 ticks, all of the same kind, for as
+ * long as you stayed wanted. Pressure with no shape. A wave arrives together,
+ * from one direction, and is followed by a gap — and the gap is not a
+ * kindness, it is what makes P1's cool-down reachable without making the
+ * police weak. See GTA.md P3a.
+ *
+ * Falls back to `copKindFor`'s ladder when police.json carries no `waves`
+ * block, so the old behaviour survives its own data being absent.
+ */
+function waveUnits(wanted: number): Array<{ kind: string; vehicle: string | null }> {
+  const t = getTuning().police;
+  const spec = t.waves[String(wanted)] ?? t.waves[String(Math.min(6, Math.max(1, wanted)))];
+  if (!spec || spec.length === 0) {
+    const kind = copKindFor(wanted);
+    return [{ kind, vehicle: wanted >= t.carsFromStar ? 'copcar' : null }];
+  }
+  const out: Array<{ kind: string; vehicle: string | null }> = [];
+  for (const entry of spec) {
+    for (let i = 0; i < entry.count; i++) out.push({ kind: entry.kind, vehicle: entry.vehicle });
+  }
+  return out;
+}
+
+/**
+ * A deterministic offset into the kerbside spawn list for one wave.
+ *
+ * Hashed rather than drawn, and that is the point: every unit of a wave
+ * computes the SAME anchor from the same two integers, so a wave lands as a
+ * line of cars along one street instead of scattering to four corners. It
+ * also takes an rng draw out of the spawner, which used to consume one per
+ * officer.
+ */
+function waveAnchor(since: number, wave: number, len: number): number {
+  let h = Math.imul(since | 0, 0x27d4eb2d) ^ Math.imul(wave + 1, 0x165667b1);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return (h >>> 0) % Math.max(1, len);
+}
+
 function maybeSpawnCop(state: GameState, map: CityMap): void {
   const t = getTuning().police;
   if (liveCopCount(state) >= t.maxCopsTotal) return;
@@ -226,21 +308,37 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
     // second is the search being called off.
     if (assignedAny > 0 && isCoolingDown(p)) continue;
 
-    // Deterministic spawn spot: walk the kerbside spawn list (dense, on
-    // roads — cops arrive from the street) from an rng offset and take the
-    // first point inside the ring around the fugitive.
+    // Where this player is in the rhythm. Derived from two integers already
+    // in the state and already in the hash — no counter, nothing to drift.
+    const since = p.wantedSinceTick >= 0 ? p.wantedSinceTick : state.tick;
+    const elapsed = state.tick - since;
+    const wave = Math.floor(elapsed / t.wavePeriodTicks);
+    const intoWave = elapsed - wave * t.wavePeriodTicks;
+    const units = waveUnits(wanted);
+    // Which unit of this wave is due now. Past the end of the list the
+    // street goes quiet until the next wave: THAT is the lull, and it is the
+    // half of the feature that does the work.
+    const unitIndex = Math.floor(intoWave / t.spawnCooldownTicks);
+    if (unitIndex >= units.length) continue;
+    const unit = units[unitIndex] as { kind: string; vehicle: string | null };
+
+    // The wave's units come off consecutive kerbside points from one anchor,
+    // so a response arrives along a street rather than materialising around
+    // the fugitive from every side at once.
     const spawns = map.vehicleSpawns;
     if (spawns.length === 0) return;
-    let offset: number;
-    [offset, state.rng] = nextIntRange(state.rng, 0, spawns.length);
+    const anchor = waveAnchor(since, wave, spawns.length);
+    let found = 0;
     for (let i = 0; i < spawns.length; i++) {
-      const candidate = spawns[(offset + i) % spawns.length];
+      const candidate = spawns[(anchor + i) % spawns.length];
       if (!candidate) continue;
       const d = dist(candidate.x, candidate.y, p.pos.x, p.pos.y);
       if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
-      const kind = copKindFor(wanted);
-      const stats = copStats(kind);
-      const cop = createCop(state.nextEntityId++, candidate, stats.health, kind);
+      // Take the unitIndex-th valid point, not the first: two units of the
+      // same wave must not be handed the same patch of kerb.
+      if (found++ < unitIndex) continue;
+      const stats = copStats(unit.kind);
+      const cop = createCop(state.nextEntityId++, candidate, stats.health, unit.kind);
       cop.targetId = pid;
       // The call coming in: dispatch knows where the suspect was reported,
       // not where they are. That is what a unit drives to, and if the suspect
@@ -250,11 +348,11 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
       cop.lastSeenX = q8(p.pos.x);
       cop.lastSeenY = q8(p.pos.y);
       insertEntity(state.cops, cop);
-      // From carsFromStar upward, units ARRIVE by car. Motorising mid-chase
-      // instead would drop a cruiser wherever the officer happened to be
-      // standing — usually a pavement — where it wedges on the first tick.
-      // A kerbside spawn point is on a road by construction.
-      if (wanted >= t.carsFromStar) motorise(state, cop, candidate.heading);
+      // Units ARRIVE in whatever the wave says they arrive in. Motorising
+      // mid-chase instead would drop a vehicle wherever the officer happened
+      // to be standing — usually a pavement — where it wedges on the first
+      // tick. A kerbside spawn point is on a road by construction.
+      if (unit.vehicle) motorise(state, cop, candidate.heading, unit.vehicle);
       return; // at most one spawn per tick: a ramp, not a wall
     }
     return;
@@ -411,17 +509,24 @@ function copDriverId(copId: number): number {
   return -100000 - copId;
 }
 
-/** Put an officer behind the wheel of a cruiser, facing along the road. */
-function motorise(state: GameState, cop: CopState, heading: number): void {
+/**
+ * Put an officer behind the wheel, facing along the road.
+ *
+ * The vehicle is whatever the wave said (P3b), not always a cruiser — which
+ * is what lets an army wave turn up in armour without a second code path.
+ * The budget is per KIND for the same reason: `maxCopCars` is a sensible
+ * number of patrol cars and an absurd number of tanks.
+ */
+function motorise(state: GameState, cop: CopState, heading: number, kind = 'copcar'): void {
   const t = getTuning().police;
   let cars = 0;
   for (const id of state.vehicles.ids) {
-    if (state.vehicles.byId[id]?.kind === 'copcar') cars++;
+    if (state.vehicles.byId[id]?.kind === kind) cars++;
   }
-  if (cars >= t.maxCopCars) return;
+  if (cars >= (t.vehicleCaps[kind] ?? t.maxCopCars)) return;
 
   const id = state.nextEntityId++;
-  const v = createVehicle(id, 'copcar', cop.pos, heading);
+  const v = createVehicle(id, kind, cop.pos, heading);
   // Not on top of something else. Two officers who happened to arrive on the
   // same spot were each given a cruiser at that spot, so the pair spent the
   // chase interpenetrating and shuffling apart at walking pace instead of
@@ -603,12 +708,18 @@ function drivePursuit(
 function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
   const t = getTuning().police;
   if (state.tick % t.roadblockCooldownTicks !== 0) return;
-  if (wantedLevelOf(p) < t.roadblocksFromStar) return;
+  const wanted = wantedLevelOf(p);
+  if (wanted < t.roadblocksFromStar) return;
+  // What gets thrown across the road is whatever this level turns out in. At
+  // the top of the ladder that is armour, and armour across a street is a
+  // different problem from two cruisers across a street — which is the whole
+  // of "the military at five stars" as far as roadblocks are concerned.
+  const kind = t.roadblockVehicle[String(wanted)] ?? 'copcar';
   let cars = 0;
   for (const id of state.vehicles.ids) {
-    if (state.vehicles.byId[id]?.kind === 'copcar') cars++;
+    if (state.vehicles.byId[id]?.kind === kind) cars++;
   }
-  if (cars + 2 > t.maxCopCars + 2) return;
+  if (cars + 2 > (t.vehicleCaps[kind] ?? t.maxCopCars) + 2) return;
 
   // Ahead means ahead of travel if moving, otherwise ahead of aim.
   const speed = Math.hypot(p.vel.x, p.vel.y);
@@ -635,7 +746,7 @@ function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
       const id = state.nextEntityId++;
       const v = createVehicle(
         id,
-        'copcar',
+        kind,
         { x: q8(c.x + dCos(across) * side * 14), y: q8(c.y + dSin(across) * side * 14) },
         across,
       );
@@ -655,6 +766,18 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     const p = state.players.byId[pid];
     if (!p) continue;
     updateSight(state, map, p);
+    // The wave clock. It starts when you become wanted, stops when you stop
+    // being, and RESTARTS whenever the level goes up — because a new star is
+    // a new call, and a bigger force that waits out the lull before turning
+    // out is a wanted level that means nothing for ten seconds. It does not
+    // restart when the level falls: a chase that goes 2 -> 4 -> 2 is one
+    // call-out with one rhythm, not three.
+    //
+    // `p.wantedLevel` still holds last tick's value here; it is assigned at
+    // the bottom of this loop.
+    const level = wantedLevelOf(p);
+    if (level === 0) p.wantedSinceTick = -1;
+    else if (p.wantedSinceTick < 0 || level > p.wantedLevel) p.wantedSinceTick = state.tick;
     if (p.heat > 0 && isCoolingDown(p)) {
       // Ramped, not flat. The rate climbs with every further second clean, so
       // the first stars come off slowly and a long clean run finishes the job
@@ -670,7 +793,9 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
   maybeSpawnCop(state, map);
   for (const pid of state.players.ids) {
     const p = state.players.byId[pid];
-    if (p && p.mode !== 'dead') maybeRoadblock(state, map, p);
+    if (!p || p.mode === 'dead') continue;
+    radioUpdate(state, p);
+    maybeRoadblock(state, map, p);
   }
 
   const toRemove: number[] = [];

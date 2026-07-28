@@ -73,6 +73,7 @@ const PLAYER_FIELDS = [
   // Hashed like `heat` itself, so it has to be diffed — the airDist note
   // above is what happens when a hashed field is left off this list.
   'unseenTicks',
+  'wantedSinceTick',
   'frenzyTarget',
   'frenzyKills',
   'frenzyEndsAtTick',
