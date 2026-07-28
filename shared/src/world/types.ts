@@ -92,7 +92,19 @@ export type PickupSpawnKind =
   | 'invis'
   | 'reload';
 
-export const LANDMARK_KINDS = ['stadium', 'power', 'tower', 'hospital', 'police'] as const;
+export const LANDMARK_KINDS = [
+  'stadium',
+  'power',
+  'tower',
+  'hospital',
+  'police',
+  // Rural destinations (WORLDGEN.md §11.1 A3): the countryside's reasons
+  // to drive through it, named and on the radar like any landmark.
+  'farm',
+  'campground',
+  'lighthouse',
+  'quarry',
+] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 
 export interface Landmark {

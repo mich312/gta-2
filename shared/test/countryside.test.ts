@@ -83,6 +83,46 @@ describe('the countryside (WORLDGEN.md §11.1 A1)', () => {
   });
 });
 
+describe('rural destinations (WORLDGEN.md §11.1 A3)', () => {
+  const RURAL_KINDS = ['farm', 'campground', 'lighthouse', 'quarry'];
+
+  it('the countryside has named places to drive to', () => {
+    let total = 0;
+    for (const seed of SEEDS) {
+      const m = generateCity(seed, params);
+      const sites = m.landmarks.filter((l) => RURAL_KINDS.includes(l.kind));
+      total += sites.length;
+      for (const s of sites) {
+        expect(s.name.length).toBeGreaterThan(0);
+        // The stamp registered real geometry: its rect holds at least one
+        // building tile, so it collides and renders like anything else.
+        let built = 0;
+        for (let ty = s.y; ty < s.y + s.h; ty++) {
+          for (let tx = s.x; tx < s.x + s.w; tx++) {
+            if (m.tiles[ty * m.widthTiles + tx] === 3 /* T_BUILDING */) built++;
+          }
+        }
+        expect(built, `${s.kind} "${s.name}" stamped no building`).toBeGreaterThan(0);
+      }
+    }
+    expect(total, 'no rural sites across all seeds').toBeGreaterThan(2);
+  });
+
+  it('a quarry brings a crusher with it', () => {
+    for (const seed of SEEDS) {
+      const m = generateCity(seed, params);
+      for (const q of m.landmarks.filter((l) => l.kind === 'quarry')) {
+        const near = m.cranes.some(
+          (c) =>
+            Math.abs(c.x / 16 - (q.x + q.w / 2)) < q.w + 4 &&
+            Math.abs(c.y / 16 - (q.y + q.h / 2)) < q.h + 4,
+        );
+        expect(near, `seed ${seed}: quarry "${q.name}" has no crusher`).toBe(true);
+      }
+    }
+  });
+});
+
 describe('shores by density (WORLDGEN.md §11.1 A2)', () => {
   it('the city gets the quay, the country gets the beach', () => {
     for (const seed of SEEDS) {

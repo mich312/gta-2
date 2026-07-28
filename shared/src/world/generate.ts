@@ -20,6 +20,7 @@ import {
   registerClinics,
   placePayphones,
   placeRamps,
+  placeRuralSites,
   placeShops,
   placeVehicleSpawns,
 } from './amenities.js';
@@ -221,6 +222,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeLandmarks(map, params, roads.cells, seed);
   placeShops(map, params, cellBuildings, seed);
   registerClinics(map);
+  // Rural sites carve tiles, so they go in before any pass that derives
+  // spawn points from the ground.
+  placeRuralSites(map, params, roads.cells, seed, isRural, (gx, gy) => fields.grit(gx, gy));
   placeVehicleSpawns(map, params, stream('vehicles'));
   placePlayerSpawns(map, params, stream('playerSpawns'));
   placeParking(map);
