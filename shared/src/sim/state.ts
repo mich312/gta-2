@@ -163,6 +163,12 @@ export interface VehicleState {
    */
   igniterId: number | null;
   /**
+   * Whose car this is, or 0 for anybody's. Set at spawn from the turf it
+   * appears on and never changed — one small field, written once, that pays
+   * for a livery, a place to find one, and a reason not to take it.
+   */
+  gangId: number;
+  /**
    * What the garage bolted on: '' , 'bomb', 'slick', 'mine' or 'guns'.
    * Two fields on a table that is already on the wire, changing only when
    * you buy or use something — see FEATURES.md G2.
@@ -379,6 +385,7 @@ export function createVehicle(
   kind: string,
   pos: Vec2,
   heading: number,
+  gangId = 0,
 ): VehicleState {
   // Quantised at birth. Steering already q256s the heading every tick, but a
   // parked car that never turns would otherwise keep the raw HALF_PI it was
@@ -394,8 +401,13 @@ export function createVehicle(
     condition: 'ok',
     fuseAtTick: null,
     igniterId: null,
-    fitting: '',
-    fittingAmmo: 0,
+    gangId,
+    // A tank is not special-cased anywhere: it is a chassis that comes out of
+    // the yard with the guns the garage already sells, and effectively
+    // limitless belts. If that ever needs its own code path, the fittings
+    // system (FEATURES.md G2) was not built generally enough.
+    fitting: kind === 'tank' ? 'guns' : '',
+    fittingAmmo: kind === 'tank' ? 9999 : 0,
   };
 }
 

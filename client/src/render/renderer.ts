@@ -50,7 +50,11 @@ const GANG_TINT: Record<number, string> = {
  * Anything with a sprite of its own uses it; the generic car is the only kind
  * that comes in colours, so it is the only one that varies by id.
  */
-export function vehicleSpriteName(kind: string, id: number): string {
+export function vehicleSpriteName(kind: string, id: number, gangId = 0): string {
+  // A gang car wears its gang's colours, not a colour off the rank: the whole
+  // reason it exists is that you can tell whose street you are on by what is
+  // parked on it.
+  if (kind === 'gangcar') return `gangcar_v${Math.max(0, Math.min(3, gangId - 1))}`;
   return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
 }
 
@@ -88,6 +92,8 @@ export interface Scene {
     wear: number;
     /** Height off the ground; nonzero only mid-stunt. */
     z: number;
+    /** Whose car it is; picks the livery for a gang car. */
+    gangId: number;
   } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
@@ -422,6 +428,8 @@ export function render(
       dx,
       dy,
       scene.nowMs,
+      0,
+      rv.vehicle.gangId,
     );
   }
   if (scene.localVehicle) {
@@ -443,6 +451,7 @@ export function render(
       dy,
       scene.nowMs,
       scene.localVehicle.z,
+      scene.localVehicle.gangId,
     );
   }
 
@@ -738,13 +747,14 @@ function drawVehicle(
   dy: (n: number) => number,
   nowMs: number,
   z = 0,
+  gangId = 0,
 ): void {
   // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
   // the ground where it belongs. The gap between the two is what sells it.
   const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
   const y = dy(wy) - lift;
-  const name = vehicleSpriteName(kind, id);
+  const name = vehicleSpriteName(kind, id, gangId);
   const fp = sprites.footprint(name);
   const shrink = z > 0 ? 0.75 : 1;
   drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);

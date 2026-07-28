@@ -113,6 +113,8 @@ export interface VehicleSpawn {
   y: number;
   heading: number;
   kind: string;
+  /** Whose car it is, or 0 for anybody's. See amenities.placeParking. */
+  gangId?: number;
 }
 
 /**

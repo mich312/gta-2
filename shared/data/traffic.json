@@ -39,19 +39,19 @@
   "mix": [
     {
       "kind": "car",
-      "weight": 56
+      "weight": 50
     },
     {
       "kind": "taxi",
-      "weight": 12
+      "weight": 11
     },
     {
       "kind": "van",
-      "weight": 12
+      "weight": 10
     },
     {
       "kind": "truck",
-      "weight": 8
+      "weight": 7
     },
     {
       "kind": "bus",
@@ -64,6 +64,22 @@
     {
       "kind": "firetruck",
       "weight": 3
+    },
+    {
+      "kind": "garbage",
+      "weight": 4
+    },
+    {
+      "kind": "limo",
+      "weight": 3
+    },
+    {
+      "kind": "icecream",
+      "weight": 2
+    },
+    {
+      "kind": "digger",
+      "weight": 1
     }
   ]
 }

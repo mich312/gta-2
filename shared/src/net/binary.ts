@@ -443,6 +443,7 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
   ),
   f('fuseAtTick', (w, v) => w.optInt(v.fuseAtTick), (r, o) => (o['fuseAtTick'] = r.optInt())),
   f('igniterId', (w, v) => w.optInt(v.igniterId), (r, o) => (o['igniterId'] = r.optInt())),
+  f('gangId', (w, v) => w.int(v.gangId), (r, o) => (o['gangId'] = r.int())),
   f('fitting', (w, v) => w.str(v.fitting), (r, o) => (o['fitting'] = r.str())),
   f('fittingAmmo', (w, v) => w.int(v.fittingAmmo), (r, o) => (o['fittingAmmo'] = r.int())),
 ];

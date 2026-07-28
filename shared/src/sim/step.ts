@@ -79,7 +79,7 @@ export function step(
       // and unlike lifting a parked car it is always a crime.
       const jacked = tryCarjack(next, map, p.id);
       if (jacked) addHeat(p, getTuning().traffic.jackHeat);
-      else tryEnterVehicle(next, p, map);
+      else tryEnterVehicle(next, p, map, events);
     } else if (p.mode === 'driving') tryExitVehicle(next, p, map);
   }
 
@@ -275,7 +275,7 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (getEntity(state.vehicles, cmd.vehicleId)) return;
       insertEntity(
         state.vehicles,
-        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading),
+        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading, cmd.gangId ?? 0),
       );
       if (cmd.vehicleId >= state.nextEntityId) {
         state.nextEntityId = cmd.vehicleId + 1;

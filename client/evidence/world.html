@@ -129,7 +129,7 @@ for (const cs of CASES) {
   };
   if (live.mode === 'driving' && live.vehicleId != null) {
     const v = state.vehicles.byId[live.vehicleId];
-    scene.localVehicle = { kind: v.kind, pos: { ...v.pos }, heading: v.heading, speed: 0, condition: v.condition ?? 'ok', wear: 0, z: 0 };
+    scene.localVehicle = { kind: v.kind, pos: { ...v.pos }, heading: v.heading, speed: 0, condition: v.condition ?? 'ok', wear: 0, z: 0, gangId: v.gangId ?? 0 };
     scene.remotes.vehicles = scene.remotes.vehicles.filter((rv) => rv.vehicle.id !== v.id);
   }
   // The tile layer builds a bounded number of cached chunks per frame, so a

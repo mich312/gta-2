@@ -11,7 +11,13 @@ import worldgenJson from '../data/worldgen.json';
 import { getTrafficTuning, getVehicleTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
-import { createGameState, createPed, type GameState, type VehicleState } from '../src/sim/state.js';
+import {
+  createGameState,
+  createPed,
+  createVehicle,
+  type GameState,
+  type VehicleState,
+} from '../src/sim/state.js';
 import { insertEntity, removeEntity } from '../src/sim/entities.js';
 import { boxInSolid } from '../src/world/collide.js';
 import { step } from '../src/sim/step.js';
@@ -19,6 +25,7 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import { assignGoto, isAiDriver, stepTrafficPanic } from '../src/sim/traffic.js';
 import { CARDINALS, nearestCardinal, planRoute } from '../src/sim/roadgrid.js';
 import { junctionAt, signalColour, stopLineGap } from '../src/sim/signals.js';
+import { gangAt } from '../src/world/turf.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE } from '../src/world/types.js';
@@ -730,6 +737,69 @@ describe('vehicle classes (G0)', () => {
 
   it('parked stock varies too', () => {
     expect(new Set(map.parkingSpots.map((s) => s.kind)).size).toBeGreaterThan(1);
+  });
+
+  it('the whole roster stays in a sane order, not just the two it started with', () => {
+    // This assertion has caught a bus faster than a car once already, from
+    // tuning written out of memory rather than derived from what was in the
+    // file. Every kind added since is derived as a RATIO of one already
+    // here, and this is what checks the arithmetic came out the right way up.
+    const t = (k: string) => getVehicleTuning(k);
+    const order = ['car', 'limo', 'van', 'garbage', 'truck', 'bus', 'tank'];
+    for (const kind of order) expect(t(kind), kind).toBeDefined();
+
+    // Speed falls as bulk rises, all the way down the list.
+    expect(t('limo').maxSpeed).toBeLessThan(t('car').maxSpeed);
+    expect(t('garbage').maxSpeed).toBeLessThan(t('truck').maxSpeed);
+    expect(t('digger').maxSpeed).toBeLessThan(t('garbage').maxSpeed);
+    expect(t('tank').maxSpeed).toBeLessThan(t('bus').maxSpeed);
+    expect(t('icecream').maxSpeed).toBeLessThan(t('van').maxSpeed);
+
+    // Turning follows it.
+    expect(t('limo').turnRate).toBeLessThan(t('car').turnRate);
+    expect(t('digger').turnRate).toBeLessThan(t('truck').turnRate);
+
+    // A tank is the toughest thing on the road and the worst to be hit by.
+    for (const kind of ['car', 'bus', 'truck', 'firetruck', 'digger']) {
+      expect(t('tank').health, kind).toBeGreaterThan(t(kind).health);
+      expect(t('tank').collisionDamagePerSpeed, kind).toBeGreaterThan(
+        t(kind).collisionDamagePerSpeed,
+      );
+    }
+
+    // A gang car is a car with a bit more in it, not a different class.
+    expect(t('gangcar').maxSpeed).toBeGreaterThan(t('car').maxSpeed);
+    expect(t('gangcar').maxSpeed).toBeLessThan(t('car').maxSpeed * 1.15);
+  });
+
+  it('a tank comes out of the yard armed, through the garage system', () => {
+    // Not special-cased anywhere: it spawns with the `guns` fitting the
+    // pay-n-spray already sells. If a tank ever needs its own code path, the
+    // fittings system was not built generally enough.
+    const tank = createVehicle(1, 'tank', { x: 0, y: 0 }, 0);
+    expect(tank.fitting).toBe('guns');
+    expect(tank.fittingAmmo).toBeGreaterThan(1000);
+    const car = createVehicle(2, 'car', { x: 0, y: 0 }, 0);
+    expect(car.fitting).toBe('');
+  });
+
+  it('every city has exactly one tank, and it is not ambient traffic', () => {
+    const tanks = map.parkingSpots.filter((s) => s.kind === 'tank');
+    expect(tanks.length).toBe(1);
+    expect(getTrafficTuning().mix.some((m) => m.kind === 'tank')).toBe(false);
+  });
+
+  it('gang cars are parked on their own gangs turf, and nowhere else', () => {
+    const gangCars = map.parkingSpots.filter((s) => s.kind === 'gangcar');
+    expect(gangCars.length).toBeGreaterThan(5);
+    for (const spot of gangCars) {
+      expect(spot.gangId).toBeGreaterThan(0);
+      expect(gangAt(map, spot.x, spot.y)).toBe(spot.gangId);
+    }
+    // ...and ordinary stock belongs to nobody.
+    for (const spot of map.parkingSpots) {
+      if (spot.kind !== 'gangcar') expect(spot.gangId ?? 0).toBe(0);
+    }
   });
 });
 

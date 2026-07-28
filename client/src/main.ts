@@ -497,6 +497,7 @@ function frame(now: number): void {
                 condition: predictor.predictedVehicle?.condition ?? 'ok',
                 wear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : 0,
                 z: predictor.predicted?.z ?? 0,
+                gangId: predictor.predictedVehicle?.gangId ?? 0,
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),

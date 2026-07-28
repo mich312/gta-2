@@ -10,6 +10,7 @@ import { boxInSolid, moveWithCollision } from '../world/collide.js';
 import type { EntityTable } from './entities.js';
 import type { SimEvent } from './events.js';
 import { collisionDamage, damageVehicle } from './vehicleDamage.js';
+import { creditGangKill } from './respect.js';
 import { anyCopSees } from './police.js';
 
 /**
@@ -265,7 +266,12 @@ export function stepVehicleCoasting(
 const MAX_BOARDING_SPEED = 24;
 
 /** Try to put a player into the nearest free, near-stationary vehicle. */
-export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap): boolean {
+export function tryEnterVehicle(
+  state: GameState,
+  p: PlayerState,
+  map: CityMap,
+  events?: SimEvent[],
+): boolean {
   let best: VehicleState | null = null;
   let bestD = Infinity;
   for (const id of state.vehicles.ids) {
@@ -288,6 +294,13 @@ export function tryEnterVehicle(state: GameState, p: PlayerState, map: CityMap):
   // with NPC drivers (roadmap C2), where the jack becomes an explicit action.
   if (anyCopSees(state, map, p)) {
     addHeat(p, getTuning().police.heatPerTheft);
+  }
+  // The police are not the only ones who mind. Taking a gang's car is a
+  // slight against them and a favour to whoever they are at odds with,
+  // through exactly the same arithmetic as killing one of their people —
+  // which is the point of having them own cars at all.
+  if (best.gangId !== 0) {
+    creditGangKill(state, p.id, best.gangId, events ?? []);
   }
   best.driverId = p.id;
   p.mode = 'driving';

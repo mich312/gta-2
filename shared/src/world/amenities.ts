@@ -309,6 +309,10 @@ export function placeParking(map: CityMap): void {
       // worldgen must not consume randomness it did not consume before, or
       // every seed's city changes shape.
       kind: PARKED_CYCLE[spots.length % PARKED_CYCLE.length] as string,
+      // Filled in by assignTurf, which runs later: turf does not exist yet
+      // at this point in generation, and reading it here would mark every
+      // car as nobody's.
+      gangId: 0,
     });
   }
   map.parkingSpots = spots;
@@ -462,6 +466,23 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
  * identical hatchbacks is the tell that a city was generated.
  */
 const PARKED_CYCLE = ['car', 'car', 'car', 'van', 'car', 'taxi', 'car', 'truck', 'car', 'car'] as const;
+
+/**
+ * Where the tanks are. Not ambient traffic and not for sale: one per city,
+ * behind the fence of the police station that has the most of it, which is
+ * as close to "you have to go and get it" as a generated map can manage.
+ */
+export function placeTank(map: CityMap): void {
+  const yard = map.policeStations[0];
+  if (!yard) return;
+  map.parkingSpots.push({
+    x: yard.x,
+    y: yard.y + TILE_SIZE * 2,
+    heading: 0,
+    kind: 'tank',
+    gangId: 0,
+  });
+}
 
 const PICKUP_CYCLE = [
   'health',

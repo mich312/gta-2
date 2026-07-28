@@ -181,5 +181,14 @@
   "busBody": "#3f7ac2",
   "vanBody": "#8d939c",
   "truckBody": "#6b5f52",
-  "fireBody": "#b8352c"
+  "fireBody": "#b8352c",
+  "limoBody": "#171a20",
+  "limoTrim": "#c9b573",
+  "garbageBody": "#3f6b4a",
+  "icecreamBody": "#f0eee6",
+  "icecreamTrim": "#e8628a",
+  "diggerBody": "#e0a828",
+  "diggerArm": "#4a4e55",
+  "tankBody": "#4a533c",
+  "tankTrim": "#333a2a"
 }
