@@ -133,6 +133,11 @@ export class InputSource {
       // F for whatever the garage bolted on. Separate from fire, because a
       // driver can lean out with a pistol and work the guns at the same time.
       fitting: this.has('KeyF'),
+      // Held is one press: the sim edge-triggers it, and this stops a leant-on
+      // key sending thirty horn intents a second.
+      // Not H: that is already a shop row. The sim edge-triggers this, so a
+      // leant-on key is one press rather than thirty a second.
+      horn: this.has('KeyQ'),
       slot,
     };
   }

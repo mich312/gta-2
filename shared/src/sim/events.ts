@@ -45,6 +45,20 @@ export type SimEvent =
       /** Closing speed, for scaling the noise and the spray. */
       speed: number;
     }
+  | {
+      /**
+       * Somebody leaning on the horn. Carries the vehicle kind so a bus and a
+       * hatchback do not sound alike, and the player id when a person did it,
+       * so the client that pressed the key does not play its own horn twice —
+       * the same guard the tracer path uses.
+       */
+      type: 'horn';
+      tick: number;
+      x: number;
+      y: number;
+      kind: string;
+      playerId: number | null;
+    }
   | { type: 'propDown'; tick: number; kind: string; x: number; y: number }
   | { type: 'propUp'; tick: number; kind: string; x: number; y: number }
   | {

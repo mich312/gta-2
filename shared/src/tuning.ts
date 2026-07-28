@@ -223,6 +223,8 @@ export interface TrafficTuning {
   boardChance: number;
   /** Ticks an ambient driver stays at the wheel before parking and walking off. */
   tripTicks: number;
+  /** Ticks blocked by a PERSON before a driver sounds the horn about it. */
+  hornAfterTicks: number;
   signals: {
     greenTicks: number;
     amberTicks: number;
@@ -722,6 +724,7 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
     boardRadius: n('boardRadius'),
     boardChance: n('boardChance'),
     tripTicks: n('tripTicks'),
+    hornAfterTicks: n('hornAfterTicks'),
     signals: parseSignals(r['signals']),
     panicSpeed: n('panicSpeed'),
     panicTicks: n('panicTicks'),
@@ -758,6 +761,7 @@ const DEFAULT_TRAFFIC: TrafficTuning = {
   boardRadius: 40,
   boardChance: 0.05,
   tripTicks: 1800,
+  hornAfterTicks: 24,
   signals: { greenTicks: 90, amberTicks: 24, junctionOffsetTicks: 37, lookaheadPx: 60 },
   panicSpeed: 150,
   panicTicks: 210,

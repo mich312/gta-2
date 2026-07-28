@@ -65,6 +65,7 @@ export function hashSnapshot(snap: FullSnapshot): number {
     h = hashNumber(h, p.wantedLevel);
     h = hashNumber(h, p.respawnAtTick ?? -1);
     h = hashBool(h, p.actionHeld);
+    h = hashBool(h, p.hornHeld);
     h = hashNumber(h, p.fireCooldown);
     h = hashNumber(h, p.carHitCooldown);
     h = hashNumber(h, p.heat);

@@ -12,7 +12,7 @@ import { getTrafficTuning, getVehicleTuning, initTuning } from '../src/tuning.js
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, createPed, type GameState, type VehicleState } from '../src/sim/state.js';
-import { insertEntity } from '../src/sim/entities.js';
+import { insertEntity, removeEntity } from '../src/sim/entities.js';
 import { boxInSolid } from '../src/world/collide.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
@@ -1039,5 +1039,90 @@ describe('getting in and out of cars (J3)', () => {
   it('getting in and out is deterministic', () => {
     const run = (): number => hashState(withTraffic(88, 1500));
     expect(run()).toBe(run());
+  });
+});
+
+describe('the horn (J2)', () => {
+  it('a driver held up by a person leans on it, once, not thirty times a second', () => {
+    const lane = eastboundLane();
+    let state = createGameState(303);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'jaywalker' }], map);
+    state = ambientCar(state, 940, lane);
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 300; i++) {
+      const p = state.players.byId[1]!;
+      p.pos = { x: lane.x + 70, y: lane.y }; // stand in the road and stay there
+      state = step(state, {}, [], map, events);
+      if (!state.vehicles.byId[940]) break;
+    }
+    const horns = events.filter((e) => e.type === 'horn');
+    expect(horns.length).toBeGreaterThan(0);
+    // A blocked street is not an air raid: one press per bout of being stuck.
+    expect(horns.length).toBeLessThan(4);
+    for (const h of horns) {
+      if (h.type !== 'horn') continue;
+      expect(h.playerId).toBeNull();
+      expect(h.kind).toBe('car');
+    }
+  });
+
+  it('nobody sounds the horn at a wall', () => {
+    // Leaning on it at a building is not a thing drivers do, and the alleys
+    // would fire it constantly.
+    let state = withTraffic(304, 900);
+    const events: SimEvent[] = [];
+    // No people at all: any horn in this run is a car annoyed at scenery.
+    for (const id of [...state.peds.ids]) removeEntity(state.peds, id);
+    for (const id of [...state.players.ids]) {
+      state.players.byId[id]!.pos = { x: 8, y: 8 };
+    }
+    for (let i = 0; i < 600; i++) state = step(state, {}, [], map, events);
+    expect(events.filter((e) => e.type === 'horn').length).toBe(0);
+  });
+
+  it('a player presses it, and holding the key is still one press', () => {
+    const lane = eastboundLane();
+    let state = createGameState(305);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 950, kind: 'bus', x: lane.x, y: lane.y, heading: 0 }],
+      map,
+    );
+    const p = state.players.byId[1]!;
+    p.pos = { x: lane.x, y: lane.y };
+    p.mode = 'driving';
+    p.vehicleId = 950;
+    state.vehicles.byId[950]!.driverId = 1;
+
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 30; i++) {
+      state = step(
+        state,
+        { 1: { ...NULL_INPUT, seq: i + 1, tick: state.tick, horn: true } },
+        [],
+        map,
+        events,
+      );
+    }
+    const horns = events.filter((e) => e.type === 'horn');
+    expect(horns.length).toBe(1);
+    const h = horns[0]!;
+    if (h.type === 'horn') {
+      expect(h.playerId).toBe(1);
+      expect(h.kind).toBe('bus'); // so the client can pitch it accordingly
+    }
+
+    // Let go, press again: that is a second press.
+    state = step(state, { 1: { ...NULL_INPUT, seq: 99, tick: state.tick } }, [], map, events);
+    state = step(
+      state,
+      { 1: { ...NULL_INPUT, seq: 100, tick: state.tick, horn: true } },
+      [],
+      map,
+      events,
+    );
+    expect(events.filter((e) => e.type === 'horn').length).toBe(2);
   });
 });

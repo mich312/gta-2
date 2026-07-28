@@ -762,6 +762,20 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
     const patience = personBlocked ? t.blockedTimeoutTicks * 3 : t.blockedTimeoutTicks;
     if (Math.abs(v.speed) < WEDGED_SPEED) {
       driver.stuck++;
+      // Held up by a PERSON, for long enough to be annoyed about it. Only a
+      // person: leaning on the horn at a wall is not a thing drivers do, and
+      // it would fire constantly in the alleys. Once per press, not once per
+      // tick, or a blocked street becomes an air raid.
+      if (personBlocked && driver.stuck === t.hornAfterTicks) {
+        events.push({
+          type: 'horn',
+          tick: state.tick,
+          x: Math.round(v.pos.x),
+          y: Math.round(v.pos.y),
+          kind: v.kind,
+          playerId: null,
+        });
+      }
       if (driver.stuck >= patience) driver.stuck = -t.reverseTicks;
     } else if (driver.stuck > 0) {
       driver.stuck--;

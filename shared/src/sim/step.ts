@@ -90,6 +90,23 @@ export function step(
     if (p.mode === 'driving' && p.vehicleId !== null) {
       const v = next.vehicles.byId[p.vehicleId];
       if (v) {
+        // Edge-triggered off `carHitCooldown`? No — a dedicated cooldown
+        // would be a field on the wire for a sound. The horn fires on the
+        // tick the key goes down, which the sim sees as "held now, not held
+        // last tick" via actionHeld's sibling: cheapest correct version is a
+        // rate limit on the input itself, done client-side, plus this guard
+        // so a held key is one press.
+        if (input?.horn && !p.hornHeld) {
+          events?.push({
+            type: 'horn',
+            tick: next.tick,
+            x: Math.round(v.pos.x),
+            y: Math.round(v.pos.y),
+            kind: v.kind,
+            playerId: p.id,
+          });
+        }
+        p.hornHeld = input?.horn === true;
         stepVehicleDriving(v, input, map, next, next, events, p.z > 0);
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;

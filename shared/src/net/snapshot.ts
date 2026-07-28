@@ -66,6 +66,7 @@ const PLAYER_FIELDS = [
   // lastInputSeq is deliberately NOT diffed: remote clients never use it and
   // it changes every tick; own reconciliation rides on the message's ackSeq.
   'actionHeld',
+  'hornHeld',
   'fireCooldown',
   'carHitCooldown',
   'heat',

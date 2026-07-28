@@ -32,6 +32,17 @@ import { Hud } from './render/hud.js';
 import { Minimap } from './render/minimap.js';
 import { Audio, stationFor } from './audio/audio.js';
 
+/**
+ * How high a given vehicle's horn sits. Big things sound big: it is the one
+ * cue that tells you what is behind you without looking.
+ */
+function hornPitch(kind: string): number {
+  if (kind === 'bus' || kind === 'truck' || kind === 'firetruck') return 0.62;
+  if (kind === 'van' || kind === 'ambulance') return 0.8;
+  if (kind === 'taxi') return 1.18;
+  return 1;
+}
+
 function serverUrl(): string {
   const override = new URLSearchParams(location.search).get('server');
   if (override) return override;
@@ -250,6 +261,12 @@ function onGameEvent(event: GameEvent): void {
     effects.blood(event.x, event.y, event.angle);
     const at = listen(event.x, event.y);
     audio.play('thud', at.dist, at.pan);
+  } else if (event.type === 'horn') {
+    // Played from the event for everybody including the person who pressed
+    // the key. A horn is not a gunshot: nobody is aiming with it, so the
+    // round trip costs nothing worth adding a local-echo path for.
+    const at = listen(event.x, event.y);
+    audio.play('horn', at.dist, at.pan, hornPitch(event.kind));
   } else if (event.type === 'propDown') {
     effects.debris(event.x, event.y);
     const at = listen(event.x, event.y);

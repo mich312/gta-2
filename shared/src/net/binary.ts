@@ -375,6 +375,7 @@ const PLAYER_CODECS: Array<FieldCodec<PlayerState>> = [
     (r, o) => (o['respawnAtTick'] = r.optInt()),
   ),
   f('actionHeld', (w, p) => w.bool(p.actionHeld), (r, o) => (o['actionHeld'] = r.bool())),
+  f('hornHeld', (w, p) => w.bool(p.hornHeld), (r, o) => (o['hornHeld'] = r.bool())),
   f('fireCooldown', (w, p) => w.int(p.fireCooldown), (r, o) => (o['fireCooldown'] = r.int())),
   f(
     'carHitCooldown',
@@ -703,7 +704,8 @@ function writeIntent(w: Writer, i: InputIntent): void {
     (i.right ? 8 : 0) |
     (i.fire ? 16 : 0) |
     (i.action ? 32 : 0) |
-    (i.fitting ? 64 : 0);
+    (i.fitting ? 64 : 0) |
+    (i.horn ? 128 : 0);
   w.u8(bits);
   w.q256(i.aimAngle);
   w.int(i.slot);
@@ -723,6 +725,7 @@ function readIntent(r: Reader): InputIntent {
     fire: (bits & 16) !== 0,
     action: (bits & 32) !== 0,
     fitting: (bits & 64) !== 0,
+    horn: (bits & 128) !== 0,
     aimAngle: r.q256(),
     slot: r.int(),
   };

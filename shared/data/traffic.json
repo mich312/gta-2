@@ -27,6 +27,7 @@
   "boardRadius": 40,
   "boardChance": 0.05,
   "tripTicks": 1800,
+  "hornAfterTicks": 24,
   "boatCount": 8,
   "mooredBoatCount": 8,
   "boatCruiseSpeed": 43,

@@ -231,6 +231,8 @@ export interface PlayerState {
   lastInputSeq: number;
   /** Edge detection for the action button (enter/exit/buy). */
   actionHeld: boolean;
+  /** Ditto for the horn: a held key is one press, not thirty a second. */
+  hornHeld: boolean;
   /** Ticks until the active weapon may fire again. */
   fireCooldown: number;
   /** Ticks of run-over immunity so a car doesn't grind 30 hits/s. */
@@ -412,6 +414,7 @@ export function createPlayer(id: number, name: string, pos: Vec2): PlayerState {
     respawnAtTick: null,
     lastInputSeq: 0,
     actionHeld: false,
+    hornHeld: false,
     fireCooldown: 0,
     carHitCooldown: 0,
     heat: 0,
