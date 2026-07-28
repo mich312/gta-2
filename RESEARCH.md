@@ -603,6 +603,8 @@ other way:
   behaviours, NPC counts). Widely agreed in summaries, uncorroborated here.
 - What actually gates the second game's district transitions.
 - Whether traffic obeys signals in either game, or merely yields at junctions.
+  *Partially answered since*: the 1999 game auto-constructs traffic lights at
+  junction zones marked in the map — see `CAR-AI.md` §2.1.
 
 All of these are answerable from the community wikis once the environment can
 reach them; §0 explains why it currently cannot.
