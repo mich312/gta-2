@@ -152,14 +152,20 @@ function playerName(): string {
 }
 
 /**
- * `?render=3d` draws the world with three.js instead of Canvas 2D.
+ * Which renderer draws the world. **3D is the default**; `?render=2d` is the
+ * way back to Canvas 2D.
  *
- * The HUD, the minimap, the overlay, input and — crucially — client-side
- * prediction all stay exactly as they are: only the world layer swaps. That
- * is the whole reason to wire it in here rather than leave it on its own page,
- * where it had none of them.
+ * Only the world layer swaps either way. The HUD, the minimap, the debug
+ * overlay, input, audio and — crucially — client-side prediction with
+ * rewind/replay reconciliation are shared, which is why this lives in
+ * `main.ts` rather than on a page of its own.
+ *
+ * The 2D path is not deprecated and is not going away. It is the measured
+ * one — 60 fps, p50 4.5 ms — it needs no GPU, and it remains the fallback for
+ * a machine that cannot afford WebGL or a driver that will not give it one.
+ * `?render=2d` should keep working for as long as that is true.
  */
-const render3d = new URLSearchParams(location.search).get('render') === '3d';
+const render3d = new URLSearchParams(location.search).get('render') !== '2d';
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 // In 3D the HUD canvas has to be see-through — both in its drawing context
 // and in its CSS background, which is opaque black for the 2D renderer.
