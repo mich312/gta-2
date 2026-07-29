@@ -15,6 +15,26 @@
         justify-content: center;
         overflow: hidden;
       }
+      /* The 3D world canvas sits behind the HUD canvas.
+         Both are centred the same way so they overlap exactly: the body is a
+         centring flex container, and this is pulled out of flow and centred
+         by transform so it lands on the same box without becoming a flex item
+         that would push the HUD canvas aside. Hidden entirely in 2D mode. */
+      #world {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        image-rendering: auto;
+      }
+      /* Above the world, and — in 3D — see-through. The shared `background`
+         below would otherwise paint this canvas opaque black over it. */
+      #game {
+        position: relative;
+      }
+      body.render3d #game {
+        background: transparent;
+      }
       canvas {
         image-rendering: pixelated;
         background: #000;
@@ -31,6 +51,7 @@
     <meta name="theme-color" content="#000000" />
   </head>
   <body>
+    <canvas id="world" hidden></canvas>
     <canvas id="game"></canvas>
     <script type="module" src="/src/main.ts"></script>
   </body>

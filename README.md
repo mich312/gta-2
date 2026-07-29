@@ -3,7 +3,8 @@
 Browser-based, real-time multiplayer, top-down open-city sandbox — original
 work in the genre of early top-down open-city action games. TypeScript
 throughout; deterministic 30 Hz simulation shared between an authoritative
-Node server and a Canvas-2D client.
+Node server and a browser client that renders the world with three.js
+(`?render=2d` falls back to the original Canvas-2D renderer).
 
 ## Run it
 
@@ -25,6 +26,7 @@ the art on whole pixels.
 | `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
 | `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
 | `?lights=off` | no lighting pass at all |
+| `?render=2d` | draw the world with the original Canvas 2D renderer. **3D is the default**; only the world layer differs — HUD, minimap, overlay, input and client-side prediction are shared. Keep this if WebGL is unavailable or slow |
 | `?extrude=1` | true parallax building extrusion — roofs displaced away from the screen centre in proportion to height, drawn per frame instead of baked (SHIP.md U2). Off by default while the flat-centre problem is open |
 
 ### Controls
@@ -126,7 +128,9 @@ re-simulating to identical hashes is the desync alarm.
 - `server/` — authoritative 30 Hz session over `ws`; economy (append-only
   ledger, shops, scrypt accounts) lives here, outside the sim, and touches it
   only through recorded SimCommands.
-- `client/` — Vite + Canvas 2D. Rendering and input only; predicts the local
+- `client/` — Vite. Rendering and input only; the world is drawn with
+  three.js by default and with Canvas 2D under `?render=2d`, and both share
+  the HUD, the input path and the predictor. predicts the local
   player with rewind/replay reconciliation, interpolates everything else. The
   world view is sized to the browser window (480×270 world pixels at 1080p, up
   to a 700×400 ceiling) and drawn into a backing store twice that size, and the
