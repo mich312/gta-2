@@ -1,5 +1,23 @@
 # Evidence
 
+## Gameplay
+
+Captured by driving the real game in a browser against the offline host — one
+process, fixed seed, ordinary keys and mouse. `node ci/playLocal.mjs` retakes
+all three.
+
+| file | what it shows |
+|---|---|
+| `play-dusk.png` | The lighting and the extrusion doing their jobs at once: a headlight cone thrown down the street, lamp pools on the pavement, a taxi crossing under signals that are red one way and green the other, and buildings leaning away from the camera. |
+| `play-drift.png` | Cornering hard enough to lay rubber down — the skid marks behind the car are where the tyres actually slipped — with a `tyre gone` notice from the damage sim rather than a caption. |
+| `play-foot.png` | On foot with the pistol every player spawns with, muzzle flash, street name, respect bar and export list. |
+
+**No chase shot, deliberately.** Scripted sprays into a crowd do not reliably
+produce a wanted level — the same unreliability recorded for `ci/play.mjs`
+below. What produces those states is covered by `/hud-sheet.html` for the
+readout and `pnpm chase` for the chase itself, which measures escape rate per
+star level over several seeds instead of hoping for one.
+
 ## The city with a third axis
 
 | file | what it shows |

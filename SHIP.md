@@ -220,6 +220,24 @@ uses `MemoryStore`, so the wallet dies with the tab), an in-memory replay
 recorder, and moving the portable layer into its own package instead of
 reaching into `server/src` through a bundler alias.
 
+**And one thing it did not prove, though it was first reported as proved.**
+The spike's commit message cites the vehicle count rising from 14 to 21 after
+pressing the proving-ground purchase keys, as evidence that the whole economy
+chain — client message, codec, `GameHost.receive`, `grantDepotRow`,
+`SimCommand`, sim, snapshot — ran offline. It does not show that. The count
+rises from 14 to 21 with **no key presses at all**, because ambient traffic
+spawns in over the first two seconds; a later check found the player's weapons
+unchanged after the arsenal row, so the purchases were not landing.
+
+Everything else in §3a stands on its own evidence and is unaffected — the
+parity gate especially, which is a hash comparison and cannot be faked by
+traffic. But **whether purchases work under the offline host is open**, not
+settled, and it wants a real test: assert on the ledger or the weapons array,
+never on an entity count that something else is also changing. Recorded here
+rather than quietly fixed, because the mistake is instructive: the measurement
+moved in the direction the hypothesis predicted, which is exactly when a
+control is worth running and exactly when it feels least necessary.
+
 ---
 
 ## 4. The constraints every item obeys

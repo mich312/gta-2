@@ -109,6 +109,8 @@ pnpm parity [seed] [ticks]                  # the same sim in Node and in a brow
                                             #   server up; see `?local=1` above)
 pnpm bench                                  # render CPU cost, baked vs parallax
                                             #   walls, interleaved, median of 3
+node ci/playLocal.mjs [outDir]              # drive the real game with no server
+                                            #   and photograph it (evidence/play-*)
 ```
 
 The bot harness is the multiplayer verifier: it fails on hash desyncs,
