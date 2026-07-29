@@ -1,5 +1,15 @@
 # Evidence
 
+## No server
+
+| file | what it shows |
+|---|---|
+| `offline-host.png` | The game running with **nothing listening on 8080**. The whole session — sim, economy, missions, police, 200 pedestrians — is in a Web Worker in the same tab, reached through the same protocol and the same binary codec (SHIP.md T1). Read the overlay: `rtt 0ms`, because there is no wire; `net ↓8.8 ↑0.4 KB/s`, because the codec runs anyway and the bandwidth budget is still measured; `desyncs 0` and `ghost drift 0.00px`, because prediction and reconciliation are unchanged; `fps 60 / frame 16.7ms`, because the sim is on its own thread. `tick @ 33.0/s` is the estimator's boot-catch-up window — measured over 20 s it is 30.01 Hz. Retake with `?local=1`. |
+
+Determinism across the two hosts is a gate, not an impression: `pnpm parity`
+runs the same seed in Node and in a browser and compares every sampled tick
+hash. Four seeds × 1800 ticks × 60 samples agree exactly.
+
 ## The street: bodies, dropped guns, and the ambulance
 
 Captured from a browser against a real server, with the casualties staged in

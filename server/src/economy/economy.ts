@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import {
   type Catalog,
   type CityMap,
@@ -17,12 +16,15 @@ import {
   getVehicleTuning,
   stuntReward,
 } from 'shared';
+import { newUuid } from '../platform/uuid.js';
 import { Ledger } from './ledger.js';
 import { Accounts } from './accounts.js';
 import { AwardTracker, type EconomyParams } from './awards.js';
 import { Standings } from './districts.js';
 import { Secrets, parseSecretParams } from './secrets.js';
-import { MemoryStore, type PersistenceStore } from './store.js';
+import { MemoryStore } from './memoryStore.js';
+import type { PersistenceStore } from './storeTypes.js';
+import type { PasswordCrypto } from './passwords.js';
 
 /**
  * What the jaws hand back when they pay in kind. Ordered, not random: the
@@ -117,9 +119,11 @@ export class Economy {
     store: PersistenceStore,
     readonly catalog: Catalog,
     private readonly params: EconomyParams,
+    /** Absent offline: see Accounts. The server passes `nodePasswords`. */
+    passwords: PasswordCrypto | null = null,
   ) {
     this.acctLedger = new Ledger(store);
-    this.accounts = new Accounts(store);
+    this.accounts = new Accounts(store, passwords);
     this.awards = new AwardTracker(params);
     this.standings = new Standings(params.districts);
     this.secrets = new Secrets(params.secrets);
@@ -131,7 +135,7 @@ export class Economy {
 
   /** Guests get a fresh session-scoped wallet with starting cash. */
   bindGuest(playerId: number): void {
-    const key = `guest:${randomUUID()}`;
+    const key = `guest:${newUuid()}`;
     this.keyByPlayer.set(playerId, key);
     this.usernameByPlayer.delete(playerId);
     this.guestLedger.append(key, this.params.startingCash, 'starting-cash', `start:${key}`);
@@ -371,7 +375,7 @@ export class Economy {
     }
 
     const ledger = this.ledgerFor(key);
-    const ref = `buy:${randomUUID()}`;
+    const ref = `buy:${newUuid()}`;
     if (!ledger.append(key, -item.price, `buy:${itemId}`, ref)) {
       return fail('not enough cash');
     }
@@ -640,7 +644,7 @@ export class Economy {
     if (!key) return false;
     const scaled = Math.floor(amount * this.multiplierOf(playerId));
     if (scaled <= 0) return false;
-    const ok = this.ledgerFor(key).append(key, scaled, reason, `award:${randomUUID()}`);
+    const ok = this.ledgerFor(key).append(key, scaled, reason, `award:${newUuid()}`);
     if (ok) {
       this.lifetimeByPlayer.set(playerId, (this.lifetimeByPlayer.get(playerId) ?? 0) + scaled);
       this.standings.credit(playerId, this.districtOfPlayer(playerId), scaled);

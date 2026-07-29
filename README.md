@@ -20,6 +20,7 @@ the art on whole pixels.
 
 | Query parameter | Effect |
 | --- | --- |
+| `?local=1` | **no server**: run the whole game in a Web Worker in this tab. `?seed=`, `?peds=`, `?roam=0`, `?interest=`, `?proving=1`, `?difficulty=` are the offline equivalents of the server's environment variables |
 | `?server=ws://host:port` | connect elsewhere (default `ws://<hostname>:8080`) |
 | `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
 | `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
@@ -102,6 +103,9 @@ pnpm sprites                                # regenerate the sprite sheet
 pnpm sprites -- --preview=8 --only=car      # + a zoomed contact sheet to eyeball
 pnpm replay replays/<file>.jsonl            # re-simulate a recording, verify hashes
 node server/dist/tools/persistCheck.js      # e2e: purchase survives server restart
+pnpm parity [seed] [ticks]                  # the same sim in Node and in a browser,
+                                            #   tick for tick (needs the client dev
+                                            #   server up; see `?local=1` above)
 ```
 
 The bot harness is the multiplayer verifier: it fails on hash desyncs,

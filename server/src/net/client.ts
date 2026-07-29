@@ -1,8 +1,9 @@
 import type { WebSocket } from 'ws';
 import { type ServerMessage, binaryCodec } from 'shared';
+import type { Conn } from './conn.js';
 
 /** Socket-level wrapper: one per connection, tracks bandwidth for the overlay. */
-export class ClientConn {
+export class ClientConn implements Conn {
   playerId: number | null = null;
   bytesIn = 0;
   bytesOut = 0;
@@ -14,5 +15,9 @@ export class ClientConn {
     const data = binaryCodec.encode(msg);
     this.bytesOut += typeof data === 'string' ? data.length : data.byteLength;
     this.ws.send(data);
+  }
+
+  close(): void {
+    this.ws.close();
   }
 }

@@ -183,6 +183,43 @@ most structurally frightening item on any "make it a real game" list —
 *decouple from the server* — is a fortnight, because the architecture was built
 right two years ago by people who were disciplined about imports.
 
+### §3a — This has now been built, and it works
+
+The claim above was a paper argument when it was written. It has since been
+spiked: `?local=1` runs the whole game in a Web Worker with nothing listening
+on 8080. `evidence/offline-host.png` is the screenshot; `pnpm parity` is the
+gate.
+
+What it took, against the estimate:
+
+| Predicted | Actual |
+|---|---|
+| Six seams | Seven. `ledger.ts` imported `PersistenceStore` from `store.js` — a *type-only* import that dragged `node:fs` into the graph. Found by the boundary test, not by reading. |
+| `randomUUID` → `crypto.randomUUID` | Exactly that, one file |
+| Persistence | `MemoryStore` moved to its own module; `store.ts` re-exports, so no caller changed |
+| scrypt | Extracted behind a `PasswordCrypto` interface. The server passes the same scrypt; offline passes nothing and accounts decline, which is the design |
+| Tuning load | Free — `vite.config.ts` already aliased `shared/data/*` |
+| Transport | `GameHost` (transport-free) + `Conn`; `wsServer.ts` went from 419 lines to 89 |
+
+Three findings worth carrying into the real item:
+
+1. **The boundary needs a walked graph, not a list.** `server/test/portable.test.ts`
+   walks every import reachable from `host.ts`. A hand-maintained list would
+   have passed while `ledger.ts` was quietly pulling in the filesystem — the
+   failure mode is silent and it had already happened.
+2. **Determinism holds across hosts, and it is cheap to prove.** Four seeds ×
+   1800 ticks, hashes sampled every 30 — Node and Chromium agree exactly.
+   `pnpm parity` is a minute and belongs in CI from the first commit of the
+   real item.
+3. **The worker was the right call for the reason predicted.** 60 fps, p50
+   frame 16.7 ms, sustained 30.01 Hz on the sim thread, `desyncs 0`, `ghost
+   drift 0.00px`. Prediction and reconciliation needed no changes at all.
+
+What the spike does **not** do, and the real item must: an IndexedDB store (it
+uses `MemoryStore`, so the wallet dies with the tab), an in-memory replay
+recorder, and moving the portable layer into its own package instead of
+reaching into `server/src` through a bundler alias.
+
 ---
 
 ## 4. The constraints every item obeys

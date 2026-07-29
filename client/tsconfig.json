@@ -12,7 +12,12 @@
     "types": [],
     "paths": {
       "shared": ["../shared/src/index.ts"],
-      "shared/data/*": ["../shared/data/*"]
+      "shared/data/*": ["../shared/data/*"],
+      // The offline host runs the real server code in a worker (SHIP.md T1).
+      // `.js` specifiers are NodeNext's, and map to the sources they name;
+      // vite.config.ts has the matching resolver for the bundler.
+      "server/*.js": ["../server/src/*.ts"],
+      "server/*": ["../server/src/*"]
     }
   },
   "include": ["src", "vite.config.ts"]

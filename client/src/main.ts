@@ -35,6 +35,8 @@ import { Effects } from './render/effects.js';
 import { LightPass } from './render/lighting.js';
 import { PoseSmoother } from './render/smoothing.js';
 import { Connection } from './net/connection.js';
+import { LocalConnection } from './net/localConnection.js';
+import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
 import { NetStats } from './debug/stats.js';
@@ -52,6 +54,34 @@ function hornPitch(kind: string): number {
   if (kind === 'van' || kind === 'ambulance') return 0.8;
   if (kind === 'taxi') return 1.18;
   return 1;
+}
+
+/**
+ * Offline host settings, or null to connect to a server.
+ *
+ * The knobs the server takes from the environment become query parameters,
+ * because offline there is no environment to read — same values, same
+ * defaults, different dial.
+ */
+function localParams(): LocalHostOptions | null {
+  const q = new URLSearchParams(location.search);
+  if (q.get('local') !== '1') return null;
+  const int = (key: string, fallback: number): number => {
+    const raw = q.get(key);
+    if (raw === null) return fallback;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    // Offline the seed is the player's to choose, and it has to be stable
+    // across a reload or the city changes under them.
+    seed: int('seed', 1),
+    pedCount: int('peds', 200),
+    roam: q.get('roam') !== '0',
+    interestRadius: int('interest', 600),
+    provingGround: q.get('proving') === '1',
+    difficulty: q.get('difficulty') ?? 'normal',
+  };
 }
 
 function serverUrl(): string {
@@ -390,28 +420,44 @@ function onGameEvent(event: GameEvent): void {
   }
 }
 
-const conn = new Connection({
-  url: serverUrl(),
-  name: playerName(),
-  stats,
-  getResumeToken: () => sessionStorage.getItem('resumeToken'),
-  onDisconnected: (attempts) => {
-    // A server that is not running looked exactly like one that is: the canvas
-    // said "connecting…" for ever and the only clue was in the console.
-    if (attempts >= 2 && playerId < 0) {
-      fatal = `cannot reach the server at ${serverUrl()} — is it running? (node server/dist/index.js)`;
-    }
-  },
-  onMessage: (msg) => {
-    try {
-      handleServerMessage(msg);
-    } catch (err) {
-      // Never let one bad message stop the game loop dead.
-      fatal = `client error: ${err instanceof Error ? err.message : String(err)}`;
-      console.error(err);
-    }
-  },
-});
+function onServerMessage(msg: ServerMessage): void {
+  try {
+    handleServerMessage(msg);
+  } catch (err) {
+    // Never let one bad message stop the game loop dead.
+    fatal = `client error: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(err);
+  }
+}
+
+/**
+ * `?local=1` runs the whole game in a Web Worker in this tab — no server, no
+ * socket (SHIP.md T1). `?seed=` picks the city, since offline there is no
+ * server to have chosen one.
+ */
+const conn = localParams()
+  ? new LocalConnection({
+      name: playerName(),
+      stats,
+      host: localParams()!,
+      onMessage: onServerMessage,
+    })
+  : new Connection({
+      url: serverUrl(),
+      name: playerName(),
+      stats,
+      getResumeToken: () => sessionStorage.getItem('resumeToken'),
+      onDisconnected: (attempts) => {
+        // A server that is not running looked exactly like one that is: the canvas
+        // said "connecting…" for ever and the only clue was in the console.
+        if (attempts >= 2 && playerId < 0) {
+          fatal =
+            `cannot reach the server at ${serverUrl()} — is it running? ` +
+            '(node server/dist/index.js), or add ?local=1 to play with no server';
+        }
+      },
+      onMessage: onServerMessage,
+    });
 conn.connect();
 
 function handleServerMessage(msg: ServerMessage): void {

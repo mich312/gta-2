@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>host probe</title>
+  </head>
+  <body style="background: #111; color: #ddd; font: 13px/1.5 monospace; padding: 1rem">
+    <!--
+      The browser half of the cross-host determinism check (SHIP.md T1).
+
+      It runs the identical `probeHashes` the Node tool runs, over the
+      identical tunables, and writes the result where `ci/hostParity.mjs` can
+      read it. Nothing is rendered: this page is a test fixture, not a game.
+    -->
+    <pre id="out">running…</pre>
+    <script type="module">
+      import { probeHashes } from 'server/tools/hostProbe.js';
+      import { initLocalTuning, localWorldgenParams } from '/src/local/tuning.ts';
+
+      const q = new URLSearchParams(location.search);
+      const seed = Number.parseInt(q.get('seed') ?? '7', 10);
+      const ticks = Number.parseInt(q.get('ticks') ?? '600', 10);
+
+      initLocalTuning('normal');
+      const worldgen = { ...localWorldgenParams(), provingGround: false };
+      const result = probeHashes(seed, worldgen, ticks);
+
+      globalThis.__probe = result;
+      document.getElementById('out').textContent = JSON.stringify(result, null, 2);
+      document.title = `probe done ${result.final}`;
+    </script>
+  </body>
+</html>

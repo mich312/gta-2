@@ -1,4 +1,4 @@
-import type { PersistenceStore } from './store.js';
+import type { PersistenceStore } from './storeTypes.js';
 import { FileStore } from './store.js';
 import { SqliteStore, sqliteAvailable, sqliteUnavailableReason } from './sqliteStore.js';
 

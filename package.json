@@ -11,6 +11,7 @@
     "mapgen": "pnpm build && node server/dist/tools/mapgen.js",
     "chase": "pnpm build && node server/dist/tools/chase.js",
     "sprites": "pnpm build && node server/dist/tools/sprites.js",
+    "parity": "pnpm build && node ci/hostParity.mjs",
     "test": "vitest run"
   },
   "devDependencies": {
