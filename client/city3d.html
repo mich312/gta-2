@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>city in 3d</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud {
+        position: fixed; left: 8px; top: 8px; z-index: 2;
+        font: 12px/1.5 monospace; color: #cdd6e0;
+        background: rgba(6, 10, 16, 0.72); padding: 6px 9px; white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      The game, playable, in 3D (3D.md W3a).
+
+      Runs the offline host in a worker — the same one `?local=1` uses — and
+      draws the same interpolated state the 2D renderer draws, so the two
+      views are looking at one game rather than two.
+
+        WASD drive/walk   E enter or leave a car   Space fire
+
+        ?seed=   city seed          ?pitch=  camera tilt, degrees from vertical
+        ?h=      view height, px    ?night=  0 midday, 1 midnight
+        ?peds=   crowd size         ?fly=1   circle the city instead of playing
+    -->
+    <div id="hud">building…</div>
+    <canvas id="view"></canvas>
+    <script type="module">
+      import { generateCity } from 'shared';
+      import { CityView } from '/src/three/cityView.ts';
+      import { Live } from '/src/three/live.ts';
+      import { initLocalTuning, localWorldgenParams } from '/src/local/tuning.ts';
+
+      const q = new URLSearchParams(location.search);
+      const num = (k, d) => Number.parseFloat(q.get(k) ?? String(d));
+      const seed = Number.parseInt(q.get('seed') ?? '7', 10);
+      const pitch = num('pitch', 42);
+      const viewHeight = num('h', 420);
+      const night = num('night', 0.15);
+      const peds = Number.parseInt(q.get('peds') ?? '160', 10);
+
+      const canvas = document.getElementById('view');
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      const hud = document.getElementById('hud');
+
+      if (q.get('fly') === '1') {
+        // Flyover: no sim, just the city. Useful for looking at geometry
+        // without a player in the way.
+        initLocalTuning('normal');
+        const map = generateCity(seed, localWorldgenParams());
+        const view = new CityView({ canvas, map, pitch, viewHeight: num('h', 900) });
+        view.setNight(night);
+        const { SceneryLayer } = await import('/src/three/scenery.ts');
+        new SceneryLayer(view.scene).setMap(map);
+        const cx = (map.widthTiles * 16) / 2;
+        const cy = (map.heightTiles * 16) / 2;
+        let t = 0;
+        const tick = () => {
+          t += 0.0016;
+          view.lookAt(cx + Math.cos(t) * 500, cy + Math.sin(t) * 500);
+          view.render();
+          const s = view.stats();
+          hud.textContent =
+            `seed ${seed}  pitch ${pitch}°  flyover\n` +
+            `${map.buildings.length} buildings\n` +
+            `draws ${s.draws}  instances ${s.instances}  tris ${(s.triangles / 1000) | 0}k`;
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        globalThis.__city = view;
+      } else {
+        const live = new Live({ canvas, seed, pitch, viewHeight, peds, night });
+        live.start();
+        globalThis.__live = live;
+        let frames = 0, last = performance.now(), fps = 0;
+        const tick = (now) => {
+          frames++;
+          if (now - last > 500) {
+            fps = (frames * 1000) / (now - last);
+            frames = 0; last = now;
+            const s = live.stats();
+            hud.textContent =
+              `seed ${seed}  pitch ${pitch}°\n` +
+              `WASD drive  E in/out  Space fire\n` +
+              (s ? `draws ${s.draws}  instances ${s.instances}  tris ${(s.triangles / 1000) | 0}k\n` : '') +
+              `${fps.toFixed(0)} fps`;
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      }
+
+      addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        (globalThis.__city ?? globalThis.__live?.view)?.resize?.(canvas.width, canvas.height);
+      });
+    </script>
+  </body>
+</html>

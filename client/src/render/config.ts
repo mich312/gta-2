@@ -185,3 +185,22 @@ export const LIGHT_CACHE_LIMIT = 96;
  */
 export const BLOOM_DOWNSCALE = 6;
 export const BLOOM_ALPHA = 0.36;
+
+/**
+ * World pixels a building's roof is displaced per storey, at the screen edge
+ * (SHIP.md U2). The lean is scaled by how far the building sits from the
+ * camera centre, so this is the maximum, not a constant offset.
+ *
+ * `WALL_DEPTH` above is the flat, cached, sun-direction sweep this replaces.
+ * That one is 5 px for every building regardless of height; this one is per
+ * storey, which is the whole difference between "things are solid" and
+ * "things are tall".
+ */
+export const PARALLAX_PX_PER_STOREY = 3.0;
+
+/**
+ * Baked building roofs kept resident for the parallax pass. A screenful is a
+ * few dozen; this holds several screenfuls either side of the camera so
+ * driving back down a street you just left does not re-bake it.
+ */
+export const ROOF_CACHE_LIMIT = 400;

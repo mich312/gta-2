@@ -36,6 +36,8 @@ import { Effects } from './render/effects.js';
 import { LightPass } from './render/lighting.js';
 import { PoseSmoother } from './render/smoothing.js';
 import { Connection } from './net/connection.js';
+import { LocalConnection } from './net/localConnection.js';
+import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
 import { NetStats } from './debug/stats.js';
@@ -53,6 +55,34 @@ function hornPitch(kind: string): number {
   if (kind === 'van' || kind === 'ambulance') return 0.8;
   if (kind === 'taxi') return 1.18;
   return 1;
+}
+
+/**
+ * Offline host settings, or null to connect to a server.
+ *
+ * The knobs the server takes from the environment become query parameters,
+ * because offline there is no environment to read — same values, same
+ * defaults, different dial.
+ */
+function localParams(): LocalHostOptions | null {
+  const q = new URLSearchParams(location.search);
+  if (q.get('local') !== '1') return null;
+  const int = (key: string, fallback: number): number => {
+    const raw = q.get(key);
+    if (raw === null) return fallback;
+    const n = Number.parseInt(raw, 10);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  return {
+    // Offline the seed is the player's to choose, and it has to be stable
+    // across a reload or the city changes under them.
+    seed: int('seed', 1),
+    pedCount: int('peds', 200),
+    roam: q.get('roam') !== '0',
+    interestRadius: int('interest', 600),
+    provingGround: q.get('proving') === '1',
+    difficulty: q.get('difficulty') ?? 'normal',
+  };
 }
 
 function serverUrl(): string {
@@ -128,6 +158,9 @@ const predictor = new Predictor();
 const interp = new Interpolator();
 const sprites = new SpriteSheet();
 const tiles = new TileLayer(sprites);
+// `?extrude=1` swaps the baked, fixed-direction wall sweep for true parallax
+// extrusion drawn per frame (SHIP.md U2). A flag while it is being measured.
+tiles.extruded = new URLSearchParams(location.search).get('extrude') === '1';
 const effects = new Effects();
 const lights = new LightPass();
 {
@@ -391,28 +424,44 @@ function onGameEvent(event: GameEvent): void {
   }
 }
 
-const conn = new Connection({
-  url: serverUrl(),
-  name: playerName(),
-  stats,
-  getResumeToken: () => sessionStorage.getItem('resumeToken'),
-  onDisconnected: (attempts) => {
-    // A server that is not running looked exactly like one that is: the canvas
-    // said "connecting…" for ever and the only clue was in the console.
-    if (attempts >= 2 && playerId < 0) {
-      fatal = `cannot reach the server at ${serverUrl()} — is it running? (node server/dist/index.js)`;
-    }
-  },
-  onMessage: (msg) => {
-    try {
-      handleServerMessage(msg);
-    } catch (err) {
-      // Never let one bad message stop the game loop dead.
-      fatal = `client error: ${err instanceof Error ? err.message : String(err)}`;
-      console.error(err);
-    }
-  },
-});
+function onServerMessage(msg: ServerMessage): void {
+  try {
+    handleServerMessage(msg);
+  } catch (err) {
+    // Never let one bad message stop the game loop dead.
+    fatal = `client error: ${err instanceof Error ? err.message : String(err)}`;
+    console.error(err);
+  }
+}
+
+/**
+ * `?local=1` runs the whole game in a Web Worker in this tab — no server, no
+ * socket (SHIP.md T1). `?seed=` picks the city, since offline there is no
+ * server to have chosen one.
+ */
+const conn = localParams()
+  ? new LocalConnection({
+      name: playerName(),
+      stats,
+      host: localParams()!,
+      onMessage: onServerMessage,
+    })
+  : new Connection({
+      url: serverUrl(),
+      name: playerName(),
+      stats,
+      getResumeToken: () => sessionStorage.getItem('resumeToken'),
+      onDisconnected: (attempts) => {
+        // A server that is not running looked exactly like one that is: the canvas
+        // said "connecting…" for ever and the only clue was in the console.
+        if (attempts >= 2 && playerId < 0) {
+          fatal =
+            `cannot reach the server at ${serverUrl()} — is it running? ` +
+            '(node server/dist/index.js), or add ?local=1 to play with no server';
+        }
+      },
+      onMessage: onServerMessage,
+    });
 conn.connect();
 
 function handleServerMessage(msg: ServerMessage): void {
@@ -619,7 +668,14 @@ function frame(now: number): void {
         tick: sync.latest.tick,
       }
     : null;
-  render(screen, map, scene, cam, sprites, tiles, effects, lights);
+  {
+    // Measured around the world render only — not the HUD, not the minimap,
+    // not the overlay that reports it. See NetStats.renderMs for why the rAF
+    // delta cannot answer this.
+    const t0 = performance.now();
+    render(screen, map, scene, cam, sprites, tiles, effects, lights);
+    stats.onRender(performance.now() - t0);
+  }
 
   // HUD and overlay draw in world-pixel units, whatever the backing store is.
   hudTransform(screen.ctx);
@@ -781,6 +837,8 @@ function frame(now: number): void {
     fps: stats.fps,
     frameMs: stats.frameMs,
     frameMsPeak: stats.frameMsPeak,
+    renderMs: stats.renderMs,
+    buildings: tiles.lastBuildingsDrawn,
   };
 
   requestAnimationFrame(frame);

@@ -1,75 +1,23 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { MemoryStore } from './memoryStore.js';
+import type { AccountRow, TxRow } from './storeTypes.js';
 
 /**
  * Persistence boundary. The rest of the server talks only to this interface;
  * swapping the file store for MySQL (schema in server/mysql/schema.sql)
  * means writing one new implementation. Everything is synchronous and tiny
  * at 4-8 players; the MySQL impl will make these async behind a write queue.
+ *
+ * This module is the *filesystem* half. The contract lives in
+ * `storeTypes.ts` and the in-memory implementation in `memoryStore.ts`,
+ * neither of which imports Node, so a host without a filesystem can still
+ * have a store. Both are re-exported here: importing `PersistenceStore` or
+ * `MemoryStore` from this module works exactly as it always did.
  */
 
-export interface TxRow {
-  /** Idempotency key: unique per transaction; duplicates must be rejected. */
-  ref: string;
-  accountKey: string;
-  delta: number;
-  reason: string;
-  at: string;
-}
-
-export interface AccountRow {
-  username: string;
-  passHash: string;
-  salt: string;
-  createdAt: string;
-  cosmeticsOwned: number[];
-  equippedCosmetic: number;
-}
-
-export interface PersistenceStore {
-  appendTransaction(tx: TxRow): void;
-  transactionsFor(accountKey: string): TxRow[];
-  hasRef(ref: string): boolean;
-  getAccount(username: string): AccountRow | null;
-  putAccount(row: AccountRow): void;
-  flush(): void;
-}
-
-export class MemoryStore implements PersistenceStore {
-  protected txs: TxRow[] = [];
-  protected refs = new Set<string>();
-  protected accounts = new Map<string, AccountRow>();
-
-  appendTransaction(tx: TxRow): void {
-    if (this.refs.has(tx.ref)) throw new Error(`duplicate transaction ref ${tx.ref}`);
-    this.refs.add(tx.ref);
-    this.txs.push({ ...tx });
-    this.flush();
-  }
-
-  transactionsFor(accountKey: string): TxRow[] {
-    return this.txs.filter((t) => t.accountKey === accountKey).map((t) => ({ ...t }));
-  }
-
-  hasRef(ref: string): boolean {
-    return this.refs.has(ref);
-  }
-
-  getAccount(username: string): AccountRow | null {
-    const row = this.accounts.get(username.toLowerCase());
-    return row ? { ...row, cosmeticsOwned: [...row.cosmeticsOwned] } : null;
-  }
-
-  putAccount(row: AccountRow): void {
-    this.accounts.set(row.username.toLowerCase(), {
-      ...row,
-      cosmeticsOwned: [...row.cosmeticsOwned],
-    });
-    this.flush();
-  }
-
-  flush(): void {}
-}
+export type { AccountRow, PersistenceStore, TxRow } from './storeTypes.js';
+export { MemoryStore } from './memoryStore.js';
 
 interface FileShape {
   version: 1;

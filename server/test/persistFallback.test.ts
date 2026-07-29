@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { nodePasswords } from '../src/platform/nodePasswords.js';
 
 /**
  * The failure this pins down: `Unknown builtin module: node:sqlite`. node:sqlite
@@ -38,7 +39,7 @@ describe('persistence without node:sqlite', () => {
     expect(message).toContain(join(dir, 'persist.json'));
 
     // Same guarantees as the SQLite store: durable, idempotent, append-only.
-    const accounts = new Accounts(store);
+    const accounts = new Accounts(store, nodePasswords);
     const ledger = new Ledger(store);
     accounts.register('erin', 'secret-pw');
     ledger.append('acct:erin', 400, 'starting-cash', 'start:acct:erin');

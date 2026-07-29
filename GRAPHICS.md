@@ -423,10 +423,22 @@ Roughly in order of visual return per unit of work.
    buildings north of you and the south face of buildings south of you. Needs
    per-building height in worldgen and a separate pass outside the chunk cache.
 
+   **Spiked — `?extrude=1`, and it costs about +0.3 ms at p50.** The surprise
+   was that leaving the cache is nearly free, because the cached path sweeps a
+   wall *per building tile* and the new one draws two quads and a roof blit
+   *per building*. Full numbers, and the three visual problems still open, in
+   SHIP.md §U2a. `evidence/extrude-*.png` is the before and after.
+
 2. **Building heights and rooftop variety.** Worldgen already knows the district
    and the building rect; it does not yet know how tall anything is. Height
    would drive extrusion depth, shadow length, and roof detail density all at
    once.
+
+   **Half done.** `shared/src/world/heights.ts` derives storeys per district
+   from a hash of the footprint — no rng draw, so no downstream shift and no
+   replay invalidated, and nothing on the wire because both hosts compute it.
+   It drives extrusion depth today. Shadow length and roof density still don't
+   read it.
 
 3. **Vehicle damage states.** The generator's delta model is already there in
    spirit — add `variants` on a damage axis, and crumple the body polygon.

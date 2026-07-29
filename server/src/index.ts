@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import { loadCatalog, loadEconomyParams, loadSharedTuning, loadWorldgenParams } from './tuning.js';
 import { Economy } from './economy/economy.js';
 import { createStore } from './economy/createStore.js';
+import { nodePasswords } from './platform/nodePasswords.js';
 import { Session } from './session.js';
 import { GameServer } from './net/wsServer.js';
 import { TickLoop } from './loop.js';
@@ -30,7 +31,12 @@ async function main(): Promise<void> {
     pedCount: config.pedCount,
     roam: config.roam,
   });
-  const economy = new Economy(createStore(config.persistPath), loadCatalog(), loadEconomyParams());
+  const economy = new Economy(
+    createStore(config.persistPath),
+    loadCatalog(),
+    loadEconomyParams(),
+    nodePasswords,
+  );
   const server = new GameServer(config, session, economy);
   await server.listen();
 

@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import type { AccountRow, PersistenceStore, TxRow } from './store.js';
+import type { AccountRow, PersistenceStore, TxRow } from './storeTypes.js';
 
 interface SqliteModule {
   DatabaseSync: new (path: string) => DatabaseSync;

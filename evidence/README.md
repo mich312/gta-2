@@ -1,5 +1,63 @@
 # Evidence
 
+## Gameplay
+
+Captured by driving the real game in a browser against the offline host — one
+process, fixed seed, ordinary keys and mouse. `node ci/playLocal.mjs` retakes
+all three.
+
+| file | what it shows |
+|---|---|
+| `play-dusk.png` | The lighting and the extrusion doing their jobs at once: a headlight cone thrown down the street, lamp pools on the pavement, a taxi crossing under signals that are red one way and green the other, and buildings leaning away from the camera. |
+| `play-drift.png` | Cornering hard enough to lay rubber down — the skid marks behind the car are where the tyres actually slipped — with a `tyre gone` notice from the damage sim rather than a caption. |
+| `play-foot.png` | On foot with the pistol every player spawns with, muzzle flash, street name, respect bar and export list. |
+
+**No chase shot, deliberately.** Scripted sprays into a crowd do not reliably
+produce a wanted level — the same unreliability recorded for `ci/play.mjs`
+below. What produces those states is covered by `/hud-sheet.html` for the
+readout and `pnpm chase` for the chase itself, which measures escape rate per
+star level over several seeds instead of hoping for one.
+
+## The city with a third axis
+
+| file | what it shows |
+|---|---|
+| `city-3d-night.png` | Night. Windows light up across the facades — a per-window hash against the night amount, so a lit window stays lit rather than flickering as the camera moves. |
+| `city-3d-facades.png` | The original GTA camera: perspective, straight down, so buildings splay away from the screen centre and show the face turned toward it. Facades are shader-computed — window columns with mullions, a slab line between storeys, a shopfront on the ground floor — so one material covers every building height. |
+| `city-3d-models.png` | Close up. The car is not a model anybody built — it is the `car` entry in `shared/data/sprites.json`, extruded. Tapered body polygon, raised cabin, tinted glass, red tail lights, headlights, dark tyres: every one of those is a shape in the 2D sprite with a `z` on it, and the sprite generator was already relighting flat art from those same heights. Same file, not flattened. |
+| `city-3d-live.png` | The game **playable** in 3D. Everything in it comes from data the 2D renderer already uses: the bodies are `sprites.json` entries extruded, the trees and bushes sit at the same `hash2` positions the tile layer plants them, the props are the sim's own and swap to their `_broken` art when destroyed, and the road markings run down the carriageway centres measured the same way. `/city3d.html`. |
+| `city-3d.png` | The generated city as actual geometry — 523 buildings at real heights, cast shadows, the river — built from the **volume grid** the 3D collision resolves against, not from the tile grid. A building's box is the span that stops you. Retake with `/city3d.html?seed=7&pitch=45`. |
+
+Quote draw calls from these, not frame rate: this box has no GPU, so its frame
+rate is SwiftShader's and says nothing about a real machine, while draw count
+is a property of how the scene is built and is the same everywhere. Bare
+geometry is **9 draws / 762k triangles** for the whole 240×240 city; dressed —
+facades, planting, props, markings, roof parapets and clutter, kerbs,
+crossings and the live population — it is **179 draws / 3.2M triangles**.
+See 3D.md W3a.
+
+## Buildings that lean
+
+| file | what it shows |
+|---|---|
+| `extrude-baked.png` | The shipped extrusion. Every building sweeps the same way — down-right, towards the sun-away direction — wherever it stands, because the sweep is painted into the cached chunk and a cache cannot know where the camera is. |
+| `extrude-parallax.png` | The same city, same seed, same spot, with `?extrude=1`. Buildings above the player lean up, buildings below lean down, buildings left lean left: the roof is displaced away from the screen centre in proportion to height, so the city opens out around the camera instead of all shearing one way. This is `GRAPHICS.md`'s "what's next" #1 and SHIP.md U2. |
+
+The roofs are the same art in both: they are baked per building and blitted
+displaced, rather than repainted per frame, so the speckle, parapets and
+rooftop clutter survive the move. Costs are in SHIP.md U2 — the short version
+is that it fits, and `pnpm bench` re-measures it.
+
+## No server
+
+| file | what it shows |
+|---|---|
+| `offline-host.png` | The game running with **nothing listening on 8080**. The whole session — sim, economy, missions, police, 200 pedestrians — is in a Web Worker in the same tab, reached through the same protocol and the same binary codec (SHIP.md T1). Read the overlay: `rtt 0ms`, because there is no wire; `net ↓8.8 ↑0.4 KB/s`, because the codec runs anyway and the bandwidth budget is still measured; `desyncs 0` and `ghost drift 0.00px`, because prediction and reconciliation are unchanged; `fps 60 / frame 16.7ms`, because the sim is on its own thread. `tick @ 33.0/s` is the estimator's boot-catch-up window — measured over 20 s it is 30.01 Hz. Retake with `?local=1`. |
+
+Determinism across the two hosts is a gate, not an impression: `pnpm parity`
+runs the same seed in Node and in a browser and compares every sampled tick
+hash. Four seeds × 1800 ticks × 60 samples agree exactly.
+
 ## The street: bodies, dropped guns, and the ambulance
 
 Captured from a browser against a real server, with the casualties staged in

@@ -1,4 +1,4 @@
-import type { PersistenceStore, TxRow } from './store.js';
+import type { PersistenceStore, TxRow } from './storeTypes.js';
 
 /**
  * Append-only cash ledger. There is no mutable balance column anywhere:

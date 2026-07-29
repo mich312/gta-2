@@ -27,6 +27,7 @@ import { Ledger } from '../src/economy/ledger.js';
 import { Accounts } from '../src/economy/accounts.js';
 import { AwardTracker, parseEconomyParams } from '../src/economy/awards.js';
 import { Economy } from '../src/economy/economy.js';
+import { nodePasswords } from '../src/platform/nodePasswords.js';
 
 const catalog = parseCatalog(shopJson);
 const params = parseEconomyParams(economyJson);
@@ -50,7 +51,7 @@ describe('ledger', () => {
 
 describe('accounts', () => {
   it('register + verify; wrong password and unknown user fail', () => {
-    const accounts = new Accounts(new MemoryStore());
+    const accounts = new Accounts(new MemoryStore(), nodePasswords);
     expect(accounts.register('alice', 'hunter22').ok).toBe(true);
     expect(accounts.register('ALICE', 'other-pass').ok).toBe(false); // case-insensitive taken
     expect(accounts.verify('alice', 'hunter22')?.username).toBe('alice');
@@ -151,7 +152,7 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
 
       {
         const store = open(dir);
-        const accounts = new Accounts(store);
+        const accounts = new Accounts(store, nodePasswords);
         const ledger = new Ledger(store);
         accounts.register('carol', 'secret-pw');
         ledger.append('acct:carol', 400, 'starting-cash', 'start:acct:carol');
@@ -161,7 +162,7 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
       }
 
       const store2 = open(dir);
-      const accounts2 = new Accounts(store2);
+      const accounts2 = new Accounts(store2, nodePasswords);
       const ledger2 = new Ledger(store2);
       expect(ledger2.balance('acct:carol')).toBe(100);
       expect(accounts2.verify('carol', 'secret-pw')?.cosmeticsOwned).toEqual([1]);

@@ -20,10 +20,12 @@ the art on whole pixels.
 
 | Query parameter | Effect |
 | --- | --- |
+| `?local=1` | **no server**: run the whole game in a Web Worker in this tab. `?seed=`, `?peds=`, `?roam=0`, `?interest=`, `?proving=1`, `?difficulty=` are the offline equivalents of the server's environment variables |
 | `?server=ws://host:port` | connect elsewhere (default `ws://<hostname>:8080`) |
 | `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
 | `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
 | `?lights=off` | no lighting pass at all |
+| `?extrude=1` | true parallax building extrusion — roofs displaced away from the screen centre in proportion to height, drawn per frame instead of baked (SHIP.md U2). Off by default while the flat-centre problem is open |
 
 ### Controls
 
@@ -103,6 +105,13 @@ pnpm sprites                                # regenerate the sprite sheet
 pnpm sprites -- --preview=8 --only=car      # + a zoomed contact sheet to eyeball
 pnpm replay replays/<file>.jsonl            # re-simulate a recording, verify hashes
 node server/dist/tools/persistCheck.js      # e2e: purchase survives server restart
+pnpm parity [seed] [ticks]                  # the same sim in Node and in a browser,
+                                            #   tick for tick (needs the client dev
+                                            #   server up; see `?local=1` above)
+pnpm bench                                  # render CPU cost, baked vs parallax
+                                            #   walls, interleaved, median of 3
+node ci/playLocal.mjs [outDir]              # drive the real game with no server
+                                            #   and photograph it (evidence/play-*)
 ```
 
 The bot harness is the multiplayer verifier: it fails on hash desyncs,
@@ -125,6 +134,15 @@ re-simulating to identical hashes is the desync alarm.
   any display rate. Lights are shadow-cast against the tile grid — a lamp lights
   its own street and not the block behind it.
 
+`3D.md` is the live conversion plan: the simulation gaining a third axis, why
+no physics engine can be used, and what is built so far. `/city3d.html` plays
+the game in 3D — cel-shaded, outlined, under the original GTA camera, driven
+by the offline host (`?fly=1` circles the city instead, with no player in the
+way). Every body in it is a `shared/data/sprites.json` entry extruded, so the
+3D art and the 2D art are the same art.
+
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
-direction, and `PROGRESS.md` for the per-phase log. `GTA.md` is the current
-forward plan — the complaints from playing it, costed and ordered.
+direction, and `PROGRESS.md` for the per-phase log. `GTA.md`, `GAPS.md`,
+`FEATURES.md` and `ROADMAP.md` are the feature backlogs, all of them now
+delivered. `SHIP.md` is the current forward plan — not more systems, but what
+it would take to turn this into a game somebody buys.
