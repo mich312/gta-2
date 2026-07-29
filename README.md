@@ -125,5 +125,7 @@ re-simulating to identical hashes is the desync alarm.
   its own street and not the block behind it.
 
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
-direction, and `PROGRESS.md` for the per-phase log. `GTA.md` is the current
-forward plan — the complaints from playing it, costed and ordered.
+direction, and `PROGRESS.md` for the per-phase log. `GTA.md`, `GAPS.md`,
+`FEATURES.md` and `ROADMAP.md` are the feature backlogs, all of them now
+delivered. `SHIP.md` is the current forward plan — not more systems, but what
+it would take to turn this into a game somebody buys.
