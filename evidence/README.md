@@ -22,6 +22,8 @@ star level over several seeds instead of hoping for one.
 
 | file | what it shows |
 |---|---|
+| `city-3d-facades.png` | The original GTA camera: perspective, straight down, so buildings splay away from the screen centre and show the face turned toward it. Facades are shader-computed — window columns with mullions, a slab line between storeys, a shopfront on the ground floor — so one material covers every building height. |
+| `city-3d-models.png` | Close up: a car with cabin, windscreen and tyres, a person with head and shoulders, and a facade's window grid at legible size. Each model is boxes merged into one geometry with per-vertex colours, so a six-coloured car is still one instanced draw. |
 | `city-3d-live.png` | The game **playable** in 3D — cel-shaded with black outlines, per-district building colours, cast shadows, and the player (red), pedestrians (orange), police and cars all placed from the live sim. Bodies are boxes on purpose: they are the colliders the simulation already resolves against, so anything that looks wrong here is wrong in the sim too. `/city3d.html`. |
 | `city-3d.png` | The generated city as actual geometry — 523 buildings at real heights, cast shadows, the river — built from the **volume grid** the 3D collision resolves against, not from the tile grid. A building's box is the span that stops you. Retake with `/city3d.html?seed=7&pitch=45`. |
 

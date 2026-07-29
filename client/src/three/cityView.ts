@@ -8,6 +8,7 @@ import {
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { addOutline, toonMaterial } from './toon.js';
+import { facadeMaterial, setFacadeNight } from './facade.js';
 
 /**
  * The city as actual geometry.
@@ -30,6 +31,17 @@ import { addOutline, toonMaterial } from './toon.js';
 /** Vertical exaggeration, so a 3-storey street reads at a shallow angle. */
 const Z_SCALE = 1;
 
+/**
+ * Vertical field of view.
+ *
+ * This one number is the whole look. Narrow is nearly orthographic and the
+ * city flattens to a floorplan; wide splays the edges hard and the buildings
+ * at the frame's corners lie down. GTA 1 and 2 sit somewhere near here — far
+ * enough to show the sides of buildings a block away, tight enough that what
+ * is under you still reads as directly under you.
+ */
+const FOV_Y = 34;
+
 interface Layer {
   /** Which spans go in this layer. */
   match: (tileType: number) => boolean;
@@ -51,7 +63,7 @@ function hex(s: string): number {
 
 export class CityView {
   readonly scene = new THREE.Scene();
-  readonly camera: THREE.OrthographicCamera;
+  readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly vg: VolumeGrid;
   private readonly map: CityMap;
@@ -74,11 +86,21 @@ export class CityView {
 
     this.scene.background = new THREE.Color(hex(palette.field ?? '#1a2a1a'));
 
-    // Orthographic, because this is still a top-down game: a perspective
-    // camera would make the same building look different depending on where
-    // it sat on screen, which is exactly the readability the genre trades
-    // verticality for. The pitch is what gives the height somewhere to go.
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 8000);
+    // PERSPECTIVE, looking straight down. This is the original GTA camera and
+    // the earlier orthographic one was wrong for it.
+    //
+    // Under ortho every building is drawn as if seen from directly above, so
+    // you only ever see roofs and the city reads as a floorplan. Under
+    // perspective a building away from the screen centre splays outward and
+    // shows the face turned towards the camera — you see the north side of
+    // buildings north of you and the south side of those south of you. That
+    // splay IS the look, and it is the same effect the 2D renderer fakes by
+    // hand in `extrude.ts` for exactly this reason.
+    //
+    // The camera sits directly over the player at whatever height makes the
+    // requested world span fill the frame, so `viewHeight` still means what
+    // it meant under ortho.
+    this.camera = new THREE.PerspectiveCamera(FOV_Y, 1, 8, 6000);
     this.resize(opts.canvas.width, opts.canvas.height);
 
     this.buildLights();
@@ -111,6 +133,7 @@ export class CityView {
   private ambient!: THREE.AmbientLight;
   private hemi!: THREE.HemisphereLight;
   private instanceCount = 0;
+  private night = 0;
 
   /**
    * Turn every span into a box, batched by what it is.
@@ -210,8 +233,16 @@ export class CityView {
     const box = new THREE.BoxGeometry(1, 1, 1);
     for (const [key, mats] of buckets) {
       if (mats.length === 0) continue;
-      const mesh = new THREE.InstancedMesh(box, toonMaterial(colorOf.get(key) ?? 0x6b6f7a), mats.length);
+      const color = colorOf.get(key) ?? 0x6b6f7a;
       const solid = solidKeys.has(key);
+      // Buildings get a facade — storey lines, window columns, a shopfront on
+      // the ground floor — computed in the shader from world position, so one
+      // material serves every height. Ground surfaces stay flat toon.
+      const mesh = new THREE.InstancedMesh(
+        box,
+        solid && key.startsWith('b') ? facadeMaterial({ color }) : toonMaterial(color),
+        mats.length,
+      );
       mesh.castShadow = solid;
       mesh.receiveShadow = true;
       this.instanceCount += mats.length;
@@ -221,7 +252,8 @@ export class CityView {
       // Outline the things that stand up. Outlining every ground tile would
       // draw a black grid over the whole city — the streets read as one
       // surface, and a surface has no silhouette worth tracing.
-      if (solid) addOutline(mesh, this.scene, 1.2);
+      // Thin: at this camera a fat hull rounds off box corners into wedges.
+      if (solid) addOutline(mesh, this.scene, 0.5);
     }
   }
 
@@ -233,34 +265,45 @@ export class CityView {
     this.hemi.intensity = 1.4 * (1 - t * 0.5);
     const sky = new THREE.Color(0x9fc4dd).lerp(new THREE.Color(0x0a1020), t);
     this.scene.background = sky;
+    // Windows light up as it gets dark — the one cue that turns a block of
+    // flats at night from a silhouette into somewhere people live.
+    setFacadeNight(this.scene, t);
+    this.night = t;
   }
 
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height, false);
-    const aspect = width / height;
-    const h = this.viewHeight / 2;
-    this.camera.top = h;
-    this.camera.bottom = -h;
-    this.camera.left = -h * aspect;
-    this.camera.right = h * aspect;
+    this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
 
-  /** Point the camera at a world position. */
+  /** How high the camera must sit for `viewHeight` world px to fill the frame. */
+  private get camHeight(): number {
+    return this.viewHeight / 2 / Math.tan((FOV_Y * Math.PI) / 360);
+  }
+
+  /**
+   * Point the camera at a world position.
+   *
+   * `pitch` is degrees off straight down, and 0 — the GTA default — is the
+   * interesting case: the camera hangs directly over the player, and the only
+   * thing tilting buildings is the perspective divide. A few degrees of tilt
+   * is available because it helps a low-set camera see a little more of the
+   * street ahead, but it is not what makes the effect.
+   */
   lookAt(x: number, y: number): void {
     this.target.set(x, y);
     const rad = (this.pitch * Math.PI) / 180;
-    const dist = 2000;
-    // Pitch tilts the camera back along -y, so "up the screen" stays north.
-    this.camera.position.set(
-      x,
-      y - Math.sin(rad) * dist,
-      Math.cos(rad) * dist,
-    );
-    this.camera.up.set(0, 0, 1);
+    const h = this.camHeight;
+    this.camera.position.set(x, y - Math.sin(rad) * h, Math.cos(rad) * h);
+    this.camera.up.set(0, 1, 0);
     this.camera.lookAt(x, y, 0);
+    // Keep the sun rigged to the camera so the shadow map always covers what
+    // is on screen — a 1024 map over a 240x240 city would otherwise be a few
+    // texels per building.
     this.sun.target.position.set(x, y, 0);
-    this.sun.position.set(x - 600, y - 900, 1200);
+    this.sun.target.updateMatrixWorld();
+    this.sun.position.set(x - 420, y - 620, 900);
   }
 
   render(): void {

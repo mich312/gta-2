@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import { getVehicleTuning } from 'shared';
 import type { RenderWorld } from '../net/interpolation.js';
 import { addOutline, toonMaterial } from './toon.js';
+import {
+  boatGeometry,
+  boxVehicleGeometry,
+  carGeometry,
+  helicopterGeometry,
+  personGeometry,
+  planeGeometry,
+} from './models.js';
 
 /**
  * Everything that moves, as instanced 3D bodies.
@@ -20,6 +28,9 @@ import { addOutline, toonMaterial } from './toon.js';
  * with 3D.md W3c, and the sprite-to-mesh generator is how.
  */
 
+/** Reused so the hot path allocates nothing. */
+const UP = new THREE.Vector3(0, 0, 1);
+
 /** How high off the road a body of this kind sits, and how big it is. */
 interface Body {
   /** Half-extents in world px: along, across, up. */
@@ -31,6 +42,28 @@ interface Body {
 const PED: Body = { size: [3, 3, 9], color: 0xc98f6a, outline: 1.1 };
 const COP: Body = { size: [3.2, 3.2, 9.5], color: 0x3f5c9a, outline: 1.1 };
 const PLAYER: Body = { size: [3.4, 3.4, 10], color: 0xd94b3a, outline: 1.3 };
+
+/** Body paint per vehicle kind. Civilian cars get a spread; services do not. */
+const PAINT: Record<string, number> = {
+  copcar: 0x2c4f9e,
+  copbike: 0x2c4f9e,
+  ambulance: 0xe4e7ea,
+  firetruck: 0xb8322a,
+  taxi: 0xe0b53a,
+  bus: 0x3f7f5a,
+  truck: 0x8a8f98,
+  garbage: 0x4b5540,
+  tank: 0x5c6349,
+  plane: 0xdfe3e8,
+  chopper: 0x37424f,
+  boat: 0xdadfe4,
+  limo: 0x1c1f24,
+  sports: 0xc4392c,
+  muscle: 0x8a3fa0,
+  van: 0xb9b3a4,
+  digger: 0xd8a12a,
+  icecream: 0xefd9c0,
+};
 
 /** A pool of instances of one body kind, grown on demand. */
 class Pool {
@@ -44,7 +77,11 @@ class Pool {
     body: Body,
     capacity: number,
   ) {
-    this.mesh = new THREE.InstancedMesh(geometry, toonMaterial(body.color), capacity);
+    // Vertex colours: the model carries its own paint (dark cabin, glass,
+    // black tyres) so the whole thing is one instanced draw.
+    const mat = toonMaterial(0xffffff);
+    mat.vertexColors = true;
+    this.mesh = new THREE.InstancedMesh(geometry, mat, capacity);
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     // Instances are placed every frame; without this three.js culls against a
@@ -100,10 +137,9 @@ export class EntityLayer {
 
   constructor(scene: THREE.Object3D) {
     scene.add(this.group);
-    const box = new THREE.BoxGeometry(1, 1, 1);
-    this.peds = new Pool(this.group, box, PED, 400);
-    this.cops = new Pool(this.group, box, COP, 96);
-    this.players = new Pool(this.group, box, PLAYER, 16);
+    this.peds = new Pool(this.group, personGeometry(0xc98f6a, 0x7d6a52, 0x33383f), PED, 400);
+    this.cops = new Pool(this.group, personGeometry(0xd0a184, 0x27407a, 0x1b2436), COP, 96);
+    this.players = new Pool(this.group, personGeometry(0xd8a184, 0xc4392c, 0x2b3038), PLAYER, 16);
     this.vehicleParent = this.group;
   }
 
@@ -116,12 +152,19 @@ export class EntityLayer {
       // with — see the note at the top of this file.
       const along = t?.halfLength ?? 8;
       const across = t?.halfWidth ?? 4;
-      const tall = kind === 'bus' || kind === 'truck' ? 14 : kind === 'tank' ? 10 : 8;
+      const paint = PAINT[kind] ?? 0x9aa4b2;
+      let geom: THREE.BufferGeometry;
+      if (kind === 'plane') geom = planeGeometry(along, across, paint);
+      else if (kind === 'chopper' || kind === 'copheli') geom = helicopterGeometry(along, across, paint);
+      else if (kind === 'boat') geom = boatGeometry(along, across, paint);
+      else if (kind === 'bus' || kind === 'truck' || kind === 'firetruck' || kind === 'garbage')
+        geom = boxVehicleGeometry(along, across, paint, 14);
+      else geom = carGeometry(along, across, paint);
       pool = new Pool(
         this.vehicleParent,
-        new THREE.BoxGeometry(along * 2, across * 2, tall),
-        { size: [along, across, tall], color: 0x9aa4b2, outline: 1.4 },
-        64,
+        geom,
+        { size: [along, across, 8], color: paint, outline: 1.4 },
+        kind === 'plane' || kind === 'chopper' ? 12 : 64,
       );
       this.vehicles.set(kind, pool);
     }
@@ -141,10 +184,13 @@ export class EntityLayer {
     this.players.begin();
     for (const pool of this.vehicles.values()) pool.begin();
 
-    const place = (pool: Pool, x: number, y: number, z: number, heading: number, body: Body): void => {
-      this.pos.set(x, y, z + body.size[2] / 2);
-      this.q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), heading);
-      this.scl.set(body.size[0] * 2, body.size[1] * 2, body.size[2]);
+    // Models are authored at world scale with their feet at z=0, so an
+    // instance is placed unscaled — scaling them here would stretch the
+    // outline hull along whichever axis was longer.
+    const place = (pool: Pool, x: number, y: number, z: number, heading: number): void => {
+      this.pos.set(x, y, z);
+      this.q.setFromAxisAngle(UP, heading);
+      this.scl.set(1, 1, 1);
       this.m.compose(this.pos, this.q, this.scl);
       pool.put(this.m);
     };
@@ -154,7 +200,7 @@ export class EntityLayer {
     // rather than added to the wire, because a facing that can be computed
     // from something already sent is not worth a byte per entity per tick.
     for (const p of world.peds) {
-      place(this.peds, p.x, p.y, 0, Math.atan2(p.ped.dirY, p.ped.dirX), PED);
+      place(this.peds, p.x, p.y, 0, Math.atan2(p.ped.dirY, p.ped.dirX));
     }
     for (const c of world.cops) {
       const { x: vx, y: vy } = c.cop.vel;
@@ -162,19 +208,19 @@ export class EntityLayer {
       // snapping to east, which is what atan2(0, 0) would give.
       const heading = vx === 0 && vy === 0 ? (this.copFacing.get(c.cop.id) ?? 0) : Math.atan2(vy, vx);
       this.copFacing.set(c.cop.id, heading);
-      place(this.cops, c.x, c.y, 0, heading, COP);
+      place(this.cops, c.x, c.y, 0, heading);
     }
     for (const pl of world.players) {
       if (pl.player.id === localPlayerId) continue;
-      place(this.players, pl.x, pl.y, pl.player.z ?? 0, pl.player.aimAngle ?? 0, PLAYER);
+      place(this.players, pl.x, pl.y, pl.player.z ?? 0, pl.player.aimAngle ?? 0);
     }
     for (const v of world.vehicles) {
       const pool = this.vehiclePool(v.vehicle.kind);
       // Vehicle boxes carry their own geometry size, so the instance is
       // placed unscaled: composing with a unit scale keeps the outline hull's
       // thickness even instead of stretching it along the longer axis.
-      this.pos.set(v.x, v.y, (v.vehicle.z ?? 0) + 4);
-      this.q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), v.heading);
+      this.pos.set(v.x, v.y, v.vehicle.z ?? 0);
+      this.q.setFromAxisAngle(UP, v.heading);
       this.scl.set(1, 1, 1);
       this.m.compose(this.pos, this.q, this.scl);
       pool.put(this.m);
@@ -190,9 +236,9 @@ export class EntityLayer {
   placeLocal(x: number, y: number, z: number, heading: number): void {
     this.players.put(
       this.m.compose(
-        this.pos.set(x, y, z + PLAYER.size[2] / 2),
-        this.q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), heading),
-        this.scl.set(PLAYER.size[0] * 2, PLAYER.size[1] * 2, PLAYER.size[2]),
+        this.pos.set(x, y, z),
+        this.q.setFromAxisAngle(UP, heading),
+        this.scl.set(1, 1, 1),
       ),
     );
   }
