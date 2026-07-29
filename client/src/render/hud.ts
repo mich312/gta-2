@@ -1,5 +1,5 @@
 import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } from 'shared';
-import { DEPOT_ROWS } from 'shared';
+import { DEPOT_ROWS, getTuning } from 'shared';
 import { viewport } from './viewport.js';
 import {
   PART_HEADLIGHT_L,
@@ -573,11 +573,29 @@ export class Hud {
       ctx.textAlign = 'left';
     }
 
-    // Wanted stars.
+    // Wanted stars, and — the half that makes a chase a game rather than a
+    // countdown to death — whether you are currently getting away with it.
+    //
+    // The stars dim and a clock appears the moment nobody official has eyes
+    // on you, and it counts down to the point where the heat starts coming
+    // off. Without it the escape is invisible: the player has no way to tell
+    // "they have lost me, keep going" from "they are about to come round that
+    // corner", and a mechanic nobody can perceive is not a mechanic. See
+    // GTA.md P1b.
     if (me.wantedLevel > 0) {
-      ctx.fillStyle = '#f0c040';
+      const cool = getTuning().police.wantedCooldownTicks;
+      const hidden = me.unseenTicks > 0;
+      const clear = me.unseenTicks >= cool;
       ctx.textAlign = 'center';
+      // Bright while they can see you, dim while they cannot, and green once
+      // the heat is actually draining.
+      ctx.fillStyle = clear ? '#8fd88f' : hidden ? '#8a7a3c' : '#f0c040';
       ctx.fillText('★'.repeat(me.wantedLevel), viewport.w / 2, 10);
+      if (hidden) {
+        const left = Math.max(0, Math.ceil((cool - me.unseenTicks) / TICK_RATE));
+        ctx.fillStyle = clear ? '#8fd88f' : '#cfcfcf';
+        ctx.fillText(clear ? 'losing them' : `hidden ${left}`, viewport.w / 2, 19);
+      }
       ctx.textAlign = 'left';
     }
 

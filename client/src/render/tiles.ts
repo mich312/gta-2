@@ -13,6 +13,7 @@ import {
   T_BANK,
   T_TREES,
   T_SAND,
+  T_RUNWAY,
   T_RAMP,
   T_FLOOR,
   TILE_SIZE,
@@ -382,6 +383,9 @@ export class TileLayer {
         break;
       case T_SAND:
         this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
+        break;
+      case T_RUNWAY:
+        this.paintRunway(ctx, tx, ty, x, y);
         break;
       case T_BRIDGE:
         this.paintBridge(ctx, tx, ty, x, y);
@@ -833,6 +837,41 @@ export class TileLayer {
         y + TD * (0.3 + hash2(tx, ty, 73) * 0.4),
         0,
       );
+    }
+  }
+
+  /**
+   * Runway: darker than a lot, with a dashed centreline down its long axis.
+   *
+   * The markings are what say "you can take off from here" without a HUD
+   * prompt, and they are cheap: the ground is baked into chunk canvases once,
+   * so paint on it is free forever after.
+   */
+  private paintRunway(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    ctx.fillStyle = palette.runway;
+    ctx.fillRect(x, y, TD, TD);
+    // Speckle, so a long strip of it does not read as a printed rectangle.
+    const n = hash2(tx, ty, 0x51f7);
+    if (n > 0.72) {
+      ctx.fillStyle = palette.runwayLight;
+      ctx.fillRect(x + (n * 9 % 9) * RENDER_SCALE, y + (n * 13 % 11) * RENDER_SCALE, 2 * RENDER_SCALE, 2 * RENDER_SCALE);
+    }
+    // The centreline runs east-west, matching how the strip is stamped. Every
+    // other tile, so it dashes.
+    const map = this.map;
+    if (!map) return;
+    const above = ty > 0 ? map.tiles[(ty - 1) * map.widthTiles + tx] : -1;
+    const below = ty + 1 < map.heightTiles ? map.tiles[(ty + 1) * map.widthTiles + tx] : -1;
+    const mid = above === T_RUNWAY && below === T_RUNWAY;
+    if (mid && tx % 2 === 0) {
+      ctx.fillStyle = palette.runwayLine;
+      ctx.fillRect(x, y + TD / 2 - RENDER_SCALE, TD, 2 * RENDER_SCALE);
     }
   }
 

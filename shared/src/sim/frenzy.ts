@@ -5,6 +5,7 @@ import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { GameState } from './state.js';
 import type { SimEvent } from './events.js';
 import { damageVehicle } from './vehicleDamage.js';
+import { applyDamage } from './weapons.js';
 import { T_RAMP, TILE_SIZE, type CityMap } from '../world/types.js';
 
 /**
@@ -27,6 +28,17 @@ const RAMP_LAUNCH = 0.62;
  * and only a real flight bends anything.
  */
 const LANDING_SAFE_VZ = 90;
+/**
+ * How hard a PERSON can hit the ground for free, and what it costs past it.
+ *
+ * Lower than a car's, because a car has suspension and a person has ankles.
+ * At the shipped `chopper.cruiseZ` of 48 a bail-out lands at about 294 px/s,
+ * which costs roughly two thirds of a full-health player — survivable, and
+ * never something you would choose over landing the thing.
+ */
+const FALL_SAFE_VZ = 150;
+const FALL_DAMAGE_PER_VZ = 0.45;
+const FALL_STUN_TICKS = 20;
 /** Damage per px/s of descent above that, before the car's mass divides it. */
 const LANDING_DAMAGE_PER_VZ = 0.5;
 
@@ -89,8 +101,41 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
     const p = state.players.byId[pid];
     if (!p) continue;
 
-    // Only a driver can be airborne; anyone on foot is pinned to the ground.
+    // On foot, in the air: falling.
+    //
+    // This used to pin anybody not driving to the ground, which was right
+    // while the only way up was a ramp — you cannot ramp on foot. An
+    // aircraft changed that: step out of a helicopter at cruise height and
+    // you are eight storeys up with nothing under you. The fall is its own
+    // small physics, deliberately not the vehicle's: no `airDist`, no stunt
+    // event, no bonus. You went up in something and left it; that is not a
+    // jump, it is a mistake with a landing.
     if (p.mode !== 'driving' || p.vehicleId === null) {
+      if (p.z > 0 || p.vz > 0) {
+        p.vz = q8(p.vz - GRAVITY * DT);
+        p.z = q8(p.z + p.vz * DT);
+        if (p.z <= 0) {
+          const impact = -p.vz;
+          p.z = 0;
+          p.vz = 0;
+          p.airDist = 0;
+          if (impact > FALL_SAFE_VZ) {
+            // A moment on the floor as well as the blood: the same shape as
+            // bailing out of a moving car, and for the same reason — the
+            // cheap exit has to cost something or it is the only exit.
+            p.fireCooldown = Math.max(p.fireCooldown, FALL_STUN_TICKS);
+            applyDamage(
+              state,
+              p,
+              (impact - FALL_SAFE_VZ) * FALL_DAMAGE_PER_VZ,
+              p.id,
+              'fall',
+              events,
+            );
+          }
+        }
+        continue;
+      }
       if (p.z !== 0 || p.vz !== 0) {
         p.z = 0;
         p.vz = 0;

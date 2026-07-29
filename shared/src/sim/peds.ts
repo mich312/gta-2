@@ -443,6 +443,15 @@ export function damagePed(
   damage: number,
   attackerId: number,
   events: SimEvent[],
+  /**
+   * Under the wheels rather than shot. It is a lesser crime, and it has to
+   * be, because driving is the game's main verb and the city is full of
+   * people: at a flat 80 heat a kill, running over two pedestrians you never
+   * saw was most of a star, four was three stars, and the wanted ladder
+   * became something you climbed by accident on the way somewhere. See
+   * GTA.md P2d.
+   */
+  byCar = false,
 ): void {
   // A body is a body. Shooting one again is desecration, not a second kill.
   if (ped.mode === 'dead') return;
@@ -489,7 +498,7 @@ export function damagePed(
     );
   }
   const attacker = state.players.byId[attackerId];
-  if (attacker) addHeat(attacker, t.heatPerPedKill);
+  if (attacker) addHeat(attacker, byCar ? t.heatPerRoadKill : t.heatPerPedKill);
   // Killing somebody's people is the loudest thing you can say to a gang,
   // and their rivals are listening.
   if (ped.gangId !== 0) creditGangKill(state, attackerId, ped.gangId, events);

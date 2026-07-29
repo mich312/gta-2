@@ -9,10 +9,12 @@
     "bots": "pnpm build && node server/dist/bots/harness.js",
     "replay": "pnpm build && node server/dist/replay/run.js",
     "mapgen": "pnpm build && node server/dist/tools/mapgen.js",
+    "chase": "pnpm build && node server/dist/tools/chase.js",
     "sprites": "pnpm build && node server/dist/tools/sprites.js",
     "test": "vitest run"
   },
   "devDependencies": {
+    "playwright": "^1.62.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0"
   }

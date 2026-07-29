@@ -1,12 +1,12 @@
 {
-  "copsPerStar": 2,
-  "maxCopsPerPlayer": 10,
+  "copsPerStar": 1,
+  "maxCopsPerPlayer": 7,
   "maxCopsTotal": 24,
   "spawnCooldownTicks": 18,
   "copHealth": 50,
   "moveSpeed": 73,
   "sightRange": 260,
-  "fireRange": 190,
+  "fireRange": 175,
   "weapon": "copPistol",
   "spawnMinDist": 260,
   "spawnMaxDist": 640,
@@ -18,6 +18,13 @@
   "heatPerOccupiedVehicleKill": 70,
   "heatPerCopKill": 120,
   "heatDecayPerSec": 5,
+  "wantedCooldownTicks": 90,
+  "heatDecayRamp": 0.1,
+  "heatDecayMax": 26,
+  "searchGiveUpTicks": 240,
+  "searchArriveDist": 40,
+  "searchWanderTicks": 30,
+  "carSearchSpeedScale": 1.4,
   "despawnTicks": 450,
   "carsFromStar": 3,
   "roadblocksFromStar": 4,
@@ -27,36 +34,192 @@
   "roadblockAheadDist": 420,
   "sprayCost": 400,
   "bustRadius": 22,
-  "bustSpeedMax": 40,
+  "bustSpeedMax": 55,
   "tiers": [
     "patrol",
     "patrol",
     "patrol",
     "swat",
-    "fed",
+    "army",
     "army"
   ],
   "kinds": {
     "patrol": {
       "health": 50,
       "weapon": "copPistol",
-      "moveSpeed": 73
+      "moveSpeed": 73,
+      "preferredRange": 0,
+      "burstCount": 3,
+      "burstPauseTicks": 22,
+      "frontalDamage": 1
     },
     "swat": {
       "health": 90,
       "weapon": "copShotgun",
-      "moveSpeed": 79
+      "moveSpeed": 79,
+      "preferredRange": 0,
+      "burstCount": 2,
+      "burstPauseTicks": 26,
+      "frontalDamage": 0.6
     },
     "fed": {
       "health": 120,
       "weapon": "copSmg",
-      "moveSpeed": 88
+      "moveSpeed": 88,
+      "preferredRange": 130,
+      "burstCount": 5,
+      "burstPauseTicks": 30,
+      "frontalDamage": 1
     },
     "army": {
       "health": 220,
       "weapon": "copRifle",
-      "moveSpeed": 77
+      "moveSpeed": 77,
+      "preferredRange": 150,
+      "burstCount": 3,
+      "burstPauseTicks": 34,
+      "frontalDamage": 0.75
+    },
+    "heli": {
+      "health": 260,
+      "weapon": "copPistol",
+      "moveSpeed": 150,
+      "preferredRange": 90,
+      "burstCount": 3,
+      "burstPauseTicks": 40,
+      "frontalDamage": 1,
+      "flies": true,
+      "sightRange": 520,
+      "searchlight": 150
+    },
+    "gunship": {
+      "health": 300,
+      "weapon": "copRifle",
+      "moveSpeed": 158,
+      "preferredRange": 110,
+      "burstCount": 4,
+      "burstPauseTicks": 34,
+      "frontalDamage": 1,
+      "flies": true,
+      "sightRange": 560,
+      "searchlight": 170
     }
   },
-  "dismountDist": 150
+  "dismountDist": 150,
+  "rangeSpread": 1.6,
+  "speedSpread": 1.4,
+  "spreadReferenceSpeed": 200,
+  "presets": {
+    "relaxed": {
+      "copsPerStar": 1,
+      "maxCopsPerPlayer": 5,
+      "maxCopsTotal": 16,
+      "wantedCooldownTicks": 60,
+      "heatDecayRamp": 0.16,
+      "searchGiveUpTicks": 150,
+      "rangeSpread": 2.2,
+      "speedSpread": 2.0,
+      "roadblocksFromStar": 5,
+      "wavePeriodTicks": 420
+    },
+    "normal": {},
+    "hard": {
+      "copsPerStar": 2,
+      "maxCopsPerPlayer": 10,
+      "maxCopsTotal": 28,
+      "wantedCooldownTicks": 150,
+      "heatDecayRamp": 0.06,
+      "searchGiveUpTicks": 420,
+      "rangeSpread": 0.9,
+      "speedSpread": 0.7,
+      "carsFromStar": 2,
+      "roadblocksFromStar": 3,
+      "wavePeriodTicks": 240
+    }
+  },
+  "waves": {
+    "1": [
+      {
+        "kind": "patrol",
+        "count": 1,
+        "vehicle": null
+      }
+    ],
+    "2": [
+      {
+        "kind": "patrol",
+        "count": 2,
+        "vehicle": null
+      }
+    ],
+    "3": [
+      {
+        "kind": "patrol",
+        "count": 2,
+        "vehicle": "copcar"
+      }
+    ],
+    "4": [
+      {
+        "kind": "swat",
+        "count": 2,
+        "vehicle": "copcar"
+      },
+      {
+        "kind": "patrol",
+        "count": 1,
+        "vehicle": "copcar"
+      },
+      {
+        "kind": "heli",
+        "count": 1,
+        "vehicle": null
+      }
+    ],
+    "5": [
+      {
+        "kind": "army",
+        "count": 2,
+        "vehicle": "tank"
+      },
+      {
+        "kind": "fed",
+        "count": 2,
+        "vehicle": "copcar"
+      },
+      {
+        "kind": "heli",
+        "count": 1,
+        "vehicle": null
+      }
+    ],
+    "6": [
+      {
+        "kind": "army",
+        "count": 3,
+        "vehicle": "tank"
+      },
+      {
+        "kind": "fed",
+        "count": 2,
+        "vehicle": "copcar"
+      },
+      {
+        "kind": "gunship",
+        "count": 1,
+        "vehicle": null
+      }
+    ]
+  },
+  "wavePeriodTicks": 330,
+  "waveSpreadPx": 260,
+  "roadblockVehicle": {
+    "4": "copcar",
+    "5": "tank",
+    "6": "tank"
+  },
+  "vehicleCaps": {
+    "copcar": 6,
+    "tank": 3
+  }
 }

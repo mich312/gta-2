@@ -71,6 +71,28 @@ const GANG_TINT: Record<number, string> = {
  * Anything with a sprite of its own uses it; the generic car is the only kind
  * that comes in colours, so it is the only one that varies by id.
  */
+/**
+ * Vehicle kinds whose sprite carries the ten-colour `body` variant axis.
+ * Mirrors the `variants` blocks in shared/data/sprites.json; the sprite test
+ * is what keeps the two honest.
+ */
+const PAINTED_KINDS = new Set([
+  'car',
+  'coupe',
+  'estate',
+  'pickup',
+  'sports',
+  'hatch',
+  'muscle',
+  // The two-wheelers came in colours too, and were left off this list on the
+  // first pass — so both drew as the fallback rectangle, which the vehicle
+  // contact sheet showed as a solid red block the moment it existed.
+  'moto',
+  'bicycle',
+  'plane',
+  'chopper',
+]);
+
 export function vehicleSpriteName(kind: string, id: number, gangId = 0): string {
   // A gang car wears its gang's colours, not a colour off the rank: the whole
   // reason it exists is that you can tell whose street you are on by what is
@@ -80,7 +102,11 @@ export function vehicleSpriteName(kind: string, id: number, gangId = 0): string 
   // gang, and minting three more near-identical car sprites would cost sheet
   // space to say something already said three ways.
   if (kind === 'gangcar') return `gangcar_v${Math.max(0, gangId - 1) % 4}`;
-  return kind === 'car' ? `car_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+  // Every civilian body comes in the same ten colours, so the suffix rule is
+  // a property of the SET rather than of one kind. It used to test
+  // `kind === 'car'`, which silently drew each new body in variant-less form
+  // — that is, not at all, since no such frame exists.
+  return PAINTED_KINDS.has(kind) ? `${kind}_v${Math.abs(id) % CAR_VARIANTS}` : kind;
 }
 
 /**
@@ -99,6 +125,40 @@ function aimOf(scene: Scene, driverId: number | null): number | null {
   return null;
 }
 
+/**
+ * Cop kinds that fly. Mirrors the `flies` flag in police.json — the sim owns
+ * the behaviour, this owns which of them go above the street rather than in
+ * it, and the police test is what keeps the two in step.
+ */
+const AIR_KINDS = new Set(['heli', 'gunship']);
+
+/**
+ * How far above the street a helicopter sits, in world px.
+ *
+ * Drawn as a lift on the sprite with the shadow left on the ground: the GAP
+ * between the two is the whole of what says "that is in the air", exactly as
+ * it does for a car mid-stunt-jump.
+ */
+const AIR_HEIGHT = 26;
+
+/**
+ * The sprite to sit on a two-wheeler, for whoever is at the bars.
+ *
+ * Null for an empty bike, and null for anything with a roof — `drawVehicle`
+ * ignores it unless the vehicle has a `riderOffset`. A ped-ridden bike in
+ * traffic has no player driver, so it falls back to a pedestrian: an empty
+ * motorcycle travelling at 60 px/s is a worse bug than a generic rider.
+ */
+function riderSprite(scene: Scene, driverId: number | null): string | null {
+  if (driverId === null) return null;
+  if (driverId < 0) return 'ped_v0_f0'; // an AI driver: somebody, at least
+  const local = scene.local && scene.local.id === driverId ? scene.local : null;
+  const remote = local ? null : scene.remotes.players.find((r) => r.player.id === driverId);
+  const who = local ?? remote?.player;
+  if (!who) return 'ped_v0_f0';
+  return `player_v${Math.abs(who.cosmeticId) % PLAYER_VARIANTS}_f0`;
+}
+
 /** Uniform per force, so what is chasing you is legible at a glance. */
 const COP_TINT: Record<string, string> = {
   patrol: '#3a5fb0',
@@ -107,11 +167,27 @@ const COP_TINT: Record<string, string> = {
   army: '#4a5334',
 };
 
+/**
+ * The sprite each tier turns out in.
+ *
+ * A tier used to be the patrol figure under a different tint, which reads at
+ * a glance as "that officer is standing in a different light" rather than as
+ * "that is a different force". They are built off the same anatomy on
+ * purpose, so the four still read as the same species — a helmet and a visor,
+ * a long coat, webbing and a rifle. See GTA.md P3b.
+ */
+const COP_SPRITE: Record<string, string> = {
+  patrol: 'cop',
+  swat: 'copSwat',
+  fed: 'copFed',
+  army: 'copArmy',
+};
+
 /** World px a walking entity covers per animation frame. */
 const STRIDE = 7;
 /** Sprite variant counts, mirroring shared/data/sprites.json. */
-const PLAYER_VARIANTS = 4;
-const PED_VARIANTS = 6;
+export const PLAYER_VARIANTS = 4;
+export const PED_VARIANTS = 6;
 const CAR_VARIANTS = 10;
 const WALK_FRAMES = 4;
 
@@ -430,7 +506,11 @@ export function render(
       // `timer` counts DOWN from the clock they are on, so what is left of it
       // is what says how long they have been there.
       const full = (dying ? getTuning().peds.bleedOutSec : getTuning().peds.corpseSec) * TICK_RATE;
-      drawBody(ctx, sprites, `ped_v${variant}_f0`, dx(pd.x), dy(pd.y), facing, tint, pd.x, pd.y, {
+      // Curled if they are still in there, sprawled if they are not — and
+      // which sprawl is hashed off the id, so the same body keeps the same
+      // pose on every client and for as long as it lies there.
+      const pose = dying ? 'Downed' : `Dead${deadPose(pd.ped.id)}`;
+      drawBody(ctx, sprites, `ped${pose}_v${variant}`, dx(pd.x), dy(pd.y), facing, tint, pd.x, pd.y, {
         alive: dying,
         ageSec: Math.max(0, full - pd.ped.timer) / TICK_RATE,
         nowMs: scene.nowMs,
@@ -481,8 +561,15 @@ export function render(
     ctx.fill();
   }
 
+  // Air units are drawn LAST, after everything on the ground, so a
+  // helicopter passes over the street rather than behind a lamp post.
+  const airborne: typeof scene.remotes.cops = [];
   for (const c of scene.remotes.cops) {
     const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
+    if (c.cop.health > 0 && AIR_KINDS.has(c.cop.kind)) {
+      airborne.push(c);
+      continue;
+    }
     // The uniform says which force you have brought down on yourself. Police
     // blue, SWAT charcoal, federal navy, army olive — you should be able to
     // tell what is chasing you without reading the star count.
@@ -491,7 +578,7 @@ export function render(
     // `idleTicks` counts UP from the moment they went down, which is exactly
     // the age the blood wants.
     if (c.cop.health <= 0) {
-      drawBody(ctx, sprites, 'cop_f0', dx(c.x), dy(c.y), angle, tint, c.x, c.y, {
+      drawBody(ctx, sprites, 'copDead', dx(c.x), dy(c.y), angle, tint, c.x, c.y, {
         alive: false,
         ageSec: c.cop.idleTicks / TICK_RATE,
         nowMs: scene.nowMs,
@@ -502,7 +589,8 @@ export function render(
       continue;
     }
     const frame = walkFrame(`c${c.cop.id}`, c.x, c.y);
-    drawCharacter(ctx, sprites, `cop_f${frame}`, dx(c.x), dy(c.y), angle, tint);
+    const base = COP_SPRITE[c.cop.kind] ?? 'cop';
+    drawCharacter(ctx, sprites, `${base}_f${frame}`, dx(c.x), dy(c.y), angle, tint);
   }
   for (const r of scene.remotes.players) {
     const key = `p${r.player.id}`;
@@ -569,12 +657,15 @@ export function render(
       dx,
       dy,
       scene.nowMs,
-      0,
+      // Altitude comes off the wire now: an aircraft is over the city, and
+      // everybody watching it needs to see that, not just its pilot.
+      rv.vehicle.z,
       rv.vehicle.gangId,
       // A turret points where its driver is aiming, and the driver's aim is
       // already interpolated for their body, so the barrel is exactly as
       // smooth as everything else on screen.
       aimOf(scene, rv.vehicle.driverId),
+      riderSprite(scene, rv.vehicle.driverId),
     );
   }
   if (scene.localVehicle) {
@@ -603,7 +694,32 @@ export function render(
       // Your own turret comes off your own smoothed aim, not off the wire, so
       // it answers the mouse on the frame you move it.
       scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
+      riderSprite(scene, scene.local?.vehicleId === null ? null : (scene.local?.id ?? null)),
     );
+  }
+
+  // Air support, over the top of the whole street.
+  //
+  // A helicopter is a COP in the sim — same table, same targeting, same
+  // corpse timer — and the only thing the renderer has to know is that it is
+  // not standing on the ground. The lift plus a shadow left where the shadow
+  // belongs is what sells it, the same trick a car mid-stunt-jump uses.
+  for (const c of airborne) {
+    const angle = Math.atan2(c.cop.vel.y, c.cop.vel.x);
+    const sx = dx(c.x);
+    const sy = dy(c.y);
+    const lift = AIR_HEIGHT * RENDER_SCALE;
+    const fp = sprites.footprint(c.cop.kind);
+    drawShadow(ctx, sx, sy, fp.rx * 0.5, fp.ry * 0.5, AIR_HEIGHT);
+    // The searchlight: a cone under the aircraft, pointed the way it is
+    // going. It is the reason the thing is frightening rather than merely
+    // present — you can see exactly what it can see.
+    const beam = getTuning().police.kinds[c.cop.kind]?.searchlight ?? 0;
+    if (beam > 0) {
+      lights.point(sx, sy, beam * RENDER_SCALE * 0.55, 'shop', 0.5, 'none');
+      lights.cone(sx, sy, angle, beam * RENDER_SCALE, 'head', 0.42, 'none');
+    }
+    sprites.draw(ctx, c.cop.kind, sx, sy - lift, angle);
   }
 
   effects.drawParticles(ctx, originX, originY, lights);
@@ -988,7 +1104,7 @@ function drawPickups(
   }
 }
 
-function drawCharacter(
+export function drawCharacter(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   name: string,
@@ -1007,20 +1123,40 @@ function drawCharacter(
 /**
  * The shape of somebody lying on the floor.
  *
- * A body used to be the standing sprite squashed along the SCREEN's vertical
- * axis, which is wrong in a way that is obvious once said out loud: which way
- * the screen happens to be pointing has nothing to do with which way they
- * fell. A body that went down facing east was squeezed across its own waist
- * and just looked like a smaller person standing up.
+ * There are three of these now and they are drawn, not derived. What they
+ * replaced was the STANDING sprite scaled 1.5x along the axis it fell and
+ * 0.82x across — a trick that got the silhouette roughly right and everything
+ * else wrong. A standing figure seen from above is a head, two shoulders and
+ * the tops of two feet; stretching that gives you a stretched head and
+ * stretched shoulders, which reads as a person standing slightly further
+ * away. Somebody on the ground is a different drawing: you are looking down
+ * their whole length, their arms are out, their legs are splayed, and their
+ * face is either in the tarmac or at the sky.
  *
- * From above, a standing person is a compact blob — head, shoulders, the tops
- * of the feet. Somebody on the ground is the same person seen along their
- * whole length: half again as long head-to-toe, and a little narrower across,
- * lying down the axis they fell along. So the stretch is applied in the body's
- * own frame, not the screen's.
+ * Which pose a given body takes is hashed off its id, so it is the same body
+ * on every client and stays the same for as long as it lies there.
+ *
+ * The `downed` pose — curled on one side, one arm across the chest — is the
+ * one that earns its keep twice over. A casualty on the bleed-out clock has
+ * an ambulance coming and is worth something to whoever reaches them; a
+ * corpse is not. That difference used to be carried entirely by an alpha
+ * value and a slightly warmer colour, which is to say by nothing you would
+ * notice from across a street.
  */
-const BODY_LONG = 1.5;
-const BODY_WIDE = 0.82;
+const DEAD_POSES = 2;
+
+/**
+ * Which sprawl a given body takes: stable per entity, same on every client.
+ *
+ * Through the proper mixer, not `id * someLargePrime % 2`. That was the first
+ * version and it always returned the same pose, because multiplying by an odd
+ * number preserves parity — every even id took pose A and every odd id took
+ * pose B, and any id sequence with a stride of 2 (which is most of them, ids
+ * being handed out in runs) took one pose for ever. A test caught it.
+ */
+export function deadPose(id: number): string {
+  return String.fromCharCode(65 + Math.floor(hash2(id, 0, 0xb0d1) * DEAD_POSES) % DEAD_POSES);
+}
 
 /** Seconds a fresh body keeps bleeding out onto the ground. */
 const BLEED_SEC = 4.5;
@@ -1067,7 +1203,7 @@ interface BodyOptions {
   effects: Effects;
 }
 
-function drawBody(
+export function drawBody(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   name: string,
@@ -1129,19 +1265,17 @@ function drawBody(
   }
   ctx.restore();
 
-  // The body. Stretched along the axis it fell down and narrowed across it —
-  // in the body's frame, then unrotated so the sprite keeps its own baked
-  // rotation rather than being rotated twice.
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  ctx.scale(BODY_LONG, BODY_WIDE);
-  ctx.rotate(-angle);
-  if (!sprites.draw(ctx, name, 0, 0, angle)) {
+  // The body: a plain baked blit at the angle they came to rest along, like
+  // every other sprite in the game. No transform, no scale — the drawing
+  // already IS a person on the ground.
+  if (!sprites.draw(ctx, name, x, y, angle)) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
     ctx.fillStyle = fallback;
-    ctx.fillRect(-r, -r, r * 2, r * 2);
+    ctx.fillRect(-r * 1.5, -r * 0.8, r * 3, r * 1.6);
+    ctx.restore();
   }
-  ctx.restore();
 
   ctx.save();
   ctx.translate(x, y);
@@ -1168,7 +1302,7 @@ function drawBody(
   ctx.restore();
 }
 
-function drawPlayer(
+export function drawPlayer(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   p: PlayerState,
@@ -1192,7 +1326,7 @@ function drawPlayer(
   if (p.mode === 'dead' && effects) {
     // The respawn clock counts down, so what has elapsed of it is the age.
     const left = p.respawnAtTick === null ? 0 : p.respawnAtTick - tick;
-    drawBody(ctx, sprites, `player_v${variant}_f0`, x, y, aim, fallback, wx, wy, {
+    drawBody(ctx, sprites, `playerDead${deadPose(p.id)}_v${variant}`, x, y, aim, fallback, wx, wy, {
       alive: false,
       ageSec: Math.max(0, RESPAWN_DELAY_TICKS - left) / TICK_RATE,
       nowMs,
@@ -1213,7 +1347,17 @@ function drawPlayer(
     : melee
       ? `playerFist_v${variant}_f${frame}`
       : `player_v${variant}_f${frame}`;
-  drawCharacter(ctx, sprites, name, x, y, aim, fallback);
+  // Off the ground: bailing out of an aircraft is a real fall in the sim, and
+  // without this it read as standing still for a quarter of a second and then
+  // bleeding for no reason. Same lift-and-shadow trick as an air unit, at the
+  // player's own `z` — which the snapshot already carries, so a remote player
+  // falls in your window too.
+  let by = y;
+  if (p.z > 0) {
+    drawShadow(ctx, x, y, PLAYER_RADIUS * RENDER_SCALE, PLAYER_RADIUS * 0.6 * RENDER_SCALE, p.z);
+    by -= p.z * RENDER_SCALE;
+  }
+  drawCharacter(ctx, sprites, name, x, by, aim, fallback);
 
   // A short aim tick keeps the firing line legible when the sprite's own
   // weapon is only a few pixels long.
@@ -1222,8 +1366,8 @@ function drawPlayer(
   ctx.beginPath();
   const inner = (PLAYER_RADIUS + 3) * RENDER_SCALE;
   const outer = (PLAYER_RADIUS + 8) * RENDER_SCALE;
-  ctx.moveTo(x + Math.cos(aim) * inner, y + Math.sin(aim) * inner);
-  ctx.lineTo(x + Math.cos(aim) * outer, y + Math.sin(aim) * outer);
+  ctx.moveTo(x + Math.cos(aim) * inner, by + Math.sin(aim) * inner);
+  ctx.lineTo(x + Math.cos(aim) * outer, by + Math.sin(aim) * outer);
   ctx.stroke();
   ctx.lineWidth = 1;
 }
@@ -1392,6 +1536,12 @@ export function drawVehicle(
   gangId = 0,
   /** Where the turret points, or null on anything without one. */
   turret: number | null = null,
+  /**
+   * Who is riding it, on a two-wheeler: the sprite to composite at the
+   * saddle, or null. On anything with a roof the driver is inside and
+   * invisible, which is why this is a parameter rather than a lookup.
+   */
+  rider: string | null = null,
 ): void {
   // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
   // the ground where it belongs. The gap between the two is what sells it.
@@ -1415,6 +1565,18 @@ export function drawVehicle(
     const tx = dx(wx + Math.cos(heading) * off);
     const ty = dy(wy + Math.sin(heading) * off) - lift;
     sprites.draw(ctx, `${name}_turret`, tx, ty, condition === 'wreck' ? heading : (turret ?? heading));
+  };
+
+  // The rider sits ON a bike rather than inside it, which is the whole
+  // reason a motorcycle reads as a motorcycle from above. Same mechanism as
+  // the turret — a second sprite pivoted at an offset along the hull — but
+  // this one turns WITH the body, because a rider faces where the bike goes.
+  const seat = getVehicleTuning(kind).riderOffset;
+  const drawRider = (): void => {
+    if (seat === null || rider === null || condition !== 'ok') return;
+    const rx = dx(wx + Math.cos(heading) * seat);
+    const ry = dy(wy + Math.sin(heading) * seat) - lift;
+    sprites.draw(ctx, rider, rx, ry, heading);
   };
 
   // A wreck is drawn dark and never lit; a burning car throws its own light
@@ -1452,6 +1614,7 @@ export function drawVehicle(
   // tracks should not be painted across the gun.
   drawBodyDamage(ctx, id, x, y, heading, fp, zones, broken, maxHealth, wear);
   drawTurret();
+  drawRider();
 
   // Smoke before fire. This is the warning the burn fuse never gave: a car
   // showing grey off the bonnet is one you should think about swapping, and

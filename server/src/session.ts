@@ -182,12 +182,12 @@ export class Session {
     const spots = this.map.parkingSpots;
     const parkStride = Math.max(1, Math.floor(spots.length / MAX_VEHICLES));
     const spawns = spots.filter((_, i) => i % parkStride === 0).slice(0, MAX_VEHICLES);
-    // The tank never survives a stride that samples one spot in six, and it
-    // is the one piece of parked stock that is a destination rather than
-    // scenery — so it is added back explicitly.
-    for (const s of spots) {
-      if (s.kind === 'tank' && !spawns.includes(s)) spawns.push(s);
-    }
+    // Homes are spawned in FULL, on top of the sampled parking. They are the
+    // answer to "where do I find a fire engine", so a stride that keeps one
+    // spot in six would make them a lottery again — which is exactly what
+    // used to happen to the tank, and why it had a special case here. That
+    // case is now the general rule: see `placeVehicleHomes`.
+    spawns.push(...this.map.vehicleHomes);
     for (const s of spawns) {
       this.pendingCommands.push({
         type: 'spawnVehicle',

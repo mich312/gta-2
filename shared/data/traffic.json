@@ -39,47 +39,79 @@
   "mix": [
     {
       "kind": "car",
-      "weight": 50
+      "weight": 14
     },
     {
-      "kind": "taxi",
-      "weight": 11
+      "kind": "hatch",
+      "weight": 13
     },
     {
-      "kind": "van",
+      "kind": "coupe",
       "weight": 10
     },
     {
-      "kind": "truck",
+      "kind": "estate",
+      "weight": 9
+    },
+    {
+      "kind": "sports",
+      "weight": 6
+    },
+    {
+      "kind": "muscle",
+      "weight": 6
+    },
+    {
+      "kind": "pickup",
+      "weight": 8
+    },
+    {
+      "kind": "taxi",
+      "weight": 9
+    },
+    {
+      "kind": "van",
       "weight": 7
     },
     {
-      "kind": "bus",
+      "kind": "truck",
       "weight": 5
     },
     {
-      "kind": "ambulance",
-      "weight": 4
-    },
-    {
-      "kind": "firetruck",
+      "kind": "bus",
       "weight": 3
     },
     {
       "kind": "garbage",
-      "weight": 4
+      "weight": 2
     },
     {
       "kind": "limo",
-      "weight": 3
+      "weight": 2
+    },
+    {
+      "kind": "ambulance",
+      "weight": 1
+    },
+    {
+      "kind": "firetruck",
+      "weight": 1
     },
     {
       "kind": "icecream",
-      "weight": 2
+      "weight": 1
     },
     {
       "kind": "digger",
       "weight": 1
+    },
+    {
+      "kind": "moto",
+      "weight": 5
+    },
+    {
+      "kind": "bicycle",
+      "weight": 4
     }
   ]
 }

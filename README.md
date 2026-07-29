@@ -51,6 +51,7 @@ the art on whole pixels.
 | `ROAM` | `1` | the window follows the players — the world is infinite in all directions (`0` pins it) |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
+| `DIFFICULTY` | `normal` | police preset: `relaxed`, `normal` or `hard` (`police.json` → `presets`). Server-side: in a shared city a per-player difficulty is a cheat |
 | `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |
 
@@ -79,6 +80,11 @@ start: it prints a warning and persists to the sibling `.json` file via the
 file store instead. Set `PERSIST_PATH=data/persist.json` to choose that
 deliberately and silence the warning.
 
+Every kind of vehicle can be found somewhere: an ambulance at a hospital, a
+digger at the quarry, a pickup at the farm, the tank behind a police station.
+Those homes are marked on the minimap, and there is a test that walks the
+whole roster rather than spot-checking it.
+
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
 weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette)
 — restart the server to apply; clients receive tunables in the welcome message.
@@ -90,6 +96,8 @@ pnpm test                                   # vitest across shared + server
 pnpm bots --count=8 --script=brawl --duration=60   # headless multiplayer harness
                                             # scripts: idle|cruise|circle|joyride|brawl|jitter
 pnpm mapgen --seed=7                        # render a city to PNG without the game
+pnpm chase                                  # the chase bench: escape rate + survival time
+                                            #   per star level, over several seeds
 pnpm sprites                                # regenerate the sprite sheet
 pnpm sprites -- --preview=8 --only=car      # + a zoomed contact sheet to eyeball
 pnpm replay replays/<file>.jsonl            # re-simulate a recording, verify hashes
@@ -117,4 +125,5 @@ re-simulating to identical hashes is the desync alarm.
   its own street and not the block behind it.
 
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
-direction, and `PROGRESS.md` for the per-phase log.
+direction, and `PROGRESS.md` for the per-phase log. `GTA.md` is the current
+forward plan — the complaints from playing it, costed and ordered.

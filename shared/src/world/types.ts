@@ -38,6 +38,15 @@ export const T_TREES = 11;
  * solid to hulls; the countryside's answer to the urban quay.
  */
 export const T_SAND = 12;
+/**
+ * Runway: the one surface an aeroplane can leave the ground from.
+ *
+ * Drivable like a lot, and deliberately its own type rather than a marked-up
+ * `T_LOT` — "is this ground built for taking off" is a question the sim asks
+ * every tick a plane is rolling, and answering it by looking for paint would
+ * be a rule about the renderer.
+ */
+export const T_RUNWAY = 13;
 
 /**
  * Where a signal head stands: the road tile just outside a junction on one of
@@ -104,6 +113,12 @@ export const LANDMARK_KINDS = [
   'campground',
   'lighthouse',
   'quarry',
+  /**
+   * A strip of tarmac in open country with something parked on it. The one
+   * place on the map an aeroplane can leave the ground from, which is what
+   * makes it a destination rather than scenery. See GTA.md S2.
+   */
+  'airstrip',
 ] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 
@@ -183,6 +198,20 @@ export interface CityMap {
   vehicleSpawns: VehicleSpawn[];
   /** Where cars are left standing: at the kerb, out of the way of traffic. */
   parkingSpots: VehicleSpawn[];
+  /**
+   * Where a given KIND of vehicle can reliably be found: the ambulance at the
+   * hospital, the digger at the quarry, the tank behind the station.
+   *
+   * A list of its own rather than more `parkingSpots`, for two reasons that
+   * are both bugs waiting to happen. The session samples parking by a stride
+   * (`length / MAX_VEHICLES`) and keeps roughly one spot in six — `placeTank`
+   * already had to be special-cased back in because of it — and `markGangCars`
+   * rewrites the kind of every seventh parking spot, so a fire station whose
+   * engine turned into a gang car one seed in seven is not a home.
+   *
+   * Homes are spawned in full and never rewritten. See GTA.md R3.
+   */
+  vehicleHomes: VehicleSpawn[];
   playerSpawns: Vec2[];
   /** Dense sidewalk points for pedestrian spawning (phase 7). */
   pedSpawns: Vec2[];

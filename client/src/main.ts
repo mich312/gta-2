@@ -598,7 +598,10 @@ function frame(now: number): void {
                 wear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : 0,
                 zones: predictor.predictedVehicle?.zones ?? [0, 0, 0, 0],
                 broken: predictor.predictedVehicle?.broken ?? 0,
-                z: predictor.predicted?.z ?? 0,
+                // A stunt jump lifts the PLAYER and the car with them; an
+                // aircraft carries its own altitude. Whichever is higher is
+                // the one you are looking at.
+                z: Math.max(predictor.predicted?.z ?? 0, predictor.predictedVehicle?.z ?? 0),
                 gangId: predictor.predictedVehicle?.gangId ?? 0,
               }
             : null,

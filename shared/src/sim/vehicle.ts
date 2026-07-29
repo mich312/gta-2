@@ -2,10 +2,11 @@ import { DT, PLAYER_RADIUS } from '../constants.js';
 import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { approach, clamp, q8, q256 } from '../math/vec.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
+import type { VehicleTuning } from '../tuning.js';
 import type { GameState, PlayerState, VehicleState } from './state.js';
 import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
-import { TILE_SIZE, type CityMap } from '../world/types.js';
+import { T_RUNWAY, TILE_SIZE, type CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
 import { boxesOverlap, distanceToBox, poseIn, vehicleBox, vehicleBoxAt } from './bodies.js';
 import type { Pose, VehicleWorld } from './bodies.js';
@@ -20,7 +21,7 @@ import {
 } from './vehicleDamage.js';
 import { creditGangKill } from './respect.js';
 import { anyCopSees } from './police.js';
-import { applyDamage } from './weapons.js';
+import { applyDamage, stunPlayer } from './weapons.js';
 
 // `VehicleWorld` and `Pose` moved to bodies.ts when people started colliding
 // with cars too, but they are still part of this module's public face.
@@ -235,10 +236,21 @@ function integrateVehicle(
   sim: GameState | null,
   events?: SimEvent[],
   airborne = false,
+  /** What the pedals are doing. 0 for anything nobody is driving. */
+  throttle = 0,
 ): void {
   const t = getVehicleTuning(v.kind);
-  if (v.speed === 0) return;
-  if (airborne) {
+  // Altitude first, and BEFORE the early return below.
+  //
+  // This used to live in `driveVehicle`, which only runs while somebody is
+  // at the controls — so a helicopter you got out of hung at cruise height
+  // for ever, and a stationary one could never come down at all because
+  // `speed === 0` returns before anything else happens. Whether a vehicle is
+  // over the city or in it is a fact about the vehicle, not about whether it
+  // is being driven.
+  const flying = stepAltitude(v, map, t, throttle);
+  if (v.speed === 0 && !flying) return;
+  if (airborne || flying) {
     // Off the ground: no tiles, no other cars, no kerbs. Clearing things is
     // the entire point of a jump.
     v.pos.x = q8(v.pos.x + dCos(v.heading) * v.speed * DT);
@@ -274,6 +286,7 @@ function integrateVehicle(
         wy,
       );
       if (closing > KERB_TYRE_SPEED) kerbStrike(sim, v, wx, wy, events ?? []);
+      maybeEjectRider(sim, v, closing, events ?? []);
       events?.push({
         type: 'vehicleCollided',
         tick: sim.tick,
@@ -417,6 +430,55 @@ export function stepVehicleDriving(
 }
 
 /**
+ * Come off the bike.
+ *
+ * Two wheels and no roof: hit anything hard enough and the rider goes over
+ * the bars. This is the whole risk half of a motorcycle — without it a bike
+ * is a car that happens to be faster and thinner, and its top speed costs
+ * nothing to use. The rider lands ahead of the impact, keeps some of the
+ * momentum they had, and spends `ejectStunTicks` on the floor.
+ *
+ * `ejectSpeed` is 0 for anything with a roof, so for every other vehicle in
+ * the game this is one comparison and out.
+ */
+function maybeEjectRider(
+  sim: GameState,
+  v: VehicleState,
+  closing: number,
+  events: SimEvent[],
+): void {
+  const t = getVehicleTuning(v.kind);
+  if (t.ejectSpeed <= 0 || closing < t.ejectSpeed) return;
+  if (v.driverId === null) return;
+  const rider = sim.players.byId[v.driverId];
+  if (!rider) return;
+  v.driverId = null;
+  rider.vehicleId = null;
+  rider.mode = 'foot';
+  // Thrown forwards along the bike's nose, carrying some of what they had.
+  rider.pos.x = q8(v.pos.x + dCos(v.heading) * (t.halfLength + PLAYER_RADIUS));
+  rider.pos.y = q8(v.pos.y + dSin(v.heading) * (t.halfLength + PLAYER_RADIUS));
+  rider.vel.x = q8(dCos(v.heading) * closing * 0.5);
+  rider.vel.y = q8(dSin(v.heading) * closing * 0.5);
+  stunPlayer(rider, sim.tick, Math.round(t.ejectStunTicks));
+  events.push({
+    type: 'riderThrown',
+    tick: sim.tick,
+    playerId: rider.id,
+    x: Math.round(rider.pos.x),
+    y: Math.round(rider.pos.y),
+  });
+}
+
+/** Ground built for taking off from. A meadow is not a runway. */
+function isRunwayTile(map: CityMap, x: number, y: number): boolean {
+  const tx = Math.floor(x / TILE_SIZE);
+  const ty = Math.floor(y / TILE_SIZE);
+  if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+  return map.tiles[ty * map.widthTiles + tx] === T_RUNWAY;
+}
+
+/**
  * One tick of vehicle under continuous controls.
  *
  * A human at a keyboard only ever supplies ±1 on each axis, but an AI driver
@@ -488,10 +550,44 @@ export function driveVehicle(
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
-  integrateVehicle(v, map, world, sim, events, airborne);
+  // The altitude belongs to `integrateVehicle`, which every moving vehicle
+  // goes through whether or not anybody is driving it. All this has to do is
+  // say what the pedals are doing.
+  integrateVehicle(v, map, world, sim, events, airborne, throttle);
 }
 
-/** Driverless vehicles coast to a stop. */
+/**
+ * Climb, cruise and descend. Returns whether the vehicle is off the ground.
+ *
+ * Nothing here for anything with wheels: `medium` is 'land' for all but two
+ * kinds, and this is one comparison and out.
+ */
+function stepAltitude(
+  v: VehicleState,
+  map: CityMap,
+  t: VehicleTuning,
+  throttle: number,
+): boolean {
+  if (t.medium !== 'air') return false;
+  const wantUp =
+    throttle > 0 &&
+    (t.verticalTakeoff ||
+      // Rolling fast enough, on ground meant for it. A field is not a runway:
+      // the tile test is what makes the airstrip worth finding.
+      (Math.abs(v.speed) >= t.takeoffSpeed && (v.z > 0 || isRunwayTile(map, v.pos.x, v.pos.y))));
+  const rate = t.climbRate * DT;
+  if (wantUp) v.z = q8(Math.min(t.cruiseZ, v.z + rate));
+  else v.z = q8(Math.max(0, v.z - rate));
+  return v.z > 0;
+}
+
+/**
+ * Driverless vehicles coast to a stop — and, if they were flying, down.
+ *
+ * The throttle is 0 here by definition, which is exactly what tells
+ * `stepAltitude` to bring an abandoned aircraft back to the ground rather
+ * than leave it hanging where its pilot stepped out of it.
+ */
 export function stepVehicleCoasting(
   v: VehicleState,
   map: CityMap,
@@ -538,7 +634,11 @@ export function tryEnterVehicle(
   // watching. Taking an *occupied* one is always a crime — that path arrives
   // with NPC drivers (roadmap C2), where the jack becomes an explicit action.
   if (anyCopSees(state, map, p)) {
-    addHeat(p, getTuning().police.heatPerTheft);
+    // Scaled by the vehicle: nobody calls the police about a stolen
+    // pushbike, and that single zero is what makes a bicycle a distinct tool
+    // rather than a slow car — the quiet way to cross three blocks while the
+    // cool-down clock runs down.
+    addHeat(p, getTuning().police.heatPerTheft * getVehicleTuning(best.kind).theftHeat);
   }
   // The police are not the only ones who mind. Taking a gang's car is a
   // slight against them and a favour to whoever they are at odds with,
@@ -637,12 +737,28 @@ export function tryExitVehicle(
       p.pos = spot;
       p.vel.x = 0;
       p.vel.y = 0;
+      // Get out of an aircraft in the air and you are in the air. Before
+      // this the player simply appeared on the ground, unhurt, from cruise
+      // height — which made bailing out the cheapest way to end a flight and
+      // made altitude mean nothing. `stepStunts` owns what happens next.
+      if (v.z > 0) {
+        p.z = v.z;
+        p.vz = 0;
+        p.airDist = 0;
+      }
       // Stepping out of a moving car used to be free, which made the burn
       // fuse a non-decision: you could bail at full speed and stand there
       // unhurt. It costs skin now, and a moment on the floor before you can
       // shoot — so riding it out is a real alternative rather than the only
       // stupid option.
-      if (speed > BAILOUT_SAFE_SPEED) {
+      //
+      // Not in the air, though. This penalty is road rash — the ground taking
+      // your forward speed off you — and there is no ground under an aircraft
+      // at cruise height. Charging it there stacked with the fall damage
+      // `stepStunts` is about to apply, and a bail-out from the shipped
+      // chopper landed at 3 health: nominally survivable, functionally a
+      // death. The drop is the hazard, and it is the one that gets to bill.
+      if (v.z === 0 && speed > BAILOUT_SAFE_SPEED) {
         p.fireCooldown = Math.max(p.fireCooldown, BAILOUT_STUN_TICKS);
         applyDamage(
           state,

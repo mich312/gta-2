@@ -3,7 +3,7 @@ import playerTuning from '../data/player.json';
 import vehiclesJson from '../data/vehicles.json';
 import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
-import { getVehicleTuning, initTuning } from '../src/tuning.js';
+import { getTuning, getVehicleTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, type GameState } from '../src/sim/state.js';
@@ -13,6 +13,7 @@ import { Predictor } from '../src/net/prediction.js';
 import { boxInSolid } from '../src/world/collide.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
+import { roadLane } from './helpers.js';
 import { PART_TYRE_FL, PART_TYRE_FR } from '../src/sim/vehicleDamage.js';
 import { T_BUILDING, T_FIELD, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
@@ -335,5 +336,81 @@ describe('vehicles', () => {
       expect(predictor.lastCorrection).toBe(0);
     }
     expect(predictor.maxCorrection).toBe(0);
+  });
+});
+
+describe('two wheels (R2)', () => {
+  /** A player on the given vehicle, at speed, pointed at a wall. */
+  function ride(kind: string, speed: number): GameState {
+    let state = createGameState(5);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'rider' }], map);
+    const lane = roadLane(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 2, kind, x: lane.x, y: lane.y, heading: lane.heading }],
+      map,
+    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    const v = state.vehicles.byId[2];
+    if (v) v.speed = speed;
+    return state;
+  }
+
+  it('a rider comes off above the eject speed, and not below it', () => {
+    // The risk half of a motorcycle. Without it a bike is a car that happens
+    // to be faster and thinner, and its top speed costs nothing to use.
+    const t = getVehicleTuning('moto');
+    expect(t.ejectSpeed).toBeGreaterThan(0);
+
+    const hard = ride('moto', t.ejectSpeed + 80);
+    let after = hard;
+    for (let i = 0; i < 90; i++) {
+      after = step(after, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true } }, [], map);
+      if (after.players.byId[1]!.mode === 'foot') break;
+    }
+    expect(after.players.byId[1]!.mode).toBe('foot');
+    expect(after.players.byId[1]!.vehicleId).toBeNull();
+  });
+
+  it('...and a car never throws anybody out, however hard it is crashed', () => {
+    // The same code path runs for every vehicle in the game; `ejectSpeed` of
+    // 0 is what keeps it a no-op for anything with a roof.
+    expect(getVehicleTuning('car').ejectSpeed).toBe(0);
+    let after = ride('car', 300);
+    for (let i = 0; i < 90; i++) {
+      after = step(after, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true } }, [], map);
+    }
+    // Still at the wheel, or dead in it — never standing beside it unhurt.
+    const me = after.players.byId[1]!;
+    expect(me.mode === 'driving' || me.mode === 'dead').toBe(true);
+  });
+
+  it('stealing a bicycle is not grand theft auto', () => {
+    // The single number that makes a bike a distinct tool rather than a slow
+    // car: the quiet way to cross three blocks while the cool-down runs down.
+    expect(getVehicleTuning('bicycle').theftHeat).toBe(0);
+    expect(getVehicleTuning('car').theftHeat).toBe(1);
+    expect(getVehicleTuning('moto').theftHeat).toBe(1);
+  });
+
+  it('a bicycle is faster than walking and slower than everything else', () => {
+    // Its whole reason to exist is the gap between the two.
+    const bike = getVehicleTuning('bicycle').maxSpeed;
+    expect(bike).toBeGreaterThan(getTuning().player.walkSpeed);
+    for (const kind of ['car', 'hatch', 'coupe', 'van', 'bus', 'moto']) {
+      expect(getVehicleTuning(kind).maxSpeed, kind).toBeGreaterThan(bike);
+    }
+  });
+
+  it('the new bodies are actually different, not a repaint', () => {
+    // Colour variation existed before R2; SHAPE variation did not, so every
+    // civilian car in the city drove and looked identical.
+    const bodies = ['car', 'coupe', 'estate', 'pickup', 'sports', 'hatch', 'muscle'];
+    const lengths = new Set(bodies.map((k) => getVehicleTuning(k).halfLength));
+    const speeds = new Set(bodies.map((k) => getVehicleTuning(k).maxSpeed));
+    expect(lengths.size).toBeGreaterThan(4);
+    expect(speeds.size).toBeGreaterThan(4);
   });
 });

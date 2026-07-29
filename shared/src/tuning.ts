@@ -55,8 +55,20 @@ export interface VehicleTuning {
   wreckSeconds: number;
   explosionRadius: number;
   explosionDamage: number;
-  /** What this vehicle travels through. Boats float; everything else drives. */
-  medium: 'land' | 'water';
+  /** What this vehicle travels through. Boats float, aircraft fly. */
+  medium: 'land' | 'water' | 'air';
+  /**
+   * Ground speed at which an aircraft leaves the runway, or 0 for anything
+   * that does not fly. A helicopter's is 0 in the other sense — it lifts
+   * from a standstill, so the field is `verticalTakeoff` rather than this.
+   */
+  takeoffSpeed: number;
+  /** True for a rotorcraft: no runway needed, straight up. */
+  verticalTakeoff: boolean;
+  /** Height it settles at, in world px, once airborne. */
+  cruiseZ: number;
+  /** Px of altitude gained or lost per second. */
+  climbRate: number;
   /** Damage per px/s of closing speed in a collision. */
   collisionDamagePerSpeed: number;
   /**
@@ -97,6 +109,28 @@ export interface VehicleTuning {
    * meet at a speed well above zero and the tank always grinds through.
    */
   crushSpeedLoss: number;
+  /**
+   * Multiplier on `police.heatPerTheft` for taking this one.
+   *
+   * 1 for everything with an engine. 0 for a bicycle, and that single number
+   * is what makes a bike a distinct tool rather than a slow car: the quiet
+   * way to cross three blocks while the cool-down clock runs down. Nobody
+   * calls the police about a stolen pushbike.
+   */
+  theftHeat: number;
+  /**
+   * Speed of impact at which a rider is thrown off, or 0 for anything with a
+   * roof. The risk that makes a motorcycle's speed a decision.
+   */
+  ejectSpeed: number;
+  /** Ticks the thrown rider spends on the floor. */
+  ejectStunTicks: number;
+  /**
+   * Distance from centre to the saddle, along the hull, or null for anything
+   * you sit inside. Its presence is what tells the renderer to draw the rider
+   * ON the vehicle — the same mechanism as `turretOffset`.
+   */
+  riderOffset: number | null;
 }
 
 export interface WeaponTuning {
@@ -168,6 +202,39 @@ export interface PoliceTuning {
   heatPerOccupiedVehicleKill: number;
   heatPerCopKill: number;
   heatDecayPerSec: number;
+  /**
+   * Ticks out of sight before the heat starts coming off at all.
+   *
+   * The cool-down clock (GTA.md P1b). What it replaced was a presence gate —
+   * "does any officer see you right now" — which the spawner defeated by
+   * construction: it answers a wanted level by placing fresh officers inside
+   * sight range, so the higher the level the more reliably the gate stayed
+   * shut. A clock can be waited out; a gate the system keeps closing cannot.
+   */
+  wantedCooldownTicks: number;
+  /**
+   * How much faster the heat comes off per further second clean, as a
+   * fraction of the base rate.
+   *
+   * Solved from the target rather than picked: a five-star level is 500 heat,
+   * and integrating `heatDecayPerSec * (1 + ramp * t)` to 500 puts 0.1 at
+   * about 35 seconds. Flat decay put the same escape at 100 s, which is long
+   * enough that nobody ever finds out it is possible.
+   */
+  heatDecayRamp: number;
+  /** Ceiling on the ramped rate, so the top of the ladder still costs time. */
+  heatDecayMax: number;
+  /**
+   * Ticks an officer keeps looking after losing sight, before dropping the
+   * target altogether. Sets the length of the tail on every escape.
+   */
+  searchGiveUpTicks: number;
+  /** Within this of the last-seen point, an officer stops walking and casts about. */
+  searchArriveDist: number;
+  /** Ticks per leg of the cast-about, before another direction is drawn. */
+  searchWanderTicks: number;
+  /** A cruiser searches wider and faster than a man on foot: this much. */
+  carSearchSpeedScale: number;
   despawnTicks: number;
   /** Wanted level from which cops arrive in cars. */
   carsFromStar: number;
@@ -191,7 +258,81 @@ export interface PoliceTuning {
    * distinction the 1999 game made and the 1997 one did not.
    */
   tiers: string[];
-  kinds: Record<string, { health: number; weapon: string; moveSpeed: number }>;
+  kinds: Record<string, CopKindTuning>;
+  /**
+   * How much the spread widens at the edge of `fireRange`, as a fraction of
+   * the weapon's own. Accuracy did not fall off with distance at all before,
+   * so the far end of a cordon was as lethal as the near end.
+   */
+  /**
+   * What each wanted level turns out, in arrival order. Keyed by star count
+   * as a string, because JSON. See GTA.md P3a and `waveUnits`.
+   */
+  waves: Record<string, Array<{ kind: string; count: number; vehicle: string | null }>>;
+  /** Ticks from the start of one wave to the start of the next. */
+  wavePeriodTicks: number;
+  /**
+   * How far the units of one wave may be spread around its staging point.
+   *
+   * The property this buys is "the response arrived from a direction". A
+   * couple of blocks: wide enough that a five-unit wave finds room on a
+   * normal street, tight enough that it is recognisably one arrival.
+   */
+  waveSpreadPx: number;
+  /** What a roadblock is made of at each wanted level. */
+  roadblockVehicle: Record<string, string>;
+  /**
+   * How many of each police vehicle kind may exist at once.
+   *
+   * Per kind because `maxCopCars` is a reasonable number of patrol cars and
+   * an absurd number of tanks. Falls back to `maxCopCars` for anything not
+   * listed.
+   */
+  vehicleCaps: Record<string, number>;
+  rangeSpread: number;
+  /** Ditto for a target moving at `spreadReferenceSpeed`. */
+  speedSpread: number;
+  /** The speed `speedSpread` is quoted against — roughly a car at a clip. */
+  spreadReferenceSpeed: number;
+}
+
+export interface CopKindTuning {
+  health: number;
+  weapon: string;
+  moveSpeed: number;
+  /**
+   * How close this kind wants to get, in px. 0 means "close to arrest reach",
+   * which is what every officer used to do — so a five-star response was ten
+   * people in a huddle at minimum range. Riflemen holding at 120-150 read as
+   * a cordon instead, and it leaves the arrest to the officers whose job it
+   * is. See GTA.md P2c.
+   */
+  preferredRange: number;
+  /** Rounds before a pause. 0 keeps the old flat cooldown. */
+  burstCount: number;
+  /** Extra ticks after the last round of a burst. */
+  burstPauseTicks: number;
+  /**
+   * Fraction of damage a hit from the front does to this kind. 1 is no
+   * protection; SWAT's shields are what make a frontal assault on them worse
+   * than going round.
+   */
+  frontalDamage: number;
+  /**
+   * This unit flies.
+   *
+   * It ignores the ground — no tile collision, no being shoved by cars — and
+   * it does not make arrests, because nobody gets out. What it is FOR is
+   * sight: a helicopter overhead is what stops "turn one corner" being the
+   * whole of an escape at four stars, because there is no corner that breaks
+   * line of sight from above. You go under something, or you shoot it down.
+   * See GTA.md S1.
+   */
+  flies: boolean;
+  /** How far this unit can see, overriding `police.sightRange`. 0 = the default. */
+  sightRange: number;
+  /** Length of its searchlight cone in px, or 0 for no light. */
+  searchlight: number;
 }
 
 export interface PedTuning {
@@ -211,6 +352,16 @@ export interface PedTuning {
   fleeRadius: number;
   fleeTicks: number;
   heatPerPedKill: number;
+  /**
+   * Heat for somebody killed under the wheels rather than shot.
+   *
+   * Lower on purpose, and it is the single most important number in the
+   * difficulty pass. Driving is the main verb and the pavements are full;
+   * charging a road death as murder made the wanted ladder something you
+   * climbed by accident on the way somewhere, which — with heat that could
+   * not come down — is most of what "it's too hard" meant.
+   */
+  heatPerRoadKill: number;
   /**
    * One pedestrian in this many is carrying, and shoots back when shot at.
    * The whole crowd running away from every gunshot made the street a
@@ -523,6 +674,18 @@ function num(v: unknown, name: string): number {
   return v;
 }
 
+/**
+ * A number that may be absent, and may legitimately be zero.
+ *
+ * `num` rejects both, which is right for a required tunable — a missing
+ * `walkSpeed` should be an error, not a silent zero — and wrong for a field
+ * added later whose default is "behave as before". Anything non-finite still
+ * falls back rather than poisoning the sim with a NaN.
+ */
+function optNum(v: unknown, fallback: number): number {
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+}
+
 function parsePlayerTuning(raw: unknown): PlayerTuning {
   const r = (raw ?? {}) as Record<string, unknown>;
   return {
@@ -552,13 +715,25 @@ function parseVehicleTuning(kind: string, raw: unknown): VehicleTuning {
     health: n('health'),
     burnSeconds: n('burnSeconds'),
     wreckSeconds: n('wreckSeconds'),
-    explosionRadius: n('explosionRadius'),
-    explosionDamage: n('explosionDamage'),
-    medium: r['medium'] === 'water' ? 'water' : 'land',
+    // Zero is legitimate for these two and only these two: a bicycle burns
+    // out without going off, and `blast` over a radius of 0 reaches nothing,
+    // which is exactly the intended behaviour. Every other tunable still has
+    // to be positive — a missing `maxSpeed` should be an error, not a stop.
+    explosionRadius: optNum(r['explosionRadius'], 0),
+    explosionDamage: optNum(r['explosionDamage'], 0),
+    medium: r['medium'] === 'water' ? 'water' : r['medium'] === 'air' ? 'air' : 'land',
+    takeoffSpeed: typeof r['takeoffSpeed'] === 'number' ? r['takeoffSpeed'] : 0,
+    verticalTakeoff: r['verticalTakeoff'] === true,
+    cruiseZ: typeof r['cruiseZ'] === 'number' ? r['cruiseZ'] : 0,
+    climbRate: typeof r['climbRate'] === 'number' ? r['climbRate'] : 0,
     collisionDamagePerSpeed: n('collisionDamagePerSpeed'),
     turretOffset: typeof r['turretOffset'] === 'number' ? r['turretOffset'] : null,
     crushesBelowMass:
       typeof r['crushesBelowMass'] === 'number' ? r['crushesBelowMass'] : 0,
+    theftHeat: typeof r['theftHeat'] === 'number' ? r['theftHeat'] : 1,
+    ejectSpeed: typeof r['ejectSpeed'] === 'number' ? r['ejectSpeed'] : 0,
+    ejectStunTicks: typeof r['ejectStunTicks'] === 'number' ? r['ejectStunTicks'] : 0,
+    riderOffset: typeof r['riderOffset'] === 'number' ? r['riderOffset'] : null,
     crushSpeedLoss:
       typeof r['crushSpeedLoss'] === 'number' ? r['crushSpeedLoss'] : 1,
   };
@@ -607,18 +782,68 @@ function parseTiers(raw: unknown): string[] {
   });
 }
 
-function parseCopKinds(raw: unknown): Record<string, { health: number; weapon: string; moveSpeed: number }> {
+function parseCopKinds(raw: unknown): Record<string, CopKindTuning> {
   if (typeof raw !== 'object' || raw === null) throw new Error('police: kinds must be an object');
-  const out: Record<string, { health: number; weapon: string; moveSpeed: number }> = {};
+  const out: Record<string, CopKindTuning> = {};
   for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
     const r = (v ?? {}) as Record<string, unknown>;
     const weapon = r['weapon'];
     if (typeof weapon !== 'string') throw new Error(`police: kinds.${id}.weapon`);
+    // The P2 fields default rather than throw: a police.json written before
+    // them still produces the force it always did, one flat cooldown and
+    // everybody closing to arrest reach.
     out[id] = {
       health: num(r['health'], `police.kinds.${id}.health`),
       weapon,
       moveSpeed: num(r['moveSpeed'], `police.kinds.${id}.moveSpeed`),
+      preferredRange: optNum(r['preferredRange'], 0),
+      burstCount: optNum(r['burstCount'], 0),
+      burstPauseTicks: optNum(r['burstPauseTicks'], 0),
+      frontalDamage: optNum(r['frontalDamage'], 1),
+      flies: r['flies'] === true,
+      sightRange: optNum(r['sightRange'], 0),
+      searchlight: optNum(r['searchlight'], 0),
     };
+  }
+  return out;
+}
+
+function parseWaves(
+  raw: unknown,
+): Record<string, Array<{ kind: string; count: number; vehicle: string | null }>> {
+  const out: Record<string, Array<{ kind: string; count: number; vehicle: string | null }>> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [level, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!Array.isArray(v)) throw new Error(`police: waves.${level} must be an array`);
+    out[level] = v.map((e, i) => {
+      const r = (e ?? {}) as Record<string, unknown>;
+      const kind = r['kind'];
+      if (typeof kind !== 'string') throw new Error(`police: waves.${level}[${i}].kind`);
+      const vehicle = r['vehicle'];
+      return {
+        kind,
+        count: Math.max(1, Math.round(num(r['count'], `police.waves.${level}[${i}].count`))),
+        vehicle: typeof vehicle === 'string' && vehicle ? vehicle : null,
+      };
+    });
+  }
+  return out;
+}
+
+function parseStringMap(raw: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && v) out[k] = v;
+  }
+  return out;
+}
+
+function parseNumberMap(raw: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (typeof raw !== 'object' || raw === null) return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
   }
   return out;
 }
@@ -648,6 +873,13 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     heatPerOccupiedVehicleKill: n('heatPerOccupiedVehicleKill'),
     heatPerCopKill: n('heatPerCopKill'),
     heatDecayPerSec: n('heatDecayPerSec'),
+    wantedCooldownTicks: n('wantedCooldownTicks'),
+    heatDecayRamp: n('heatDecayRamp'),
+    heatDecayMax: n('heatDecayMax'),
+    searchGiveUpTicks: n('searchGiveUpTicks'),
+    searchArriveDist: n('searchArriveDist'),
+    searchWanderTicks: n('searchWanderTicks'),
+    carSearchSpeedScale: n('carSearchSpeedScale'),
     despawnTicks: n('despawnTicks'),
     carsFromStar: n('carsFromStar'),
     roadblocksFromStar: n('roadblocksFromStar'),
@@ -661,6 +893,14 @@ function parsePoliceTuning(raw: unknown): PoliceTuning {
     bustSpeedMax: n('bustSpeedMax'),
     tiers: parseTiers(r['tiers']),
     kinds: parseCopKinds(r['kinds']),
+    waves: parseWaves(r['waves']),
+    wavePeriodTicks: optNum(r['wavePeriodTicks'], 300),
+    waveSpreadPx: optNum(r['waveSpreadPx'], 260),
+    roadblockVehicle: parseStringMap(r['roadblockVehicle']),
+    vehicleCaps: parseNumberMap(r['vehicleCaps']),
+    rangeSpread: optNum(r['rangeSpread'], 0),
+    speedSpread: optNum(r['speedSpread'], 0),
+    spreadReferenceSpeed: optNum(r['spreadReferenceSpeed'], 200),
   };
 }
 
@@ -678,6 +918,7 @@ function parsePedTuning(raw: unknown): PedTuning {
     fleeRadius: n('fleeRadius'),
     fleeTicks: n('fleeTicks'),
     heatPerPedKill: n('heatPerPedKill'),
+    heatPerRoadKill: optNum(r['heatPerRoadKill'], n('heatPerPedKill')),
     armedOneIn: n('armedOneIn'),
     weapon: typeof r['weapon'] === 'string' && r['weapon'] ? r['weapon'] : DEFAULT_PEDS.weapon,
     dropAmmo: n('dropAmmo'),
@@ -1045,7 +1286,8 @@ const DEFAULT_PEDS: PedTuning = {
   turnMaxTicks: 140,
   fleeRadius: 170,
   fleeTicks: 105,
-  heatPerPedKill: 80,
+  heatPerPedKill: 45,
+  heatPerRoadKill: 25,
   armedOneIn: 7,
   weapon: 'gangPistol',
   dropAmmo: 24,
@@ -1087,6 +1329,14 @@ const DEFAULT_POLICE: PoliceTuning = {
   weapon: 'copPistol',
   spawnMinDist: 260,
   spawnMaxDist: 640,
+  waves: {},
+  wavePeriodTicks: 300,
+  waveSpreadPx: 260,
+  roadblockVehicle: {},
+  vehicleCaps: {},
+  rangeSpread: 1.6,
+  speedSpread: 1.4,
+  spreadReferenceSpeed: 200,
   heatPerDamage: 0.8,
   heatPerKill: 60,
   heatPerTheft: 15,
@@ -1095,6 +1345,13 @@ const DEFAULT_POLICE: PoliceTuning = {
   heatPerOccupiedVehicleKill: 70,
   heatPerCopKill: 120,
   heatDecayPerSec: 5,
+  wantedCooldownTicks: 90,
+  heatDecayRamp: 0.1,
+  heatDecayMax: 26,
+  searchGiveUpTicks: 240,
+  searchArriveDist: 40,
+  searchWanderTicks: 30,
+  carSearchSpeedScale: 1.4,
   despawnTicks: 150,
   carsFromStar: 3,
   roadblocksFromStar: 4,
@@ -1108,10 +1365,10 @@ const DEFAULT_POLICE: PoliceTuning = {
   bustSpeedMax: 40,
   tiers: ['patrol', 'patrol', 'patrol', 'swat', 'fed', 'army'],
   kinds: {
-    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73 },
-    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79 },
-    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88 },
-    army: { health: 220, weapon: 'copRifle', moveSpeed: 77 },
+    patrol: { health: 50, weapon: 'copPistol', moveSpeed: 73, preferredRange: 0, burstCount: 3, burstPauseTicks: 22, frontalDamage: 1, flies: false, sightRange: 0, searchlight: 0 },
+    swat: { health: 90, weapon: 'copShotgun', moveSpeed: 79, preferredRange: 0, burstCount: 2, burstPauseTicks: 26, frontalDamage: 0.6, flies: false, sightRange: 0, searchlight: 0 },
+    fed: { health: 120, weapon: 'copSmg', moveSpeed: 88, preferredRange: 130, burstCount: 5, burstPauseTicks: 30, frontalDamage: 1, flies: false, sightRange: 0, searchlight: 0 },
+    army: { health: 220, weapon: 'copRifle', moveSpeed: 77, preferredRange: 150, burstCount: 3, burstPauseTicks: 34, frontalDamage: 0.75, flies: false, sightRange: 0, searchlight: 0 },
   },
 };
 

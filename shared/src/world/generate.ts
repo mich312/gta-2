@@ -9,7 +9,7 @@ import { fillBlock } from './buildings.js';
 import {
   placeParking,
   placePackages,
-  placeTank,
+  placeVehicleHomes,
   placePedSpawns,
   placePlayerSpawns,
   placeProps,
@@ -78,6 +78,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     shops: [],
     vehicleSpawns: [],
     parkingSpots: [],
+    vehicleHomes: [],
     playerSpawns: [],
     pedSpawns: [],
     propSpawns: [],
@@ -229,7 +230,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeVehicleSpawns(map, params, stream('vehicles'));
   placePlayerSpawns(map, params, stream('playerSpawns'));
   placeParking(map);
-  placeTank(map);
+  placeVehicleHomes(map);
   placePedSpawns(map);
   placeProps(map);
   placePickups(map);

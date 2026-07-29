@@ -107,7 +107,11 @@ describe('pedestrians', () => {
     // A body, not a vanishing act: they lie there for the corpse span and are
     // then cleared away.
     expect(state.peds.byId[900]!.mode).toBe('dead');
-    expect(state.players.byId[1]!.heat).toBeGreaterThanOrEqual(75); // 80 minus a few ticks of decay
+    // Off the tunable rather than a literal: the number moved with P2's
+    // difficulty pass and a hard-coded 75 pinned the old one for no reason.
+    // The kill charge lands in full — `addHeat` restarts the cool-down clock,
+    // so nothing decays in the same breath.
+    expect(state.players.byId[1]!.heat).toBeGreaterThanOrEqual(getTuning().peds.heatPerPedKill);
     for (let i = 0; i < getTuning().peds.corpseSec * TICK_RATE + 2; i++) {
       state = step(state, {}, [], map);
     }

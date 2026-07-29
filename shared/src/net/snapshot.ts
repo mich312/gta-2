@@ -70,6 +70,10 @@ const PLAYER_FIELDS = [
   'fireCooldown',
   'carHitCooldown',
   'heat',
+  // Hashed like `heat` itself, so it has to be diffed — the airDist note
+  // above is what happens when a hashed field is left off this list.
+  'unseenTicks',
+  'wantedSinceTick',
   'frenzyTarget',
   'frenzyKills',
   'frenzyEndsAtTick',
@@ -102,6 +106,7 @@ const VEHICLE_FIELDS = [
   // happens when a hashed field is left out of this list.
   'zones',
   'broken',
+  'z',
   'fitting',
   'fittingAmmo',
 ] as const;
@@ -116,6 +121,11 @@ const COP_FIELDS = [
   'carHitCooldown',
   'vehicleId',
   'stuckTicks',
+  'lastSeenX',
+  'lastSeenY',
+  'searchTicks',
+  'searchDir',
+  'burstLeft',
 ] as const;
 const PED_FIELDS = [
   'gangId',

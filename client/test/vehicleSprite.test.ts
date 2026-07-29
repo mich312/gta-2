@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import spriteSheet from 'shared/data/sprites.json';
+import sheetMeta from '../public/sprites.meta.json';
 import vehiclesJson from 'shared/data/vehicles.json';
 import weaponsJson from 'shared/data/weapons.json';
 import playerJson from 'shared/data/player.json';
@@ -7,6 +8,7 @@ import { getTuning, initTuning } from 'shared';
 import { vehicleSpriteName } from '../src/render/renderer.js';
 
 const sprites = (spriteSheet as { sprites: Record<string, unknown> }).sprites;
+const sheetFrames = (sheetMeta as { frames: Record<string, unknown> }).frames;
 // Asked of the PARSER, not of the raw file: vehicles.json carries settings
 // blocks as well as kinds (`fire`), and a test that enumerated the file's
 // keys started demanding a sprite for one. The parser's view cannot drift
@@ -15,6 +17,21 @@ initTuning({ player: playerJson, vehicles: vehiclesJson, weapons: weaponsJson })
 const kinds = Object.keys(getTuning().vehicles);
 
 describe('vehicle sprites', () => {
+  it('every name the renderer asks for is in the BUILT sheet', () => {
+    // Stronger than the definition check below, and it exists because the
+    // weaker one let a real bug through: `vehicleSpriteName` appends `_v<n>`
+    // only for kinds it believes are painted, and when the two-wheelers were
+    // added to sprites.json with a colour axis but not to that set, both drew
+    // as the fallback rectangle. Stripping the suffix before looking it up —
+    // which is what the test below does — cannot see that.
+    for (const kind of kinds) {
+      for (const id of [0, 1, 5, 9, 37]) {
+        const name = vehicleSpriteName(kind, id, 1);
+        expect(sheetFrames[name], `${kind} #${id} -> ${name}`).toBeDefined();
+      }
+    }
+  });
+
   it('every vehicle kind has a sprite of its own', () => {
     // The bug this pins: a boat drawn as a car. It only affected the person
     // driving it — everybody else saw the right sprite — so it survived a
