@@ -25,13 +25,15 @@ star level over several seeds instead of hoping for one.
 | `city-3d-night.png` | Night. Windows light up across the facades — a per-window hash against the night amount, so a lit window stays lit rather than flickering as the camera moves. |
 | `city-3d-facades.png` | The original GTA camera: perspective, straight down, so buildings splay away from the screen centre and show the face turned toward it. Facades are shader-computed — window columns with mullions, a slab line between storeys, a shopfront on the ground floor — so one material covers every building height. |
 | `city-3d-models.png` | Close up. The car is not a model anybody built — it is the `car` entry in `shared/data/sprites.json`, extruded. Tapered body polygon, raised cabin, tinted glass, red tail lights, headlights, dark tyres: every one of those is a shape in the 2D sprite with a `z` on it, and the sprite generator was already relighting flat art from those same heights. Same file, not flattened. |
-| `city-3d-live.png` | The game **playable** in 3D — cel-shaded with black outlines, per-district building colours, cast shadows, and the player (red), pedestrians (orange), police and cars all placed from the live sim. Bodies are boxes on purpose: they are the colliders the simulation already resolves against, so anything that looks wrong here is wrong in the sim too. `/city3d.html`. |
+| `city-3d-live.png` | The game **playable** in 3D. Everything in it comes from data the 2D renderer already uses: the bodies are `sprites.json` entries extruded, the trees and bushes sit at the same `hash2` positions the tile layer plants them, the props are the sim's own and swap to their `_broken` art when destroyed, and the road markings run down the carriageway centres measured the same way. `/city3d.html`. |
 | `city-3d.png` | The generated city as actual geometry — 523 buildings at real heights, cast shadows, the river — built from the **volume grid** the 3D collision resolves against, not from the tile grid. A building's box is the span that stops you. Retake with `/city3d.html?seed=7&pitch=45`. |
 
-The numbers on it are draw calls, not frame rate: **9 draws, 57,767 instances,
-762k triangles** for the whole 240×240 city. This box has no GPU, so its frame
-rate is SwiftShader's and says nothing about a real machine; draw count is a
-property of how the scene is built and is the same everywhere. See 3D.md W3a.
+Quote draw calls from these, not frame rate: this box has no GPU, so its frame
+rate is SwiftShader's and says nothing about a real machine, while draw count
+is a property of how the scene is built and is the same everywhere. Bare
+geometry is **9 draws / 762k triangles** for the whole 240×240 city; dressed —
+facades, planting, props, markings, the live population — it is **165 draws /
+2.9M triangles**. See 3D.md W3a.
 
 ## Buildings that lean
 
