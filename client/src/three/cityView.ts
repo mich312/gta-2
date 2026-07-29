@@ -7,6 +7,7 @@ import {
   type VolumeGrid,
 } from 'shared';
 import palette from 'shared/data/palette.json';
+import { addOutline, toonMaterial } from './toon.js';
 
 /**
  * The city as actual geometry.
@@ -100,11 +101,15 @@ export class CityView {
     this.scene.add(sun.target);
     this.sun = sun;
 
-    this.scene.add(new THREE.AmbientLight(0x8493ad, 2.2));
-    this.scene.add(new THREE.HemisphereLight(0xa8cbe6, 0x3a3d33, 1.4));
+    this.ambient = new THREE.AmbientLight(0x8493ad, 2.2);
+    this.hemi = new THREE.HemisphereLight(0xa8cbe6, 0x3a3d33, 1.4);
+    this.scene.add(this.ambient);
+    this.scene.add(this.hemi);
   }
 
   private sun!: THREE.DirectionalLight;
+  private ambient!: THREE.AmbientLight;
+  private hemi!: THREE.HemisphereLight;
   private instanceCount = 0;
 
   /**
@@ -123,26 +128,73 @@ export class CityView {
       pavement: { match: (t) => t === 2, color: hex(palette.sidewalk ?? '#575d68') },
       grass: { match: (t) => t === 4 || t === 0 || t === 11, color: hex(palette.grassDark ?? '#2f4a2a') },
       water: { match: (t) => t === 6, color: hex(palette.water ?? '#25506b') },
-      building: { match: (t) => t === 3, color: hex(palette.buildingVariants?.downtown?.[0] ?? '#6b6f7a') },
       deck: { match: (t) => t === 7, color: hex(palette.road ?? '#2c3038') },
       other: { match: () => true, color: hex(palette.lot ?? '#4a4a44') },
     };
 
-    // Collect one transform per span, bucketed by layer.
+    // Which building covers each tile, so a block of them shares one colour
+    // instead of every tile rolling its own — the same reason the 2D
+    // renderer keys roof colour off the building rather than the tile.
+    const buildingOf = new Int32Array(W * H);
+    this.map.buildings.forEach((bd, i) => {
+      for (let ty = bd.y; ty < bd.y + bd.h; ty++) {
+        for (let tx = bd.x; tx < bd.x + bd.w; tx++) {
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+          buildingOf[ty * W + tx] = i + 1;
+        }
+      }
+    });
+
+    // Collect one transform per span, bucketed by the colour it resolves to.
+    // Buildings get a bucket per palette variant rather than one for all of
+    // them: a city where every block is the same grey reads as a model of a
+    // city, and the variants already exist for exactly this.
     const buckets = new Map<string, THREE.Matrix4[]>();
-    for (const k of Object.keys(LAYERS)) buckets.set(k, []);
+    const colorOf = new Map<string, number>();
+    const solidKeys = new Set<string>();
+    const bucket = (key: string, color: number, solid: boolean): THREE.Matrix4[] => {
+      let list = buckets.get(key);
+      if (!list) {
+        list = [];
+        buckets.set(key, list);
+        colorOf.set(key, color);
+        if (solid) solidKeys.add(key);
+      }
+      return list;
+    };
 
     const m = new THREE.Matrix4();
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
-        const tile = this.map.tiles[ty * W + tx] as number;
-        const key =
-          Object.keys(LAYERS).find((k) => (LAYERS[k] as Layer).match(tile)) ?? 'other';
+        const idx = ty * W + tx;
+        const tile = this.map.tiles[idx] as number;
+        let key: string;
+        let color: number;
+        let solid = false;
+        if (tile === 3) {
+          const bi = (buildingOf[idx] as number) - 1;
+          const bd = bi >= 0 ? this.map.buildings[bi] : undefined;
+          color = this.roofColor(bi, bd?.district ?? 'downtown');
+          key = `b${color.toString(16)}`;
+          solid = true;
+        } else {
+          const k = Object.keys(LAYERS).find((n) => (LAYERS[n] as Layer).match(tile)) ?? 'other';
+          key = k;
+          color = (LAYERS[k] as Layer).color;
+          solid = k === 'deck';
+        }
+        const list = bucket(key, color, solid);
 
         for (const span of spansAt(this.vg, tx, ty)) {
-          // Clamp the earth to something shallow: the span says -4096 and
-          // nobody is looking at the bottom of it.
-          const bottom = Math.max(span.bottom, span.top - 64);
+          // Clamp the earth to something shallow: a ground span runs from
+          // EARTH (-4096) and nobody is looking at the bottom of it.
+          //
+          // Clamp to a fixed FLOOR, not to `top - depth`. Clamping relative
+          // to the top capped every building at the same height whatever its
+          // storeys said, because a building span also starts at EARTH — a
+          // twelve-storey tower drew exactly as tall as a bungalow, which is
+          // the whole point of having heights at all.
+          const bottom = Math.max(span.bottom, -16);
           const h = Math.max(1, (span.top - bottom) * Z_SCALE);
           m.makeScale(TILE_SIZE, TILE_SIZE, h);
           m.setPosition(
@@ -150,7 +202,7 @@ export class CityView {
             (ty + 0.5) * TILE_SIZE,
             (span.top * Z_SCALE) - h / 2,
           );
-          (buckets.get(key) as THREE.Matrix4[]).push(m.clone());
+          list.push(m.clone());
         }
       }
     }
@@ -158,16 +210,29 @@ export class CityView {
     const box = new THREE.BoxGeometry(1, 1, 1);
     for (const [key, mats] of buckets) {
       if (mats.length === 0) continue;
-      const layer = LAYERS[key] as Layer;
-      const mat = new THREE.MeshLambertMaterial({ color: layer.color });
-      const mesh = new THREE.InstancedMesh(box, mat, mats.length);
-      mesh.castShadow = key === 'building' || key === 'deck';
+      const mesh = new THREE.InstancedMesh(box, toonMaterial(colorOf.get(key) ?? 0x6b6f7a), mats.length);
+      const solid = solidKeys.has(key);
+      mesh.castShadow = solid;
       mesh.receiveShadow = true;
       this.instanceCount += mats.length;
       mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
       mesh.instanceMatrix.needsUpdate = true;
       this.scene.add(mesh);
+      // Outline the things that stand up. Outlining every ground tile would
+      // draw a black grid over the whole city — the streets read as one
+      // surface, and a surface has no silhouette worth tracing.
+      if (solid) addOutline(mesh, this.scene, 1.2);
     }
+  }
+
+  /** 0 midday, 1 midnight — the same scale the 2D renderer's ?night= uses. */
+  setNight(amount: number): void {
+    const t = Math.max(0, Math.min(1, amount));
+    this.sun.intensity = 2.6 * (1 - t * 0.85);
+    this.ambient.intensity = 2.2 * (1 - t * 0.6);
+    this.hemi.intensity = 1.4 * (1 - t * 0.5);
+    const sky = new THREE.Color(0x9fc4dd).lerp(new THREE.Color(0x0a1020), t);
+    this.scene.background = sky;
   }
 
   resize(width: number, height: number): void {
@@ -219,5 +284,23 @@ export class CityView {
     this.sun.shadow.mapSize.set(size, size);
     this.sun.shadow.map?.dispose();
     (this.sun.shadow as unknown as { map: null }).map = null;
+  }
+
+  /**
+   * A building's colour: the same hash and the same palette variants
+   * `TileLayer.roofColor` and `ExtrudeLayer` use, so a block is the colour
+   * here that it is in the 2D renderer and switching views does not repaint
+   * the city.
+   */
+  private roofColor(index: number, district: string): number {
+    const variants =
+      (palette.buildingVariants as Record<string, string[]>)[district] ??
+      palette.buildingVariants.downtown;
+    const id = index + 1;
+    // `hash2` from the 2D renderer, inlined — it is the only thing three.js
+    // needs out of a module full of canvas helpers.
+    const h = Math.sin(id * 127.1 + (id * 7 + 3) * 311.7) * 43758.5453;
+    const pick = h - Math.floor(h);
+    return hex(variants[Math.floor(pick * variants.length) % variants.length] as string);
   }
 }

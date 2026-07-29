@@ -22,6 +22,7 @@ star level over several seeds instead of hoping for one.
 
 | file | what it shows |
 |---|---|
+| `city-3d-live.png` | The game **playable** in 3D — cel-shaded with black outlines, per-district building colours, cast shadows, and the player (red), pedestrians (orange), police and cars all placed from the live sim. Bodies are boxes on purpose: they are the colliders the simulation already resolves against, so anything that looks wrong here is wrong in the sim too. `/city3d.html`. |
 | `city-3d.png` | The generated city as actual geometry — 523 buildings at real heights, cast shadows, the river — built from the **volume grid** the 3D collision resolves against, not from the tile grid. A building's box is the span that stops you. Retake with `/city3d.html?seed=7&pitch=45`. |
 
 The numbers on it are draw calls, not frame rate: **9 draws, 57,767 instances,
