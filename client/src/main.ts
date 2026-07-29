@@ -165,7 +165,36 @@ function playerName(): string {
  * a machine that cannot afford WebGL or a driver that will not give it one.
  * `?render=2d` should keep working for as long as that is true.
  */
-const render3d = new URLSearchParams(location.search).get('render') !== '2d';
+/**
+ * Can this browser actually give us WebGL?
+ *
+ * Asked before choosing, not discovered mid-frame. A context is cheap to
+ * probe and immediately released; the alternative — find out when three.js
+ * throws — is what shipped, and on a machine with WebGL disabled it killed
+ * the game outright rather than falling back.
+ */
+function webglAvailable(): boolean {
+  try {
+    const probe = document.createElement('canvas');
+    const gl =
+      probe.getContext('webgl2') ??
+      probe.getContext('webgl') ??
+      probe.getContext('experimental-webgl');
+    if (!gl) return false;
+    // Release it rather than leaving a context alive: browsers cap how many
+    // a page may hold, and the real renderer needs one of them.
+    (gl as WebGLRenderingContext).getExtension('WEBGL_lose_context')?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const wants3d = new URLSearchParams(location.search).get('render') !== '2d';
+let render3d = wants3d && webglAvailable();
+if (wants3d && !render3d) {
+  console.warn('WebGL unavailable — falling back to the 2D renderer');
+}
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 // In 3D the HUD canvas has to be see-through — both in its drawing context
 // and in its CSS background, which is opaque black for the 2D renderer.
@@ -608,6 +637,23 @@ let world3d: {
  * is radially symmetric about screen centre, which is the only property
  * `InputSource`'s angle actually depends on.
  */
+/**
+ * Give up on 3D for the rest of the session.
+ *
+ * Puts the HUD canvas back the way the 2D renderer needs it — opaque
+ * background, no transparent world showing through — and says so on screen,
+ * because a silent downgrade is how somebody spends an hour wondering why it
+ * looks different from the screenshots.
+ */
+function fallBackTo2d(): void {
+  render3d = false;
+  world3d = null;
+  const worldCanvas = document.getElementById('world') as HTMLCanvasElement | null;
+  if (worldCanvas) worldCanvas.hidden = true;
+  document.body.classList.remove('render3d');
+  hud.notice('3D unavailable on this device — using the 2D renderer');
+}
+
 function drawWorld3d(scene: Scene | null): void {
   if (!map || !scene) return;
   const worldCanvas = document.getElementById('world') as HTMLCanvasElement;
@@ -659,7 +705,7 @@ function drawWorld3d(scene: Scene | null): void {
   view.render();
 }
 
-function frame(now: number): void {
+function frameBody(now: number): void {
   const rawMs = now - last;
   last = now;
   const frameMs = rawMs > MAX_FRAME_MS || rawMs < 0 ? TICK_MS : rawMs;
@@ -763,10 +809,21 @@ function frame(now: number): void {
     // delta cannot answer this.
     const t0 = performance.now();
     if (render3d) {
-      drawWorld3d(scene);
-      // The HUD canvas is transparent in this mode, so last frame's HUD would
-      // otherwise smear over this one.
-      screen.ctx.clearRect(0, 0, viewport.deviceW, viewport.deviceH);
+      try {
+        drawWorld3d(scene);
+        // The HUD canvas is transparent in this mode, so last frame's HUD
+        // would otherwise smear over this one.
+        screen.ctx.clearRect(0, 0, viewport.deviceW, viewport.deviceH);
+      } catch (err) {
+        // A driver that refuses a context, a shader that will not compile on
+        // this GPU, anything at all: fall back for good rather than throwing
+        // once a frame. Before this guard the exception escaped `frame()`,
+        // the rAF at the bottom never ran, and the whole game stopped dead on
+        // a black screen — with the sim still ticking in its worker, unseen.
+        console.error('3D renderer failed; falling back to 2D', err);
+        fallBackTo2d();
+        render(screen, map, scene, cam, sprites, tiles, effects, lights);
+      }
     } else {
       render(screen, map, scene, cam, sprites, tiles, effects, lights);
     }
@@ -937,6 +994,30 @@ function frame(now: number): void {
     buildings: tiles.lastBuildingsDrawn,
   };
 
-  requestAnimationFrame(frame);
+}
+
+/**
+ * The frame loop, which must not be able to stop.
+ *
+ * `frameBody` used to reschedule itself on its own last line, so anything
+ * that threw anywhere inside it took the whole game down — the canvas froze
+ * on whatever was last drawn while the simulation carried on ticking in its
+ * worker, unseen and unreachable. That is precisely how the 3D renderer
+ * failing to get a WebGL context turned into a black screen instead of a
+ * fallback.
+ *
+ * Rescheduling in a `finally` makes that structurally impossible: one bad
+ * frame is one bad frame. The error still reaches the console, and the
+ * player still gets told, but the game keeps running.
+ */
+function frame(now: number): void {
+  try {
+    frameBody(now);
+  } catch (err) {
+    console.error(err);
+    fatal = `client error: ${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    requestAnimationFrame(frame);
+  }
 }
 requestAnimationFrame(frame);
