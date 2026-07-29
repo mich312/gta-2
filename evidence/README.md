@@ -1,5 +1,17 @@
 # Evidence
 
+## Buildings that lean
+
+| file | what it shows |
+|---|---|
+| `extrude-baked.png` | The shipped extrusion. Every building sweeps the same way — down-right, towards the sun-away direction — wherever it stands, because the sweep is painted into the cached chunk and a cache cannot know where the camera is. |
+| `extrude-parallax.png` | The same city, same seed, same spot, with `?extrude=1`. Buildings above the player lean up, buildings below lean down, buildings left lean left: the roof is displaced away from the screen centre in proportion to height, so the city opens out around the camera instead of all shearing one way. This is `GRAPHICS.md`'s "what's next" #1 and SHIP.md U2. |
+
+The roofs are the same art in both: they are baked per building and blitted
+displaced, rather than repainted per frame, so the speckle, parapets and
+rooftop clutter survive the move. Costs are in SHIP.md U2 — the short version
+is that it fits, and `pnpm bench` re-measures it.
+
 ## No server
 
 | file | what it shows |

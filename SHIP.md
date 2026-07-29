@@ -449,6 +449,55 @@ at 1440p. Budget a profiling pass alongside it. This may be the item that
 forces V1 earlier than planned, and that is worth knowing in advance rather
 than discovering.
 
+### U2a — This has been spiked, and it fits
+
+`?extrude=1` draws it; `pnpm bench` measures it; `evidence/extrude-*.png` is
+the before and after. **The answer is that U2 does not force V1 forward**, and
+risk 2 in §11 is retired.
+
+Median of three interleaved passes, 12 s of driving, seed 7, CPU inside the
+world render only:
+
+| | p50 | p95 | p99 |
+|---|---|---|---|
+| 1920×1080 baked | 4.80 ms | 7.40 ms | 9.90 ms |
+| 1920×1080 parallax | 4.80 ms | 6.60 ms | 8.80 ms |
+| 2560×1440 baked | 6.70 ms | 9.60 ms | 10.80 ms |
+| 2560×1440 parallax | 7.00 ms | 10.00 ms | 12.00 ms |
+
+About +0.3 ms at p50 and +1.2 ms at p99, worst case, against a 16.7 ms budget.
+60 fps throughout.
+
+**Why it is nearly free**, which was not the prediction: the cached path
+sweeps a wall for *every building tile*, so a downtown block pays for forty
+sweeps. Drawing per *building* is at most two wall quads and one roof blit for
+the whole mass — 21 buildings on screen at 1080p, 29 at 1440p. Moving the work
+out of the chunk bake and into the frame roughly cancels itself out.
+
+Three things the real item still has to settle, none of them about speed:
+
+1. **The screen centre goes flat.** True parallax gives a building under the
+   camera no lean and therefore no visible wall, where the baked path gave
+   every building a constant 5 px sweep. It is physically right and a visual
+   loss exactly where the player is looking. The fix is a floor on the lean —
+   a constant sweep the parallax adds to rather than replaces. Pinned by a
+   test so it changes deliberately (`client/test/extrude.test.ts`).
+2. **Roofs must be baked per building, not repainted.** The first version drew
+   flat roof rectangles and lost the speckle, parapets and clutter. Baking each
+   roof to its own canvas and blitting it displaced keeps the art at one
+   `drawImage` per building; a per-frame repaint would have put the per-tile
+   cost straight back and the measurement above would have been a fiction.
+3. **The lighting pass still casts against the tile grid**, so shadows and
+   occlusion use the footprint while the roof has moved. Nobody notices at
+   3 px a storey; somebody will at 8.
+
+**On the numbers themselves.** They come off a shared container with no GPU,
+and the same configuration measured 4.8 ms in one pass and 11.9 ms in another
+when the passes were run back to back rather than interleaved. The absolute
+values are not a shipping target. The A/B delta is the finding, and taking
+medians of alternating passes is what makes it trustworthy — `ci/renderBench.mjs`
+does it that way for that reason.
+
 ## U3 — An authored district (L, medium risk)
 
 With U1 built, actually build the city. Landmarks you navigate by. A waterfront
@@ -702,10 +751,11 @@ point.
    playable by month twelve, and playtest it with strangers with W3's telemetry
    running. If act one is not fun with placeholder art, the art will not fix it.
 
-2. **U2 forces V1 earlier than budgeted.** Per-frame building extrusion against
-   a renderer at p99 16.8 ms with no headroom. Mitigation: profile during U2's
-   spike, not after; keep a `?lights=cheap`-style downgrade path; accept
-   pulling V1 forward as a known contingency rather than a crisis.
+2. ~~**U2 forces V1 earlier than budgeted.**~~ **Retired** — spiked and
+   measured (§U2a). Per-building drawing replaces per-tile baking, so the work
+   roughly cancels: +0.3 ms p50, +1.2 ms p99 worst case, 60 fps throughout.
+   V1 stays where the plan put it. What U2 does still owe is three visual
+   problems, all listed in §U2a and none of them about frame time.
 
 3. **The authored/generated merge in U1 eats a district.** Mitigation: version
    the map artefact, make edits additive rather than destructive, and write the

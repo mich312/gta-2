@@ -25,6 +25,7 @@ the art on whole pixels.
 | `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
 | `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
 | `?lights=off` | no lighting pass at all |
+| `?extrude=1` | true parallax building extrusion — roofs displaced away from the screen centre in proportion to height, drawn per frame instead of baked (SHIP.md U2). Off by default while the flat-centre problem is open |
 
 ### Controls
 
@@ -106,6 +107,8 @@ node server/dist/tools/persistCheck.js      # e2e: purchase survives server rest
 pnpm parity [seed] [ticks]                  # the same sim in Node and in a browser,
                                             #   tick for tick (needs the client dev
                                             #   server up; see `?local=1` above)
+pnpm bench                                  # render CPU cost, baked vs parallax
+                                            #   walls, interleaved, median of 3
 ```
 
 The bot harness is the multiplayer verifier: it fails on hash desyncs,

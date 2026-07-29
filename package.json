@@ -12,6 +12,7 @@
     "chase": "pnpm build && node server/dist/tools/chase.js",
     "sprites": "pnpm build && node server/dist/tools/sprites.js",
     "parity": "pnpm build && node ci/hostParity.mjs",
+    "bench": "node ci/renderBench.mjs",
     "test": "vitest run"
   },
   "devDependencies": {

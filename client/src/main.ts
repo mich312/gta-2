@@ -157,6 +157,9 @@ const predictor = new Predictor();
 const interp = new Interpolator();
 const sprites = new SpriteSheet();
 const tiles = new TileLayer(sprites);
+// `?extrude=1` swaps the baked, fixed-direction wall sweep for true parallax
+// extrusion drawn per frame (SHIP.md U2). A flag while it is being measured.
+tiles.extruded = new URLSearchParams(location.search).get('extrude') === '1';
 const effects = new Effects();
 const lights = new LightPass();
 {
@@ -663,7 +666,14 @@ function frame(now: number): void {
         tick: sync.latest.tick,
       }
     : null;
-  render(screen, map, scene, cam, sprites, tiles, effects, lights);
+  {
+    // Measured around the world render only — not the HUD, not the minimap,
+    // not the overlay that reports it. See NetStats.renderMs for why the rAF
+    // delta cannot answer this.
+    const t0 = performance.now();
+    render(screen, map, scene, cam, sprites, tiles, effects, lights);
+    stats.onRender(performance.now() - t0);
+  }
 
   // HUD and overlay draw in world-pixel units, whatever the backing store is.
   hudTransform(screen.ctx);
@@ -807,6 +817,8 @@ function frame(now: number): void {
     fps: stats.fps,
     frameMs: stats.frameMs,
     frameMsPeak: stats.frameMsPeak,
+    renderMs: stats.renderMs,
+    buildings: tiles.lastBuildingsDrawn,
   };
 
   requestAnimationFrame(frame);

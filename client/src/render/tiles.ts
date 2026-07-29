@@ -23,6 +23,7 @@ import palette from 'shared/data/palette.json';
 import {
   CHUNK_BUILDS_PER_FRAME,
   CHUNK_CACHE_LIMIT,
+  ROOF_CACHE_LIMIT,
   CHUNK_TILES,
   RENDER_SCALE,
   SHADOW_DEPTH,
@@ -33,6 +34,7 @@ import {
 import { hash2 } from './noise.js';
 import type { SpriteSheet } from './sprites.js';
 import { viewport } from './viewport.js';
+import { ExtrudeLayer } from './extrude.js';
 
 /** The proving ground's colour: deliberately unlike any shop's. */
 const DEPOT_ACCENT = '#5aa84e';
@@ -95,6 +97,17 @@ function shade(hex: string, amount: number, towards = '#0b111c'): string {
  * building walls and cast shadows are all effectively free at runtime.
  */
 export class TileLayer {
+  /**
+   * When true, walls and roofs are left out of the cached chunk because
+   * `ExtrudeLayer` draws them per frame with real parallax (SHIP.md U2).
+   * Ground, shadows and shop fronts stay baked either way.
+   */
+  extruded = false;
+  /** Buildings the extrude pass drew last frame, surfaced for the overlay. */
+  lastBuildingsDrawn = 0;
+
+  private readonly extrude = new ExtrudeLayer((i) => this.roofCanvasFor(i));
+  private readonly roofCache = new Map<number, HTMLCanvasElement>();
   private map: CityMap | null = null;
   private chunks = new Map<number, Chunk>();
   private frameCounter = 0;
@@ -112,6 +125,8 @@ export class TileLayer {
 
   setMap(map: CityMap): void {
     this.map = map;
+    this.extrude.setMap(map);
+    this.roofCache.clear();
     this.chunks.clear();
     this.indexBuildings(map);
     this.indexShops(map);
@@ -121,6 +136,49 @@ export class TileLayer {
   /** Drop every cached chunk — used when the sprite sheet finishes loading. */
   invalidate(): void {
     this.chunks.clear();
+    this.roofCache.clear();
+  }
+
+  /**
+   * One building's roof, baked to its own canvas.
+   *
+   * The parallax pass moves roofs per frame, so they cannot live in the
+   * chunk — but repainting the speckle, parapets and clutter per frame would
+   * put the per-tile cost straight back that drawing per building just took
+   * out. Baking each roof once and blitting it displaced keeps both: the art
+   * is the identical `paintRoof` the cached path uses, and the per-frame cost
+   * is one `drawImage` per building.
+   *
+   * Returns null while the map is missing or the index is stale, in which
+   * case the caller falls back to a flat fill.
+   */
+  private roofCanvasFor(index: number): HTMLCanvasElement | null {
+    const cached = this.roofCache.get(index);
+    if (cached) return cached;
+    const map = this.map;
+    const b = map?.buildings[index];
+    if (!map || !b) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, b.w * TD);
+    canvas.height = Math.max(1, b.h * TD);
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+    ctx.imageSmoothingEnabled = false;
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        // A footprint is a rect but its tiles are not all building — a shop
+        // interior is punched out of one. Painting a roof over the hole would
+        // put a lid on a room that is open to the sky.
+        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+        this.paintRoof(ctx, tx, ty, (tx - b.x) * TD, (ty - b.y) * TD);
+      }
+    }
+    this.roofCache.set(index, canvas);
+    if (this.roofCache.size > ROOF_CACHE_LIMIT) {
+      const oldest = this.roofCache.keys().next().value;
+      if (oldest !== undefined) this.roofCache.delete(oldest);
+    }
+    return canvas;
   }
 
   /**
@@ -168,6 +226,13 @@ export class TileLayer {
     if (budget > 0) this.prefetch(cx0 - 1, cy0 - 1, cx1 + 1, cy1 + 1, budget);
 
     if (this.chunks.size > CHUNK_CACHE_LIMIT) this.evict();
+
+    // Buildings last: they stand on the ground the chunks just laid down, and
+    // under everything the renderer draws after this.
+    if (this.extruded) {
+      this.extrude.draw(ctx, cam, originX, originY);
+      this.lastBuildingsDrawn = this.extrude.lastCount;
+    }
   }
 
   private prefetch(cx0: number, cy0: number, cx1: number, cy1: number, budget: number): void {
@@ -326,16 +391,22 @@ export class TileLayer {
 
     // 3. Extruded walls, then 4. roofs on top of them. Both run over a one-tile
     //    border so buildings straddling a chunk edge extrude seamlessly.
-    for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
-      for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
-        this.paintWall(ctx, tx, ty, ox(tx), oy(ty));
+    //
+    //    Skipped entirely under `extruded`: the parallax pass draws the same
+    //    masses per frame, and baking a second set underneath them would show
+    //    through wherever the two disagree — which is everywhere, by design.
+    if (!this.extruded) {
+      for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
+        for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
+          if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+          this.paintWall(ctx, tx, ty, ox(tx), oy(ty));
+        }
       }
-    }
-    for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
-      for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
-        this.paintRoof(ctx, tx, ty, ox(tx), oy(ty));
+      for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
+        for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
+          if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+          this.paintRoof(ctx, tx, ty, ox(tx), oy(ty));
+        }
       }
     }
 
