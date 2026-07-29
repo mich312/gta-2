@@ -878,6 +878,35 @@ New `shared/test/flight.test.ts`: below `flightZ` an aircraft collides,
 above it does not; takeoff requires runway and speed; landing off-airfield
 destroys it. `pnpm mapgen --seed=7` PNG showing the strip.
 
+### S2 as built: two things it does not do
+
+Asked "can the player fly?", the honest answer is **yes, one way**. Getting
+off the ground works through the ordinary input path — E into a chopper, W
+to climb, altitude reaches its cruise height and the aircraft flies over the
+city. Coming back down does not, and both gaps have the same root: the
+altitude logic went inside `driveVehicle`, which only runs when somebody is
+at the controls.
+
+- **Stepping out mid-air teleports you to the ground.** You go from
+  `driving` at altitude 48 to `foot` at altitude 0 in one tick: no fall, no
+  damage, no transition. `PlayerState` already carries `z`/`vz`/`airDist`
+  for stunt jumps, and nothing connects the two.
+- **An abandoned aircraft hovers for ever.** `stepVehicleCoasting` — the
+  path a driverless vehicle takes — calls `integrateVehicle` directly and
+  never reaches `stepAltitude`, so a chopper you got out of sits at cruise
+  altitude with zero speed, permanently.
+
+The fix for both is the same shape and small: hoist `stepAltitude` out of
+`driveVehicle` so it runs for every vehicle every tick, and hand the
+player the vehicle's altitude on exit so the existing jump physics bring
+them down. It is written here rather than fixed silently because the
+commits claim S2 is delivered, and this is the part of it that is not.
+
+Worth recording how they were found, because it generalises: the flight
+tests call `driveVehicle` directly, so neither bug was visible to them. A
+test that drives the same entry point the feature does would have caught
+both on the first run.
+
 ## S3 — the military at five stars
 
 **Scope.** Small, once P3 and S1 exist — it is a wave composition and two
