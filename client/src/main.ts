@@ -37,6 +37,9 @@ import { LightPass } from './render/lighting.js';
 import { PoseSmoother } from './render/smoothing.js';
 import { Connection } from './net/connection.js';
 import { LocalConnection } from './net/localConnection.js';
+import { CityView } from './three/cityView.js';
+import { EntityLayer } from './three/entities.js';
+import { SceneryLayer } from './three/scenery.js';
 import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
@@ -148,8 +151,20 @@ function playerName(): string {
   return name;
 }
 
+/**
+ * `?render=3d` draws the world with three.js instead of Canvas 2D.
+ *
+ * The HUD, the minimap, the overlay, input and — crucially — client-side
+ * prediction all stay exactly as they are: only the world layer swaps. That
+ * is the whole reason to wire it in here rather than leave it on its own page,
+ * where it had none of them.
+ */
+const render3d = new URLSearchParams(location.search).get('render') === '3d';
 const canvas = document.getElementById('game') as HTMLCanvasElement;
-const screen = setupCanvas(canvas);
+// In 3D the HUD canvas has to be see-through — both in its drawing context
+// and in its CSS background, which is opaque black for the 2D renderer.
+if (render3d) document.body.classList.add('render3d');
+const screen = setupCanvas(canvas, { alpha: render3d });
 const overlay = new DebugOverlay();
 const input = new InputSource(screen, () => overlay.toggle());
 const stats = new NetStats();
@@ -570,6 +585,74 @@ let cam: Vec2 = { x: 0, y: 0 };
 /** Smoothed camera lead. Eased so a hard corner glides instead of snapping. */
 let lead: Vec2 = { x: 0, y: 0 };
 
+/** Three.js world layer, created on the first frame that has a map. */
+let world3d: {
+  view: CityView;
+  entities: EntityLayer;
+  scenery: SceneryLayer;
+} | null = null;
+
+/**
+ * Draw the world in 3D, from the same `Scene` the 2D renderer consumes.
+ *
+ * The camera is centred on the same point the 2D view is centred on and
+ * covers the same `viewport.h` of world, so the HUD, the minimap and mouse
+ * aim keep agreeing with what is on screen. Aim survives the perspective
+ * projection because the camera hangs directly over the player: the mapping
+ * is radially symmetric about screen centre, which is the only property
+ * `InputSource`'s angle actually depends on.
+ */
+function drawWorld3d(scene: Scene | null): void {
+  if (!map || !scene) return;
+  const worldCanvas = document.getElementById('world') as HTMLCanvasElement;
+  if (!world3d) {
+    worldCanvas.hidden = false;
+    const view = new CityView({
+      canvas: worldCanvas,
+      map,
+      pitch: 0,
+      viewHeight: viewport.h,
+    });
+    world3d = {
+      view,
+      entities: new EntityLayer(view.scene),
+      scenery: new SceneryLayer(view.scene),
+    };
+    world3d.scenery.setMap(map);
+  }
+  const { view, entities, scenery } = world3d;
+
+  // Match the HUD canvas exactly, in both backing store and CSS box, so a
+  // world pixel lands on the same screen pixel in both layers.
+  if (worldCanvas.width !== viewport.deviceW || worldCanvas.height !== viewport.deviceH) {
+    view.resize(viewport.deviceW, viewport.deviceH);
+  }
+  worldCanvas.style.width = canvas.style.width;
+  worldCanvas.style.height = canvas.style.height;
+
+  view.setNight(lights.nightAmount);
+  entities.update(scene.remotes, playerId, {
+    ...(scene.localPos
+      ? { player: { ...scene.localPos, z: scene.local?.z ?? 0, heading: scene.localPos.angle } }
+      : {}),
+    ...(scene.localVehicle && predictor.predictedVehicle
+      ? {
+          vehicle: {
+            id: predictor.predictedVehicle.id,
+            kind: scene.localVehicle.kind,
+            x: scene.localVehicle.pos.x,
+            y: scene.localVehicle.pos.y,
+            z: scene.localVehicle.z,
+            heading: scene.localVehicle.heading,
+          },
+        }
+      : {}),
+  });
+  scenery.updateProps(scene.remotes.props);
+  view.lookAt(cam.x + viewport.w / 2, cam.y + viewport.h / 2);
+  view.render();
+}
+
 function frame(now: number): void {
   const rawMs = now - last;
   last = now;
@@ -673,7 +756,14 @@ function frame(now: number): void {
     // not the overlay that reports it. See NetStats.renderMs for why the rAF
     // delta cannot answer this.
     const t0 = performance.now();
-    render(screen, map, scene, cam, sprites, tiles, effects, lights);
+    if (render3d) {
+      drawWorld3d(scene);
+      // The HUD canvas is transparent in this mode, so last frame's HUD would
+      // otherwise smear over this one.
+      screen.ctx.clearRect(0, 0, viewport.deviceW, viewport.deviceH);
+    } else {
+      render(screen, map, scene, cam, sprites, tiles, effects, lights);
+    }
     stats.onRender(performance.now() - t0);
   }
 

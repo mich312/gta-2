@@ -25,6 +25,7 @@ the art on whole pixels.
 | `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
 | `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
 | `?lights=off` | no lighting pass at all |
+| `?render=3d` | draw the world with three.js instead of Canvas 2D. The HUD, minimap, overlay, input and client-side prediction are unchanged — only the world layer swaps |
 | `?extrude=1` | true parallax building extrusion — roofs displaced away from the screen centre in proportion to height, drawn per frame instead of baked (SHIP.md U2). Off by default while the flat-centre problem is open |
 
 ### Controls

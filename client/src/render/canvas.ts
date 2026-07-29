@@ -10,6 +10,15 @@ export interface Screen {
 
 export interface ScreenOptions {
   /**
+   * Keep the canvas transparent so something can show through it.
+   *
+   * Off by default because an opaque canvas lets the compositor skip blending
+   * it against the page, which is free performance for the 2D renderer. The
+   * 3D path needs it on: there the world is drawn by WebGL on a canvas
+   * underneath, and this one carries only the HUD.
+   */
+  alpha?: boolean;
+  /**
    * Render a fixed frame instead of following the window. For the evidence
    * pages and the sprite tools, which crop known rectangles out of the
    * backing store and would otherwise depend on the size of whatever browser
@@ -33,8 +42,7 @@ export interface ScreenOptions {
  * 1920×1080 played inside black bars.
  */
 export function setupCanvas(canvas: HTMLCanvasElement, opts: ScreenOptions = {}): Screen {
-  // No alpha: the compositor can skip blending the canvas against the page.
-  const ctx = canvas.getContext('2d', { alpha: false });
+  const ctx = canvas.getContext('2d', { alpha: opts.alpha === true });
   if (!ctx) throw new Error('no 2d context');
 
   const screen: Screen = { canvas, ctx, scale: viewport.zoom };

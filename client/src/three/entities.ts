@@ -22,6 +22,12 @@ import { hasSprite, spriteGeometry, variantCount } from './spriteMesh.js';
  * with 3D.md W3c, and the sprite-to-mesh generator is how.
  */
 
+/** The local player and their vehicle, from the predictor rather than the wire. */
+export interface LocalBodies {
+  player?: { x: number; y: number; z: number; heading: number };
+  vehicle?: { id: number; kind: string; x: number; y: number; z: number; heading: number };
+}
+
 /** Reused so the hot path allocates nothing. */
 const UP = new THREE.Vector3(0, 0, 1);
 
@@ -204,7 +210,7 @@ export class EntityLayer {
    * two views are looking at exactly the same state — which is what makes
    * the 3D path checkable against the one that already works.
    */
-  update(world: RenderWorld, localPlayerId: number): void {
+  update(world: RenderWorld, localPlayerId: number, local?: LocalBodies): void {
     this.peds.begin();
     this.cops.begin();
     this.players.begin();
@@ -253,20 +259,29 @@ export class EntityLayer {
       pool.put(this.m);
     }
 
+    // The local player and their car come from PREDICTION, not from the
+    // interpolated snapshot — the same split `main.ts` makes for the 2D
+    // renderer. Drawing them off the snapshot instead would put the thing the
+    // player is steering three ticks behind their own input.
+    if (local?.player) {
+      const p = local.player;
+      place(this.players, p.x, p.y, p.z, p.heading);
+    }
+    if (local?.vehicle) {
+      const v = local.vehicle;
+      const pool = this.vehiclePool(v.kind, this.variantFor(v.kind, v.id));
+      this.m.compose(
+        this.pos.set(v.x, v.y, v.z),
+        this.q.setFromAxisAngle(UP, v.heading),
+        this.scl.set(1, 1, 1),
+      );
+      pool.put(this.m);
+    }
+
     this.peds.end(this.zero);
     this.cops.end(this.zero);
     this.players.end(this.zero);
     for (const pool of this.vehicles.values()) pool.end(this.zero);
   }
 
-  /** The local player, drawn separately so it can use the predicted pose. */
-  placeLocal(x: number, y: number, z: number, heading: number): void {
-    this.players.put(
-      this.m.compose(
-        this.pos.set(x, y, z),
-        this.q.setFromAxisAngle(UP, heading),
-        this.scl.set(1, 1, 1),
-      ),
-    );
-  }
 }
