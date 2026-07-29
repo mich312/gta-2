@@ -131,6 +131,10 @@ re-simulating to identical hashes is the desync alarm.
   any display rate. Lights are shadow-cast against the tile grid — a lamp lights
   its own street and not the block behind it.
 
+`3D.md` is the live conversion plan: the simulation gaining a third axis,
+why no physics engine can be used, and what is built so far
+(`/city3d.html` draws the city as geometry).
+
 See `PLAN.md` for the architecture, `GRAPHICS.md` for the renderer and art
 direction, and `PROGRESS.md` for the per-phase log. `GTA.md`, `GAPS.md`,
 `FEATURES.md` and `ROADMAP.md` are the feature backlogs, all of them now

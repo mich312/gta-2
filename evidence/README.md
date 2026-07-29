@@ -1,5 +1,16 @@
 # Evidence
 
+## The city with a third axis
+
+| file | what it shows |
+|---|---|
+| `city-3d.png` | The generated city as actual geometry — 523 buildings at real heights, cast shadows, the river — built from the **volume grid** the 3D collision resolves against, not from the tile grid. A building's box is the span that stops you. Retake with `/city3d.html?seed=7&pitch=45`. |
+
+The numbers on it are draw calls, not frame rate: **9 draws, 57,767 instances,
+762k triangles** for the whole 240×240 city. This box has no GPU, so its frame
+rate is SwiftShader's and says nothing about a real machine; draw count is a
+property of how the scene is built and is the same everywhere. See 3D.md W3a.
+
 ## Buildings that lean
 
 | file | what it shows |

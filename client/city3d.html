@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>city in 3d</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #hud {
+        position: fixed; left: 8px; top: 8px; z-index: 2;
+        font: 12px/1.5 monospace; color: #cdd6e0;
+        background: rgba(6, 10, 16, 0.72); padding: 6px 9px; white-space: pre;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      The generated city, drawn from the volume grid (3D.md phase 1).
+
+      Deliberately not the game: no entities, no prediction, no HUD. It exists
+      to show that the thing the 3D collision resolves against is real
+      geometry — a building's box is the span that stops you, and the gap
+      under a bridge deck is the gap a boat sails through.
+
+        ?seed=  city seed        ?pitch= camera tilt, degrees from straight down
+        ?h=     view height, world px
+    -->
+    <div id="hud">building…</div>
+    <canvas id="view"></canvas>
+    <script type="module">
+      import { generateCity, parseWorldgenParams, initTuning } from 'shared';
+      import { CityView } from '/src/three/cityView.ts';
+      import { initLocalTuning, localWorldgenParams } from '/src/local/tuning.ts';
+
+      const q = new URLSearchParams(location.search);
+      const seed = Number.parseInt(q.get('seed') ?? '7', 10);
+      const pitch = Number.parseFloat(q.get('pitch') ?? '38');
+      const viewHeight = Number.parseFloat(q.get('h') ?? '900');
+
+      initLocalTuning('normal');
+      const map = generateCity(seed, localWorldgenParams());
+
+      const canvas = document.getElementById('view');
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      const view = new CityView({ canvas, map, pitch, viewHeight });
+
+      // Circle slowly over the middle of the city so the parallax is visible
+      // in a still and the geometry is visible in motion.
+      const cx = (map.widthTiles * 16) / 2;
+      const cy = (map.heightTiles * 16) / 2;
+      let t = 0;
+      const hud = document.getElementById('hud');
+      let frames = 0;
+      let last = performance.now();
+      let fps = 0;
+
+      function frame(now) {
+        t += 0.0016;
+        view.lookAt(cx + Math.cos(t) * 500, cy + Math.sin(t) * 500);
+        view.render();
+        frames++;
+        if (now - last > 500) {
+          fps = (frames * 1000) / (now - last);
+          frames = 0;
+          last = now;
+          hud.textContent =
+            `seed ${seed}  pitch ${pitch}°\n` +
+            `${map.widthTiles}x${map.heightTiles} tiles, ${map.buildings.length} buildings\n` +
+            `${fps.toFixed(0)} fps (software renderer here)\n` +
+            `draws ${view.stats().draws}  instances ${view.stats().instances}  ` +
+            `tris ${(view.stats().triangles / 1000).toFixed(0)}k`;
+        }
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        view.resize(canvas.width, canvas.height);
+      });
+
+      globalThis.__city = view;
+    </script>
+  </body>
+</html>
