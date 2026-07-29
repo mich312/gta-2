@@ -13,9 +13,10 @@ COPY shared/package.json shared/
 COPY server/package.json server/
 COPY client/package.json client/
 RUN pnpm install --frozen-lockfile
-# Sources, then build: shared+server via `tsc -b`, client via Vite.
+# Sources, then build. `pnpm build` covers all three packages: shared+server
+# via `tsc -b`, client via Vite.
 COPY . .
-RUN pnpm build && pnpm --filter client build
+RUN pnpm build
 
 FROM node:24-slim
 WORKDIR /app

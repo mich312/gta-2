@@ -9,8 +9,8 @@ Node server and a browser client that renders the world with three.js
 ## Run it
 
 ```bash
-pnpm install
-pnpm build          # tsc -b (shared + server)
+pnpm install        # re-run after every pull: dependencies change
+pnpm build          # all three packages — tsc -b (shared + server), Vite (client)
 node server/dist/index.js          # terminal 1 — server on ws://127.0.0.1:8080
 pnpm --filter client dev           # terminal 2 — Vite on http://localhost:5173
 ```
@@ -98,6 +98,7 @@ weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette)
 
 ```bash
 pnpm test                                   # vitest across shared + server
+pnpm typecheck                              # tsc over all three, no emit
 pnpm bots --count=8 --script=brawl --duration=60   # headless multiplayer harness
                                             # scripts: idle|cruise|circle|joyride|brawl|jitter
 pnpm mapgen --seed=7                        # render a city to PNG without the game

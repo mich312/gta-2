@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -b server",
+    "build": "tsc -b server && pnpm --filter client build",
+    "typecheck": "tsc -b server && tsc -p client --noEmit",
     "dev": "pnpm build && pnpm -r --parallel dev",
     "server": "pnpm build && node server/dist/index.js",
     "bots": "pnpm build && node server/dist/bots/harness.js",
