@@ -32,8 +32,9 @@ Quote draw calls from these, not frame rate: this box has no GPU, so its frame
 rate is SwiftShader's and says nothing about a real machine, while draw count
 is a property of how the scene is built and is the same everywhere. Bare
 geometry is **9 draws / 762k triangles** for the whole 240×240 city; dressed —
-facades, planting, props, markings, the live population — it is **165 draws /
-2.9M triangles**. See 3D.md W3a.
+facades, planting, props, markings, roof parapets and clutter, kerbs,
+crossings and the live population — it is **179 draws / 3.2M triangles**.
+See 3D.md W3a.
 
 ## Buildings that lean
 

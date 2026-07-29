@@ -7,6 +7,7 @@ import {
   type VolumeGrid,
 } from 'shared';
 import palette from 'shared/data/palette.json';
+import { hash2 } from '../render/noise.js';
 import { addOutline, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial, setFacadeNight } from './facade.js';
 
@@ -175,6 +176,38 @@ export class CityView {
       const t = this.map.tiles[ty * W + tx] as number;
       return t === 1 || t === 7 || t === 13;
     };
+    /** Carriageway width and length through a tile, both axes. */
+    const runs = (tx: number, ty: number): [number, number] => {
+      let up = 0;
+      let down = 0;
+      let left = 0;
+      let right = 0;
+      while (isRoad(tx, ty - up - 1) && up < 12) up++;
+      while (isRoad(tx, ty + down + 1) && down < 12) down++;
+      while (isRoad(tx - left - 1, ty) && left < 12) left++;
+      while (isRoad(tx + right + 1, ty) && right < 12) right++;
+      return [up + down + 1, left + right + 1];
+    };
+    /** Wide both ways: where two streets actually meet. */
+    const isJunction = (tx: number, ty: number): boolean => {
+      if (!isRoad(tx, ty)) return false;
+      const [runV, runH] = runs(tx, ty);
+      return runV > 6 && runH > 6;
+    };
+    /**
+     * Crossings, on the road tiles that approach a junction.
+     *
+     * Returns 1 for stripes across an east-west street, 2 across a
+     * north-south one. Anchored to junctions rather than to kerbs: every
+     * kerbside tile touches a pavement, so a kerb test would stripe the whole
+     * length of every street instead of its mouth.
+     */
+    const crossing = (tx: number, ty: number): number => {
+      if (!isRoad(tx, ty) || isJunction(tx, ty)) return 0;
+      if (isJunction(tx - 1, ty) || isJunction(tx + 1, ty)) return 1;
+      if (isJunction(tx, ty - 1) || isJunction(tx, ty + 1)) return 2;
+      return 0;
+    };
     /** 0 plain, 1 centre line along x, 2 centre line along y. */
     const roadMark = (tx: number, ty: number): number => {
       if (!isRoad(tx, ty)) return 0;
@@ -229,6 +262,9 @@ export class CityView {
       return list;
     };
 
+    /** Roof height per tile, filled as the grid is walked. */
+    const heightAt = new Float64Array(W * H);
+
     const m = new THREE.Matrix4();
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
@@ -249,8 +285,14 @@ export class CityView {
           color = (LAYERS[k] as Layer).color;
           solid = k === 'deck';
           if (k === 'road') {
-            const mark = roadMark(tx, ty);
-            if (mark) key = mark === 1 ? 'roadMarkX' : 'roadMarkY';
+            // A road tile touching a pavement across its short axis is the
+            // mouth of a junction — where a crossing goes.
+            const cross = crossing(tx, ty);
+            if (cross) key = cross === 1 ? 'crossX' : 'crossY';
+            else {
+              const mark = roadMark(tx, ty);
+              if (mark) key = mark === 1 ? 'roadMarkX' : 'roadMarkY';
+            }
           }
         }
         const list = bucket(key, color, solid);
@@ -273,9 +315,12 @@ export class CityView {
             (span.top * Z_SCALE) - h / 2,
           );
           list.push(m.clone());
+          if (tile === 3) heightAt[idx] = span.top * Z_SCALE;
         }
       }
     }
+
+    this.buildRoofDetail(buildingOf, heightAt);
 
     const box = new THREE.BoxGeometry(1, 1, 1);
     for (const [key, mats] of buckets) {
@@ -294,6 +339,10 @@ export class CityView {
               ? roadMaterial(color, 1)
               : key === 'roadMarkY'
                 ? roadMaterial(color, 2)
+                : key === 'crossX'
+                  ? roadMaterial(color, 3)
+                  : key === 'crossY'
+                    ? roadMaterial(color, 4)
                 : key === 'grass'
                   ? groundMaterial(color, 0.20)
                   : key === 'pavement'
@@ -328,6 +377,93 @@ export class CityView {
     // flats at night from a silhouette into somewhere people live.
     setFacadeNight(this.scene, t);
     this.night = t;
+  }
+
+  /**
+   * Parapets and rooftop clutter.
+   *
+   * From a camera hanging straight over the city, roofs are most of what you
+   * see of a building — and a flat coloured rectangle is where a city stops
+   * looking built. The 2D tile layer already knows this: it draws a bright
+   * lip along the sun-facing roof edges, a dark one along the others, and
+   * scatters units, vents and hatches across the interior. Same idea here, as
+   * real geometry, from the same hash and the same thresholds.
+   *
+   * A parapet goes on every roof tile with a non-building neighbour, on that
+   * side only, so a block of buildings is rimmed at its outline rather than
+   * gridded tile by tile. Clutter goes only on interior tiles, which is what
+   * stops an air-conditioning unit hanging over the street.
+   */
+  private buildRoofDetail(buildingOf: Int32Array, heightAt: Float64Array): void {
+    const W = this.map.widthTiles;
+    const H = this.map.heightTiles;
+    const T = TILE_SIZE;
+    const isBuilding = (tx: number, ty: number): boolean =>
+      tx >= 0 && ty >= 0 && tx < W && ty < H && this.map.tiles[ty * W + tx] === 3;
+
+    const parapets: THREE.Matrix4[] = [];
+    const clutter: THREE.Matrix4[] = [];
+    const m = new THREE.Matrix4();
+    const LIP_H = 3.2;
+    const LIP_W = 2.4;
+
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const idx = ty * W + tx;
+        if (this.map.tiles[idx] !== 3) continue;
+        const top = heightAt[idx] as number;
+        if (top <= 0) continue;
+        const cx = (tx + 0.5) * T;
+        const cy = (ty + 0.5) * T;
+
+        const openN = !isBuilding(tx, ty - 1);
+        const openS = !isBuilding(tx, ty + 1);
+        const openW = !isBuilding(tx - 1, ty);
+        const openE = !isBuilding(tx + 1, ty);
+
+        const lip = (x: number, y: number, w: number, d: number): void => {
+          m.makeScale(w, d, LIP_H);
+          m.setPosition(x, y, top + LIP_H / 2);
+          parapets.push(m.clone());
+        };
+        if (openN) lip(cx, cy - T / 2 + LIP_W / 2, T, LIP_W);
+        if (openS) lip(cx, cy + T / 2 - LIP_W / 2, T, LIP_W);
+        if (openW) lip(cx - T / 2 + LIP_W / 2, cy, LIP_W, T);
+        if (openE) lip(cx + T / 2 - LIP_W / 2, cy, LIP_W, T);
+
+        // Interior only — same rule and same salt the 2D roof painter uses.
+        if (openN || openS || openE || openW) continue;
+        const roll = hash2(tx, ty, 61);
+        if (roll > 0.86) {
+          m.makeScale(T * 0.5, T * 0.38, 6);
+          m.setPosition(cx, cy, top + 3);
+          clutter.push(m.clone());
+        } else if (roll > 0.74) {
+          m.makeScale(T * 0.25, T * 0.25, 4);
+          m.setPosition(cx, cy, top + 2);
+          clutter.push(m.clone());
+        } else if (roll > 0.68) {
+          m.makeScale(T * 0.36, T * 0.3, 2);
+          m.setPosition(cx, cy, top + 1);
+          clutter.push(m.clone());
+        }
+      }
+    }
+
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const add = (mats: THREE.Matrix4[], color: number, outline: number): void => {
+      if (mats.length === 0) return;
+      const mesh = new THREE.InstancedMesh(box, toonMaterial(color), mats.length);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
+      mesh.instanceMatrix.needsUpdate = true;
+      this.instanceCount += mats.length;
+      this.scene.add(mesh);
+      addOutline(mesh, this.scene, outline);
+    };
+    add(parapets, hex(palette.roofEdgeLight ?? '#9aa0aa'), 0.4);
+    add(clutter, hex(palette.roofUnit ?? '#6b7079'), 0.5);
   }
 
   resize(width: number, height: number): void {

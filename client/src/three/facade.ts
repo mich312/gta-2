@@ -217,7 +217,14 @@ export function roadMaterial(color: number, mark: number, lineColor = 0xd8cf94):
            // Grain first, so the marking sits on the tarmac rather than under.
            float grain = road_hash(floor(vWorld.xy * 0.7));
            diffuseColor.rgb *= 0.95 + grain * 0.10;
-           if (uMark > 0.5) {
+           if (uMark > 2.5) {
+             // Crossing: stripes across the carriageway at a junction mouth.
+             vec2 t = vWorld.xy / uTile;
+             float bars = uMark < 3.5 ? fract(t.x * 4.0) : fract(t.y * 4.0);
+             float band = uMark < 3.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);
+             float zebra = (1.0 - step(0.5, bars)) * (1.0 - step(0.42, band));
+             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.86, 0.82), zebra * 0.8);
+           } else if (uMark > 0.5) {
              vec2 t = vWorld.xy / uTile;
              // Across the lane: how far from the tile centre, 0 at the middle.
              float across = uMark < 1.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);

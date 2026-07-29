@@ -2,6 +2,7 @@ import {
   T_BRIDGE,
   T_BUILDING,
   T_RAMP,
+  T_SIDEWALK,
   T_TREES,
   T_WATER,
   TILE_SIZE,
@@ -51,6 +52,15 @@ export const BRIDGE_DECK_THICKNESS = 6;
 export const RAMP_Z = 12;
 /** Trees are solid to a mover but not to a helicopter passing overhead. */
 export const TREE_Z = 36;
+/**
+ * Kerb height: how far the pavement stands above the carriageway.
+ *
+ * Real, not decorative. It is inside every mover's step-up allowance so
+ * nobody is stopped by it, but it is what makes a street read as a street
+ * rather than as a coloured stripe, and it is the surface a car mounting the
+ * pavement actually climbs.
+ */
+export const KERB_Z = 3;
 
 export interface Span {
   bottom: number;
@@ -260,9 +270,12 @@ function columnFor(map: CityMap, i: number, buildingZ: number): { spans: Span[];
     case T_RAMP:
       return { spans: [{ bottom: EARTH, top: RAMP_Z }], ground: RAMP_Z };
 
+    case T_SIDEWALK:
+      return { spans: [{ bottom: EARTH, top: KERB_Z }], ground: KERB_Z };
+
     default:
-      // Road, sidewalk, park, lot, sand, runway, shop floor, field: street
-      // level, walkable, open sky.
+      // Road, park, lot, sand, runway, shop floor, field: street level,
+      // walkable, open sky.
       return { spans: [{ bottom: EARTH, top: 0 }], ground: 0 };
   }
 }
