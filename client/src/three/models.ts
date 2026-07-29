@@ -2,7 +2,13 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /**
- * Low-poly bodies for everything that moves.
+ * Hand-built fallback bodies.
+ *
+ * Almost everything is now extruded from `shared/data/sprites.json` by
+ * `spriteMesh.ts` — same art as the 2D renderer, same variants, same tuned
+ * proportions. These two survive for the case that generator cannot serve: a
+ * vehicle kind the sprite sheet has no entry for yet. Without them a missing
+ * sprite is an invisible car rather than a plain one.
  *
  * Each model is a handful of boxes merged into **one** geometry carrying
  * per-vertex colours. That is the whole trick that keeps this affordable: a
@@ -92,86 +98,9 @@ export function carGeometry(along: number, across: number, bodyColor: number): T
   ]);
 }
 
-/** A bus or truck: taller, flat-fronted, with a separate cab band. */
-export function boxVehicleGeometry(
-  along: number,
-  across: number,
-  bodyColor: number,
-  height: number,
-): THREE.BufferGeometry {
-  const L = along * 2;
-  const W = across * 2;
-  const wheelR = 2.2;
-  return merge([
-    part(L, W, height, 0, 0, wheelR + height / 2, bodyColor),
-    // Windscreen band across the front, and a window strip down each side.
-    part(L * 0.05, W * 0.86, height * 0.4, L * 0.48, 0, wheelR + height * 0.72, GLASS),
-    part(L * 0.8, 0.6, height * 0.3, 0, W / 2, wheelR + height * 0.72, GLASS),
-    part(L * 0.8, 0.6, height * 0.3, 0, -W / 2, wheelR + height * 0.72, GLASS),
-    part(wheelR * 2, 1.8, wheelR * 2, L * 0.34, W / 2 - 0.4, wheelR, TYRE),
-    part(wheelR * 2, 1.8, wheelR * 2, L * 0.34, -W / 2 + 0.4, wheelR, TYRE),
-    part(wheelR * 2, 1.8, wheelR * 2, -L * 0.34, W / 2 - 0.4, wheelR, TYRE),
-    part(wheelR * 2, 1.8, wheelR * 2, -L * 0.34, -W / 2 + 0.4, wheelR, TYRE),
-  ]);
-}
 
-/**
- * An aeroplane: fuselage, wings, tailplane and fin.
- *
- * Wings span well past the collider, which is correct — the sim collides a
- * plane by its body, and a wing that clipped a lamp post would be a different
- * and much larger design decision.
- */
-export function planeGeometry(along: number, across: number, bodyColor: number): THREE.BufferGeometry {
-  const L = along * 2;
-  const span = Math.max(across * 2 * 2.6, L * 0.9);
-  return merge([
-    part(L, L * 0.16, L * 0.16, 0, 0, 4, bodyColor),
-    // Nose, tapered by using a shorter, thinner box in front.
-    part(L * 0.18, L * 0.1, L * 0.1, L * 0.55, 0, 4, TRIM),
-    // Cockpit glass on top of the fuselage.
-    part(L * 0.2, L * 0.12, L * 0.07, L * 0.18, 0, 4 + L * 0.1, GLASS),
-    // Main wing.
-    part(L * 0.22, span, 1.2, -L * 0.02, 0, 4, bodyColor),
-    // Tailplane and fin.
-    part(L * 0.12, span * 0.34, 1.0, -L * 0.42, 0, 4, bodyColor),
-    part(L * 0.12, 1.0, L * 0.22, -L * 0.44, 0, 4 + L * 0.12, bodyColor),
-  ]);
-}
 
-/** A helicopter: body, skids, tail boom and a rotor disc. */
-export function helicopterGeometry(
-  along: number,
-  across: number,
-  bodyColor: number,
-): THREE.BufferGeometry {
-  const L = along * 2;
-  const W = across * 2;
-  return merge([
-    part(L * 0.55, W, L * 0.3, L * 0.08, 0, 6, bodyColor),
-    part(L * 0.2, W * 0.7, L * 0.22, L * 0.32, 0, 6, GLASS),
-    part(L * 0.5, W * 0.18, L * 0.1, -L * 0.38, 0, 7, bodyColor),
-    part(L * 0.14, W * 0.16, L * 0.26, -L * 0.58, 0, 8, bodyColor),
-    // Rotor: a thin cross, which at this distance reads as a disc in motion.
-    part(L * 1.1, 1.2, 0.8, 0, 0, 6 + L * 0.2, TRIM),
-    part(1.2, L * 1.1, 0.8, 0, 0, 6 + L * 0.2, TRIM),
-    // Skids.
-    part(L * 0.5, 0.9, 0.9, 0, W * 0.42, 1.2, TRIM),
-    part(L * 0.5, 0.9, 0.9, 0, -W * 0.42, 1.2, TRIM),
-  ]);
-}
 
-/** A boat: hull with a pointed bow and a small wheelhouse. */
-export function boatGeometry(along: number, across: number, bodyColor: number): THREE.BufferGeometry {
-  const L = along * 2;
-  const W = across * 2;
-  return merge([
-    part(L * 0.8, W, 4, -L * 0.05, 0, 2, bodyColor),
-    part(L * 0.3, W * 0.6, 4, L * 0.42, 0, 2, bodyColor, 0),
-    part(L * 0.25, W * 0.6, 4, -L * 0.15, 0, 5, TRIM),
-    part(L * 0.16, W * 0.5, 2.4, -L * 0.14, 0, 7.4, GLASS),
-  ]);
-}
 
 /**
  * A person: legs, torso, head, and a shoulder line.

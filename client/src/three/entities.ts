@@ -2,14 +2,8 @@ import * as THREE from 'three';
 import { getVehicleTuning } from 'shared';
 import type { RenderWorld } from '../net/interpolation.js';
 import { addOutline, toonMaterial } from './toon.js';
-import {
-  boatGeometry,
-  boxVehicleGeometry,
-  carGeometry,
-  helicopterGeometry,
-  personGeometry,
-  planeGeometry,
-} from './models.js';
+import { carGeometry, personGeometry } from './models.js';
+import { hasSprite, spriteGeometry, variantCount } from './spriteMesh.js';
 
 /**
  * Everything that moves, as instanced 3D bodies.
@@ -30,6 +24,16 @@ import {
 
 /** Reused so the hot path allocates nothing. */
 const UP = new THREE.Vector3(0, 0, 1);
+
+/**
+ * How much to exaggerate the authored sprite heights.
+ *
+ * Those heights were tuned to look right under a relighting pass on flat art,
+ * where they only ever had to *imply* depth. Under a camera that can see them
+ * a faithful 1.0 reads a little squashed, and this is the smallest knob that
+ * fixes it without touching the art.
+ */
+const Z_EXAGGERATION = 1.5;
 
 /** How high off the road a body of this kind sits, and how big it is. */
 interface Body {
@@ -64,6 +68,13 @@ const PAINT: Record<string, number> = {
   digger: 0xd8a12a,
   icecream: 0xefd9c0,
 };
+
+/** Sprite art for a name, or the hand-built fallback if the sheet lacks it. */
+function body(name: string, fallback: THREE.BufferGeometry): THREE.BufferGeometry {
+  return hasSprite(name)
+    ? (spriteGeometry(name, { zScale: Z_EXAGGERATION }) ?? fallback)
+    : fallback;
+}
 
 /** A pool of instances of one body kind, grown on demand. */
 class Pool {
@@ -137,14 +148,26 @@ export class EntityLayer {
 
   constructor(scene: THREE.Object3D) {
     scene.add(this.group);
-    this.peds = new Pool(this.group, personGeometry(0xc98f6a, 0x7d6a52, 0x33383f), PED, 400);
-    this.cops = new Pool(this.group, personGeometry(0xd0a184, 0x27407a, 0x1b2436), COP, 96);
-    this.players = new Pool(this.group, personGeometry(0xd8a184, 0xc4392c, 0x2b3038), PLAYER, 16);
+    // The figures come out of the same sprite definitions the 2D renderer
+    // draws, extruded. `models.ts` survives only as the fallback for a name
+    // the sheet has no art for.
+    this.peds = new Pool(this.group, body('ped', personGeometry(0xc98f6a, 0x7d6a52, 0x33383f)), PED, 400);
+    this.cops = new Pool(this.group, body('cop', personGeometry(0xd0a184, 0x27407a, 0x1b2436)), COP, 96);
+    this.players = new Pool(this.group, body('player', personGeometry(0xd8a184, 0xc4392c, 0x2b3038)), PLAYER, 16);
     this.vehicleParent = this.group;
   }
 
-  private vehiclePool(kind: string): Pool {
-    let pool = this.vehicles.get(kind);
+  /**
+   * The pool for one (kind, paint) pair.
+   *
+   * Keyed by variant as well as kind because a car's colourway is baked into
+   * its vertex colours — which is what keeps a painted car a single instanced
+   * draw. Ten paint jobs is ten pools of the same geometry, and ten draws for
+   * every car in the city is still cheaper than one draw per car.
+   */
+  private vehiclePool(kind: string, variant: number): Pool {
+    const key = `${kind}#${variant}`;
+    let pool = this.vehicles.get(key);
     if (!pool) {
       const t = getVehicleTuning(kind);
       // The collider, drawn. `t.halfLength`/`t.halfWidth` are the numbers the
@@ -152,23 +175,26 @@ export class EntityLayer {
       // with — see the note at the top of this file.
       const along = t?.halfLength ?? 8;
       const across = t?.halfWidth ?? 4;
-      const paint = PAINT[kind] ?? 0x9aa4b2;
-      let geom: THREE.BufferGeometry;
-      if (kind === 'plane') geom = planeGeometry(along, across, paint);
-      else if (kind === 'chopper' || kind === 'copheli') geom = helicopterGeometry(along, across, paint);
-      else if (kind === 'boat') geom = boatGeometry(along, across, paint);
-      else if (kind === 'bus' || kind === 'truck' || kind === 'firetruck' || kind === 'garbage')
-        geom = boxVehicleGeometry(along, across, paint, 14);
-      else geom = carGeometry(along, across, paint);
+      // Sprite art first; the hand-built car is only reached for a kind the
+      // sheet has no entry for, which today is none of them.
+      const geom =
+        spriteGeometry(kind, { variant, zScale: Z_EXAGGERATION }) ??
+        carGeometry(along, across, 0x9aa4b2);
       pool = new Pool(
         this.vehicleParent,
         geom,
-        { size: [along, across, 8], color: paint, outline: 1.4 },
-        kind === 'plane' || kind === 'chopper' ? 12 : 64,
+        { size: [along, across, 8], color: 0xffffff, outline: 1.4 },
+        kind === 'plane' || kind === 'chopper' ? 12 : 48,
       );
-      this.vehicles.set(kind, pool);
+      this.vehicles.set(key, pool);
     }
     return pool;
+  }
+
+  /** A stable paint job per vehicle id, so a car does not change colour. */
+  private variantFor(kind: string, id: number): number {
+    const n = variantCount(kind);
+    return n <= 1 ? 0 : Math.abs(Math.imul(id, 2654435761)) % n;
   }
 
   /**
@@ -215,7 +241,8 @@ export class EntityLayer {
       place(this.players, pl.x, pl.y, pl.player.z ?? 0, pl.player.aimAngle ?? 0);
     }
     for (const v of world.vehicles) {
-      const pool = this.vehiclePool(v.vehicle.kind);
+      const kind = v.vehicle.kind;
+      const pool = this.vehiclePool(kind, this.variantFor(kind, v.vehicle.id));
       // Vehicle boxes carry their own geometry size, so the instance is
       // placed unscaled: composing with a unit scale keeps the outline hull's
       // thickness even instead of stretching it along the longer axis.
