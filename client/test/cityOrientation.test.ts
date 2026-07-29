@@ -1,6 +1,23 @@
 import * as THREE from 'three';
-import { describe, expect, it } from 'vitest';
-import { TILE_SIZE } from 'shared';
+import { beforeAll, describe, expect, it } from 'vitest';
+import {
+  NULL_INPUT,
+  TILE_SIZE,
+  T_FIELD,
+  type CityMap,
+  type GameState,
+  type InputIntent,
+  createGameState,
+  initTuning,
+  step,
+} from 'shared';
+import playerTuning from 'shared/data/player.json';
+import vehiclesJson from 'shared/data/vehicles.json';
+import trafficJson from 'shared/data/traffic.json';
+import pedsJson from 'shared/data/peds.json';
+import policeJson from 'shared/data/police.json';
+import propsJson from 'shared/data/props.json';
+import weaponsJson from 'shared/data/weapons.json';
 import { SUN_X, SUN_Y } from '../src/render/config.js';
 import { SUN_OFFSET, WORLD_TO_SCENE, cameraPose } from '../src/three/cityView.js';
 
@@ -132,5 +149,133 @@ describe('3D world orientation', () => {
     const tilted = cameraOver(HERE.x, HERE.y, 12);
     const ahead = new THREE.Vector3(HERE.x, HERE.y - 400, 0);
     expect(project(ahead, tilted).y).toBeLessThan(project(ahead, flat).y);
+  });
+});
+
+/**
+ * The keys, all the way through to the frame.
+ *
+ * The other half of the same report: "the arrows were moving the player in the
+ * wrong direction". They were not — `stepPlayer` has always read `up` as -y,
+ * and steering has always turned the heading the way a y-down world says it
+ * should. The mirror was in the picture, so pressing up walked you DOWN the
+ * screen and turning right swung the car left, which from the driving seat is
+ * indistinguishable from the controls being inverted.
+ *
+ * Neither half is wrong on its own, so neither half can be tested on its own.
+ * This runs the real sim over a real intent and projects the result through the
+ * real camera: press a key, and assert which way the avatar goes ON SCREEN.
+ */
+describe('what the arrow keys do on screen', () => {
+  beforeAll(() => {
+    initTuning({
+      player: playerTuning,
+      vehicles: vehiclesJson,
+      traffic: trafficJson,
+      peds: pedsJson,
+      police: policeJson,
+      props: propsJson,
+      weapons: weaponsJson,
+    });
+  });
+
+  /** Open field, big enough that nothing in here ever meets a wall. */
+  function arena(): CityMap {
+    const W = 80;
+    const H = 40;
+    return {
+      seed: 0,
+      widthTiles: W,
+      heightTiles: H,
+      widthPx: W * TILE_SIZE,
+      heightPx: H * TILE_SIZE,
+      tiles: new Uint8Array(W * H).fill(T_FIELD),
+      district: new Uint8Array(W * H),
+      blocks: [],
+      buildings: [],
+      shops: [],
+      vehicleSpawns: [],
+      playerSpawns: [{ x: 20 * TILE_SIZE, y: 20 * TILE_SIZE }],
+    };
+  }
+
+  /** Walk for half a second on one key, and report where that put you on screen. */
+  function walk(keys: Partial<InputIntent>): { x: number; y: number } {
+    const map = arena();
+    let state: GameState = createGameState(1);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'walker' }], map);
+    const from = { ...(state.players.byId[1] as { pos: { x: number; y: number } }).pos };
+    for (let i = 0; i < 15; i++) {
+      state = step(state, { 1: { ...NULL_INPUT, seq: i + 1, tick: i + 1, ...keys } }, [], map);
+    }
+    const to = (state.players.byId[1] as { pos: { x: number; y: number } }).pos;
+    // The camera stays where the walker started, so the avatar's drift across
+    // the frame is what a player watching the screen actually sees.
+    const camera = cameraOver(from.x, from.y);
+    const p = project(new THREE.Vector3(to.x, to.y, 0), camera);
+    return { x: p.x, y: p.y };
+  }
+
+  it('sends you up the screen on up, and down on down', () => {
+    expect(walk({ up: true }).y).toBeGreaterThan(0.01);
+    expect(walk({ down: true }).y).toBeLessThan(-0.01);
+  });
+
+  it('sends you left on left, and right on right', () => {
+    expect(walk({ left: true }).x).toBeLessThan(-0.01);
+    expect(walk({ right: true }).x).toBeGreaterThan(0.01);
+  });
+
+  it('does not swap the axes', () => {
+    // A transposed frame would pass the pair above and still be wrong.
+    expect(Math.abs(walk({ up: true }).x)).toBeLessThan(0.001);
+    expect(Math.abs(walk({ right: true }).y)).toBeLessThan(0.001);
+  });
+
+  /** Drive off in a car, and report where the nose is pointing on screen. */
+  function steer(keys: Partial<InputIntent>): { x: number; y: number } {
+    const map = arena();
+    let state: GameState = createGameState(1);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
+    const spot = { ...(state.players.byId[1] as { pos: { x: number; y: number } }).pos };
+    state = step(
+      state,
+      {},
+      // Nose pointing east, so a right turn has to swing it southwards and a
+      // left turn northwards. Starting on an axis makes the sign unambiguous.
+      [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: spot.x, y: spot.y, heading: 0 }],
+      map,
+    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    // Ten ticks: enough wheel to read the direction of the turn, not so much
+    // that the nose swings past a right angle and the sign stops meaning
+    // "which way did it go".
+    for (let i = 0; i < 10; i++) {
+      state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i + 2, ...keys } }, [], map);
+    }
+    const car = state.vehicles.byId[2] as { pos: { x: number; y: number }; heading: number };
+    const camera = cameraOver(car.pos.x, car.pos.y);
+    // Where the bonnet is, relative to the car: the thing a driver steers by.
+    const nose = project(
+      new THREE.Vector3(
+        car.pos.x + Math.cos(car.heading) * 60,
+        car.pos.y + Math.sin(car.heading) * 60,
+        0,
+      ),
+      camera,
+    );
+    return { x: nose.x, y: nose.y };
+  }
+
+  it('swings the bonnet the way you turn the wheel', () => {
+    // Mirrored, this was the loudest of the lot: hold right, and the car goes
+    // left. The nose starts pointing screen-right; a right turn brings it down
+    // the frame and a left turn brings it up.
+    expect(steer({ up: true, right: true }).y).toBeLessThan(-0.01);
+    expect(steer({ up: true, left: true }).y).toBeGreaterThan(0.01);
+    // The bonnet is still ahead of the driver in both, so those are turns
+    // rather than the car having spun past a right angle.
+    expect(steer({ up: true, right: true }).x).toBeGreaterThan(0);
+    expect(steer({ up: true, left: true }).x).toBeGreaterThan(0);
   });
 });

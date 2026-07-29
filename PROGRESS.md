@@ -30,6 +30,17 @@ agree with `SUN_X`/`SUN_Y`: a building's shadow now falls down-and-right in
 both renderers instead of opposite ways in each. The two direction-agnostic
 lights stayed in scene space so the lighting did not change.
 
+**The arrows were not inverted.** Reported alongside it, and it is the same
+fault wearing a different hat. `stepPlayer` has always read `up` as -y, and
+`driveVehicle` has always turned the heading the way a y-down world says it
+should; measured in a browser, holding Up moved the player 110 px north in
+both renderers. What differed was the picture: mirrored, walking north
+scrolled the city UP the frame and holding right swung the bonnet left, which
+from the driving seat is indistinguishable from the controls being inverted.
+Nothing in the input path changed. With the flip in, holding Up in 3D moves
+the player 110 px north and scrolls the scene down 221 device px against an
+expected 219 (r=0.96), and Down is its mirror image.
+
 Two things fell out of the same corner. `viewHeight` was fixed at
 construction, so after a window resize the 3D camera framed the old amount of
 world while the HUD, the radar and mouse aim had all moved to the new one —
@@ -44,7 +55,12 @@ three.js projection over the two exported values that decide the orientation
 `WebGLRenderer` and cannot be built in node. It pins increasing world y to
 screen-down, world x to screen-right, the framed height to `viewport.h`, the
 shadow direction to `SUN_X`/`SUN_Y`, and a north-east tile to the north-east
-of the frame; four of its eight cases fail if the flip is removed. Measured
+of the frame. The second half of the file steps the real sim over a real
+intent and projects the result through the real camera, so the keys are
+asserted where the complaint was made — on screen: Up walks you up the frame,
+right turns the bonnet down it. Neither half of that is wrong on its own,
+which is why neither can be tested on its own. Six of the twelve cases fail
+if the flip is removed. Measured
 end to end as well: classifying parkland across the frame in a browser, the
 2D and 3D renderers drawing the same position agreed on 74.9% of the frame
 before and 95.0% after, the remainder being one-cell edges where perspective
