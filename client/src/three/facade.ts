@@ -156,3 +156,146 @@ export function setFacadeNight(scene: THREE.Object3D, night: number): void {
     if (u) u.uNight.value = night;
   });
 }
+
+
+/**
+ * Road surface: tarmac grain, and a dashed centre line where there is one.
+ *
+ * `mark` is 0 for plain carriageway, 1 for a centre line running along x, 2
+ * along y. Which tiles get which is decided on the CPU from the contiguous
+ * road run (see `cityView`), because a tile cannot tell from its own
+ * coordinates whether it is the middle of a four-lane street — and painting a
+ * line on every tile edge, which is what the first version did, turns the
+ * road network into a chequerboard.
+ *
+ * Still one material per case rather than per road, so the ground stays three
+ * instanced draws.
+ */
+export function roadMaterial(color: number, mark: number, lineColor = 0xd8cf94): THREE.MeshToonMaterial {
+  const mat = new THREE.MeshToonMaterial({ color });
+  const uniforms = {
+    uLine: { value: new THREE.Color(lineColor) },
+    uTile: { value: 16 },
+    uMark: { value: mark },
+  };
+
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n varying vec3 vWorld;\n varying vec3 vWN;`)
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+         vec4 rwp = vec4(transformed, 1.0);
+         #ifdef USE_INSTANCING
+           rwp = instanceMatrix * rwp;
+         #endif
+         vWorld = (modelMatrix * rwp).xyz;
+         vec3 rn = objectNormal;
+         #ifdef USE_INSTANCING
+           rn = mat3(instanceMatrix) * rn;
+         #endif
+         vWN = normalize(mat3(modelMatrix) * rn);`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vWorld;
+         varying vec3 vWN;
+         uniform vec3 uLine;
+         uniform float uTile;
+         uniform float uMark;
+         float road_hash(vec2 p) {
+           return fract(sin(dot(p, vec2(41.3, 289.1))) * 24634.6345);
+         }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         if (vWN.z > 0.5) {
+           // Grain first, so the marking sits on the tarmac rather than under.
+           float grain = road_hash(floor(vWorld.xy * 0.7));
+           diffuseColor.rgb *= 0.95 + grain * 0.10;
+           if (uMark > 0.5) {
+             vec2 t = vWorld.xy / uTile;
+             // Across the lane: how far from the tile centre, 0 at the middle.
+             float across = uMark < 1.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);
+             // Along the lane: the dash cadence.
+             float along  = uMark < 1.5 ? fract(t.x * 1.5) : fract(t.y * 1.5);
+             float line = (1.0 - step(0.075, across)) * (1.0 - step(0.55, along));
+             diffuseColor.rgb = mix(diffuseColor.rgb, uLine, line * 0.72);
+           }
+         }`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'road';
+  return mat;
+}
+
+
+/**
+ * Ground surfaces that are not road: grass, pavement, sand, lots.
+ *
+ * The 2D tile layer speckles all of these — two passes of scattered dots in
+ * lighter and darker tones — and it matters more than it sounds. A flat fill
+ * over a whole park reads as a placeholder; the same colour with a few per
+ * cent of noise in it reads as a surface. This is the same idea in a shader,
+ * at two scales so it does not turn into visible dithering when the camera
+ * gets close.
+ *
+ * `edge` darkens the outer few pixels of each tile, which is what gives
+ * pavements their slabbing and stops a park being one enormous green
+ * rectangle.
+ */
+export function groundMaterial(color: number, grain = 0.1, edge = 0): THREE.MeshToonMaterial {
+  const mat = new THREE.MeshToonMaterial({ color });
+  const uniforms = { uGrain: { value: grain }, uEdge: { value: edge }, uTile: { value: 16 } };
+
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', `#include <common>\n varying vec3 vGW;\n varying vec3 vGN;`)
+      .replace(
+        '#include <worldpos_vertex>',
+        `#include <worldpos_vertex>
+         vec4 gwp = vec4(transformed, 1.0);
+         #ifdef USE_INSTANCING
+           gwp = instanceMatrix * gwp;
+         #endif
+         vGW = (modelMatrix * gwp).xyz;
+         vec3 gn = objectNormal;
+         #ifdef USE_INSTANCING
+           gn = mat3(instanceMatrix) * gn;
+         #endif
+         vGN = normalize(mat3(modelMatrix) * gn);`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vGW;
+         varying vec3 vGN;
+         uniform float uGrain;
+         uniform float uEdge;
+         uniform float uTile;
+         float g_hash(vec2 p) { return fract(sin(dot(p, vec2(73.1, 41.7))) * 19733.13); }`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         if (vGN.z > 0.5) {
+           float coarse = g_hash(floor(vGW.xy * 0.35));
+           float fine   = g_hash(floor(vGW.xy * 1.4));
+           diffuseColor.rgb *= 1.0 + (coarse - 0.5) * uGrain + (fine - 0.5) * uGrain * 0.6;
+           if (uEdge > 0.0) {
+             vec2 f = abs(fract(vGW.xy / uTile) - 0.5);
+             float seam = max(step(0.45, f.x), step(0.45, f.y));
+             diffuseColor.rgb *= 1.0 - seam * uEdge;
+           }
+         }`,
+      );
+  };
+  mat.customProgramCacheKey = () => 'ground';
+  return mat;
+}

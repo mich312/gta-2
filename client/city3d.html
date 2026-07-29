@@ -55,6 +55,8 @@
         const map = generateCity(seed, localWorldgenParams());
         const view = new CityView({ canvas, map, pitch, viewHeight: num('h', 900) });
         view.setNight(night);
+        const { SceneryLayer } = await import('/src/three/scenery.ts');
+        new SceneryLayer(view.scene).setMap(map);
         const cx = (map.widthTiles * 16) / 2;
         const cy = (map.heightTiles * 16) / 2;
         let t = 0;

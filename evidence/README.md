@@ -22,6 +22,7 @@ star level over several seeds instead of hoping for one.
 
 | file | what it shows |
 |---|---|
+| `city-3d-night.png` | Night. Windows light up across the facades — a per-window hash against the night amount, so a lit window stays lit rather than flickering as the camera moves. |
 | `city-3d-facades.png` | The original GTA camera: perspective, straight down, so buildings splay away from the screen centre and show the face turned toward it. Facades are shader-computed — window columns with mullions, a slab line between storeys, a shopfront on the ground floor — so one material covers every building height. |
 | `city-3d-models.png` | Close up. The car is not a model anybody built — it is the `car` entry in `shared/data/sprites.json`, extruded. Tapered body polygon, raised cabin, tinted glass, red tail lights, headlights, dark tyres: every one of those is a shape in the 2D sprite with a `z` on it, and the sprite generator was already relighting flat art from those same heights. Same file, not flattened. |
 | `city-3d-live.png` | The game **playable** in 3D — cel-shaded with black outlines, per-district building colours, cast shadows, and the player (red), pedestrians (orange), police and cars all placed from the live sim. Bodies are boxes on purpose: they are the colliders the simulation already resolves against, so anything that looks wrong here is wrong in the sim too. `/city3d.html`. |

@@ -12,6 +12,7 @@ import {
 import { Interpolator } from '../net/interpolation.js';
 import { CityView } from './cityView.js';
 import { EntityLayer } from './entities.js';
+import { SceneryLayer } from './scenery.js';
 
 /**
  * The game, playable, in 3D.
@@ -44,6 +45,7 @@ export class Live {
   private worker: Worker | null = null;
   private view: CityView | null = null;
   private entities: EntityLayer | null = null;
+  private scenery: SceneryLayer | null = null;
   private map: CityMap | null = null;
   private playerId = -1;
   private last = performance.now();
@@ -116,6 +118,8 @@ export class Live {
       });
       this.view.setNight(this.opts.night);
       this.entities = new EntityLayer(this.view.scene);
+      this.scenery = new SceneryLayer(this.view.scene);
+      this.scenery.setMap(this.map);
     }
     if (this.sync.applyServerMessage(msg) && this.sync.latest) {
       this.interp.push(this.sync.latest as FullSnapshot);
@@ -161,6 +165,7 @@ export class Live {
     if (this.view && this.entities) {
       const world = this.interp.sample(-1, null);
       this.entities.update(world, -1);
+      this.scenery?.updateProps(world.props);
       const me = world.players.find((p) => p.player.id === this.playerId);
       const inCar = me
         ? world.vehicles.find((v) => v.vehicle.id === me.player.vehicleId)

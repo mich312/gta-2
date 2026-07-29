@@ -8,7 +8,7 @@ import {
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { addOutline, toonMaterial } from './toon.js';
-import { facadeMaterial, setFacadeNight } from './facade.js';
+import { facadeMaterial, groundMaterial, roadMaterial, setFacadeNight } from './facade.js';
 
 /**
  * The city as actual geometry.
@@ -79,10 +79,16 @@ export class CityView {
     this.pitch = opts.pitch;
     this.viewHeight = opts.viewHeight;
 
-    this.renderer = new THREE.WebGLRenderer({ canvas: opts.canvas, antialias: false });
-    this.renderer.setPixelRatio(1);
+    this.renderer = new THREE.WebGLRenderer({ canvas: opts.canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(2, globalThis.devicePixelRatio || 1));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // ACES filmic instead of the linear default: it rolls off the highlights
+    // so a sunlit roof stops clipping to flat white, and it deepens the
+    // shadows without crushing them. Cel shading gives hard bands; this is
+    // what stops those bands reading as posterisation.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
 
     this.scene.background = new THREE.Color(hex(palette.field ?? '#1a2a1a'));
 
@@ -155,6 +161,43 @@ export class CityView {
       other: { match: () => true, color: hex(palette.lot ?? '#4a4a44') },
     };
 
+    // Road runs, so a marking can be painted down the middle of a
+    // carriageway rather than on every tile edge.
+    //
+    // A road tile does not know it is a road tile in the middle of a
+    // four-lane street; it only knows it is road. The 2D tile layer solves
+    // this by measuring the contiguous run through each tile on both axes —
+    // on a horizontal road the VERTICAL run is the carriageway width, so its
+    // midpoint is the centre line. Same measurement here, so the markings
+    // land in the same places in both renderers.
+    const isRoad = (tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
+      const t = this.map.tiles[ty * W + tx] as number;
+      return t === 1 || t === 7 || t === 13;
+    };
+    /** 0 plain, 1 centre line along x, 2 centre line along y. */
+    const roadMark = (tx: number, ty: number): number => {
+      if (!isRoad(tx, ty)) return 0;
+      let up = 0;
+      let down = 0;
+      let left = 0;
+      let right = 0;
+      while (isRoad(tx, ty - up - 1) && up < 12) up++;
+      while (isRoad(tx, ty + down + 1) && down < 12) down++;
+      while (isRoad(tx - left - 1, ty) && left < 12) left++;
+      while (isRoad(tx + right + 1, ty) && right < 12) right++;
+      const runV = up + down + 1;
+      const runH = left + right + 1;
+      // A junction is wide both ways; leave it unmarked rather than crossing
+      // two centre lines through it.
+      if (runV > 6 && runH > 6) return 0;
+      if (runH >= runV) {
+        // Horizontal street: centre line where the vertical run's midpoint is.
+        return up === Math.floor((runV - 1) / 2) ? 1 : 0;
+      }
+      return left === Math.floor((runH - 1) / 2) ? 2 : 0;
+    };
+
     // Which building covers each tile, so a block of them shares one colour
     // instead of every tile rolling its own — the same reason the 2D
     // renderer keys roof colour off the building rather than the tile.
@@ -205,6 +248,10 @@ export class CityView {
           key = k;
           color = (LAYERS[k] as Layer).color;
           solid = k === 'deck';
+          if (k === 'road') {
+            const mark = roadMark(tx, ty);
+            if (mark) key = mark === 1 ? 'roadMarkX' : 'roadMarkY';
+          }
         }
         const list = bucket(key, color, solid);
 
@@ -238,11 +285,23 @@ export class CityView {
       // Buildings get a facade — storey lines, window columns, a shopfront on
       // the ground floor — computed in the shader from world position, so one
       // material serves every height. Ground surfaces stay flat toon.
-      const mesh = new THREE.InstancedMesh(
-        box,
-        solid && key.startsWith('b') ? facadeMaterial({ color }) : toonMaterial(color),
-        mats.length,
-      );
+      const material =
+        solid && key.startsWith('b')
+          ? facadeMaterial({ color })
+          : key === 'road'
+            ? roadMaterial(color, 0)
+            : key === 'roadMarkX'
+              ? roadMaterial(color, 1)
+              : key === 'roadMarkY'
+                ? roadMaterial(color, 2)
+                : key === 'grass'
+                  ? groundMaterial(color, 0.20)
+                  : key === 'pavement'
+                    ? groundMaterial(color, 0.09, 0.10)
+                    : key === 'water'
+                      ? toonMaterial(color)
+                      : groundMaterial(color, 0.10, 0.05);
+      const mesh = new THREE.InstancedMesh(box, material, mats.length);
       mesh.castShadow = solid;
       mesh.receiveShadow = true;
       this.instanceCount += mats.length;
