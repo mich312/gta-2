@@ -1,5 +1,56 @@
 # PROGRESS
 
+## The 3D city was mirrored north-for-south
+
+Reported as "the map and what is rendered is offset — the minimap shows
+something else than the world does", and the radar was the innocent party.
+
+The game's world is **y-down**: `y` grows southwards, and that is what the
+sim, the 2D renderer, the HUD and the radar all mean by it. three.js draws a
+y-up scene, and with the camera overhead and `up` at +Y, a world position
+handed straight to it puts +y at the TOP of the frame. Every world coordinate
+in the 3D path — the city geometry, the entities, the scenery, the sun — went
+in straight. So the entire world rendered mirrored about the player: at
+tile (212, 80) on seed 7 the radar and the 2D renderer both put a park
+north-east and a block of flats south-east, and the 3D renderer drew the
+block north-east and the park south-east. Driving south moved you up the
+screen. Nothing looked broken in a screenshot — a grid city mirrors into a
+plausible grid city — which is how it shipped as the default renderer.
+
+The fix is one flip, in one place: `CityView.world` is a group scaled
+`(1, -1, 1)` and everything world-space now hangs off it, so a call site
+still says `(x, y)` and means what the rest of the game means. Rotations come
+out right for free — a heading measured clockwise in a y-down frame is
+counter-clockwise in the mirrored one, which is exactly what a reflection does
+to it — and three.js handles the rest, flipping the winding it culls by on a
+negative-determinant world matrix and reflecting normals through the normal
+matrix, so the toon banding, the inverted-hull outlines and the shadow map all
+carried over untouched. The sun went in the group too, which is what makes it
+agree with `SUN_X`/`SUN_Y`: a building's shadow now falls down-and-right in
+both renderers instead of opposite ways in each. The two direction-agnostic
+lights stayed in scene space so the lighting did not change.
+
+Two things fell out of the same corner. `viewHeight` was fixed at
+construction, so after a window resize the 3D camera framed the old amount of
+world while the HUD, the radar and mouse aim had all moved to the new one —
+every marker off the thing it marked, worse towards the frame's edge;
+`setViewHeight` is now called from the same branch that resizes the canvas.
+And the sun's rig offset existed twice, with two different vectors; it is
+`SUN_OFFSET` once.
+
+**Verification.** `client/test/cityOrientation.test.ts` runs the real
+three.js projection over the two exported values that decide the orientation
+(`WORLD_TO_SCENE`, `cameraPose`) — no GPU needed, since `CityView` owns a
+`WebGLRenderer` and cannot be built in node. It pins increasing world y to
+screen-down, world x to screen-right, the framed height to `viewport.h`, the
+shadow direction to `SUN_X`/`SUN_Y`, and a north-east tile to the north-east
+of the frame; four of its eight cases fail if the flip is removed. Measured
+end to end as well: classifying parkland across the frame in a browser, the
+2D and 3D renderers drawing the same position agreed on 74.9% of the frame
+before and 95.0% after, the remainder being one-cell edges where perspective
+splay narrows a park at the frame's rim. Full suite: 723 tests green.
+Evidence: `evidence/render-3d-client.png`, retaken.
+
 ## Aircraft, per-kind speeds, and a street that stops repainting itself
 
 Three reported faults, and each turned out to be several.

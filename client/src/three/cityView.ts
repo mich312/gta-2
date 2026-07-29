@@ -62,8 +62,89 @@ function hex(s: string): number {
   return parseInt(s.replace('#', ''), 16);
 }
 
+/**
+ * World space (the game's, y-DOWN) -> scene space (three.js's, y-UP).
+ *
+ * Applied once, as the scale of `CityView.world`, so everything inside that
+ * group is placed in the coordinates the sim, the 2D renderer, the HUD and the
+ * radar all use. Exported so the orientation can be tested without a GPU: see
+ * `client/test/cityOrientation.test.ts`.
+ */
+export const WORLD_TO_SCENE = Object.freeze({ x: 1, y: -1, z: 1 });
+
+/**
+ * Where the sun sits, relative to what the camera is looking at, in world px.
+ *
+ * Up, and back along the direction the 2D renderer throws its shadows
+ * (`SUN_X`, `SUN_Y` in `render/config.ts`), so a building's shadow falls the
+ * same way whichever renderer drew it. It is a fixed offset rather than a fixed
+ * place because the shadow map is only 1024 px square: rigged to the camera it
+ * covers what is on screen, and pinned to a corner of a 240×240 city it would
+ * be a few texels per building.
+ */
+export const SUN_OFFSET = Object.freeze({ x: -420, y: -620, z: 900 });
+
+/** Where the camera sits and what it points at, both in SCENE space. */
+export interface CameraPose {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+  up: THREE.Vector3;
+}
+
+/**
+ * Place the camera over a world position.
+ *
+ * `pitch` is degrees off straight down, and 0 — the GTA default — is the
+ * interesting case: the camera hangs directly over the player, and the only
+ * thing tilting buildings is the perspective divide. A few degrees of tilt is
+ * available because it helps a low-set camera see a little more of the street
+ * ahead, but it is not what makes the effect.
+ *
+ * Pure, and separate from the class, because it is half of the answer to
+ * "which way up is the city" and the other half is `WORLD_TO_SCENE`. Both are
+ * cheap to get subtly wrong and expensive to notice.
+ */
+export function cameraPose(x: number, y: number, pitchDeg: number, height: number): CameraPose {
+  const rad = (pitchDeg * Math.PI) / 180;
+  // The camera lives on the far side of the world group's flip, so the point
+  // it looks at is the mirror of the world one.
+  const sy = y * WORLD_TO_SCENE.y;
+  return {
+    // Pitch pulls the camera towards the bottom of the frame — screen-down is
+    // -Y in scene space, whichever way the world runs — so a tilted view sees
+    // further up the street ahead rather than behind.
+    position: new THREE.Vector3(x, sy - Math.sin(rad) * height, Math.cos(rad) * height),
+    target: new THREE.Vector3(x, sy, 0),
+    up: new THREE.Vector3(0, 1, 0),
+  };
+}
+
 export class CityView {
   readonly scene = new THREE.Scene();
+  /**
+   * Everything expressed in GAME world coordinates hangs off this.
+   *
+   * The game's world is y-DOWN: `y` grows southwards, which is what the sim,
+   * the 2D renderer, the HUD and the radar all mean by it. three.js draws a
+   * y-UP scene — with the camera overhead and `up` at +Y, world +y would come
+   * out at the TOP of the frame. Placed straight in, the whole city rendered
+   * mirrored north-for-south: the park the radar put above you was drawn below
+   * you, driving south moved you up the screen, and the sun threw its shadows
+   * the opposite way from `SUN_Y`.
+   *
+   * One flip here fixes all of it at once, and keeps every call site in the
+   * coordinates the rest of the game uses: a mesh, an entity or a light goes in
+   * at its world (x, y) and lands where the radar says it is. Rotations come
+   * out right for free — a heading measured clockwise in a y-down frame is
+   * counter-clockwise in the mirrored one, which is exactly what the reflection
+   * does to it.
+   *
+   * three.js handles the mirror the rest of the way itself: a negative
+   * determinant on an object's world matrix flips the winding it culls by, and
+   * the normal matrix reflects normals along with the surface, so the toon
+   * shading, the inverted-hull outlines and the shadow map all keep working.
+   */
+  readonly world = new THREE.Group();
   readonly camera: THREE.PerspectiveCamera;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly vg: VolumeGrid;
@@ -93,6 +174,10 @@ export class CityView {
 
     this.scene.background = new THREE.Color(hex(palette.field ?? '#1a2a1a'));
 
+    // World space -> scene space. See the note on `world`.
+    this.world.scale.set(WORLD_TO_SCENE.x, WORLD_TO_SCENE.y, WORLD_TO_SCENE.z);
+    this.scene.add(this.world);
+
     // PERSPECTIVE, looking straight down. This is the original GTA camera and
     // the earlier orthographic one was wrong for it.
     //
@@ -117,7 +202,7 @@ export class CityView {
   private buildLights(): void {
     // One sun with a shadow map, replacing 761 lines of Canvas compositing.
     const sun = new THREE.DirectionalLight(0xffeccd, 2.6);
-    sun.position.set(-600, -900, 1200);
+    sun.position.set(SUN_OFFSET.x, SUN_OFFSET.y, SUN_OFFSET.z);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
     const d = 900;
@@ -126,10 +211,17 @@ export class CityView {
     sun.shadow.camera.top = d;
     sun.shadow.camera.bottom = -d;
     sun.shadow.camera.far = 4000;
-    this.scene.add(sun);
-    this.scene.add(sun.target);
+    // In the world group, so the sun is rigged in world coordinates like
+    // everything else: `SUN_OFFSET` is the direction `SUN_X`/`SUN_Y` throw the
+    // 2D renderer's walls and drop shadows, and the two views now agree on
+    // which way a building's shadow falls.
+    this.world.add(sun);
+    this.world.add(sun.target);
     this.sun = sun;
 
+    // Ambient and hemisphere stay in scene space. Neither describes a place in
+    // the city — the hemisphere's axis is a screen-space one — so mirroring
+    // them would change how the city is lit for no reason.
     this.ambient = new THREE.AmbientLight(0x8493ad, 2.2);
     this.hemi = new THREE.HemisphereLight(0xa8cbe6, 0x3a3d33, 1.4);
     this.scene.add(this.ambient);
@@ -356,12 +448,12 @@ export class CityView {
       this.instanceCount += mats.length;
       mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
       mesh.instanceMatrix.needsUpdate = true;
-      this.scene.add(mesh);
+      this.world.add(mesh);
       // Outline the things that stand up. Outlining every ground tile would
       // draw a black grid over the whole city — the streets read as one
       // surface, and a surface has no silhouette worth tracing.
       // Thin: at this camera a fat hull rounds off box corners into wedges.
-      if (solid) addOutline(mesh, this.scene, 0.5);
+      if (solid) addOutline(mesh, this.world, 0.5);
     }
   }
 
@@ -459,8 +551,8 @@ export class CityView {
       mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
       mesh.instanceMatrix.needsUpdate = true;
       this.instanceCount += mats.length;
-      this.scene.add(mesh);
-      addOutline(mesh, this.scene, outline);
+      this.world.add(mesh);
+      addOutline(mesh, this.world, outline);
     };
     add(parapets, hex(palette.roofEdgeLight ?? '#9aa0aa'), 0.4);
     add(clutter, hex(palette.roofUnit ?? '#6b7079'), 0.5);
@@ -472,33 +564,38 @@ export class CityView {
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * How much world the frame covers vertically.
+   *
+   * The window can change size mid-session — `fitViewport` answers a 1440p
+   * window with a taller frame than a laptop's — and the HUD, the radar and
+   * mouse aim all move to the new figure on the next frame. Without this the
+   * camera kept the height it was built with, so the world was drawn at one
+   * scale and everything drawn over it at another: markers drifted from what
+   * they marked, further the nearer the edge of the frame.
+   */
+  setViewHeight(h: number): void {
+    this.viewHeight = h;
+  }
+
   /** How high the camera must sit for `viewHeight` world px to fill the frame. */
   private get camHeight(): number {
     return this.viewHeight / 2 / Math.tan((FOV_Y * Math.PI) / 360);
   }
 
-  /**
-   * Point the camera at a world position.
-   *
-   * `pitch` is degrees off straight down, and 0 — the GTA default — is the
-   * interesting case: the camera hangs directly over the player, and the only
-   * thing tilting buildings is the perspective divide. A few degrees of tilt
-   * is available because it helps a low-set camera see a little more of the
-   * street ahead, but it is not what makes the effect.
-   */
+  /** Point the camera at a world position. See `cameraPose`. */
   lookAt(x: number, y: number): void {
     this.target.set(x, y);
-    const rad = (this.pitch * Math.PI) / 180;
-    const h = this.camHeight;
-    this.camera.position.set(x, y - Math.sin(rad) * h, Math.cos(rad) * h);
-    this.camera.up.set(0, 1, 0);
-    this.camera.lookAt(x, y, 0);
+    const pose = cameraPose(x, y, this.pitch, this.camHeight);
+    this.camera.position.copy(pose.position);
+    this.camera.up.copy(pose.up);
+    this.camera.lookAt(pose.target);
     // Keep the sun rigged to the camera so the shadow map always covers what
-    // is on screen — a 1024 map over a 240x240 city would otherwise be a few
-    // texels per building.
+    // is on screen. The sun lives in the world group, so `SUN_OFFSET` is in
+    // world px and means the same thing here as `SUN_X`/`SUN_Y` do in 2D.
     this.sun.target.position.set(x, y, 0);
     this.sun.target.updateMatrixWorld();
-    this.sun.position.set(x - 420, y - 620, 900);
+    this.sun.position.set(x + SUN_OFFSET.x, y + SUN_OFFSET.y, SUN_OFFSET.z);
   }
 
   render(): void {

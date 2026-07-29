@@ -667,8 +667,11 @@ function drawWorld3d(scene: Scene | null): void {
     });
     world3d = {
       view,
-      entities: new EntityLayer(view.scene),
-      scenery: new SceneryLayer(view.scene),
+      // `view.world`, not `view.scene`: entities and scenery are placed at the
+      // positions the sim gives them, and that is the group where a world
+      // coordinate means what the rest of the game means by it.
+      entities: new EntityLayer(view.world),
+      scenery: new SceneryLayer(view.world),
     };
     world3d.scenery.setMap(map);
   }
@@ -678,6 +681,9 @@ function drawWorld3d(scene: Scene | null): void {
   // world pixel lands on the same screen pixel in both layers.
   if (worldCanvas.width !== viewport.deviceW || worldCanvas.height !== viewport.deviceH) {
     view.resize(viewport.deviceW, viewport.deviceH);
+    // The frame covers a different amount of world after a resize, and the HUD
+    // and the radar have already moved to the new figure.
+    view.setViewHeight(viewport.h);
   }
   worldCanvas.style.width = canvas.style.width;
   worldCanvas.style.height = canvas.style.height;

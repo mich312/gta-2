@@ -117,8 +117,8 @@ export class Live {
         viewHeight: this.opts.viewHeight,
       });
       this.view.setNight(this.opts.night);
-      this.entities = new EntityLayer(this.view.scene);
-      this.scenery = new SceneryLayer(this.view.scene);
+      this.entities = new EntityLayer(this.view.world);
+      this.scenery = new SceneryLayer(this.view.world);
       this.scenery.setMap(this.map);
     }
     if (this.sync.applyServerMessage(msg) && this.sync.latest) {
