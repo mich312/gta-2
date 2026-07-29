@@ -1302,7 +1302,7 @@ export function drawBody(
   ctx.restore();
 }
 
-function drawPlayer(
+export function drawPlayer(
   ctx: CanvasRenderingContext2D,
   sprites: SpriteSheet,
   p: PlayerState,
@@ -1347,7 +1347,17 @@ function drawPlayer(
     : melee
       ? `playerFist_v${variant}_f${frame}`
       : `player_v${variant}_f${frame}`;
-  drawCharacter(ctx, sprites, name, x, y, aim, fallback);
+  // Off the ground: bailing out of an aircraft is a real fall in the sim, and
+  // without this it read as standing still for a quarter of a second and then
+  // bleeding for no reason. Same lift-and-shadow trick as an air unit, at the
+  // player's own `z` — which the snapshot already carries, so a remote player
+  // falls in your window too.
+  let by = y;
+  if (p.z > 0) {
+    drawShadow(ctx, x, y, PLAYER_RADIUS * RENDER_SCALE, PLAYER_RADIUS * 0.6 * RENDER_SCALE, p.z);
+    by -= p.z * RENDER_SCALE;
+  }
+  drawCharacter(ctx, sprites, name, x, by, aim, fallback);
 
   // A short aim tick keeps the firing line legible when the sprite's own
   // weapon is only a few pixels long.
@@ -1356,8 +1366,8 @@ function drawPlayer(
   ctx.beginPath();
   const inner = (PLAYER_RADIUS + 3) * RENDER_SCALE;
   const outer = (PLAYER_RADIUS + 8) * RENDER_SCALE;
-  ctx.moveTo(x + Math.cos(aim) * inner, y + Math.sin(aim) * inner);
-  ctx.lineTo(x + Math.cos(aim) * outer, y + Math.sin(aim) * outer);
+  ctx.moveTo(x + Math.cos(aim) * inner, by + Math.sin(aim) * inner);
+  ctx.lineTo(x + Math.cos(aim) * outer, by + Math.sin(aim) * outer);
   ctx.stroke();
   ctx.lineWidth = 1;
 }

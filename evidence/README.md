@@ -35,6 +35,7 @@ escape rate and survival time per star level over several seeds.
 | `vehicles.png` | Every kind in `vehicles.json`, at game scale, through the real `drawVehicle`. The point is the silhouettes side by side: colour variation existed long before shape variation did, so ten colours of one car looked like variety and a street full of them did not. Six civilian bodies now differ in outline as well as paint, and the two-wheelers carry a visible rider — composited at the saddle, the same mechanism the tank's turret uses. The sheet found its own bug on first run: `moto` and `bicycle` drew as a solid red fallback rectangle, because they were given a colour axis in the art and left out of the renderer's painted-kinds set. |
 
 | `airstrip.png` | A generated city with two airstrips in the countryside to the north — the dark strips in open ground. They are placed on a lattice rather than rolled, because "there is an airfield, and it is over there" is a fact a player should be able to rely on. Retake with `pnpm mapgen --seed=1`. |
+| `fall.png` | Stepping out of a helicopter at cruise height, tick by tick, through the real `drawPlayer`. The heights across the sheet come out of the real sim — a real chopper flown up with the ordinary keys and stepped out of — so the arc is the game's, not a mock-up's. It exists because the fall was invisible: `stepStunts` gave the player a real quarter-second of gravity while the renderer pinned every on-foot sprite to the ground, so what you saw was a man standing still and then bleeding for no reason. Note the shadow staying put as the sprite rises off it, and the landing at `hp33` — a bail-out is expensive, not fatal. Retake via `/fall-sheet.html`. |
 
 `ci/play.mjs` drives the real game in a real browser: it starts a session,
 takes the kit the proving ground issues, and photographs what happens. Every
@@ -67,6 +68,7 @@ What the damage model looks like, for the change described in `DAMAGE.md`.
 ```bash
 pnpm --filter client dev
 node ci/shot.mjs http://localhost:5173/body-sheet.html evidence/bodies.png '#sheet'
+node ci/shot.mjs http://localhost:5173/fall-sheet.html evidence/fall.png '#sheet'
 ```
 
 Both contact sheets are pages rather than scripts, and both draw through the

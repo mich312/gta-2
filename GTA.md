@@ -878,34 +878,53 @@ New `shared/test/flight.test.ts`: below `flightZ` an aircraft collides,
 above it does not; takeoff requires runway and speed; landing off-airfield
 destroys it. `pnpm mapgen --seed=7` PNG showing the strip.
 
-### S2 as built: two things it does not do
+### S2 as built: the landing, and how it was missed
 
-Asked "can the player fly?", the honest answer is **yes, one way**. Getting
-off the ground works through the ordinary input path — E into a chopper, W
-to climb, altitude reaches its cruise height and the aircraft flies over the
-city. Coming back down does not, and both gaps have the same root: the
-altitude logic went inside `driveVehicle`, which only runs when somebody is
-at the controls.
+Asked "can the player fly?", the first honest answer was **yes, one way**.
+Taking off worked through the ordinary input path — E into a chopper, W to
+climb, cruise height, flying over the city. Coming back down did not, and
+both gaps had the same root: the altitude logic sat inside `driveVehicle`,
+which only runs when somebody is at the controls.
 
-- **Stepping out mid-air teleports you to the ground.** You go from
+- **Stepping out mid-air teleported you to the ground.** You went from
   `driving` at altitude 48 to `foot` at altitude 0 in one tick: no fall, no
-  damage, no transition. `PlayerState` already carries `z`/`vz`/`airDist`
-  for stunt jumps, and nothing connects the two.
-- **An abandoned aircraft hovers for ever.** `stepVehicleCoasting` — the
-  path a driverless vehicle takes — calls `integrateVehicle` directly and
-  never reaches `stepAltitude`, so a chopper you got out of sits at cruise
-  altitude with zero speed, permanently.
+  damage, no transition — which made bailing out the cheapest way to end a
+  flight and made altitude mean nothing.
+- **An abandoned aircraft hovered for ever.** `stepVehicleCoasting` — the
+  path a driverless vehicle takes — called `integrateVehicle` directly and
+  never reached `stepAltitude`, so a chopper you got out of sat at cruise
+  height with zero speed, permanently.
 
-The fix for both is the same shape and small: hoist `stepAltitude` out of
-`driveVehicle` so it runs for every vehicle every tick, and hand the
-player the vehicle's altitude on exit so the existing jump physics bring
-them down. It is written here rather than fixed silently because the
-commits claim S2 is delivered, and this is the part of it that is not.
+**Both are fixed.** `stepAltitude` moved to the top of `integrateVehicle`,
+above its own early return, so every vehicle falls whether or not anybody is
+flying it; `tryExitVehicle` hands the player the vehicle's altitude on the
+way out; and `stepStunts` stopped pinning on-foot players to the ground, so
+the jump physics that already existed for ramps bring them down and bill
+them for the landing.
 
-Worth recording how they were found, because it generalises: the flight
-tests call `driveVehicle` directly, so neither bug was visible to them. A
-test that drives the same entry point the feature does would have caught
-both on the first run.
+Three things the fix turned up that the plan did not anticipate:
+
+- **The drop and the airspeed billed separately for the same jump.** Fall
+  damage plus `tryExitVehicle`'s existing bail-out penalty left a
+  full-health player on 3 — nominally survivable, functionally a death. Road
+  rash is the ground taking your speed off you and there is no ground at
+  cruise height, so the tumble penalty is now suppressed while `z > 0`. A
+  bail-out costs about two thirds of your health, which is the number the
+  constant's comment always claimed.
+- **A fall nobody can see is not a fall.** The renderer pinned every on-foot
+  sprite to the ground, so a quarter-second drop read as standing still and
+  then bleeding for no reason. `drawPlayer` now lifts by `z` and leaves the
+  shadow where it belongs — the same trick the air units use. `z` was
+  already in the snapshot's player field list, so remote players fall too.
+- **Exiting is edge-triggered.** Two tests failed on a held `action` key
+  counting as one press; the fix is a released tick between entering and
+  leaving, which is also what a player's hands do.
+
+Worth recording how the originals were found, because it generalises: the
+flight tests called `driveVehicle` directly, so neither bug was visible to
+them. The replacement tests drive `step()` with real inputs — the same entry
+point the feature has — and would have caught both on the first run.
+`evidence/fall.png` photographs the arc through the real renderer.
 
 ## S3 — the military at five stars
 

@@ -7,6 +7,9 @@ import { getVehicleTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { createGameState, createVehicle, type GameState } from '../src/sim/state.js';
+import { step } from '../src/sim/step.js';
+import { NULL_INPUT } from '../src/sim/input.js';
+import { roadLane } from './helpers.js';
 import { insertEntity } from '../src/sim/entities.js';
 import { driveVehicle } from '../src/sim/vehicle.js';
 import { T_BUILDING, T_RUNWAY, TILE_SIZE, type CityMap } from '../src/world/types.js';
@@ -118,5 +121,140 @@ describe('flight (S2)', () => {
       const s = fly(kind, { x: road.x, y: road.y }, 120);
       expect(s.vehicles.byId[1]!.z, kind).toBe(0);
     }
+  });
+});
+
+/**
+ * Landing, through the door the game uses.
+ *
+ * The tests above call `driveVehicle` directly, and that is exactly why they
+ * missed two bugs that shipped: a helicopter you stepped out of hung at
+ * cruise height for ever, and the pilot arrived on the ground unhurt from
+ * eight storeys up. Neither is visible from inside `driveVehicle` — one lives
+ * in the coasting path and the other in the exit path. These drive `step()`
+ * with ordinary input, which is the only entry point that sees all of it.
+ */
+describe('landing (S2, through step)', () => {
+  /** A player at the controls of a chopper, already at cruise height. */
+  function aloft(seed: number): { state: GameState; lane: { x: number; y: number } } {
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'pilot' }], map);
+    const lane = roadLane(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 2, kind: 'chopper', x: lane.x, y: lane.y, heading: 0 }],
+      map,
+    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    for (let i = 0; i < 150; i++) {
+      state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true } }, [], map);
+    }
+    return { state, lane };
+  }
+
+  it('a player can get into an aircraft and take off with the ordinary keys', () => {
+    const { state } = aloft(30);
+    expect(state.players.byId[1]!.mode).toBe('driving');
+    expect(state.vehicles.byId[2]!.z).toBeGreaterThan(0);
+  });
+
+  it('an aircraft nobody is flying comes down', () => {
+    // It used to hang at cruise height for ever, because the altitude lived
+    // in `driveVehicle` and a driverless vehicle never goes through it.
+    const { state } = aloft(31);
+    let s = state;
+    const high = s.vehicles.byId[2]!.z;
+    expect(high).toBeGreaterThan(0);
+    s = step(s, { 1: { ...NULL_INPUT, seq: 900, tick: 900 } }, [], map);
+    s = step(s, { 1: { ...NULL_INPUT, seq: 901, tick: 901, action: true } }, [], map);
+    expect(s.players.byId[1]!.mode).toBe('foot');
+    for (let i = 0; i < 300; i++) s = step(s, {}, [], map);
+    expect(s.vehicles.byId[2]!.z).toBe(0);
+  });
+
+  it('stepping out at altitude is a fall, not a teleport', () => {
+    // The player used to appear on the ground unhurt from cruise height,
+    // which made bailing out the cheapest way to end a flight.
+    const { state } = aloft(32);
+    let s = state;
+    s.players.byId[1]!.health = 100;
+    const z = s.vehicles.byId[2]!.z;
+    s = step(s, { 1: { ...NULL_INPUT, seq: 900, tick: 900 } }, [], map);
+    s = step(s, { 1: { ...NULL_INPUT, seq: 901, tick: 901, action: true } }, [], map);
+    const me = s.players.byId[1]!;
+    expect(me.mode).toBe('foot');
+    // Out of the aircraft AND still up there. Within a tick's worth of
+    // descent of where it was: releasing the throttle to press the door key
+    // costs one `climbRate * DT`.
+    expect(me.z).toBeGreaterThan(z - 3);
+    expect(me.z).toBeGreaterThan(0);
+
+    let ticks = 0;
+    for (; ticks < 300; ticks++) {
+      s = step(s, {}, [], map);
+      if (s.players.byId[1]!.z === 0) break;
+    }
+    // It took time to come down, and it cost something.
+    expect(ticks).toBeGreaterThan(3);
+    expect(s.players.byId[1]!.z).toBe(0);
+    expect(s.players.byId[1]!.health).toBeLessThan(100);
+  });
+
+  it('a bail-out from cruise height is expensive, not fatal', () => {
+    // The drop and the airspeed used to bill separately for the same jump:
+    // fall damage from `stepStunts` plus `tryExitVehicle`'s road rash, which
+    // left a full-health player on 3. Road rash is the ground taking your
+    // speed off you and there is no ground up there, so only the fall pays.
+    const { state } = aloft(35);
+    let s = state;
+    s.players.byId[1]!.health = 100;
+    s = step(s, { 1: { ...NULL_INPUT, seq: 900, tick: 900 } }, [], map);
+    s = step(s, { 1: { ...NULL_INPUT, seq: 901, tick: 901, action: true } }, [], map);
+    for (let i = 0; i < 300; i++) {
+      s = step(s, {}, [], map);
+      if (s.players.byId[1]!.z === 0) break;
+    }
+    const health = s.players.byId[1]!.health;
+    // Roughly a third left: enough to run, not enough to do it twice.
+    expect(health).toBeGreaterThan(20);
+    expect(health).toBeLessThan(50);
+  });
+
+  it('...and stepping out on the ground still does not', () => {
+    // The fall must not tax an ordinary door. Same exit path, no altitude.
+    let s = createGameState(33);
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'p' }], map);
+    const lane = roadLane(map);
+    s.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    s = step(
+      s,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: lane.x, y: lane.y, heading: 0 }],
+      map,
+    );
+    s = step(s, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    s.players.byId[1]!.health = 100;
+    // The door is edge-triggered — a held key is one press, not thirty a
+    // second — so getting back out needs the key released in between.
+    s = step(s, { 1: { ...NULL_INPUT, seq: 2, tick: 2 } }, [], map);
+    s = step(s, { 1: { ...NULL_INPUT, seq: 3, tick: 3, action: true } }, [], map);
+    expect(s.players.byId[1]!.mode).toBe('foot');
+    expect(s.players.byId[1]!.z).toBe(0);
+    expect(s.players.byId[1]!.health).toBe(100);
+  });
+
+  it('a landed aircraft is an ordinary vehicle again', () => {
+    // Down means down: it collides with the city like anything else, rather
+    // than sliding through it at z of nought-point-something.
+    const { state } = aloft(34);
+    let s = state;
+    for (let i = 0; i < 400; i++) {
+      s = step(s, { 1: { ...NULL_INPUT, seq: i + 500, tick: i + 500 } }, [], map);
+      if (s.vehicles.byId[2]!.z === 0) break;
+    }
+    expect(s.vehicles.byId[2]!.z).toBe(0);
+    expect(s.players.byId[1]!.mode).toBe('driving'); // still at the controls
   });
 });

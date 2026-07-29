@@ -236,10 +236,21 @@ function integrateVehicle(
   sim: GameState | null,
   events?: SimEvent[],
   airborne = false,
+  /** What the pedals are doing. 0 for anything nobody is driving. */
+  throttle = 0,
 ): void {
   const t = getVehicleTuning(v.kind);
-  if (v.speed === 0) return;
-  if (airborne) {
+  // Altitude first, and BEFORE the early return below.
+  //
+  // This used to live in `driveVehicle`, which only runs while somebody is
+  // at the controls — so a helicopter you got out of hung at cruise height
+  // for ever, and a stationary one could never come down at all because
+  // `speed === 0` returns before anything else happens. Whether a vehicle is
+  // over the city or in it is a fact about the vehicle, not about whether it
+  // is being driven.
+  const flying = stepAltitude(v, map, t, throttle);
+  if (v.speed === 0 && !flying) return;
+  if (airborne || flying) {
     // Off the ground: no tiles, no other cars, no kerbs. Clearing things is
     // the entire point of a jump.
     v.pos.x = q8(v.pos.x + dCos(v.heading) * v.speed * DT);
@@ -539,18 +550,10 @@ export function driveVehicle(
     v.heading = q256(wrapAngle(v.heading + steer * dir * t.turnRate * authority * DT));
   }
 
-  // Aircraft: the altitude, and what having one changes.
-  //
-  // A plane needs runway — `takeoffSpeed` reached with the wheels on a
-  // surface built for it — which is what makes the airstrip a destination
-  // rather than scenery. A helicopter lifts from wherever it is standing.
-  // Above the ground, `integrateVehicle`'s existing airborne path takes over
-  // and the aircraft stops colliding with tiles and cars, which is the same
-  // code a stunt jump has always used: being over the city rather than in it
-  // is one idea, and it did not need a second implementation.
-  const flying = stepAltitude(v, map, t, throttle);
-
-  integrateVehicle(v, map, world, sim, events, airborne || flying);
+  // The altitude belongs to `integrateVehicle`, which every moving vehicle
+  // goes through whether or not anybody is driving it. All this has to do is
+  // say what the pedals are doing.
+  integrateVehicle(v, map, world, sim, events, airborne, throttle);
 }
 
 /**
@@ -578,7 +581,13 @@ function stepAltitude(
   return v.z > 0;
 }
 
-/** Driverless vehicles coast to a stop. */
+/**
+ * Driverless vehicles coast to a stop — and, if they were flying, down.
+ *
+ * The throttle is 0 here by definition, which is exactly what tells
+ * `stepAltitude` to bring an abandoned aircraft back to the ground rather
+ * than leave it hanging where its pilot stepped out of it.
+ */
 export function stepVehicleCoasting(
   v: VehicleState,
   map: CityMap,
@@ -728,12 +737,28 @@ export function tryExitVehicle(
       p.pos = spot;
       p.vel.x = 0;
       p.vel.y = 0;
+      // Get out of an aircraft in the air and you are in the air. Before
+      // this the player simply appeared on the ground, unhurt, from cruise
+      // height — which made bailing out the cheapest way to end a flight and
+      // made altitude mean nothing. `stepStunts` owns what happens next.
+      if (v.z > 0) {
+        p.z = v.z;
+        p.vz = 0;
+        p.airDist = 0;
+      }
       // Stepping out of a moving car used to be free, which made the burn
       // fuse a non-decision: you could bail at full speed and stand there
       // unhurt. It costs skin now, and a moment on the floor before you can
       // shoot — so riding it out is a real alternative rather than the only
       // stupid option.
-      if (speed > BAILOUT_SAFE_SPEED) {
+      //
+      // Not in the air, though. This penalty is road rash — the ground taking
+      // your forward speed off you — and there is no ground under an aircraft
+      // at cruise height. Charging it there stacked with the fall damage
+      // `stepStunts` is about to apply, and a bail-out from the shipped
+      // chopper landed at 3 health: nominally survivable, functionally a
+      // death. The drop is the hazard, and it is the one that gets to bill.
+      if (v.z === 0 && speed > BAILOUT_SAFE_SPEED) {
         p.fireCooldown = Math.max(p.fireCooldown, BAILOUT_STUN_TICKS);
         applyDamage(
           state,
