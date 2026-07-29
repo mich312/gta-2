@@ -6,12 +6,23 @@ import worldgenJson from '../data/worldgen.json';
 import { getVehicleTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
-import { createGameState, createVehicle, type GameState } from '../src/sim/state.js';
+import {
+  createGameState,
+  createPlayer,
+  createVehicle,
+  type GameState,
+  type VehicleState,
+} from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import { roadLane } from './helpers.js';
 import { insertEntity } from '../src/sim/entities.js';
-import { driveVehicle } from '../src/sim/vehicle.js';
+import {
+  canTakeOff,
+  driveVehicle,
+  stepVehicleCoasting,
+  stepVehicleDriving,
+} from '../src/sim/vehicle.js';
 import { T_BUILDING, T_RUNWAY, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
 initTuning({ player: playerTuning, vehicles: vehiclesJson, weapons: weaponsJson });
@@ -32,15 +43,70 @@ function runwayTile(m: CityMap): { x: number; y: number } | null {
   return null;
 }
 
-/** One vehicle, under power, for N ticks. */
+/**
+ * The west end of a runway, and enough of it ahead to build up speed on.
+ *
+ * `runwayTile` answers "is there any runway at all", which is a question about
+ * worldgen. Taking off is a question about a RUN, and a plane pointed east off
+ * the first tile of a north-south strip is on grass by the time it is fast
+ * enough — so this finds a tile with a genuine eastward run in front of it.
+ */
+function runwayRunEast(m: CityMap, needTiles = 8): { x: number; y: number } | null {
+  const at = (tx: number, ty: number): boolean =>
+    tx >= 0 && ty >= 0 && tx < m.widthTiles && ty < m.heightTiles &&
+    m.tiles[ty * m.widthTiles + tx] === T_RUNWAY;
+  for (let ty = 0; ty < m.heightTiles; ty++) {
+    for (let tx = 0; tx < m.widthTiles; tx++) {
+      if (!at(tx, ty)) continue;
+      let run = 0;
+      while (at(tx + run, ty)) run++;
+      if (run >= needTiles) return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+    }
+  }
+  return null;
+}
+
+/**
+ * One vehicle, under power, for N ticks, with the pilot reaching for the
+ * take-off latch on every one of them.
+ *
+ * Held rather than tapped, and that is the point of the shape: the latch is
+ * edge-triggered, so holding it presses it exactly once — which is also what
+ * stops a leant-on key toggling thirty times a second in a real session. The
+ * press lands on the first tick, when a wing is still standing still, so a
+ * plane has to be given its run-up separately; see `rollThenLift`.
+ */
 function fly(kind: string, at: { x: number; y: number }, ticks: number): GameState {
   const state = createGameState(3);
   const v = createVehicle(1, kind, at, 0);
   v.driverId = 1;
   insertEntity(state.vehicles, v);
+  const lift = { ...NULL_INPUT, up: true, lift: true };
   for (let i = 0; i < ticks; i++) {
-    driveVehicle(v, 1, 0, map, state, state, []);
+    stepVehicleDriving(v, lift, map, state, state, []);
   }
+  return state;
+}
+
+/**
+ * A wing: roll first, then ask for the air. Two phases because that IS the
+ * rule — a plane that has not built up speed on a runway will refuse, and the
+ * refusal is the whole reason the airstrip is a destination.
+ */
+function rollThenLift(
+  kind: string,
+  at: { x: number; y: number },
+  rollTicks: number,
+  climbTicks: number,
+): GameState {
+  const state = createGameState(3);
+  const v = createVehicle(1, kind, at, 0);
+  v.driverId = 1;
+  insertEntity(state.vehicles, v);
+  const roll = { ...NULL_INPUT, up: true };
+  for (let i = 0; i < rollTicks; i++) stepVehicleDriving(v, roll, map, state, state, []);
+  const lift = { ...roll, lift: true };
+  for (let i = 0; i < climbTicks; i++) stepVehicleDriving(v, lift, map, state, state, []);
   return state;
 }
 
@@ -52,14 +118,70 @@ describe('flight (S2)', () => {
 
   it('a plane needs a runway: a field is not one', () => {
     // The rule that makes the airstrip a destination rather than scenery.
-    const rw = runwayTile(map)!;
-    const onStrip = fly('plane', rw, 200);
+    const rw = runwayRunEast(map)!;
+    expect(rw).not.toBeNull();
+    // Long enough a run to pass `takeoffSpeed`, short enough to still be on
+    // the strip when the key goes down.
+    const onStrip = rollThenLift('plane', rw, 45, 100);
     expect(onStrip.vehicles.byId[1]!.z).toBeGreaterThan(0);
 
-    // The same aeroplane, same throttle, on a road: rolls and stays rolling.
+    // The same aeroplane, same run-up, same key, on a road: rolls and stays
+    // rolling. The latch refuses rather than lifting it out of a side street.
     const road = map.vehicleSpawns[0]!;
-    const onRoad = fly('plane', { x: road.x, y: road.y }, 200);
+    const onRoad = rollThenLift('plane', { x: road.x, y: road.y }, 45, 100);
     expect(onRoad.vehicles.byId[1]!.z).toBe(0);
+  });
+
+  it('the take-off key is what leaves the ground, not the throttle', () => {
+    // The whole of the control change. Full throttle, never touching the
+    // latch: a helicopter that used to be at cruise height inside two seconds
+    // now stays exactly where it is, and the throttle means airspeed.
+    const road = map.vehicleSpawns[0]!;
+    const state = createGameState(9);
+    const v = createVehicle(1, 'chopper', { x: road.x, y: road.y }, 0);
+    v.driverId = 1;
+    insertEntity(state.vehicles, v);
+    for (let i = 0; i < 150; i++) {
+      stepVehicleDriving(v, { ...NULL_INPUT, up: true }, map, state, state, []);
+    }
+    expect(v.z).toBe(0);
+    expect(v.climb).toBe(false);
+  });
+
+  it('the same key puts it down again', () => {
+    // Landing is a decision too, and it must not require cutting the engine:
+    // the throttle stays hard down through the descent here.
+    const road = map.vehicleSpawns[0]!;
+    const state = createGameState(10);
+    const v = createVehicle(1, 'chopper', { x: road.x, y: road.y }, 0);
+    v.driverId = 1;
+    insertEntity(state.vehicles, v);
+    const lift = { ...NULL_INPUT, up: true, lift: true };
+    const cruise = { ...NULL_INPUT, up: true };
+    for (let i = 0; i < 120; i++) stepVehicleDriving(v, lift, map, state, state, []);
+    expect(v.z).toBeGreaterThan(0);
+    // Release, press again: the second edge is the landing.
+    stepVehicleDriving(v, cruise, map, state, state, []);
+    stepVehicleDriving(v, lift, map, state, state, []);
+    expect(v.climb).toBe(false);
+    for (let i = 0; i < 200; i++) stepVehicleDriving(v, cruise, map, state, state, []);
+    expect(v.z).toBe(0);
+  });
+
+  it('a landing is never refused, wherever it is', () => {
+    // `canTakeOff` gates going up. Nothing gates coming down — a control that
+    // can refuse to land is a control that can strand you over the sea.
+    const road = map.vehicleSpawns[0]!;
+    const state = createGameState(11);
+    const v = createVehicle(1, 'plane', { x: road.x, y: road.y }, 0);
+    v.driverId = 1;
+    v.climb = true;
+    v.z = getVehicleTuning('plane').cruiseZ;
+    insertEntity(state.vehicles, v);
+    // Over an ordinary street, where taking off would be refused outright.
+    expect(canTakeOff({ ...v, z: 0, speed: 0 }, map)).toBe(false);
+    stepVehicleDriving(v, { ...NULL_INPUT, lift: true }, map, state, state, []);
+    expect(v.climb).toBe(false);
   });
 
   it('a helicopter lifts from wherever it is standing', () => {
@@ -91,23 +213,26 @@ describe('flight (S2)', () => {
     v.driverId = 1;
     insertEntity(state.vehicles, v);
     // Get it up first, then fly it at the building.
-    for (let i = 0; i < 120; i++) driveVehicle(v, 1, 0, map, state, state, []);
+    const lift = { ...NULL_INPUT, up: true, lift: true };
+    for (let i = 0; i < 120; i++) stepVehicleDriving(v, lift, map, state, state, []);
     expect(v.z).toBeGreaterThan(0);
     const before = v.pos.x;
-    for (let i = 0; i < 120; i++) driveVehicle(v, 1, 0, map, state, state, []);
+    for (let i = 0; i < 120; i++) stepVehicleDriving(v, lift, map, state, state, []);
     // Went straight past where the wall is.
     expect(v.pos.x).toBeGreaterThan(before + 100);
   });
 
-  it('...and comes down when the power comes off', () => {
+  it('...and comes down when the latch is dropped', () => {
     const road = map.vehicleSpawns[0]!;
     const state = createGameState(5);
     const v = createVehicle(1, 'chopper', { x: road.x, y: road.y }, 0);
     v.driverId = 1;
     insertEntity(state.vehicles, v);
-    for (let i = 0; i < 120; i++) driveVehicle(v, 1, 0, map, state, state, []);
+    const lift = { ...NULL_INPUT, up: true, lift: true };
+    for (let i = 0; i < 120; i++) stepVehicleDriving(v, lift, map, state, state, []);
     const high = v.z;
     expect(high).toBeGreaterThan(0);
+    v.climb = false;
     for (let i = 0; i < 200; i++) driveVehicle(v, 0, 0, map, state, state, []);
     expect(v.z).toBe(0);
   });
@@ -118,8 +243,11 @@ describe('flight (S2)', () => {
     const road = map.vehicleSpawns[0]!;
     for (const kind of ['car', 'bus', 'moto', 'tank', 'boat']) {
       expect(getVehicleTuning(kind).medium, kind).not.toBe('air');
+      // Mashing the take-off key in a bus does nothing at all, which is the
+      // other half of "one comparison and out".
       const s = fly(kind, { x: road.x, y: road.y }, 120);
       expect(s.vehicles.byId[1]!.z, kind).toBe(0);
+      expect(s.vehicles.byId[1]!.climb, kind).toBe(false);
     }
   });
 });
@@ -149,12 +277,17 @@ describe('landing (S2, through step)', () => {
     );
     state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
     for (let i = 0; i < 150; i++) {
-      state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true } }, [], map);
+      state = step(
+        state,
+        { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true, lift: true } },
+        [],
+        map,
+      );
     }
     return { state, lane };
   }
 
-  it('a player can get into an aircraft and take off with the ordinary keys', () => {
+  it('a player can get into an aircraft and take off with the take-off key', () => {
     const { state } = aloft(30);
     expect(state.players.byId[1]!.mode).toBe('driving');
     expect(state.vehicles.byId[2]!.z).toBeGreaterThan(0);
@@ -250,11 +383,77 @@ describe('landing (S2, through step)', () => {
     // than sliding through it at z of nought-point-something.
     const { state } = aloft(34);
     let s = state;
+    // Ask to come down: release the key, then press it again. A latch does not
+    // fall open when you stop holding it — that is the whole point of it.
+    s = step(s, { 1: { ...NULL_INPUT, seq: 400, tick: 400 } }, [], map);
+    s = step(s, { 1: { ...NULL_INPUT, seq: 401, tick: 401, lift: true } }, [], map);
+    expect(s.vehicles.byId[2]!.climb).toBe(false);
     for (let i = 0; i < 400; i++) {
       s = step(s, { 1: { ...NULL_INPUT, seq: i + 500, tick: i + 500 } }, [], map);
       if (s.vehicles.byId[2]!.z === 0) break;
     }
     expect(s.vehicles.byId[2]!.z).toBe(0);
     expect(s.players.byId[1]!.mode).toBe('driving'); // still at the controls
+  });
+});
+
+/**
+ * Ways to stop being the pilot, and what happens to the aircraft.
+ *
+ * The latch is a fact about the vehicle, not about the person, so every path
+ * that empties a cockpit has to bring it down — and there are several: the
+ * door, a disconnect, dying, and the fire. Any one of them forgetting leaves a
+ * helicopter hovering at cruise height for the rest of the session, where
+ * nobody can reach it and nothing can clear it.
+ */
+describe('an aircraft nobody is flying comes down, however it was emptied', () => {
+  /** A chopper at cruise height with a player at the controls. */
+  function flying(seed: number): { state: GameState; v: VehicleState } {
+    const state = createGameState(seed);
+    const road = map.vehicleSpawns[0]!;
+    const p = createPlayer(1, 'pilot', { x: road.x, y: road.y });
+    p.mode = 'driving';
+    p.vehicleId = 2;
+    insertEntity(state.players, p);
+    const v = createVehicle(2, 'chopper', { x: road.x, y: road.y }, 0);
+    v.driverId = 1;
+    v.climb = true;
+    v.z = getVehicleTuning('chopper').cruiseZ;
+    insertEntity(state.vehicles, v);
+    return { state, v };
+  }
+
+  /** Coast it for a while and report the altitude it settles at. */
+  function settle(state: GameState, v: VehicleState, ticks = 200): number {
+    for (let i = 0; i < ticks; i++) stepVehicleCoasting(v, map, state, state, []);
+    return v.z;
+  }
+
+  it('the pilot simply vanishing — a disconnect — is enough', () => {
+    // `despawnPlayer` clears `driverId` and nothing else. It does not know
+    // about flight and should not have to.
+    const { state, v } = flying(60);
+    v.driverId = null;
+    expect(v.climb).toBe(true); // the latch is untouched: this is the point
+    expect(settle(state, v)).toBe(0);
+  });
+
+  it('...and a burning one comes down with the latch still set', () => {
+    const { state, v } = flying(61);
+    v.condition = 'burning';
+    expect(settle(state, v)).toBe(0);
+  });
+
+  it('...and a wreck does not hover', () => {
+    const { state, v } = flying(62);
+    v.condition = 'wreck';
+    expect(settle(state, v)).toBe(0);
+  });
+
+  it('but a pilot who is still aboard stays up', () => {
+    // The control case. Without it the three above pass on an aircraft that
+    // can no longer fly at all.
+    const { state, v } = flying(63);
+    expect(settle(state, v)).toBe(getVehicleTuning('chopper').cruiseZ);
   });
 });

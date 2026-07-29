@@ -1,6 +1,7 @@
 {
   "count": 14,
   "cruiseSpeed": 62,
+  "speedReference": 200,
   "turnSpeed": 18,
   "lookAhead": 12,
   "brakeDistance": 8,

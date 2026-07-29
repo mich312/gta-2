@@ -93,7 +93,23 @@ const PAINTED_KINDS = new Set([
   'chopper',
 ]);
 
-export function vehicleSpriteName(kind: string, id: number, gangId = 0): string {
+export function vehicleSpriteName(
+  kind: string,
+  id: number,
+  gangId = 0,
+  /**
+   * The colour the sim says this one was painted, or -1 for "work it out from
+   * the id".
+   *
+   * The id used to be the only answer, and it is the wrong one for anything
+   * that outlives its entity. A session that walks into the next region tears
+   * the ambient world down and rebuilds it (see the `rebase` command), so
+   * every parked car comes back with a fresh id — and the whole street changed
+   * colour at once, in front of you, for no reason you could see. A paint
+   * derived from the KERB survives that; see `paintAt` in worldgen.
+   */
+  paint = -1,
+): string {
   // A gang car wears its gang's colours, not a colour off the rank: the whole
   // reason it exists is that you can tell whose street you are on by what is
   // parked on it.
@@ -106,7 +122,9 @@ export function vehicleSpriteName(kind: string, id: number, gangId = 0): string 
   // a property of the SET rather than of one kind. It used to test
   // `kind === 'car'`, which silently drew each new body in variant-less form
   // — that is, not at all, since no such frame exists.
-  return PAINTED_KINDS.has(kind) ? `${kind}_v${Math.abs(id) % CAR_VARIANTS}` : kind;
+  if (!PAINTED_KINDS.has(kind)) return kind;
+  const variant = paint >= 0 ? paint % CAR_VARIANTS : Math.abs(id) % CAR_VARIANTS;
+  return `${kind}_v${variant}`;
 }
 
 /**
@@ -214,6 +232,8 @@ export interface Scene {
     z: number;
     /** Whose car it is; picks the livery for a gang car. */
     gangId: number;
+    /** Factory colour, or -1 for "off the id". See `vehicleSpriteName`. */
+    paint: number;
   } | null;
   /** Remote entities on the interpolated timeline. */
   remotes: RenderWorld;
@@ -666,6 +686,7 @@ export function render(
       // smooth as everything else on screen.
       aimOf(scene, rv.vehicle.driverId),
       riderSprite(scene, rv.vehicle.driverId),
+      rv.vehicle.paint,
     );
   }
   if (scene.localVehicle) {
@@ -695,6 +716,7 @@ export function render(
       // it answers the mouse on the frame you move it.
       scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
       riderSprite(scene, scene.local?.vehicleId === null ? null : (scene.local?.id ?? null)),
+      scene.localVehicle.paint,
     );
   }
 
@@ -1542,13 +1564,15 @@ export function drawVehicle(
    * invisible, which is why this is a parameter rather than a lookup.
    */
   rider: string | null = null,
+  /** Factory colour off the sim, or -1 to fall back to the id. */
+  paint = -1,
 ): void {
   // Airborne: lift the sprite, scale it up a touch, and leave the shadow on
   // the ground where it belongs. The gap between the two is what sells it.
   const lift = z * RENDER_SCALE * 0.6;
   const x = dx(wx);
   const y = dy(wy) - lift;
-  const name = vehicleSpriteName(kind, id, gangId);
+  const name = vehicleSpriteName(kind, id, gangId, paint);
   const fp = sprites.footprint(name);
   const shrink = z > 0 ? 0.75 : 1;
   drawShadow(ctx, dx(wx), dy(wy), fp.rx * 0.92 * shrink, fp.ry * 1.05 * shrink, 4);
@@ -1652,7 +1676,13 @@ export function drawVehicle(
 
   // Rubber goes down whoever is driving and whatever the lights are doing:
   // an AI car standing on the brakes for a pedestrian leaves marks too.
-  layRubber(effects, id, wx, wy, heading, speed, nowMs);
+  //
+  // Off the ground it does not: there is no road under the tyres. A
+  // helicopter cornering at cruise height was laying two black arcs on the
+  // street forty-eight pixels below it, which is the most conspicuous half of
+  // "planes behave like cars". `layRubber` still gets the sample so its
+  // history stays continuous across a take-off and a landing.
+  layRubber(effects, id, wx, wy, heading, speed, nowMs, z > 0);
 
   // Only a car with someone in it has its lights on — a street of parked cars
   // all blazing away washes the scene out and reads as nonsense.
@@ -1715,8 +1745,9 @@ export function drawVehicle(
   }
 
   // Exhaust while under way; sampled off wall-clock so it does not thicken on
-  // a fast display.
-  if (Math.abs(speed) > 40 && (nowMs * 0.06 + id) % 3 < 1) {
+  // a fast display. Not from the air: `effects.exhaust` puts the puff on the
+  // ground plane, so an aircraft's would trail along the street below it.
+  if (z <= 0 && Math.abs(speed) > 40 && (nowMs * 0.06 + id) % 3 < 1) {
     effects.exhaust(wx, wy, heading);
   }
 }
@@ -1760,6 +1791,8 @@ function layRubber(
   heading: number,
   speed: number,
   nowMs: number,
+  /** In the air: keep the history, lay nothing. There is no road up there. */
+  airborne = false,
 ): void {
   const prev = skidState.get(id);
   skidState.set(id, {
@@ -1768,7 +1801,7 @@ function layRubber(
     ms: nowMs,
     nextAtMs: prev?.nextAtMs ?? 0,
   });
-  if (!prev) return;
+  if (!prev || airborne) return;
 
   const dtMs = nowMs - prev.ms;
   if (dtMs <= 0 || dtMs > 250) return; // first frame back on screen: no history

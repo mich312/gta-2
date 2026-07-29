@@ -107,12 +107,33 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     }
   }
 
+  // The water field, sampled ONCE, over the window plus a two-tile skirt.
+  //
+  // It used to be sampled twice over: the mask below walked the window, and
+  // the shore pass further down walked the window again with a margin — so
+  // every tile in the city paid for two fractal-noise evaluations of the same
+  // question, which at 240×240 is nearly sixty thousand duplicated samples per
+  // regeneration. The margin version is a superset, so it can answer both, and
+  // the shore pass needs the skirt for a reason that has not changed:
+  // neighbourhood tested on the FIELD rather than on the window's arrays is
+  // what makes a shore at the window rim agree with every other viewport.
+  const MARGIN = 2;
+  const eW = W + MARGIN * 2;
+  const eH = H + MARGIN * 2;
+  const wet = new Uint8Array(eW * eH);
+  for (let ey = 0; ey < eH; ey++) {
+    for (let ex = 0; ex < eW; ex++) {
+      if (fields.water(wx + ex - MARGIN, wy + ey - MARGIN)) wet[ey * eW + ex] = 1;
+    }
+  }
+  const wetAt = (tx: number, ty: number): boolean => wet[(ty + MARGIN) * eW + (tx + MARGIN)] === 1;
+
   // Waterways go in first so roads carve over them and the bridge pass can
   // tell which crossings to keep.
   const waterMask = new Uint8Array(W * H);
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
-      if (!fields.water(wx + tx, wy + ty)) continue;
+      if (!wetAt(tx, ty)) continue;
       map.tiles[ty * W + tx] = T_WATER;
       waterMask[ty * W + tx] = 1;
     }
@@ -167,15 +188,6 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // FIELD sampled with a margin beyond the window (global, pure), so a
   // shore at the window rim agrees with every other viewport; roads keep
   // their tiles, which is what lets a drowned road end reach the shore.
-  const MARGIN = 2;
-  const eW = W + MARGIN * 2;
-  const eH = H + MARGIN * 2;
-  const wet = new Uint8Array(eW * eH);
-  for (let ey = 0; ey < eH; ey++) {
-    for (let ex = 0; ex < eW; ex++) {
-      if (fields.water(wx + ex - MARGIN, wy + ey - MARGIN)) wet[ey * eW + ex] = 1;
-    }
-  }
   const wetNear = (tx: number, ty: number, r: number): boolean => {
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -229,7 +241,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeRuralSites(map, params, roads.cells, seed, isRural, (gx, gy) => fields.grit(gx, gy));
   placeVehicleSpawns(map, params, stream('vehicles'));
   placePlayerSpawns(map, params, stream('playerSpawns'));
-  placeParking(map);
+  placeParking(map, params);
   placeVehicleHomes(map);
   placePedSpawns(map);
   placeProps(map);
@@ -239,7 +251,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeCranes(map);
   placePayphones(map);
   assignTurf(map, params);
-  markGangCars(map);
+  markGangCars(map, params);
   placePackages(map, params);
   // Dead last of the placement passes, and only when asked for: see
   // placeProvingGround on why it must not run before anything else.

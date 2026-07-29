@@ -41,6 +41,27 @@ import type { VehicleState } from './state.js';
  * bit.
  */
 
+/**
+ * Is this vehicle's body actually IN the street?
+ *
+ * Everything in this file — and everything that consumes it — models a
+ * vehicle as a shape on the ground plane. An aircraft at cruise height has no
+ * such shape: it is over the city, not in it. Before this was asked, a
+ * helicopter at 48 px flew through a crowd mowing people down, left four
+ * tyre marks on the road below, scattered the pavement it passed over,
+ * smashed the bollards under it and set off the barrels — all of it from
+ * eight storeys up, and the barrels then blew the helicopter out of the sky,
+ * which is the "why does it suddenly explode" of it.
+ *
+ * One predicate, asked everywhere a vehicle meets the ground, so the answer
+ * cannot differ between the systems. Note it is `z > 0` and not "is an
+ * aircraft": a plane taxiing down the runway is as solid as a bus, and it is
+ * altitude and not vehicle class that decides.
+ */
+export function onTheGround(v: VehicleState): boolean {
+  return v.z <= 0;
+}
+
 /** A vehicle's position and facing at one instant. */
 export interface Pose {
   x: number;
@@ -310,6 +331,8 @@ export function pushOutOfVehicles(
     if (id === ignoreVehicleId) continue;
     const v = world.vehicles.byId[id];
     if (!v) continue;
+    // You do not bump into an aeroplane that is flying over you.
+    if (!onTheGround(v)) continue;
     const pose = poses?.[id];
     const vx = pose ? pose.x : v.pos.x;
     const vy = pose ? pose.y : v.pos.y;

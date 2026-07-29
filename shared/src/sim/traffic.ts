@@ -5,7 +5,7 @@ import { getTrafficTuning, getTuning, getVehicleTuning, type TrafficTuning } fro
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
 import { createPed, createVehicle } from './state.js';
 import { insertEntity, removeEntity } from './entities.js';
-import { distanceToBox, vehicleBox } from './bodies.js';
+import { distanceToBox, onTheGround, vehicleBox } from './bodies.js';
 import { boxInSolid } from '../world/collide.js';
 import { PED_RADIUS } from './peds.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
@@ -188,7 +188,7 @@ function vehicleAt(state: GameState, self: VehicleState, x: number, y: number): 
   for (const id of state.vehicles.ids) {
     if (id === self.id) continue;
     const other = state.vehicles.byId[id];
-    if (!other) continue;
+    if (!other || !onTheGround(other)) continue;
     if (Math.abs(other.pos.x - x) < reach && Math.abs(other.pos.y - y) < reach) return true;
   }
   return false;
@@ -255,6 +255,42 @@ interface Ahead {
   person: boolean;
 }
 
+/** How far below and above the reference saloon an ambient driver may sit. */
+const MIN_KIND_SPEED_SCALE = 0.62;
+const MAX_KIND_SPEED_SCALE = 1.15;
+
+/**
+ * How fast this kind of vehicle drives, as a multiple of the tuning's numbers.
+ *
+ * `traffic.json` quotes ONE cruise, ONE corner speed and ONE panic speed, and
+ * every ambient driver used them as absolutes — so the bus, the refuse lorry,
+ * the digger and the sports car all cruised at exactly the same speed, nose to
+ * tail, while `vehicles.json` said their top speeds ran from 97 to 252. The
+ * one number that most obviously distinguishes one vehicle from another was
+ * invisible on any vehicle the player was not personally driving.
+ *
+ * The scale is the kind's own top speed against `speedReference` — the saloon
+ * those numbers were tuned for — so the reference kind reproduces the old
+ * behaviour exactly and everything else sorts itself by its own data sheet.
+ * No new per-kind tuning, and a vehicle added later needs none.
+ *
+ * Bounded on both sides. A floor because a digger at 0.49 of cruise is a
+ * rolling roadblock rather than traffic, and a ceiling because the lane
+ * keeping was tuned at `panicSpeed` and a sports car asked for 1.24 of it
+ * corners into the kerb. Division and one multiply: exact under IEEE-754, so
+ * this stays prediction-safe like the rest of the file.
+ */
+function kindSpeedScale(kind: string, t: TrafficTuning): number {
+  const ref = t.speedReference;
+  if (ref <= 0) return 1;
+  const scale = getVehicleTuning(kind).maxSpeed / ref;
+  return scale < MIN_KIND_SPEED_SCALE
+    ? MIN_KIND_SPEED_SCALE
+    : scale > MAX_KIND_SPEED_SCALE
+      ? MAX_KIND_SPEED_SCALE
+      : scale;
+}
+
 /**
  * The nearest thing in this car's path, whatever it is: a car, a person on
  * foot, or a wall.
@@ -316,7 +352,10 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
   for (const id of state.vehicles.ids) {
     if (id === v.id) continue;
     const other = state.vehicles.byId[id];
-    if (!other) continue;
+    // An aircraft overhead is not traffic. Left in, a helicopter crossing a
+    // junction stopped every car under it dead — the obstacle model works on
+    // the ground plane, where the helicopter is not.
+    if (!other || !onTheGround(other)) continue;
     const ot = getVehicleTuning(other.kind);
     if (Math.abs(other.pos.x - v.pos.x) > horizon || Math.abs(other.pos.y - v.pos.y) > horizon) {
       continue;
@@ -539,9 +578,17 @@ function laneControl(
   // an ambulance answering somebody bleeding out in the road at 62 px/s would
   // arrive after the funeral. Same ceiling as panic, for the same reason —
   // it is the fastest speed the lane-keeping is known to hold.
+  //
+  // ...and all three are scaled by what the vehicle is. The tuning quotes one
+  // set of speeds for a reference saloon; every driver in the city used them
+  // verbatim, so a bus, a refuse lorry, a digger and a sports car all cruised
+  // at exactly the same speed, in convoy. Twenty-odd kinds with distinct top
+  // speeds in `vehicles.json` were, on the street, one kind. See
+  // `kindSpeedScale`.
+  const scale = kindSpeedScale(v.kind, t);
   const straight =
     driver.panic > 0 || driver.mission === 'goto' ? t.panicSpeed : t.cruiseSpeed;
-  const desired = Math.abs(err) > TURN_ERROR ? t.turnSpeed : straight;
+  const desired = (Math.abs(err) > TURN_ERROR ? t.turnSpeed : straight) * scale;
 
   // How hard to press which pedal, from one continuous model of what is in
   // front. Requested as an ACCELERATION and converted to a pedal position at
@@ -1120,7 +1167,9 @@ export function putAiVehicle(
     { x: q8(place.x), y: q8(place.y) },
     CARDINAL_ANGLE[place.dir] as number,
   );
-  v.speed = q8(t.cruiseSpeed * 0.6);
+  // Rolling in at the same fraction of what THIS kind cruises at, so a bus
+  // does not arrive doing a hatchback's speed and then brake down to its own.
+  v.speed = q8(t.cruiseSpeed * kindSpeedScale(kind, t) * 0.6);
   v.driverId = -1000 - id; // negative => AI, and never -1
   state.trafficDrivers[id] = freshDriver(place.dir);
   insertEntity(state.vehicles, v);
@@ -1267,6 +1316,7 @@ export function tryCarjack(
   for (const id of state.vehicles.ids) {
     const v = state.vehicles.byId[id];
     if (!v || !isAiDriver(v.driverId) || v.condition !== 'ok') continue;
+    if (!onTheGround(v)) continue; // no reaching up into a cockpit in flight
     // Same door as `tryEnterVehicle`, measured the same way: from the
     // bodywork. Dragging a driver out of a bus you are standing against
     // should not depend on how far the middle of the bus happens to be.

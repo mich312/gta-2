@@ -175,6 +175,13 @@ export interface VehicleSpawn {
   kind: string;
   /** Whose car it is, or 0 for anybody's. See amenities.placeParking. */
   gangId?: number;
+  /**
+   * Which of the ten body colours this one wears, or undefined for "whatever
+   * the entity id says". Set for kerbside parking, where the colour is a fact
+   * about the place and has to survive the window moving — see
+   * `amenities.placeParking`.
+   */
+  paint?: number;
 }
 
 /**

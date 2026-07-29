@@ -91,6 +91,16 @@ export class Hud {
    * see. Null when on foot.
    */
   car: { zones: number[]; broken: number; wear: number; maxHealth: number } | null = null;
+  /**
+   * The aircraft the player is at the controls of, or null for anything else.
+   *
+   * Flight is the one part of driving with a control that exists nowhere else,
+   * and a key nobody is told about is a key nobody presses: the take-off latch
+   * was invisible, so the honest answer to "how do I get this thing off the
+   * ground" was to read the source. This is that answer, on screen, only while
+   * it applies.
+   */
+  aircraft: { airborne: boolean; climbing: boolean; ready: boolean } | null = null;
   /** Wall-clock ms the "get out" alarm stops flashing at. */
   private alarmUntilMs = 0;
 
@@ -333,6 +343,42 @@ export class Hud {
     }
   }
 
+  /**
+   * The flight control, named, above the weapon line.
+   *
+   * Four states rather than two, because the interesting one is the refusal: a
+   * plane parked in a field will not take off however hard you press, and a
+   * prompt that says "take off" there teaches the player the button is broken.
+   * It says what the aeroplane is waiting for instead — which is also the
+   * shortest possible description of what a runway is FOR.
+   */
+  private drawFlightPrompt(
+    ctx: CanvasRenderingContext2D,
+    air: { airborne: boolean; climbing: boolean; ready: boolean },
+  ): void {
+    const label = air.climbing
+      ? air.airborne
+        ? '[SHIFT] land'
+        : '[SHIFT] lifting off'
+      : air.airborne
+        ? '[SHIFT] landing'
+        : air.ready
+          ? '[SHIFT] take off'
+          : '[SHIFT] take off — needs speed on a runway';
+    // The one that needs looking at is the one you cannot act on yet: amber,
+    // and only that one. Everything else is the ordinary readout colour.
+    ctx.fillStyle = air.ready || air.airborne || air.climbing ? '#8fd6d0' : '#e0a03c';
+    ctx.font = '8px monospace';
+    // Centred, in the band the AIRBORNE banner already uses and one line above
+    // it. The corners are all spoken for — health and weapon bottom-left, the
+    // damage panel and the speedometer bottom-right, the respect panel across
+    // the middle — and the longest of these labels is a sentence, so a corner
+    // would have it running through one of them.
+    ctx.textAlign = 'center';
+    ctx.fillText(label, viewport.w / 2, viewport.h - 48);
+    ctx.textAlign = 'left';
+  }
+
   draw(
     ctx: CanvasRenderingContext2D,
     me: PlayerState | null,
@@ -410,6 +456,7 @@ export class Hud {
       ctx.fillText(`${Math.round(Math.abs(speed))}`, viewport.w - 84, viewport.h - 7);
       ctx.textAlign = 'left';
       if (this.car) this.drawCarCondition(ctx, this.car, now);
+      if (this.aircraft) this.drawFlightPrompt(ctx, this.aircraft);
     }
 
     // Damage flash: a red vignette on the frame health actually dropped.

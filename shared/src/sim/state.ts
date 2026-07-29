@@ -288,6 +288,38 @@ export interface VehicleState {
    */
   z: number;
   /**
+   * The pilot has asked to be in the air, and stays there until they ask to
+   * come down. Always false for anything with wheels.
+   *
+   * Altitude used to be a function of the THROTTLE — hold forward and you
+   * climbed, let go and you sank — which conflated two entirely different
+   * controls. You could not fly level at speed, you could not descend without
+   * cutting the engine, and there was no moment at which the player decided to
+   * leave the ground: a helicopter simply left it the instant you drove it.
+   * One latched bit turns take-off and landing into an action with a key, and
+   * frees the throttle to mean airspeed.
+   */
+  climb: boolean;
+  /**
+   * Was the take-off key down last tick? The latch is edge-triggered, and a
+   * leant-on key must not toggle it thirty times a second.
+   *
+   * On the vehicle rather than on the player — like `climb`, and unlike the
+   * horn's `hornHeld` — because that is what lets the client PREDICT the
+   * toggle: prediction replays `stepVehicleDriving` over a cloned vehicle and
+   * never sees the player table.
+   */
+  liftHeld: boolean;
+  /**
+   * Which colour this one came out of the factory in, or -1 for "off the id".
+   *
+   * A parked car's paint is a fact about the KERB it is parked at, not about
+   * the order the session happened to spawn it in. See `paintAt`: the same
+   * kerb in the same world always parks the same colour, so walking out of one
+   * window and into the next does not repaint the street.
+   */
+  paint: number;
+  /**
    * What the garage bolted on: '' , 'bomb', 'slick', 'mine' or 'guns'.
    * Two fields on a table that is already on the wire, changing only when
    * you buy or use something — see FEATURES.md G2.
@@ -610,6 +642,8 @@ export function createVehicle(
   pos: Vec2,
   heading: number,
   gangId = 0,
+  /** Factory colour, or -1 to fall back to the id. See `VehicleState.paint`. */
+  paint = -1,
 ): VehicleState {
   // Quantised at birth. Steering already q256s the heading every tick, but a
   // parked car that never turns would otherwise keep the raw HALF_PI it was
@@ -634,6 +668,9 @@ export function createVehicle(
     // limitless belts. If that ever needs its own code path, the fittings
     // system (FEATURES.md G2) was not built generally enough.
     z: 0,
+    climb: false,
+    liftHeld: false,
+    paint: Number.isInteger(paint) && paint >= 0 ? paint : -1,
     fitting: kind === 'tank' ? 'guns' : '',
     fittingAmmo: kind === 'tank' ? 9999 : 0,
   };

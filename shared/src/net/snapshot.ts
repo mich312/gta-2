@@ -107,6 +107,17 @@ const VEHICLE_FIELDS = [
   'zones',
   'broken',
   'z',
+  // The altitude's two companions. Leaving them out is a silent failure of
+  // exactly the kind the note above describes: a field absent from this list
+  // still ships in a FULL snapshot, so it looks correct on the frame a player
+  // joins and never changes again — the client saw a helicopter climbing to
+  // cruise height with its take-off latch stuck at whatever it was when the
+  // last full snapshot went out, and the HUD read "landing" all the way up.
+  'climb',
+  'liftHeld',
+  // Written once at spawn and never again, so this costs nothing after the
+  // first snapshot that carries the vehicle — but it has to be IN one.
+  'paint',
   'fitting',
   'fittingAmmo',
 ] as const;

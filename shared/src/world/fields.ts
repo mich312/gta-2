@@ -60,14 +60,26 @@ export interface CityCore {
  * Cities forever, in every direction, with countryside between them.
  */
 export function cityCore(seed: number, params: WorldgenParams, ci: number, cj: number): CityCore {
-  const s = params.fields.citySpacing;
-  const coreSeed = deriveSeed(seed, 'fields.cores');
+  return coreAt(deriveSeed(seed, 'fields.cores'), params.fields.citySpacing, ci, cj);
+}
+
+/**
+ * The same thing with the label already hashed and the spacing already read.
+ *
+ * `deriveSeed` walks a twelve-character string, and `density` asks for NINE
+ * cores per sample: generating a 240×240 window samples density at least once
+ * per tile, so that string was being hashed over half a million times per
+ * city — enough to be, on its own, a visible fraction of the regeneration
+ * stall a player sees when the window moves. Same numbers out, by
+ * construction: `cityCore` is now a thin wrapper over this.
+ */
+function coreAt(coreSeed: number, spacing: number, ci: number, cj: number): CityCore {
   const ux = latticeHash(coreSeed, ci * 3 + 1, cj * 3);
   const uy = latticeHash(coreSeed, ci * 3, cj * 3 + 2);
   const us = latticeHash(coreSeed, ci * 3 + 2, cj * 3 + 1);
   return {
-    x: (ci + 0.2 + ux * 0.6) * s,
-    y: (cj + 0.2 + uy * 0.6) * s,
+    x: (ci + 0.2 + ux * 0.6) * spacing,
+    y: (cj + 0.2 + uy * 0.6) * spacing,
     strength: 0.8 + us * 0.3,
   };
 }
@@ -103,6 +115,32 @@ export function makeFields(seed: number, params: WorldgenParams): CityFields {
   const wave = f.noiseTiles;
   const wScale = params.water.scale;
   const wWidth = params.water.width;
+  const coreSeed = deriveSeed(seed, 'fields.cores');
+
+  /**
+   * Cores already worked out, by cell.
+   *
+   * A memo, not state: `coreAt` is a pure function of its arguments, so this
+   * changes no answer — it only stops the same nine cells being recomputed for
+   * every tile of the 25×25-tile cell they sit in. Generation walks the window
+   * in scanline order and asks for density at every tile, so the hit rate is
+   * essentially total, and the whole table is a few hundred entries for a
+   * window; it lives and dies with the closure.
+   */
+  const cores = new Map<number, CityCore>();
+  const coreOf = (ci: number, cj: number): CityCore => {
+    // Two smallish signed integers into one key. Multiplying by a prime rather
+    // than packing bits: the world is unbounded, so neither index has a range
+    // a bit-field could be sized against, and a collision here would be a
+    // wrong city rather than a slow one.
+    const key = ci * 46337 + cj;
+    let core = cores.get(key);
+    if (core === undefined) {
+      core = coreAt(coreSeed, spacing, ci, cj);
+      cores.set(key, core);
+    }
+    return core;
+  };
 
   return {
     density(gx: number, gy: number): number {
@@ -114,7 +152,7 @@ export function makeFields(seed: number, params: WorldgenParams): CityFields {
       let best = 0;
       for (let dj = -1; dj <= 1; dj++) {
         for (let di = -1; di <= 1; di++) {
-          const core = cityCore(seed, params, ci + di, cj + dj);
+          const core = coreOf(ci + di, cj + dj);
           const dx = gx - core.x;
           const dy = gy - core.y;
           const fall = 1 - Math.sqrt(dx * dx + dy * dy) / radius;

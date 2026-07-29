@@ -38,6 +38,29 @@ import {
  */
 const PARKED_HALF_EXTENT = 9;
 
+/**
+ * Body colours per painted vehicle kind. Mirrors the `body` variant axis in
+ * shared/data/sprites.json, which worldgen cannot read for the same reason it
+ * cannot read the tuning: it is a pure function of (seed, params) and runs
+ * before either file is loaded. The client's `CAR_VARIANTS` is the other end
+ * of this number, and the sprite test is what keeps the two honest.
+ */
+export const PAINT_VARIANTS = 10;
+
+/**
+ * A stable 32-bit draw for one place, off an already-derived stream seed.
+ *
+ * The point of it is what it does NOT depend on: the window. Callers pass
+ * GLOBAL tile coordinates, so the answer is a property of a place in the
+ * unbounded world — which is exactly the guarantee every other pure worldgen
+ * pass already gives (see generate.ts). Separate streams are what keep the
+ * questions asked of one kerb uncorrelated: if the model and the colour came
+ * off the same draw, every red car in the city would be a taxi.
+ */
+function placeHash(streamSeed: number, a: number, b: number): number {
+  return Math.floor(latticeHash(streamSeed, a, b) * 0x1000000);
+}
+
 /** Street furniture the wire can afford, across the whole city. */
 const MAX_PROPS = 400;
 
@@ -293,28 +316,36 @@ export function placeShops(
 /** Parked-car spawn points along road edges (consumed by phase 3). */
 export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: number): number {
   const spawns: VehicleSpawn[] = [];
-  let countdown = params.parkedCarSpacing;
+  // Segments of this many tiles, one car in each. The old rule was a running
+  // countdown of `parkedCarSpacing` plus a 0-4 jitter, so this is the same
+  // average density expressed without any running state.
+  const span = Math.max(2, Math.round(params.parkedCarSpacing) + 2);
+  // Hashed once, not once per tile: the label walk is not free at city scale.
+  const where = deriveSeed(map.seed, 'parking.where');
   for (let ty = 0; ty < map.heightTiles; ty++) {
     for (let tx = 0; tx < map.widthTiles; tx++) {
       if (t(map, tx, ty) !== T_ROAD) continue;
       const sidewalkLeft = t(map, tx - 1, ty) === T_SIDEWALK;
       const sidewalkUp = t(map, tx, ty - 1) === T_SIDEWALK;
       if (!sidewalkLeft && !sidewalkUp) continue;
-      countdown--;
-      if (countdown > 0) continue;
-      let jitter: number;
-      [jitter, rng] = nextIntRange(rng, 0, 5);
-      countdown = params.parkedCarSpacing + jitter;
-      // Heading follows the road direction implied by which side has kerb.
-      let flip: number;
-      [flip, rng] = nextFloat01(rng);
-      const heading = sidewalkLeft
-        ? flip < 0.5
-          ? HALF_PI
-          : -HALF_PI
-        : flip < 0.5
-          ? 0
-          : PI;
+      const gx = params.windowX + tx;
+      const gy = params.windowY + ty;
+      // Where the kerb is says which way the road runs, and the car is placed
+      // by dividing THAT axis into fixed segments and hashing one offset
+      // inside each. Fixed segments keep the minimum separation the countdown
+      // used to give — two parked cars in adjacent tiles would interpenetrate
+      // — and hashing the offset keeps the row from looking ruled.
+      const alongY = sidewalkLeft;
+      const seg = Math.floor((alongY ? gy : gx) / span);
+      const key = alongY ? placeHash(where, gx, seg) : placeHash(where, seg, gy);
+      // Floor-mod: the world runs into negative coordinates, and `%` there
+      // returns a negative offset that no tile can equal.
+      const along = alongY ? gy : gx;
+      if (along - seg * span !== key % span) continue;
+      // Heading follows the road direction implied by which side has kerb,
+      // and which way along it is a second draw from the same place.
+      const flip = placeHash(where, gx * 2 + 1, gy * 2 + 1) % 2 === 0;
+      const heading = alongY ? (flip ? HALF_PI : -HALF_PI) : flip ? 0 : PI;
       spawns.push({
         x: (tx + 0.5) * TILE_SIZE,
         y: (ty + 0.5) * TILE_SIZE,
@@ -324,6 +355,11 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
     }
   }
   map.vehicleSpawns = spawns;
+  // The stream is handed back untouched. This pass used to draw from it twice
+  // per car, and drawing from a WINDOW-ordered walk is precisely what made
+  // parked cars a property of the viewport: the scan started somewhere else
+  // after a rebase, so the whole sequence shifted and every car in the city
+  // moved. Its own stream, so consuming nothing shifts no other pass.
   return rng;
 }
 
@@ -345,9 +381,12 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
  * list it filters is what cops, roadblocks and ambient traffic are drawn from,
  * and those must not move because parking changed.
  */
-export function placeParking(map: CityMap): void {
+export function placeParking(map: CityMap, params: WorldgenParams): void {
   const spots: VehicleSpawn[] = [];
   const half = PARKED_HALF_EXTENT;
+  // One stream per question, derived once rather than per kerb.
+  const whatSeed = deriveSeed(map.seed, 'parking.kind');
+  const paintSeed = deriveSeed(map.seed, 'parking.paint');
   for (const s of map.vehicleSpawns) {
     const tx = Math.floor(s.x / TILE_SIZE);
     const ty = Math.floor(s.y / TILE_SIZE);
@@ -376,10 +415,25 @@ export function placeParking(map: CityMap): void {
       // Right-hand traffic: the west half of a road carries southbound
       // traffic, the north half carries westbound.
       heading: kerbWest ? HALF_PI : PI,
-      // Parked stock varies too, on a fixed cycle rather than an rng draw:
-      // worldgen must not consume randomness it did not consume before, or
-      // every seed's city changes shape.
-      kind: PARKED_CYCLE[spots.length % PARKED_CYCLE.length] as string,
+      // What is parked here, and what colour it is, are facts about the KERB.
+      //
+      // Both used to be facts about this loop: `PARKED_CYCLE[spots.length % n]`
+      // for the model, and the entity id — handed out in spawn order by the
+      // session — for the paint. Neither survives the window moving. A session
+      // that walks into the next region regenerates the map at a new origin,
+      // and the scan order changes, so the same physical kerb comes back with
+      // a different car on it in a different colour; every parked car in sight
+      // changed model and paint at once, in front of the player, for no reason
+      // visible in the world. It read as the terrain repainting the traffic.
+      //
+      // Hashed off the GLOBAL tile instead — the same coordinate system every
+      // other pure worldgen pass uses — so the street outside your window is
+      // the same street from whichever window it is generated. Still no rng
+      // consumed: adding this shifts nobody else's draws.
+      kind: PARKED_CYCLE[
+        placeHash(whatSeed, params.windowX + tx, params.windowY + ty) % PARKED_CYCLE.length
+      ] as string,
+      paint: placeHash(paintSeed, params.windowX + tx, params.windowY + ty) % PAINT_VARIANTS,
       // Filled in by assignTurf, which runs later: turf does not exist yet
       // at this point in generation, and reading it here would mark every
       // car as nobody's.

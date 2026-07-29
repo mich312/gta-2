@@ -8,7 +8,14 @@ import { addHeat } from './state.js';
 import type { InputIntent } from './input.js';
 import { T_RUNWAY, TILE_SIZE, type CityMap } from '../world/types.js';
 import { boxInSolid, moveWithCollision } from '../world/collide.js';
-import { boxesOverlap, distanceToBox, poseIn, vehicleBox, vehicleBoxAt } from './bodies.js';
+import {
+  boxesOverlap,
+  distanceToBox,
+  onTheGround,
+  poseIn,
+  vehicleBox,
+  vehicleBoxAt,
+} from './bodies.js';
 import type { Pose, VehicleWorld } from './bodies.js';
 import type { SimEvent } from './events.js';
 import {
@@ -88,6 +95,8 @@ function overlappingVehicle(
     if (id === self.id) continue;
     const other = world.vehicles.byId[id];
     if (!other) continue;
+    // ...and nothing in the air is in the way of anything on the ground.
+    if (!onTheGround(other)) continue;
     // Nothing this one drives over can stop it — including the wreck it made
     // of that car a moment ago, which would otherwise be a tank sitting on
     // top of its own kill unable to get off it.
@@ -169,7 +178,7 @@ function driveOverCrushables(
   for (const id of [...world.vehicles.ids]) {
     if (id === heavy.id) continue;
     const other = world.vehicles.byId[id];
-    if (!other || !crushes(heavy.kind, other.kind)) continue;
+    if (!other || !onTheGround(other) || !crushes(heavy.kind, other.kind)) continue;
     // Detected where the DRIVER saw it, exactly like the contact it replaces:
     // on the server that is the pose rewound to the driver's clock, on the
     // client it is the delayed view it draws. Same instant, same verdict.
@@ -236,8 +245,6 @@ function integrateVehicle(
   sim: GameState | null,
   events?: SimEvent[],
   airborne = false,
-  /** What the pedals are doing. 0 for anything nobody is driving. */
-  throttle = 0,
 ): void {
   const t = getVehicleTuning(v.kind);
   // Altitude first, and BEFORE the early return below.
@@ -248,7 +255,7 @@ function integrateVehicle(
   // `speed === 0` returns before anything else happens. Whether a vehicle is
   // over the city or in it is a fact about the vehicle, not about whether it
   // is being driven.
-  const flying = stepAltitude(v, map, t, throttle);
+  const flying = stepAltitude(v, t);
   if (v.speed === 0 && !flying) return;
   if (airborne || flying) {
     // Off the ground: no tiles, no other cars, no kerbs. Clearing things is
@@ -426,7 +433,49 @@ export function stepVehicleDriving(
 ): void {
   const throttle = input ? (input.up ? 1 : 0) - (input.down ? 1 : 0) : 0;
   const steer = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+  // Edge-triggered, and here rather than in `step`'s action pass, because
+  // this is the one code path the CLIENT also runs: prediction replays
+  // `stepVehicleDriving` over a cloned vehicle and never touches the player
+  // table. Putting the latch anywhere else would have take-off arriving a
+  // round trip late.
+  const lift = input?.lift === true;
+  if (lift && !v.liftHeld) toggleFlight(v, map);
+  v.liftHeld = lift;
   driveVehicle(v, throttle, steer, map, world, sim, events, airborne);
+}
+
+/**
+ * Can this aircraft leave the ground from where it is standing?
+ *
+ * Exported because the HUD asks the same question: a prompt that says "take
+ * off" on a plane parked in a field, where the answer is no, is worse than no
+ * prompt at all. One function, so the label and the outcome cannot disagree.
+ */
+export function canTakeOff(v: VehicleState, map: CityMap): boolean {
+  const t = getVehicleTuning(v.kind);
+  if (t.medium !== 'air' || v.condition !== 'ok') return false;
+  if (v.z > 0) return true; // already up there
+  if (t.verticalTakeoff) return true; // a rotor needs no run-up
+  // A wing does: rolling fast enough, on ground built for it. The tile test is
+  // what makes the airstrip worth finding.
+  return Math.abs(v.speed) >= t.takeoffSpeed && isRunwayTile(map, v.pos.x, v.pos.y);
+}
+
+/**
+ * The take-off / landing latch.
+ *
+ * Coming down is always allowed — an aircraft can always stop flying, and a
+ * control that can refuse to land is a control that can strand you. Going up
+ * is gated on `canTakeOff`, and a refused take-off is silent: the HUD has
+ * already told the pilot what the aircraft is waiting for.
+ */
+function toggleFlight(v: VehicleState, map: CityMap): void {
+  if (getVehicleTuning(v.kind).medium !== 'air') return;
+  if (v.climb) {
+    v.climb = false;
+    return;
+  }
+  if (canTakeOff(v, map)) v.climb = true;
 }
 
 /**
@@ -551,9 +600,9 @@ export function driveVehicle(
   }
 
   // The altitude belongs to `integrateVehicle`, which every moving vehicle
-  // goes through whether or not anybody is driving it. All this has to do is
-  // say what the pedals are doing.
-  integrateVehicle(v, map, world, sim, events, airborne, throttle);
+  // goes through whether or not anybody is driving it — and reads the pilot's
+  // latch, not this function's pedals.
+  integrateVehicle(v, map, world, sim, events, airborne);
 }
 
 /**
@@ -561,22 +610,26 @@ export function driveVehicle(
  *
  * Nothing here for anything with wheels: `medium` is 'land' for all but two
  * kinds, and this is one comparison and out.
+ *
+ * The decision is `v.climb` — a latch the pilot sets — and not the throttle.
+ * Reading the throttle meant altitude and airspeed were the same control: you
+ * could not fly level at speed, you could not descend without cutting the
+ * engine, and a helicopter left the ground the moment anybody drove it rather
+ * than when its pilot chose to.
+ *
+ * Three things override the latch, and they are all the same thing: an
+ * aircraft that is burning, wrecked or EMPTY comes down. The empty case is
+ * asked here rather than trusted to whoever emptied it, because there are
+ * several ways to stop being the pilot — stepping out, being thrown off,
+ * dying, disconnecting — and an aircraft left hovering at cruise height
+ * because one of them forgot to drop the latch is a permanent fixture in the
+ * sky that nobody can reach.
  */
-function stepAltitude(
-  v: VehicleState,
-  map: CityMap,
-  t: VehicleTuning,
-  throttle: number,
-): boolean {
+function stepAltitude(v: VehicleState, t: VehicleTuning): boolean {
   if (t.medium !== 'air') return false;
-  const wantUp =
-    throttle > 0 &&
-    (t.verticalTakeoff ||
-      // Rolling fast enough, on ground meant for it. A field is not a runway:
-      // the tile test is what makes the airstrip worth finding.
-      (Math.abs(v.speed) >= t.takeoffSpeed && (v.z > 0 || isRunwayTile(map, v.pos.x, v.pos.y))));
+  const flying = v.climb && v.condition === 'ok' && v.driverId !== null;
   const rate = t.climbRate * DT;
-  if (wantUp) v.z = q8(Math.min(t.cruiseZ, v.z + rate));
+  if (flying) v.z = q8(Math.min(t.cruiseZ, v.z + rate));
   else v.z = q8(Math.max(0, v.z - rate));
   return v.z > 0;
 }
@@ -584,9 +637,9 @@ function stepAltitude(
 /**
  * Driverless vehicles coast to a stop — and, if they were flying, down.
  *
- * The throttle is 0 here by definition, which is exactly what tells
- * `stepAltitude` to bring an abandoned aircraft back to the ground rather
- * than leave it hanging where its pilot stepped out of it.
+ * Nobody is holding the latch up: `tryExitVehicle` drops it on the way out,
+ * which is what brings an abandoned aircraft back to the ground rather than
+ * leaving it hanging where its pilot stepped out of it.
  */
 export function stepVehicleCoasting(
   v: VehicleState,
@@ -615,6 +668,7 @@ export function tryEnterVehicle(
     const v = state.vehicles.byId[id];
     if (!v || v.driverId !== null) continue;
     if (v.condition === 'wreck') continue; // scenery, not transport
+    if (!onTheGround(v)) continue; // no boarding an aircraft in flight
     if (Math.abs(v.speed) > MAX_BOARDING_SPEED) continue;
     const t = getVehicleTuning(v.kind);
     // From the BODYWORK, not the centre. Measured from the centre, a door
@@ -732,6 +786,11 @@ export function tryExitVehicle(
     if (!boxInSolid(map, spot, PLAYER_RADIUS)) {
       const speed = Math.abs(v.speed);
       v.driverId = null;
+      // Nobody is flying it any more, so it stops trying to. Without this the
+      // latch outlives the pilot and an abandoned helicopter hangs at cruise
+      // height for the rest of the session.
+      v.climb = false;
+      v.liftHeld = false;
       p.mode = 'foot';
       p.vehicleId = null;
       p.pos = spot;

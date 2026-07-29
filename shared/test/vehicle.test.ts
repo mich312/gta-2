@@ -344,7 +344,11 @@ describe('two wheels (R2)', () => {
   function ride(kind: string, speed: number): GameState {
     let state = createGameState(5);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'rider' }], map);
-    const lane = roadLane(map);
+    // Room to reach the eject speed, and a wall to reach WITHIN the ticks
+    // this test runs for. A bike at 252 px/s covers 750 px in ninety ticks,
+    // so an unbounded straight is a bike that never crashes — which reads as
+    // the ejection being broken and is really the staging being lucky.
+    const lane = roadLane(map, 120, 64, 420);
     state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     state = step(
       state,

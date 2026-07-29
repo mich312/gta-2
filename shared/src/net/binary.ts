@@ -475,6 +475,12 @@ const VEHICLE_CODECS: Array<FieldCodec<VehicleState>> = [
   f('broken', (w, v) => w.uint(v.broken), (r, o) => (o['broken'] = r.uint())),
   // q8, like every other position on this wire: the sim only ships grid values.
   f('z', (w, v) => w.q8(v.z), (r, o) => (o['z'] = r.q8())),
+  // Two latches and a colour. All three change at most a handful of times in a
+  // vehicle's life — the paint never — so per-field diffing means they cost
+  // nothing after the first snapshot that carries them.
+  f('climb', (w, v) => w.bool(v.climb), (r, o) => (o['climb'] = r.bool())),
+  f('liftHeld', (w, v) => w.bool(v.liftHeld), (r, o) => (o['liftHeld'] = r.bool())),
+  f('paint', (w, v) => w.int(v.paint), (r, o) => (o['paint'] = r.int())),
   f('fitting', (w, v) => w.str(v.fitting), (r, o) => (o['fitting'] = r.str())),
   f('fittingAmmo', (w, v) => w.int(v.fittingAmmo), (r, o) => (o['fittingAmmo'] = r.int())),
 ];
@@ -754,6 +760,10 @@ function writeIntent(w: Writer, i: InputIntent): void {
     (i.fitting ? 64 : 0) |
     (i.horn ? 128 : 0);
   w.u8(bits);
+  // The first byte filled up at the horn. A second one, for the take-off
+  // latch and whatever comes after it, costs a byte per intent — about 30 B/s
+  // per player, against the ~1.4 kB/s an input stream already runs at.
+  w.u8(i.lift ? 1 : 0);
   w.q256(i.aimAngle);
   w.int(i.slot);
   // Fractional server tick, on the 1/256 grid, as a plain unsigned: it is a
@@ -766,6 +776,7 @@ function readIntent(r: Reader): InputIntent {
   const seq = r.big();
   const tick = r.big();
   const bits = r.u8();
+  const bits2 = r.u8();
   return {
     seq,
     tick,
@@ -777,6 +788,7 @@ function readIntent(r: Reader): InputIntent {
     action: (bits & 32) !== 0,
     fitting: (bits & 64) !== 0,
     horn: (bits & 128) !== 0,
+    lift: (bits2 & 1) !== 0,
     aimAngle: r.q256(),
     slot: r.int(),
     viewTick: r.big() / 256,

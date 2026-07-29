@@ -195,6 +195,12 @@ describe('binary codec', () => {
       { ...NULL_INPUT, seq: 1, tick: 2, up: true, fire: true, aimAngle: 1.25, slot: 3 },
       { ...NULL_INPUT, seq: 2, tick: 3, down: true, left: true, action: true, aimAngle: -2.5 },
       { ...NULL_INPUT, seq: 900000, tick: 900001, right: true, aimAngle: 3.140625, slot: 7 },
+      // The take-off latch. The first bits byte filled up at the horn, so
+      // this rides in a second one — and a decoder that forgets to read it
+      // would silently desync the byte stream for everything after it, which
+      // is exactly the kind of failure a round-trip test is for.
+      { ...NULL_INPUT, seq: 4, tick: 5, up: true, lift: true, horn: true, fitting: true },
+      { ...NULL_INPUT, seq: 5, tick: 6, lift: true },
     ];
     const wire = binaryCodec.encode({ type: 'input', ackTick: 12345, intents });
     const back = parseClientMessage(binaryCodec.decode(wire));

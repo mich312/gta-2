@@ -65,8 +65,15 @@ function aloft(map: CityMap): GameState {
   const v = createVehicle(CHOPPER_ID, 'chopper', { x: me.pos.x, y: me.pos.y }, 0);
   insertEntity(state.vehicles, v);
   state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+  // Held: the take-off latch is edge-triggered, so this is one press of it,
+  // and the throttle alongside is what a pilot would actually be doing.
   for (let i = 0; i < 150; i++) {
-    state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true } }, [], map);
+    state = step(
+      state,
+      { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true, lift: true } },
+      [],
+      map,
+    );
   }
   return state;
 }

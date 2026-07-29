@@ -10,6 +10,7 @@ import {
   SnapshotSync,
   TICK_MS,
   TILE_SIZE,
+  canTakeOff,
   districtAt,
   PART_HEADLIGHT_L,
   PART_HEADLIGHT_R,
@@ -603,6 +604,7 @@ function frame(now: number): void {
                 // the one you are looking at.
                 z: Math.max(predictor.predicted?.z ?? 0, predictor.predictedVehicle?.z ?? 0),
                 gangId: predictor.predictedVehicle?.gangId ?? 0,
+                paint: predictor.predictedVehicle?.paint ?? -1,
               }
             : null,
         remotes: interp.sample(playerId, driving ? (predictor.predicted?.vehicleId ?? null) : null),
@@ -650,6 +652,17 @@ function frame(now: number): void {
         maxHealth: getVehicleTuning(drivenCar.kind).health,
       }
     : null;
+  // The flight control, off the same predicted vehicle: `canTakeOff` is the
+  // sim's own answer, so the prompt and the key agree by construction rather
+  // than by two implementations happening to match.
+  hud.aircraft =
+    drivenCar && map && getVehicleTuning(drivenCar.kind).medium === 'air'
+      ? {
+          airborne: drivenCar.z > 0,
+          climbing: drivenCar.climb,
+          ready: canTakeOff(drivenCar, map),
+        }
+      : null;
   minimap.marker = hud.missionMarker;
   minimap.route = hud.missionRoute;
   hud.draw(
@@ -758,6 +771,13 @@ function frame(now: number): void {
       return best;
     })(),
     carCondition: predictor.predictedVehicle?.condition ?? null,
+    // Altitude and the take-off latch. Same reason as `carHealth`: a harness
+    // driving the game cannot tell a helicopter in the air from one on the
+    // ground by reading pixels, and flight is the one part of driving whose
+    // whole state is a number the screen only hints at.
+    carZ: predictor.predictedVehicle?.z ?? null,
+    carClimb: predictor.predictedVehicle?.climb ?? null,
+    carKind: predictor.predictedVehicle?.kind ?? null,
     fps: stats.fps,
     frameMs: stats.frameMs,
     frameMsPeak: stats.frameMsPeak,

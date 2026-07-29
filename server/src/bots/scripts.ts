@@ -20,6 +20,7 @@ export type ScriptedKeys = Pick<
   | 'action'
   | 'fitting'
   | 'horn'
+  | 'lift'
   | 'slot'
 >;
 
@@ -51,6 +52,7 @@ const NONE: ScriptedKeys = {
   action: false,
   fitting: false,
   horn: false,
+  lift: false,
   slot: -1,
 };
 
@@ -190,9 +192,12 @@ const scripts: Record<string, BotScript> = {
       fire: roll() < 0.1,
       aimAngle: roll() * TWO_PI - PI,
       action: roll() < 0.02,
-      // Chaos includes mashing whatever is bolted to the car.
+      // Chaos includes mashing whatever is bolted to the car — and the
+      // take-off latch, which is exactly the kind of thing a fuzzer should be
+      // pressing at random while driving a bus.
       fitting: roll() < 0.05,
       horn: roll() < 0.05,
+      lift: roll() < 0.05,
     };
   },
 };

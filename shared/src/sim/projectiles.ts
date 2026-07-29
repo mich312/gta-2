@@ -8,6 +8,7 @@ import type { CityMap } from '../world/types.js';
 import { blast, vehicleHitRadius } from './vehicleDamage.js';
 import { rayCircleDistance, rayWallDistance } from './weapons.js';
 import { slickVehicle } from './fittings.js';
+import { onTheGround } from './bodies.js';
 
 /** Dropped by a car fitting rather than thrown: no flight, just patience. */
 const DROPS: Record<string, 'mine' | 'slick'> = { mine: 'mine', slick: 'slick' };
@@ -152,6 +153,9 @@ function vehicleOver(
   for (const vid of state.vehicles.ids) {
     const v = state.vehicles.byId[vid];
     if (!v || v.condition === 'wreck') continue;
+    // A mine and a slick are both things lying in the ROAD. Nothing flying
+    // over one drives onto it.
+    if (!onTheGround(v)) continue;
     // Your own car is exempt while you are still in it: driving away over
     // your own mine is a bug, not a lesson.
     if (v.driverId === ownerId) continue;

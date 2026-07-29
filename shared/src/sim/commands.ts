@@ -24,6 +24,12 @@ export type SimCommand =
       heading: number;
       /** Whose car it is, or 0/absent for anybody's. */
       gangId?: number;
+      /**
+       * Which of the ten body colours it wears, or absent for "off the id".
+       * Set for kerbside parking, whose colour is a fact about the place — see
+       * `VehicleState.paint`.
+       */
+      paint?: number;
     }
   | { type: 'spawnPed'; pedId: number; x: number; y: number }
   | { type: 'spawnProp'; propId: number; kind: string; x: number; y: number; orient: number }

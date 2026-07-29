@@ -33,6 +33,7 @@ the art on whole pixels.
 | Mouse | aim; click or Space to fire, on foot or out of a car window |
 | E / Enter | enter/exit car, context action |
 | F | use the car's fitting: fire the guns, drop a mine or slick, arm the bomb |
+| Shift | in an aircraft: take off, and land again. The throttle is airspeed; this is altitude. A helicopter lifts from wherever it is standing, a plane needs speed on a runway — the HUD says which it is waiting for |
 | 1–8 | switch weapon slot |
 | Y U I O H J N P | buy items while inside a shop (or in its doorway) — guns, clothes, resprays, car fittings, hospital treatment |
 | R / G | answer a ringing payphone / walk away from the job |

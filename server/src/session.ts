@@ -6,6 +6,7 @@ import {
   type ReplayTickRecord,
   type SimCommand,
   type SimEvent,
+  type VehicleSpawn,
   type WeaponSlot,
   type WorldgenParams,
   RESPAWN_DELAY_TICKS,
@@ -22,6 +23,41 @@ import {
 const INPUT_QUEUE_MAX = 60;
 /** How many parked cars a session starts with. */
 const MAX_VEHICLES = 48;
+
+/**
+ * Spawn commands a reseed may issue on one tick.
+ *
+ * A rebase tears the ambient world down and builds it again, and the rebuild
+ * used to be one batch: about nine hundred spawns — every parked car, four
+ * hundred props, a hundred pickups, two hundred pedestrians — applied inside a
+ * single `step`, then encoded into a single snapshot delta carrying nine
+ * hundred new entities. Both hosts stalled on it, on the same frame the
+ * client was already spending a hundred and fifty milliseconds regenerating
+ * the city. It was the most reliable hitch in the game and it happened
+ * precisely when the player was moving fastest, which is the only way to reach
+ * the edge of a window.
+ *
+ * Metered instead: the same commands, the same order, in bites. Sixty a tick
+ * refills a region in about half a second of wall clock while no single tick
+ * carries more than a few percent of what one used to. Nothing about the
+ * commands themselves changes, so the replay reproduces exactly — it simply
+ * reproduces them spread over the ticks they were issued on.
+ */
+const RESEED_PER_TICK = 60;
+
+/**
+ * A stable 0..1 ordering key for one kerb, from its GLOBAL tile.
+ *
+ * The same integer-hash family worldgen uses (`latticeHash`), reimplemented
+ * here rather than imported because this is a question about the SESSION's
+ * fleet size, not about the world — the map is the same map whether this
+ * server parks forty-eight cars on it or four.
+ */
+function kerbRank(gx: number, gy: number): number {
+  let h = 0x5f3a71c9 ^ Math.imul(gx, 374761393) ^ Math.imul(gy, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
 
 /**
  * What a fresh guest carries. Fists come first and are never taken away —
@@ -133,6 +169,11 @@ export class Session {
 
   private readonly snapshotRing = new Map<number, FullSnapshot>();
   private pendingCommands: SimCommand[] = [];
+  /**
+   * Reseed spawns still to be issued, in order, at `RESEED_PER_TICK` a tick.
+   * Empty except in the second after a rebase.
+   */
+  private reseedQueue: SimCommand[] = [];
   /** One counter for every command-spawned entity (players, vehicles). */
   private nextId = 1;
   /** Rolling position in the ped spawn list, so top-ups spread over the city. */
@@ -171,17 +212,55 @@ export class Session {
   }
 
   /**
+   * Which kerbside spots this session actually parks a car at.
+   *
+   * There are five times more spots than cars, so most of them stay empty —
+   * and WHICH ones used to be decided by position in a row-major list
+   * (`i % stride === 0`). That is a fact about the window, not about the city:
+   * move the window and a different one in five is occupied, so half the cars
+   * on a street you were standing in vanished and half appeared out of nowhere.
+   * Together with the model and the paint coming off the same list index, the
+   * whole street rebuilt itself in front of you.
+   *
+   * Decided per KERB instead, from its global tile — the same trick and the
+   * same coordinate system `placeParking` uses. A given kerb is occupied or
+   * empty in every window that contains it, so crossing a region boundary
+   * leaves the parked traffic where it was.
+   */
+  private parkedSpots(): VehicleSpawn[] {
+    const spots = this.map.parkingSpots;
+    if (spots.length === 0) return [];
+    // Rank every spot by a hash of its place and keep the lowest N. A plain
+    // threshold would be simpler but its yield drifts with the spot count;
+    // ranking pins the fleet size exactly, and the ranking of any spot well
+    // inside both windows is the same in both.
+    const ranked = spots.map((spot) => ({
+      spot,
+      key: kerbRank(
+        this.worldgen.windowX + Math.floor(spot.x / TILE_SIZE),
+        this.worldgen.windowY + Math.floor(spot.y / TILE_SIZE),
+      ),
+    }));
+    ranked.sort((a, b) => a.key - b.key);
+    return ranked.slice(0, MAX_VEHICLES).map((r) => r.spot);
+  }
+
+  /**
    * Populate the world from the current map, as commands — so they land in
    * the replay and reproduce exactly. Called at session start and again
    * after every rebase: the ambient world is a property of the region.
+   *
+   * `metered` spreads the batch over the following ticks instead of issuing it
+   * all at once; see RESEED_PER_TICK. A session's FIRST seed is not metered —
+   * there is nobody watching yet, and a player who joined into a half-built
+   * city would see it fill in around them.
    */
-  private seedWorldFromMap(): void {
+  private seedWorldFromMap(metered = false): void {
+    const out: SimCommand[] = [];
     // Parked cars, spread across the whole city, not the first N of a
     // row-major list: that put every parked car in the map's top-left
     // corner, where they jammed the streets solid, and left the rest bare.
-    const spots = this.map.parkingSpots;
-    const parkStride = Math.max(1, Math.floor(spots.length / MAX_VEHICLES));
-    const spawns = spots.filter((_, i) => i % parkStride === 0).slice(0, MAX_VEHICLES);
+    const spawns = this.parkedSpots();
     // Homes are spawned in FULL, on top of the sampled parking. They are the
     // answer to "where do I find a fire engine", so a stride that keeps one
     // spot in six would make them a lottery again — which is exactly what
@@ -189,7 +268,7 @@ export class Session {
     // case is now the general rule: see `placeVehicleHomes`.
     spawns.push(...this.map.vehicleHomes);
     for (const s of spawns) {
-      this.pendingCommands.push({
+      out.push({
         type: 'spawnVehicle',
         vehicleId: this.nextId++,
         kind: s.kind,
@@ -197,12 +276,15 @@ export class Session {
         y: s.y,
         heading: s.heading,
         gangId: s.gangId ?? 0,
+        // Worldgen decided the colour from the kerb, so it survives the window
+        // moving. Absent on anything without one, which falls back to the id.
+        ...(s.paint === undefined ? {} : { paint: s.paint }),
       });
     }
 
     // Street furniture.
     for (const spot of this.map.propSpawns) {
-      this.pendingCommands.push({
+      out.push({
         type: 'spawnProp',
         propId: this.nextId++,
         kind: spot.kind,
@@ -215,7 +297,7 @@ export class Session {
     // Boats at their moorings. The river is the only thing they can cross,
     // and it is the only thing a car cannot.
     for (const s of this.map.boatSpawns) {
-      this.pendingCommands.push({
+      out.push({
         type: 'spawnVehicle',
         vehicleId: this.nextId++,
         kind: 'boat',
@@ -227,7 +309,7 @@ export class Session {
 
     // Health, armour and ammo crates.
     for (const spot of this.map.pickupSpawns) {
-      this.pendingCommands.push({
+      out.push({
         type: 'spawnPickup',
         pickupId: this.nextId++,
         kind: spot.kind,
@@ -243,8 +325,11 @@ export class Session {
     for (let i = 0; i < count; i++) {
       const spot = pedSpawns[(i * stride) % pedSpawns.length];
       if (!spot) continue;
-      this.pendingCommands.push({ type: 'spawnPed', pedId: this.nextId++, x: spot.x, y: spot.y });
+      out.push({ type: 'spawnPed', pedId: this.nextId++, x: spot.x, y: spot.y });
     }
+
+    if (metered) this.reseedQueue.push(...out);
+    else this.pendingCommands.push(...out);
   }
 
   /**
@@ -300,7 +385,11 @@ export class Session {
       dxPx: -shiftTilesX * TILE_SIZE,
       dyPx: -shiftTilesY * TILE_SIZE,
     });
-    this.seedWorldFromMap();
+    // Anything the last rebase had not got round to belongs to a region that
+    // no longer exists — issuing it now would scatter the old window's props
+    // across the new one.
+    this.reseedQueue = [];
+    this.seedWorldFromMap(true);
     this.lastRebase = { windowX, windowY };
   }
 
@@ -416,12 +505,14 @@ export class Session {
       Math.round(this.options.pedCount * scale),
       this.map.pedSpawns.length,
     );
-    // Spawns already queued this tick have not reached the sim yet, so they
-    // must count against the deficit or the crowd overshoots its target.
-    const inFlight = this.pendingCommands.reduce(
-      (n, c) => (c.type === 'spawnPed' ? n + 1 : n),
-      0,
-    );
+    // Spawns already queued have not reached the sim yet, so they must count
+    // against the deficit or the crowd overshoots its target. Both queues: a
+    // metered reseed holds most of a new region's crowd for several ticks
+    // after a rebase, and counting only what is going out THIS tick would
+    // have the top-up filling a city that is already on its way.
+    const counts = (cmds: readonly SimCommand[]): number =>
+      cmds.reduce((n, c) => (c.type === 'spawnPed' ? n + 1 : n), 0);
+    const inFlight = counts(this.pendingCommands) + counts(this.reseedQueue);
     const deficit = target - this.state.peds.ids.length - inFlight;
     if (deficit <= 0) return;
     // One arrival per call; the caller's cadence sets the rate.
@@ -458,6 +549,11 @@ export class Session {
     // broadcast thirty times and the client regenerated the city for each.
     this.lastRebase = null;
     if (this.options.roam && this.state.tick % 30 === 0) this.maybeRebase();
+    // The new region fills in over the next few ticks rather than all on the
+    // one the window moved on. See RESEED_PER_TICK.
+    if (this.reseedQueue.length > 0) {
+      this.pendingCommands.push(...this.reseedQueue.splice(0, RESEED_PER_TICK));
+    }
     // Rate-limited: at most PED_RESPAWN_PER_SEC arrivals a second.
     if (this.state.tick % Math.round(30 / PED_RESPAWN_PER_SEC) === 0) this.topUpPeds();
     const inputs: Record<number, InputIntent> = {};

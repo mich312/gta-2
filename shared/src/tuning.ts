@@ -477,6 +477,17 @@ export interface TrafficTuning {
   /** Target ambient cars near players, not across the whole map. */
   count: number;
   cruiseSpeed: number;
+  /**
+   * The top speed `cruiseSpeed`, `turnSpeed` and `panicSpeed` are quoted
+   * against — the ordinary saloon this file was tuned around.
+   *
+   * Every ambient driver used to take those three numbers literally, so a
+   * bus, a digger and a sports car all cruised at exactly the same speed and
+   * the twenty distinct top speeds in `vehicles.json` were invisible on any
+   * vehicle the player was not driving. Each kind now scales them by its own
+   * `maxSpeed` over this; the kind that matches it behaves exactly as before.
+   */
+  speedReference: number;
   /** Speed a driver slows to for a corner. */
   turnSpeed: number;
   /** How far down the lane a driver aims. This sets the turn radius. */
@@ -1197,6 +1208,10 @@ function parseTrafficTuning(raw: unknown): TrafficTuning {
   return {
     count,
     cruiseSpeed: n('cruiseSpeed'),
+    // Defaulted rather than required: a traffic.json written before per-kind
+    // speeds existed must still parse, and the saloon's 200 is what those
+    // files were tuned against.
+    speedReference: optNum(r['speedReference'], 200),
     turnSpeed: n('turnSpeed'),
     lookAhead: n('lookAhead'),
     brakeDistance: n('brakeDistance'),
@@ -1234,6 +1249,7 @@ const DEFAULT_PLAYER: PlayerTuning = { walkSpeed: 78, accel: 540 };
 const DEFAULT_TRAFFIC: TrafficTuning = {
   count: 14,
   cruiseSpeed: 104,
+  speedReference: 200,
   turnSpeed: 30,
   lookAhead: 12,
   brakeDistance: 8,

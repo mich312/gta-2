@@ -27,7 +27,7 @@ import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import { TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile } from '../world/collide.js';
-import { circleHitsBox, vehicleBox } from './bodies.js';
+import { circleHitsBox, onTheGround, vehicleBox } from './bodies.js';
 
 export const RESPAWN_DELAY_TICKS = TICK_RATE * 3;
 /** The one weapon everybody always has. */
@@ -705,6 +705,11 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
   for (const vid of state.vehicles.ids) {
     const v = state.vehicles.byId[vid];
     if (!v || Math.abs(v.speed) < RUNOVER_MIN_SPEED) continue;
+    // Nothing under an aircraft is under its wheels. This one predicate is
+    // most of what "planes can run over pedestrians" was: everything below —
+    // people, officers, the crowd, the bollards and the barrels — was being
+    // struck by a body flying eight storeys above it. See `onTheGround`.
+    if (!onTheGround(v)) continue;
     const body = vehicleBox(v);
     for (const pid of state.players.ids) {
       const p = state.players.byId[pid];

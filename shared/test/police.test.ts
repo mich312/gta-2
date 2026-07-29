@@ -1548,7 +1548,15 @@ describe('the military at five stars (S3)', () => {
     // The data says tank; this says a tank appears with an officer in it.
     let state = createGameState(606);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
-    for (let i = 0; i < 400; i++) {
+    // Sampled every tick, not read off the last one. A crewed tank is a
+    // transient: the officer inside it can be shot, run over or despawned
+    // between the moment armour arrives and whenever the loop happens to
+    // stop, so the end-state version of this assertion was really a question
+    // about how long that particular crew survived — which is a fact about
+    // the seed and the street layout, not about whether armour turns out.
+    let everCrewed = false;
+    let mostTanks = 0;
+    for (let i = 0; i < 600; i++) {
       const p = state.players.byId[1]!;
       p.heat = 610;
       p.vel = { x: getTuning().player.walkSpeed, y: 0 };
@@ -1558,11 +1566,13 @@ describe('the military at five stars (S3)', () => {
         p.respawnAtTick = null;
       }
       state = step(state, {}, [], map);
+      const live = state.vehicles.ids.filter((id) => state.vehicles.byId[id]!.kind === 'tank');
+      mostTanks = Math.max(mostTanks, live.length);
+      if (live.some((id) => state.vehicles.byId[id]!.driverId !== null)) everCrewed = true;
     }
-    const tanks = state.vehicles.ids.filter((id) => state.vehicles.byId[id]!.kind === 'tank');
-    expect(tanks.length).toBeGreaterThan(0);
-    expect(tanks.length).toBeLessThanOrEqual(getTuning().police.vehicleCaps['tank'] ?? 99);
-    // Somebody is at the wheel of at least one of them.
-    expect(tanks.some((id) => state.vehicles.byId[id]!.driverId !== null)).toBe(true);
+    expect(mostTanks).toBeGreaterThan(0);
+    expect(mostTanks).toBeLessThanOrEqual(getTuning().police.vehicleCaps['tank'] ?? 99);
+    // ...and somebody was at the wheel of one of them.
+    expect(everCrewed).toBe(true);
   });
 });

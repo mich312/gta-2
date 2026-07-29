@@ -89,4 +89,41 @@ describe('vehicle sprites', () => {
     // Everything else is the same sprite whatever its id.
     expect(new Set([1, 2, 3, 99].map((id) => vehicleSpriteName('taxi', id))).size).toBe(1);
   });
+
+  it('a car painted by worldgen keeps that colour whatever its id', () => {
+    // The bug: the ambient world is torn down and rebuilt when the session's
+    // window moves, so every parked car comes back with a fresh id — and with
+    // the colour taken off the id, the whole street changed colour at once in
+    // front of the player. Worldgen decides the paint from the KERB now, and
+    // the renderer has to honour it over the id or the fix stops at the wire.
+    for (const id of [1, 2, 3, 44, 907]) {
+      expect(vehicleSpriteName('car', id, 0, 6)).toBe('car_v6');
+    }
+    // ...on every painted body, not just the saloon.
+    expect(vehicleSpriteName('hatch', 12, 0, 3)).toBe('hatch_v3');
+    expect(vehicleSpriteName('sports', 12, 0, 3)).toBe('sports_v3');
+  });
+
+  it('an unpainted car still falls back to its id', () => {
+    // -1 is what everything the world did not paint carries: ambient traffic,
+    // police vehicles, anything the garage hands over. They keep the old rule.
+    expect(vehicleSpriteName('car', 4, 0, -1)).toBe(vehicleSpriteName('car', 4));
+    expect(vehicleSpriteName('car', 4, 0, -1)).not.toBe(vehicleSpriteName('car', 5, 0, -1));
+  });
+
+  it('a paint the sheet has no frame for still resolves to one it does', () => {
+    // The sim's number and the sprite sheet's variant count are two ends of
+    // the same constant in two repositories' worth of file. If they ever drift,
+    // the failure must be a wrong colour and not a missing sprite.
+    for (const paint of [0, 9, 10, 37]) {
+      const name = vehicleSpriteName('car', 1, 0, paint);
+      expect(sheetFrames[name], `paint ${paint} -> ${name}`).toBeDefined();
+    }
+  });
+
+  it('the paint an unpainted gang car wears is still its gang livery', () => {
+    // Gang cars ignore both: their livery is the gang. Passing a paint must
+    // not turn one into a civilian colour.
+    expect(vehicleSpriteName('gangcar', 3, 2, 7)).toBe(vehicleSpriteName('gangcar', 3, 2));
+  });
 });

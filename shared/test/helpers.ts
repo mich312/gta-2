@@ -43,7 +43,23 @@ export function clearSpot(
  * solid. The car then bounces on its first tick and drops below every
  * speed threshold the test was about.
  */
-export function roadLane(map: CityMap, need = 120, marginPx = 64): VehicleSpawn {
+export function roadLane(
+  map: CityMap,
+  need = 120,
+  marginPx = 64,
+  /**
+   * Longest run the lane may have, for tests that need the car to ARRIVE at
+   * something solid rather than merely have room to get going.
+   *
+   * A crash test staged with `roadLane` alone is really asking for a wall
+   * within the ticks it runs for, and got one only because the first lane on
+   * the map happened to be short. Any change to worldgen can hand it a
+   * kilometre of straight instead, and the test then fails describing a
+   * physics bug that is not there.
+   */
+  most = Infinity,
+): VehicleSpawn {
+  const probe = Number.isFinite(most) ? most + 20 : need + 20;
   for (const s of map.vehicleSpawns) {
     if (
       s.x < marginPx ||
@@ -53,8 +69,8 @@ export function roadLane(map: CityMap, need = 120, marginPx = 64): VehicleSpawn 
     ) {
       continue;
     }
-    const d = rayWallDistance(map, s.x, s.y, Math.cos(s.heading), Math.sin(s.heading), need + 20);
-    if (d >= need) return s;
+    const d = rayWallDistance(map, s.x, s.y, Math.cos(s.heading), Math.sin(s.heading), probe);
+    if (d >= need && d <= most) return s;
   }
   throw new Error('no clear lane on this map');
 }

@@ -181,11 +181,16 @@ function eastboundLane(minRunTiles = 14): { x: number; y: number } {
 }
 
 /** Put an ambient driver at the wheel of a freshly spawned car. */
-function ambientCar(state: GameState, id: number, at: { x: number; y: number }): GameState {
+function ambientCar(
+  state: GameState,
+  id: number,
+  at: { x: number; y: number },
+  kind = 'car',
+): GameState {
   const next = step(
     state,
     {},
-    [{ type: 'spawnVehicle', vehicleId: id, kind: 'car', x: at.x, y: at.y, heading: 0 }],
+    [{ type: 'spawnVehicle', vehicleId: id, kind, x: at.x, y: at.y, heading: 0 }],
     map,
   );
   const v = next.vehicles.byId[id]!;
@@ -1253,5 +1258,83 @@ describe('the horn (J2)', () => {
       events,
     );
     expect(events.filter((e) => e.type === 'horn').length).toBe(2);
+  });
+});
+
+/**
+ * One cruise speed for every vehicle in the city.
+ *
+ * `traffic.json` quotes a single `cruiseSpeed`, and every ambient driver used
+ * it verbatim — so the bus, the refuse lorry, the digger and the sports car
+ * all did exactly 62 px/s nose to tail, and the twenty distinct top speeds in
+ * `vehicles.json` were invisible on anything the player was not personally
+ * driving. "Different cars should have different speeds" was, in ambient
+ * traffic, entirely untrue.
+ */
+describe('what a vehicle is decides how fast it drives', () => {
+  /**
+   * Settled speed of one ambient driver on a long clear straight.
+   *
+   * The player is parked on the pavement beside the lane and left there:
+   * ambient traffic only exists near somebody playing, so a car with nobody
+   * to be near is despawned before it has settled at anything.
+   */
+  function settledSpeed(kind: string, seed: number): number {
+    const lane = eastboundLane(16);
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'watcher' }], map);
+    state = ambientCar(state, 4001, lane, kind);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - TILE_SIZE * 2 };
+    // From rest. `ambientCar` hands every car the reference cruise speed,
+    // which is the very thing under test — starting there would credit a
+    // digger with a saloon's pace for as long as it took to slow down.
+    state.vehicles.byId[4001]!.speed = 0;
+    let peak = 0;
+    // Long enough to reach the driver's target from a standing-ish start and
+    // short enough to stay on the straight. The peak rather than the final
+    // sample: the run ends somewhere along the street and a car easing into a
+    // bend at the far end would report the corner speed, which is the same
+    // number for everybody.
+    for (let i = 0; i < 90; i++) {
+      state = step(state, {}, [], map);
+      const v = state.vehicles.byId[4001];
+      if (!v) break;
+      peak = Math.max(peak, Math.abs(v.speed));
+    }
+    return peak;
+  }
+
+  it('a sports car outruns a bus, and a bus outruns a digger', () => {
+    const sports = settledSpeed('sports', 91);
+    const bus = settledSpeed('bus', 92);
+    const digger = settledSpeed('digger', 93);
+    // Ordered by the top speeds their own data sheets quote: 248, 148, 97.
+    expect(sports).toBeGreaterThan(bus);
+    expect(bus).toBeGreaterThan(digger);
+    // ...and by a margin somebody watching a street would actually notice,
+    // rather than a rounding difference.
+    expect(sports).toBeGreaterThan(digger * 1.5);
+  });
+
+  it('the reference saloon still drives at exactly the tuned cruise', () => {
+    // `speedReference` is the top speed the file's numbers were written
+    // against, so the kind that matches it must be unchanged by all of this.
+    const t = getTrafficTuning();
+    expect(getVehicleTuning('car').maxSpeed).toBe(t.speedReference);
+    const car = settledSpeed('car', 94);
+    expect(car).toBeGreaterThan(t.cruiseSpeed * 0.9);
+    expect(car).toBeLessThanOrEqual(t.cruiseSpeed + 1);
+  });
+
+  it('nothing is scaled into a rolling roadblock or off the road', () => {
+    // The clamps. A digger at its unbounded 0.49 of cruise is an obstacle
+    // rather than traffic; a motorcycle at 1.26 corners into the kerb, because
+    // the lane keeping was tuned at `panicSpeed` and not above it.
+    const t = getTrafficTuning();
+    for (const kind of ['digger', 'bicycle', 'moto', 'sports', 'tank']) {
+      const v = settledSpeed(kind, 95);
+      expect(v, kind).toBeGreaterThan(t.cruiseSpeed * 0.55);
+      expect(v, kind).toBeLessThan(t.cruiseSpeed * 1.2);
+    }
   });
 });

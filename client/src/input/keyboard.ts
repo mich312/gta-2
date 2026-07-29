@@ -145,6 +145,12 @@ export class InputSource {
       // Not H: that is already a shop row. The sim edge-triggers this, so a
       // leant-on key is one press rather than thirty a second.
       horn: this.has('KeyQ'),
+      // Take off, and land. Shift because it is the one control that only
+      // exists in an aircraft, so it must not take a letter off a keyboard
+      // where the letters are all spoken for — and because "the other hand,
+      // held down" is what a lift control feels like. Sent held; the sim
+      // edge-triggers it, so leaning on it is one press.
+      lift: this.has('ShiftLeft', 'ShiftRight'),
       slot,
       viewTick,
     };

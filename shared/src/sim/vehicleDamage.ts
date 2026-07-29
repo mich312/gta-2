@@ -331,10 +331,23 @@ export function blast(
    * neither is whoever is driving the tank.
    */
   shieldedVehicleId: number | null = null,
+  /** How high the blast itself sits. A car bomb is at street level. */
+  cz = 0,
 ): void {
   const r2 = radius * radius;
-  const falloff = (dx: number, dy: number): number => {
-    const d2 = dx * dx + dy * dy;
+  /**
+   * Falloff in three dimensions, not two.
+   *
+   * The third one used to be missing, and an explosion was therefore an
+   * infinitely tall column: a barrel going off in the road reached a
+   * helicopter forty-eight pixels above it at full strength, and — since a
+   * flying aircraft was smashing the props under it in the first place — that
+   * is precisely the "why does it suddenly explode" of flying anywhere near a
+   * street. Same arithmetic as before at ground level, where dz is 0 and every
+   * number is identical to what it was.
+   */
+  const falloff = (dx: number, dy: number, dz = 0): number => {
+    const d2 = dx * dx + dy * dy + dz * dz;
     if (d2 > r2) return 0;
     return damage * (1 - Math.sqrt(d2) / radius);
   };
@@ -356,33 +369,39 @@ export function blast(
     // it. Shielding the vehicle alone made crushing cost a life instead of
     // costing paint, which is not what "the tank is not damaged" means.
     if (shieldedVehicleId !== null && p.vehicleId === shieldedVehicleId) continue;
-    const dmg = falloff(p.pos.x - cx, p.pos.y - cy);
+    // A passenger is as high as whatever is carrying them: a pilot at cruise
+    // height is out of reach of a bomb in the road, and so is the aircraft.
+    const pz = Math.max(p.z, p.vehicleId === null ? 0 : (state.vehicles.byId[p.vehicleId]?.z ?? 0));
+    const dmg = falloff(p.pos.x - cx, p.pos.y - cy, pz - cz);
     if (dmg > 0) applyDamage(state, p, dmg, attackerId, 'explosion', events);
   }
   for (const cid of [...state.cops.ids]) {
     const c = state.cops.byId[cid];
     if (!c) continue;
     if (shieldedVehicleId !== null && c.vehicleId === shieldedVehicleId) continue;
-    const dmg = falloff(c.pos.x - cx, c.pos.y - cy);
+    // Officers have no altitude of their own — an air unit's height is a
+    // rendering fact, not a simulated one — so they are all at street level
+    // here, exactly as they were.
+    const dmg = falloff(c.pos.x - cx, c.pos.y - cy, -cz);
     if (dmg > 0) damageCop(state, c, dmg, attackerId, events);
   }
   for (const pedId of [...state.peds.ids]) {
     const ped = state.peds.byId[pedId];
     if (!ped) continue;
-    const dmg = falloff(ped.pos.x - cx, ped.pos.y - cy);
+    const dmg = falloff(ped.pos.x - cx, ped.pos.y - cy, -cz);
     if (dmg > 0) damagePed(state, ped, dmg, attackerId, events);
   }
   for (const propId of state.props.ids) {
     const prop = state.props.byId[propId];
     if (!prop || !prop.intact) continue;
-    const dmg = falloff(prop.pos.x - cx, prop.pos.y - cy);
+    const dmg = falloff(prop.pos.x - cx, prop.pos.y - cy, -cz);
     if (dmg > 0) damageProp(state, prop, dmg, events, attackerId);
   }
   for (const vid of state.vehicles.ids) {
     if (vid === exceptVehicleId || vid === shieldedVehicleId) continue;
     const other = state.vehicles.byId[vid];
     if (!other || other.condition !== 'ok') continue;
-    const dmg = falloff(other.pos.x - cx, other.pos.y - cy);
+    const dmg = falloff(other.pos.x - cx, other.pos.y - cy, other.z - cz);
     // A blast that lights the next car along is still the first arsonist's
     // fire — that is what stops a chain reaction laundering the crime. And the
     // blast centre IS the impact point: a bomb going off by your near-side
@@ -415,6 +434,10 @@ export function detonateVehicle(
     events,
     v.id,
     shieldedVehicleId,
+    // Where it went off, vertically. An aircraft that comes apart at cruise
+    // height does it up there: the street below gets the edge of the blast,
+    // not the middle of it.
+    v.z,
   );
 
   v.condition = 'wreck';
@@ -483,7 +506,11 @@ function stepFireSpread(state: GameState, events: SimEvent[]): void {
       if (lighting.some((l) => l.to === id)) continue;
       const dx = other.pos.x - src.pos.x;
       const dy = other.pos.y - src.pos.y;
-      const d2 = dx * dx + dy * dy;
+      // Fire does not climb. Without the vertical term a car alight in the
+      // road could reach up and set light to an aircraft passing over it,
+      // which is a 46 px reach used across a 48 px gap in the wrong axis.
+      const dz = other.z - src.z;
+      const d2 = dx * dx + dy * dy + dz * dz;
       if (d2 < bestD2) {
         bestD2 = d2;
         best = id;

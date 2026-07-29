@@ -1,5 +1,84 @@
 # PROGRESS
 
+## Aircraft, per-kind speeds, and a street that stops repainting itself
+
+Three reported faults, and each turned out to be several.
+
+**Aircraft had a body on the ground plane.** `z` was on the wire and in
+the renderer, and nothing that touches the street had ever asked about
+it. So a helicopter at cruise height ran down the crowd it flew over,
+laid tyre marks on the road below, trailed exhaust along it, parted the
+pavements as it passed, smashed the bollards, triggered mines, blocked
+the traffic under it, set off the barrels — and was then blown out of
+the sky by the barrels it had set off, which is the whole of "why does
+it suddenly explode". One predicate (`onTheGround`) now guards every
+system that models a vehicle as a shape in the road, and blast falloff
+is spherical rather than an infinitely tall column: a barrel is a graze
+at 48 px up instead of a direct hit. `shared/test/overhead.test.ts`
+holds each face of it, with the grounded case asserted alongside so
+none of them can be quietly disabled.
+
+**Altitude was the throttle.** Hold forward and a helicopter climbed;
+let go and it sank. Two controls in one, and neither worked: no flying
+level at speed, no descending without cutting the engine, and no moment
+at which the pilot decided to leave the ground. It is a latched key now
+(Shift), edge-triggered inside `stepVehicleDriving` so the client
+predicts it, with the HUD naming the key and — the row that matters —
+saying what a plane parked in a side street is waiting for rather than
+offering a take-off it will refuse. Evidence:
+`evidence/flight-control.png`, `evidence/flight-over-the-city.png`.
+
+**Ambient traffic drove at one speed.** `traffic.json` quotes a single
+cruise, corner and panic speed and every driver took them literally, so
+the bus, the digger, the refuse lorry and the sports car all did exactly
+62 px/s nose to tail while `vehicles.json` said their top speeds ran
+from 97 to 252. Each kind scales those three by its own `maxSpeed` over
+a new `speedReference`, clamped either side — a floor because a digger
+at 0.49 of cruise is a roadblock, a ceiling because the lane keeping was
+tuned at `panicSpeed` and a sports car above it corners into the kerb.
+
+**Moving the window repainted the traffic.** Everything about a parked
+car was decided by its position in a row-major scan of the window: which
+kerbs were occupied (`i % stride`), what was parked at them
+(`PARKED_CYCLE[i % n]`), which belonged to a gang (`i % 7`) and what
+colour it was (off the entity id, handed out in spawn order). None of
+that survives a rebase, so crossing a region boundary rebuilt every
+street in sight — different cars, different colours, in front of the
+player, for no reason visible in the world. All four are hashed off the
+kerb's GLOBAL tile now, and the paint rides the wire as `VehicleState.paint`.
+Parked-car POSITIONS were window-scoped too — a running countdown over a
+window-ordered walk — and are now one hashed offset per fixed segment of
+road, which keeps the minimum separation the countdown gave.
+
+**...and it lurched while it did it.** A rebase regenerated the map
+(~103 ms) and rebuilt the ambient world in a single batch of ~900 spawn
+commands, applied inside one `step` and encoded into one snapshot delta.
+Worldgen is down to ~77 ms — the city-core lattice is memoised per cell
+and the water field is sampled once rather than twice over — and the
+reseed is metered at 60 commands a tick, so the region fills in over
+about a second instead of on one frame.
+
+**Verification.** 682 tests green (26 new); a 45 s four-bot `jitter` gate —
+which now mashes the take-off key at random while driving — and a 100 s
+two-bot roaming gate both at 0 desyncs and 0 full resyncs, with the roaming
+replay re-simulating hash-identical. The live run through a real
+browser against a real server found the one bug the unit tests could
+not: `climb` was absent from `VEHICLE_FIELDS`, so it shipped in full
+snapshots and never in a delta — the altitude on the wire said "flying"
+while the flight control said "landing" all the way up. The snapshot
+test now enumerates a vehicle's whole state rather than a remembered
+list, and fails if `climb` is removed again.
+
+**Deliberately scoped.** Gang turf is still window-scoped by
+construction (`assignTurf` places its home points relative to the window
+centre), so a gang's car may legitimately change livery across a rebase
+— one car in seven, and making territory a property of the unbounded
+world is its own piece of work. Vehicle HOMES fall back to an index into
+the window's spawn list when a kind has no landmark to live at, so a
+dozen speciality vehicles still move with the viewport. Neither `z` nor
+`climb` is in the desync hash, following the altitude subsystem's
+existing convention.
+
 <<<<<<< HEAD
 ## Worldgen §11 delivered: countryside, store, and the walls come off
 

@@ -296,7 +296,14 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       if (getEntity(state.vehicles, cmd.vehicleId)) return;
       insertEntity(
         state.vehicles,
-        createVehicle(cmd.vehicleId, cmd.kind, { x: cmd.x, y: cmd.y }, cmd.heading, cmd.gangId ?? 0),
+        createVehicle(
+          cmd.vehicleId,
+          cmd.kind,
+          { x: cmd.x, y: cmd.y },
+          cmd.heading,
+          cmd.gangId ?? 0,
+          cmd.paint ?? -1,
+        ),
       );
       if (cmd.vehicleId >= state.nextEntityId) {
         state.nextEntityId = cmd.vehicleId + 1;

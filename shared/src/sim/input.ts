@@ -27,6 +27,12 @@ export interface InputIntent {
    * Leaning on the horn. Free on the wire: the input byte had a spare bit.
    */
   horn: boolean;
+  /**
+   * Take off, or come back down — the pilot's one decision that the throttle
+   * used to make for them. Edge-triggered by the sim (see `stepVehicleDriving`),
+   * ignored by everything without a rotor or a wing.
+   */
+  lift: boolean;
   /** Requested weapon slot; -1 = keep current. Still an intent, never state. */
   slot: number;
   /**
@@ -57,6 +63,7 @@ export const NULL_INPUT: InputIntent = {
   action: false,
   fitting: false,
   horn: false,
+  lift: false,
   slot: -1,
   viewTick: 0,
 };
@@ -88,6 +95,7 @@ export function sanitizeIntent(raw: unknown): InputIntent | null {
     action: r['action'] === true,
     fitting: r['fitting'] === true,
     horn: r['horn'] === true,
+    lift: r['lift'] === true,
     slot:
       typeof r['slot'] === 'number' && Number.isInteger(r['slot']) && r['slot'] >= 0 && r['slot'] < 8
         ? r['slot']

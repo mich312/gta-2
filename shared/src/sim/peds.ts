@@ -11,7 +11,7 @@ import { insertEntity, removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import { T_SIDEWALK, TILE_SIZE, type CityMap } from '../world/types.js';
 import { isSolidTile, moveWithCollision } from '../world/collide.js';
-import { pushOutOfVehicles } from './bodies.js';
+import { onTheGround, pushOutOfVehicles } from './bodies.js';
 
 const PED_RADIUS = 5;
 /** A car this close scares a pedestrian whether it is moving or not. */
@@ -153,6 +153,12 @@ export function stepPeds(
         // (J3): boarding wants a walking pedestrian, and this made every
         // pedestrian near a parked car a fleeing one.
         if (v.driverId === null && v.speed === 0) continue;
+        // Neither is an aeroplane at cruise height. This rule is "something is
+        // about to drive into me", and it was measuring the distance to the
+        // shadow: a helicopter crossing the city parted the crowd beneath it
+        // the whole way, which read as the entire population running from a
+        // dot in the sky. What is overhead is not in the road.
+        if (!onTheGround(v)) continue;
         const loud = Math.abs(v.speed) >= 84;
         const dx = ped.pos.x - v.pos.x;
         const dy = ped.pos.y - v.pos.y;
