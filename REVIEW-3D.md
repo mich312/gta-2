@@ -232,10 +232,57 @@ renderer's to make.
 - **46 draw calls exist only to vary a colour** — one bucket plus
   `instanceColor` would collapse them, as `entities.ts` already does.
 
-## What the play-test could not cover
+## What the play-test could not cover, and why
 
-Five reviewers were saturating the machine while the sixth was driving. Two of
-its browsers were killed by GPU process failures and the host stepped at about
-1 tick/s. **A high-speed crash, a skid, and a kill were not exercised.** They
-are not known-good; they are unknown. Anyone re-running this should give the
-play-test the box to itself.
+Two solo re-runs, with the machine to themselves, could still not stage a
+high-speed crash or a skid mark in 3D. That turned out not to be a limitation
+of the harness. It is what the game does on a machine without a GPU, and
+chasing it found three real bugs.
+
+**A kill and a body: now covered.** A pedestrian killed by an explosion lies
+flat, lit and outlined, on the road surface rather than sunk into it — so the
+`DEAD_Z` change is verified in play.
+
+**A crash: still not covered, cause known.** Fixing the frame clamp restored
+walking (16.5 → 172.7 px/s, against 2D's 161.8) but not driving, which peaks at
+**20.1 px/s** where 2D reaches 255. Walking is a velocity *target*, so a missing
+input costs nothing; a car integrates, so it loses everything. At ~1.4 fps the
+client emits about 7 intents a second — `MAX_CATCHUP_TICKS` caps it at five per
+frame — while the host consumes one per tick at a real-time 30 Hz and repeats
+the last only while `heldTicks < MAX_HELD_TICKS` (6). So roughly ten ticks in
+every twenty-one have no throttle and `driveVehicle` applies friction instead
+of acceleration. The arithmetic predicts 155·11/30 − 110·10/30 = 20.1 px/s,
+which is exactly what was measured.
+
+**This is a live bug for low-end players, and it is left deliberately.** No
+vehicle threshold — `WALL_HIT_MIN_SPEED` 54, `CAR_HIT_MIN_SPEED` 36,
+`RUNOVER_MIN_SPEED` 24, `SKID_MIN_SPEED` 170 — is reachable on hardware that
+slow, so such a player can never crash a car, skid, or run anyone over. The fix
+is to scale `MAX_HELD_TICKS` from the observed gap between input batches, or to
+emit one intent per *elapsed* tick rather than per simulated one. Both change
+how a server treats a client that has gone quiet, which has fairness and
+anti-cheat implications in multiplayer that a graphics review should not settle
+on its own.
+
+**A skid mark: the guard that blocked it is fixed**, so this should now be
+stageable — but it has not been observed, because driving is still capped by
+the above. Treat it as untested rather than working.
+
+Also disproved: the "invisible obstruction" a previous run reported at
+y ≈ 2455–2471 is a building. Driving due south from the seed-7 spawn leaves the
+carriageway at a T-junction and runs into a block that is drawn, extruded and
+plainly visible in both renderers. There is no phantom collider.
+
+## Still open from the play-tests
+
+- **Pickups occlude the body that dropped them.** In 3D a pickup floats above
+  the ground plane and a corpse lies on it, so from directly overhead the drop
+  hides almost all of the body it came from.
+- **A wrecked car keeps its lit tail lamps and blue glazing.** The paint goes
+  near-black through `wearShade` and reads as a wreck; the glass and lights do
+  not get the message.
+- **The EXPORT list is drawn over the damage panel's top-right corner**, in both
+  renderers.
+- **Night still has fewer pools than 2D** — about 40 there against the 16-light
+  budget here. The pools that exist now reach the road; the budget is the
+  remaining difference and is the architectural item listed above.
