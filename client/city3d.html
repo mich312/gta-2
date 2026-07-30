@@ -60,15 +60,24 @@
         const cx = (map.widthTiles * 16) / 2;
         const cy = (map.heightTiles * 16) / 2;
         let t = 0;
-        const tick = () => {
+        // The flyover reported no timing at all, which made it the one page
+        // you could not tell a slow frame from a fast one on.
+        let frames = 0, last = performance.now(), fps = 0;
+        const tick = (now) => {
           t += 0.0016;
           view.lookAt(cx + Math.cos(t) * 500, cy + Math.sin(t) * 500);
           view.render();
+          frames++;
+          if (now - last > 500) {
+            fps = (frames * 1000) / (now - last);
+            frames = 0; last = now;
+          }
           const s = view.stats();
           hud.textContent =
             `seed ${seed}  pitch ${pitch}°  flyover\n` +
             `${map.buildings.length} buildings\n` +
-            `draws ${s.draws}  instances ${s.instances}  tris ${(s.triangles / 1000) | 0}k`;
+            `draws ${s.draws}  instances ${s.instances}  tris ${(s.triangles / 1000) | 0}k\n` +
+            `${fps.toFixed(fps < 10 ? 2 : 0)} fps  ${(1000 / Math.max(fps, 0.001)).toFixed(0)} ms/frame`;
           requestAnimationFrame(tick);
         };
         requestAnimationFrame(tick);
@@ -88,7 +97,10 @@
               `seed ${seed}  pitch ${pitch}°\n` +
               `WASD drive  E in/out  Space fire\n` +
               (s ? `draws ${s.draws}  instances ${s.instances}  tris ${(s.triangles / 1000) | 0}k\n` : '') +
-              `${fps.toFixed(0)} fps`;
+              // Milliseconds as well as the rate. Rounded to whole frames a
+              // slow renderer reports "0 fps", which is indistinguishable from
+              // a hung one — and it was read as a hang.
+              `${fps.toFixed(fps < 10 ? 2 : 0)} fps  ${(1000 / Math.max(fps, 0.001)).toFixed(0)} ms/frame`;
           }
           requestAnimationFrame(tick);
         };

@@ -24,9 +24,19 @@ const VIEWPORTS = [
   { label: '2560x1440', width: 2560, height: 1440 },
 ];
 
+/**
+ * Both arms pin `render=2d`.
+ *
+ * 3D is the default (`main.ts` reads `render !== '2d'`), so without this both
+ * arms rendered in 3D — where `extrude` only touches `TileLayer`, which never
+ * runs. The bench was comparing a configuration against itself and reporting
+ * `tiles.lastBuildingsDrawn`, which is only ever assigned inside
+ * `if (this.extruded)` and so was permanently 0. Every number it produced was
+ * a measurement of nothing.
+ */
 const CONFIGS = [
-  { label: 'baked walls  ', q: '' },
-  { label: 'parallax     ', q: '&extrude=1' },
+  { label: 'baked walls  ', q: '&render=2d' },
+  { label: 'parallax     ', q: '&render=2d&extrude=1' },
 ];
 
 const browser = await chromium.launch({

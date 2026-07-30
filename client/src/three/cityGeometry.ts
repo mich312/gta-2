@@ -20,6 +20,7 @@ import {
   type CityMap,
   type Span,
   EARTH,
+  districtAt,
   buildVolumeGrid,
   spansAt,
 } from 'shared';
@@ -171,8 +172,14 @@ interface Surface {
   solid?: boolean;
 }
 
-/** Carriageway markings. `roadMaterial`'s own default, named once. */
-const ROAD_LINE = 0xd8cf94;
+/**
+ * Carriageway markings, from the palette the 2D layer paints from.
+ *
+ * This was `0xd8cf94` where `palette.roadLane` is `#b9b183` — brighter and
+ * yellower than the game's own line, on every road in the city, which is a
+ * large part of why the 3D street read as a motorway.
+ */
+const ROAD_LINE = col('roadLane', 0xb9b183);
 /** The proving ground's green, matching `DEPOT_ACCENT` in the 2D tile layer. */
 const DEPOT_ACCENT = 0x5aa84e;
 
@@ -206,15 +213,24 @@ const DEFAULT_SURFACE: Surface = { key: 'lot', color: col('lot', 0x45463f), grai
  * `TileLayer.roofColor` and `ExtrudeLayer` use, so a block is the colour here
  * that it is in the 2D renderer and switching views does not repaint the city.
  */
-function roofColor(index: number, district: string): number {
+function roofColor(map: CityMap, tx: number, ty: number, index: number): number {
+  // The district comes off the per-tile grid, as `TileLayer.districtOf` reads
+  // it. Taking it from `map.buildings[i].district` instead put 12% of blocks
+  // in a different district family altogether — a residential brown block
+  // coming out commercial pink.
+  const district = districtAt(map, tx, ty) as string;
   const variants =
     (palette.buildingVariants as Record<string, string[]>)[district] ??
     palette.buildingVariants.downtown;
   const id = index + 1;
-  // `hash2` from the 2D renderer, inlined — it is the only thing three.js
-  // needs out of a module full of canvas helpers.
-  const h = Math.sin(id * 127.1 + (id * 7 + 3) * 311.7) * 43758.5453;
-  const pick = h - Math.floor(h);
+  // The real `hash2`, not a lookalike.
+  //
+  // What used to be here claimed to be `hash2` inlined and was a GLSL-style
+  // `fract(sin(dot(...)) * 43758.5453)` — a different function entirely, which
+  // is why only 16.7% of building tiles agreed with the 2D view of the same
+  // seed, against 20% for pure chance. Switching renderers repainted the city
+  // and moved the landmarks you navigate by.
+  const pick = id > 0 ? hash2(id, id * 7 + 3) : hash2(tx, ty, 91);
   return hex(variants[Math.floor(pick * variants.length) % variants.length] as string, 0x6b6f7a);
 }
 
@@ -376,8 +392,7 @@ export function buildCity(map: CityMap): CityBuild {
       let surface: Surface;
       if (tile === T_BUILDING) {
         const bi = (buildingOf[idx] as number) - 1;
-        const bd = bi >= 0 ? map.buildings[bi] : undefined;
-        const color = roofColor(bi, bd?.district ?? 'downtown');
+        const color = roofColor(map, tx, ty, bi);
         surface = { key: `b${color.toString(16)}`, color, solid: true };
       } else {
         surface = SURFACES[tile] ?? DEFAULT_SURFACE;

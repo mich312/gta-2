@@ -204,6 +204,8 @@ function webglAvailable(): boolean {
 
 const wants3d = new URLSearchParams(location.search).get('render') !== '2d';
 let render3d = wants3d && webglAvailable();
+/** When the last 3D frame was presented, for the frame-interval readout. */
+let lastFrameAt = 0;
 if (wants3d && !render3d) {
   console.warn('WebGL unavailable — falling back to the 2D renderer');
 }
@@ -981,7 +983,22 @@ function frameBody(now: number): void {
     } else {
       render(screen, map, scene, cam, sprites, tiles, effects, lights);
     }
-    stats.onRender(performance.now() - t0);
+    // Only the 2D path can be timed this way.
+    //
+    // WebGL submission is asynchronous: `renderer.render()` queues commands
+    // and returns, so this measures how long it took to write the command
+    // buffer and nothing about how long the GPU spends on it. Measured against
+    // the same scene it read 11 ms while frames were actually landing 4.9 s
+    // apart. Publishing that as `renderMs` — which the overlay presents as
+    // headroom — was worse than publishing nothing, so in 3D the frame
+    // interval is reported instead, which is at least a number about frames.
+    if (render3d) {
+      const now = performance.now();
+      if (lastFrameAt > 0) stats.onRender(now - lastFrameAt);
+      lastFrameAt = now;
+    } else {
+      stats.onRender(performance.now() - t0);
+    }
   }
 
   // HUD and overlay draw in world-pixel units, whatever the backing store is.
