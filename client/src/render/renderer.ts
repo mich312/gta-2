@@ -784,6 +784,10 @@ function dayLengthSec(map: CityMap): number {
  * which ones YOU have found. One found is drawn dim and pays nothing; your
  * neighbour's find is still there for you. That is the whole design.
  */
+/** A hidden package: gold while it is worth taking, grey once it is not. */
+export const PACKAGE_COLOR = '#f0e2a0';
+export const PACKAGE_TAKEN = 'rgba(120, 130, 145, 0.35)';
+
 function drawPackages(
   ctx: CanvasRenderingContext2D,
   map: CityMap,
@@ -811,7 +815,7 @@ function drawPackages(
     // A slow glint rather than the pickups' bob: it should read as something
     // left behind, not as something laid out for you.
     const pulse = taken ? 0 : 0.5 + 0.5 * Math.sin(scene.nowMs * 0.002 + i);
-    ctx.fillStyle = taken ? 'rgba(120, 130, 145, 0.35)' : '#f0e2a0';
+    ctx.fillStyle = taken ? PACKAGE_TAKEN : PACKAGE_COLOR;
     ctx.fillRect(x - 2 * R, y - 2 * R, 4 * R, 4 * R);
     if (!taken) lights.point(x, y, (6 + pulse * 4) * R, 'shop', 0.25 + pulse * 0.2);
   }
@@ -970,7 +974,7 @@ function drawWindows(
 }
 
 /** Traffic-signal colours, ordered so the array index is the lamp position. */
-const SIGNAL_COLORS: Record<SignalColour, string> = {
+export const SIGNAL_COLORS: Record<SignalColour, string> = {
   red: '#ff5a4a',
   amber: '#ffc23c',
   green: '#5ce08a',
@@ -1030,7 +1034,7 @@ function drawSignals(
 }
 
 /** How far off the centre of the arm a signal head stands, in world px. */
-const RIGHT_OFFSET = 9;
+export const RIGHT_OFFSET = 9;
 
 function drawProps(
   ctx: CanvasRenderingContext2D,
@@ -1055,7 +1059,15 @@ function drawProps(
   }
 }
 
-const PICKUP_COLORS: Record<string, string> = {
+/**
+ * Pickup, package and signal colours, and where a signal head stands.
+ *
+ * Exported because the 3D renderer draws the same objects and a health crate
+ * that is green in one view and blue in the other is not the same city. One
+ * definition, both renderers — the same reason the effects fade curves are
+ * shared.
+ */
+export const PICKUP_COLORS: Record<string, string> = {
   health: '#57c98a',
   armour: '#5aa8e0',
   ammo: '#e0b452',

@@ -42,6 +42,7 @@ import { CityView } from './three/cityView.js';
 import { EntityLayer } from './three/entities.js';
 import { SceneryLayer } from './three/scenery.js';
 import { Effects3dLayer } from './three/effects3d.js';
+import { WorldObjectsLayer } from './three/worldObjects.js';
 import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
@@ -258,6 +259,7 @@ let world3d: {
   entities: EntityLayer;
   scenery: SceneryLayer;
   fx: Effects3dLayer;
+  objects: WorldObjectsLayer;
 } | null = null;
 let lastSeed = 0;
 let lastWorldgen: WorldgenParams | null = null;
@@ -509,6 +511,7 @@ function adoptMap(next: CityMap): void {
   if (world3d) {
     world3d.view.setMap(next);
     world3d.scenery.setMap(next);
+    world3d.objects.setMap(next);
   }
 }
 
@@ -701,10 +704,12 @@ function drawWorld3d(scene: Scene | null): void {
       entities: new EntityLayer(view.world),
       scenery: new SceneryLayer(view.world),
       fx: new Effects3dLayer(view.world),
+      objects: new WorldObjectsLayer(view.world),
     };
     world3d.scenery.setMap(map);
+    world3d.objects.setMap(map);
   }
-  const { view, entities, scenery, fx } = world3d;
+  const { view, entities, scenery, fx, objects } = world3d;
 
   // Match the HUD canvas exactly, in both backing store and CSS box, so a
   // world pixel lands on the same screen pixel in both layers.
@@ -737,6 +742,7 @@ function drawWorld3d(scene: Scene | null): void {
   });
   scenery.updateProps(scene.remotes.props);
   fx.update(effects);
+  objects.update(scene, cam, { w: viewport.w, h: viewport.h });
   view.lookAt(cam.x + viewport.w / 2, cam.y + viewport.h / 2);
   view.render();
 }
