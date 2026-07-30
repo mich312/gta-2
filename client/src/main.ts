@@ -202,6 +202,32 @@ function webglAvailable(): boolean {
   }
 }
 
+/**
+ * How far the world camera tilts off vertical, in degrees.
+ *
+ * This was 0 — straight down — and at 0 the third dimension is very nearly
+ * invisible. Height has four channels at this camera and three of them are
+ * unavailable: silhouette is absent by construction, banded shading has nothing
+ * to land on because vertical faces are edge-on, and cast shadow is daylight
+ * only. What is left is parallax lean, `r*h/(H - h)`, which is zero at screen
+ * centre — and the camera lead is clamped to `LEAD_MAX` 54, so the player's own
+ * body leans about 1.2 world px in their own game. Under a sixth of its width.
+ *
+ * A few degrees gives all of it somewhere to go, which is what `3D.md` means by
+ * "a pitch angle gives height somewhere to go". 10 is deliberately at the
+ * conservative end: enough that a car has a flank, a lamp post stands up and a
+ * building shows the face turned toward you, while the plan view a top-down
+ * game is read from stays essentially intact. Past ~15 the near side of tall
+ * buildings starts hiding the street at the bottom of the frame.
+ *
+ * `?pitch=` overrides it, so the old straight-down view is `?pitch=0`.
+ */
+const GAME_PITCH = (() => {
+  const raw = new URLSearchParams(location.search).get('pitch');
+  const n = raw === null ? NaN : Number(raw);
+  return Number.isFinite(n) ? Math.max(0, Math.min(60, n)) : 10;
+})();
+
 const wants3d = new URLSearchParams(location.search).get('render') !== '2d';
 let render3d = wants3d && webglAvailable();
 /** When the last 3D frame was presented, for the frame-interval readout. */
@@ -777,7 +803,7 @@ function drawWorld3d(scene: Scene | null): void {
     const view = new CityView({
       canvas: worldCanvas,
       map,
-      pitch: 0,
+      pitch: GAME_PITCH,
       viewHeight: viewport.h,
     });
     watchContextLoss(worldCanvas);

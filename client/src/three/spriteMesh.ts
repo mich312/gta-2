@@ -36,7 +36,17 @@ interface Shape {
   poly?: Array<[number, number]>;
   line?: [number, number, number, number, number];
   color: string;
+  /** Height of this shape's top surface, in art units. */
   z?: number;
+  /**
+   * Height of its *bottom*, defaulting to the ground.
+   *
+   * Read only by this file. The 2D generator uses `z` as a height field for
+   * relighting and knows nothing about `zBase`, which is exactly why the floor
+   * lives in a new field instead of being folded into `z`: the 3D solid gains a
+   * bottom and the 2D art does not change by a pixel.
+   */
+  zBase?: number;
   mirrorY?: boolean;
   /**
    * Authored for the 2D pass and **not honoured here**. `rotorBlur` on every
@@ -135,12 +145,17 @@ function paint(g: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
  * art.
  */
 function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
-  const depth = Math.max(0.5, s.z ?? DEFAULT_Z);
+  // `zBase` is the floor this shape stands on; `z` is still its top. A shape
+  // with no `zBase` starts at the ground exactly as it always did, so every
+  // sprite that has not been given one is unchanged.
+  const base = Math.max(0, s.zBase ?? 0);
+  const top = Math.max(base + 0.5, s.z ?? DEFAULT_Z);
+  const depth = top - base;
 
   if (s.rect) {
     const [x, y, w, h] = s.rect;
     const g = new THREE.BoxGeometry(w, h, depth);
-    g.translate(x + w / 2 + ox, y + h / 2 + oy, depth / 2);
+    g.translate(x + w / 2 + ox, y + h / 2 + oy, base + depth / 2);
     return g;
   }
 
@@ -150,7 +165,7 @@ function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
     // pedestrian's head is not more triangles than the car beside them.
     const g = new THREE.CylinderGeometry(r, r, depth, 12);
     g.rotateX(Math.PI / 2);
-    g.translate(cx + ox, cy + oy, depth / 2);
+    g.translate(cx + ox, cy + oy, base + depth / 2);
     return g;
   }
 
@@ -159,7 +174,7 @@ function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
     const g = new THREE.CylinderGeometry(1, 1, depth, 14);
     g.rotateX(Math.PI / 2);
     g.scale(rx, ry, 1);
-    g.translate(cx + ox, cy + oy, depth / 2);
+    g.translate(cx + ox, cy + oy, base + depth / 2);
     return g;
   }
 
@@ -170,7 +185,7 @@ function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
     const len = Math.hypot(dx, dy) || 1;
     const g = new THREE.BoxGeometry(len, t, depth);
     g.rotateZ(Math.atan2(dy, dx));
-    g.translate((x0 + x1) / 2 + ox, (y0 + y1) / 2 + oy, depth / 2);
+    g.translate((x0 + x1) / 2 + ox, (y0 + y1) / 2 + oy, base + depth / 2);
     return g;
   }
 
@@ -183,7 +198,9 @@ function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
       shape.lineTo(p[0] + ox, p[1] + oy);
     }
     shape.closePath();
-    return new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
+    const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
+    if (base) g.translate(0, 0, base);
+    return g;
   }
 
   return null;
