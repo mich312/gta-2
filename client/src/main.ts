@@ -243,6 +243,19 @@ let playerId = -1;
 let seq = 1;
 let localTick = 0;
 let map: CityMap | null = null;
+/**
+ * Three.js world layer, created on the first frame that has a map.
+ *
+ * Declared up here with the rest of the session's state rather than beside
+ * `drawWorld3d`, because `adoptMap` reads it and `adoptMap` is reachable from
+ * the first server message — which arrives after `conn.connect()`, further down
+ * this file than the old declaration was.
+ */
+let world3d: {
+  view: CityView;
+  entities: EntityLayer;
+  scenery: SceneryLayer;
+} | null = null;
 let lastSeed = 0;
 let lastWorldgen: WorldgenParams | null = null;
 let catalog: Catalog | null = null;
@@ -474,6 +487,28 @@ function onGameEvent(event: GameEvent): void {
   }
 }
 
+/**
+ * Adopt a newly generated city. Every layer that holds map-derived state is
+ * told here, and only here.
+ *
+ * There are two paths to a new map — the `welcome` that starts a session and
+ * the `rebase` that moves its window — and they each used to carry their own
+ * list of who to tell. They drifted, which is the only way this kind of bug
+ * ever happens: the 3D world was built lazily on the first frame and never
+ * rebuilt, so after the first rebase it drew the region the player had left
+ * while the sim, the collision and the radar were all in the new one. One
+ * function, one list, and a new layer is added in one place or in none.
+ */
+function adoptMap(next: CityMap): void {
+  map = next;
+  tiles.setMap(next);
+  minimap.setMap(next);
+  if (world3d) {
+    world3d.view.setMap(next);
+    world3d.scenery.setMap(next);
+  }
+}
+
 function onServerMessage(msg: ServerMessage): void {
   try {
     handleServerMessage(msg);
@@ -536,9 +571,7 @@ function handleServerMessage(msg: ServerMessage): void {
         }
         lastSeed = msg.seed;
         lastWorldgen = msg.worldgen;
-        map = generateCity(msg.seed, msg.worldgen);
-        tiles.setMap(map);
-        minimap.setMap(map);
+        adoptMap(generateCity(msg.seed, msg.worldgen));
         catalog = msg.catalog;
         sync.applyServerMessage(msg);
         stats.onSnapshot();
@@ -551,9 +584,7 @@ function handleServerMessage(msg: ServerMessage): void {
         // snap at the boundary is the accepted cost.
         if (lastWorldgen !== null) {
           lastWorldgen = { ...lastWorldgen, windowX: msg.windowX, windowY: msg.windowY };
-          map = generateCity(lastSeed, lastWorldgen);
-          tiles.setMap(map);
-          minimap.setMap(map);
+          adoptMap(generateCity(lastSeed, lastWorldgen));
           hud.notice('leaving the region — the world continues');
         }
         break;
@@ -620,12 +651,6 @@ let cam: Vec2 = { x: 0, y: 0 };
 /** Smoothed camera lead. Eased so a hard corner glides instead of snapping. */
 let lead: Vec2 = { x: 0, y: 0 };
 
-/** Three.js world layer, created on the first frame that has a map. */
-let world3d: {
-  view: CityView;
-  entities: EntityLayer;
-  scenery: SceneryLayer;
-} | null = null;
 
 /**
  * Draw the world in 3D, from the same `Scene` the 2D renderer consumes.
@@ -951,6 +976,11 @@ function frameBody(now: number): void {
     // sub-tick smoothing doing its job.
     renderPos: smoothPlayer,
     cam: { x: cam.x, y: cam.y },
+    // Which window onto the world this is. It MOVES — a rebase regenerates
+    // the map at a new origin — and without it a test looking at the screen
+    // has no way to say which city it is looking at, which is exactly the
+    // question when the terrain and the radar disagree.
+    region: lastWorldgen ? { x: lastWorldgen.windowX, y: lastWorldgen.windowY } : null,
     tick: sync.latest?.tick ?? -1,
     cops: sync.latest?.cops.length ?? 0,
     vehicles: sync.latest?.vehicles.length ?? 0,

@@ -8,6 +8,7 @@ import {
   initTuning,
   parseServerMessage,
   type CityMap,
+  type WorldgenParams,
 } from 'shared';
 import { Interpolator } from '../net/interpolation.js';
 import { CityView } from './cityView.js';
@@ -47,6 +48,9 @@ export class Live {
   private entities: EntityLayer | null = null;
   private scenery: SceneryLayer | null = null;
   private map: CityMap | null = null;
+  /** Kept so a rebase can regenerate at the new origin. */
+  private worldgen: WorldgenParams | null = null;
+  private seed = 0;
   private playerId = -1;
   private last = performance.now();
   private seq = 0;
@@ -109,6 +113,8 @@ export class Live {
     if (msg.type === 'welcome') {
       this.playerId = msg.playerId;
       initTuning(msg.tuning, { lenient: true });
+      this.worldgen = msg.worldgen;
+      this.seed = msg.seed;
       this.map = generateCity(msg.seed, msg.worldgen);
       this.view = new CityView({
         canvas: this.opts.canvas,
@@ -120,6 +126,14 @@ export class Live {
       this.entities = new EntityLayer(this.view.world);
       this.scenery = new SceneryLayer(this.view.world);
       this.scenery.setMap(this.map);
+    } else if (msg.type === 'rebase' && this.worldgen && this.view) {
+      // ROAM is on here too (`start()` boots the host with it), so the window
+      // moves and the map is regenerated under the view. Told nothing, it went
+      // on drawing the region the player had left.
+      this.worldgen = { ...this.worldgen, windowX: msg.windowX, windowY: msg.windowY };
+      this.map = generateCity(this.seed, this.worldgen);
+      this.view.setMap(this.map);
+      this.scenery?.setMap(this.map);
     }
     if (this.sync.applyServerMessage(msg) && this.sync.latest) {
       this.interp.push(this.sync.latest as FullSnapshot);

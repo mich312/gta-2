@@ -36,6 +36,15 @@ interface PlantPool {
 
 export class SceneryLayer {
   private readonly group = new THREE.Group();
+  /**
+   * The baked planting, in a group of its own so a new map can replace it.
+   *
+   * The props share `group` and are placed per frame, so they look after
+   * themselves; the planting is baked once per map and would otherwise pile up
+   * — a rebase would leave the old region's trees standing in the new one's
+   * streets on top of the new region's own.
+   */
+  private readonly plants = new THREE.Group();
   private map: CityMap | null = null;
   private readonly propPools = new Map<string, { mesh: THREE.InstancedMesh; used: number }>();
   private readonly m = new THREE.Matrix4();
@@ -47,6 +56,7 @@ export class SceneryLayer {
 
   constructor(scene: THREE.Object3D) {
     scene.add(this.group);
+    this.group.add(this.plants);
   }
 
   /**
@@ -58,6 +68,17 @@ export class SceneryLayer {
    */
   setMap(map: CityMap): void {
     this.map = map;
+    // Whatever was planted for the last region goes first. Sprite geometries
+    // are cached and shared by every plant of a kind, so only the instanced
+    // meshes and their materials are ours to throw away.
+    for (const child of [...this.plants.children]) {
+      const mesh = child as THREE.Mesh;
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) for (const mm of mat) mm.dispose();
+      else mat?.dispose();
+    }
+    this.plants.clear();
+
     const tree = spriteGeometry('tree', { zScale: TREE_Z });
     const bush = spriteGeometry('bush', { zScale: TREE_Z });
     if (!tree || !bush) return;
@@ -107,8 +128,8 @@ export class SceneryLayer {
     mesh.receiveShadow = true;
     mats.forEach((m, i) => mesh.setMatrixAt(i, m));
     mesh.instanceMatrix.needsUpdate = true;
-    this.group.add(mesh);
-    const twin = addOutline(mesh, this.group, outline);
+    this.plants.add(mesh);
+    const twin = addOutline(mesh, this.plants, outline);
     return { mesh, outline: twin };
   }
 

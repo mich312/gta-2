@@ -1,5 +1,65 @@
 # PROGRESS
 
+## The 3D world was built once, and the world moves
+
+Reported as "the new generated terrain does not fit with the minimap, there
+are walls where none were before, and the map suddenly changes when a new part
+is generated". Three descriptions of one fault, and the third names its cause.
+
+With ROAM on, the session does not stream a world — it **regenerates** one.
+When any live player comes within 24 tiles of the window's edge, `maybeRebase`
+recentres the window on the players, generates a whole new city at the new
+origin, shifts everyone into it by whole tiles and reseeds the ambient world.
+The client is told, and regenerates the identical map from the seed.
+
+Except that only some of the client heard about it. `welcome` and `rebase`
+each carried their own list of who to tell — the tile layer and the radar —
+and the 3D world was on neither, because it was built lazily on the first
+frame that had a map and there was no code anywhere that could build it twice.
+So from the first rebase onward, the 3D renderer drew **the region the player
+had left** while the sim, the collision and the radar were all in the new one.
+That is the whole report: terrain that does not match the minimap; buildings
+from the old window standing where the new one has open road, which is a wall
+where none was before — and its counterpart, an invisible wall where the new
+window has a building the old one did not; and the disagreement arriving all
+at once, at the tick a new region is generated.
+
+Three changes. The geometry moved out to `three/cityGeometry.ts` as
+`buildCity(map)` — a function of a map returning a group, because something
+that happens more than once needs a seam it can be torn off at, and because a
+method on the class that owns the `WebGLRenderer` cannot be tested in node.
+`CityView.setMap` disposes the old city and builds the new one, and the
+constructor goes through it too, so the path a rebase takes is the path every
+session already exercises on its first frame. `SceneryLayer` keeps its baked
+planting in a group of its own and empties it first, or a rebase would leave
+the old region's wood standing in the new one's streets on top of its own.
+
+And the actual defect — two paths to a new map with two lists — is gone:
+`adoptMap` in `main.ts` is the one place a new city is handed out, called by
+both `welcome` and `rebase`. A layer is added to it once or not at all.
+`live.ts` (the sibling 3D page) boots its host with ROAM on and ignored
+`rebase` entirely; it handles it now. Disposal is real disposal, geometries
+and materials both: `remove` only unhooks, and a session crossing a few
+regions would have left a whole city resident on the GPU for each one behind
+it. `__debug.region` reports which window is in force, because a test looking
+at the screen otherwise cannot say which city it is looking at — which is
+precisely the question when the terrain and the radar disagree.
+
+**Verification.** `client/test/cityRebuild.test.ts`: two windows onto one seed
+give different geometry (the premise), the same window gives the same geometry
+twice, a rebuild leaves exactly one city in the group and none of the old
+positions in it, dispose really fires on the geometries and materials, and a
+second `setMap` replants rather than piling planting on planting — with both
+windows chosen to be planted ones, so "nothing there afterwards" cannot pass
+for "replaced". Measured in a browser against ground truth rather than against
+a second rendering: regenerate the client's own city from the seed and
+`__debug.region`, then ask whether each patch of screen is parkland where the
+tile grid says it is. 3D at spawn 99.3% of 267 probes, 2D 98.1%; driven to a
+real rebase, the 2D client reads 97.8% before and 100.0% after, in a region
+98 tiles east and 42 north of where it started. The 3D drive to a rebase was
+not run to completion here: software WebGL caps this box at 1 fps whatever the
+window size, which is a property of the box and not of the change.
+
 ## The 3D city was mirrored north-for-south
 
 Reported as "the map and what is rendered is offset — the minimap shows
