@@ -452,7 +452,9 @@ export function render(
   lights.setOccluders(collectOccluders(scene, cam));
 
   tiles.draw(ctx, cam, originX, originY);
-  effects.update(scene.dt);
+  // The pools are advanced and fed in `main.ts` — see `spawnSceneEffects` —
+  // because the 3D renderer needs the identical set and effects both must have
+  // cannot be a side effect of one of them drawing.
   effects.drawDecals(ctx, originX, originY);
 
   // Street lighting, from the props the server already streams us. Fades in
@@ -1182,18 +1184,7 @@ export function deadPose(id: number): string {
 
 /** Seconds a fresh body keeps bleeding out onto the ground. */
 const BLEED_SEC = 4.5;
-/** How many marks that produces, spread over those seconds. */
-const BLEED_MARKS = 5;
 
-/**
- * Marks already laid by each body, so the pool creeps rather than appearing.
- *
- * Entries are dropped once a body has finished bleeding, but a body that
- * leaves the view mid-bleed never gets that far — so the map is also cleared
- * outright if it ever grows past what a screenful of casualties could need.
- */
-const bledMarks = new Map<string, number>();
-const MAX_BLEEDING = 64;
 
 /**
  * Somebody on the ground.
@@ -1241,20 +1232,6 @@ export function drawBody(
 ): void {
   const r = PLAYER_RADIUS * RENDER_SCALE;
 
-  // Blood runs out for the first few seconds, in marks laid down the body's
-  // own axis. These are ordinary decals, so they outlast the body: the street
-  // still shows where somebody was long after they have been cleared away.
-  if (!o.alive) {
-    const want = Math.min(BLEED_MARKS, Math.floor((o.ageSec / BLEED_SEC) * BLEED_MARKS) + 1);
-    const laid = bledMarks.get(o.key) ?? 0;
-    if (o.ageSec <= BLEED_SEC + 1 && want > laid) {
-      o.effects.bleed(wx, wy, angle, 3 + PLAYER_RADIUS * 0.8);
-      if (bledMarks.size >= MAX_BLEEDING) bledMarks.clear();
-      bledMarks.set(o.key, want);
-    } else if (o.ageSec > BLEED_SEC + 2 && laid > 0) {
-      bledMarks.delete(o.key); // done; do not keep the entry for ever
-    }
-  }
 
   // The pool directly beneath, which unlike the decals tracks the body and is
   // guaranteed present — a corpse that comes into view a minute after it was
@@ -1645,17 +1622,6 @@ export function drawVehicle(
   // one showing black has had it. Sampled off wall-clock like the exhaust, so
   // a fast display does not smoke four times as hard.
   const holed = (broken & PART_RADIATOR) !== 0;
-  if (condition === 'ok' && (holed || (broken & PART_BONNET) !== 0)) {
-    const period = holed ? 1.4 : 2.6;
-    if ((nowMs * 0.06 + id) % period < 1) {
-      effects.engineSmoke(
-        wx + Math.cos(heading) * 8,
-        wy + Math.sin(heading) * 8,
-        holed,
-      );
-    }
-  }
-
   // Strobing light bar on any cruiser with an officer aboard.
   if (kind === 'copcar' && occupied) {
     const phase = Math.sin(nowMs * 0.012 + id) > 0;
@@ -1667,7 +1633,6 @@ export function drawVehicle(
   }
 
   if (condition === 'burning') {
-    effects.fire(wx, wy);
     // The one light in the game that is allowed to overshoot: a flame that
     // only ever dims reads as a lamp on a dimmer, not as something alight.
     const f = flicker('fire', id, nowMs);
@@ -1680,10 +1645,8 @@ export function drawVehicle(
   // Off the ground it does not: there is no road under the tyres. A
   // helicopter cornering at cruise height was laying two black arcs on the
   // street forty-eight pixels below it, which is the most conspicuous half of
-  // "planes behave like cars". `layRubber` still gets the sample so its
+  // "planes behave like cars". The skid sampler still sees it so its
   // history stays continuous across a take-off and a landing.
-  layRubber(effects, id, wx, wy, heading, speed, nowMs, z > 0);
-
   // Only a car with someone in it has its lights on — a street of parked cars
   // all blazing away washes the scene out and reads as nonsense.
   if (!occupied) return;
@@ -1743,94 +1706,5 @@ export function drawVehicle(
       braking ? 0.55 : 0.32,
     );
   }
-
-  // Exhaust while under way; sampled off wall-clock so it does not thicken on
-  // a fast display. Not from the air: `effects.exhaust` puts the puff on the
-  // ground plane, so an aircraft's would trail along the street below it.
-  if (z <= 0 && Math.abs(speed) > 40 && (nowMs * 0.06 + id) % 3 < 1) {
-    effects.exhaust(wx, wy, heading);
-  }
 }
 
-/** Per-vehicle heading and speed history, for spotting a slide or a stop. */
-const skidState = new Map<
-  number,
-  { heading: number; speed: number; ms: number; nextAtMs: number }
->();
-
-/** Below this there is not enough weight on the tyres to mark the road. */
-const SKID_MIN_SPEED = 170;
-/** Rad/s of yaw that counts as a slide. Peak steering authority is 2.8. */
-const SKID_MIN_YAW_RATE = 1.9;
-/**
- * Deceleration that counts as standing on the brakes, px/s². A car brakes at
- * 520 and coasts down at 180 (`vehicles.json`), so this catches the pedal and
- * ignores lifting off.
- */
-const SKID_MIN_DECEL = 180;
-/** ...and the speed it has to be doing for the marks to show. */
-const SKID_MIN_BRAKE_SPEED = 54;
-/** Rubber is laid at a wall-clock cadence, not per frame — a 240 Hz display
- *  must not lay four times the rubber of a 60 Hz one. */
-const SKID_INTERVAL_MS = 45;
-
-/**
- * Tyre marks: two arcs under the rear wheels through a slide, four straight
- * ones under a hard stop.
- *
- * `Effects.skid` was written, complete, at the same time as the rest of the
- * particle pool and then never called from anywhere — the review flagged it as
- * dead code. Cornering brought it to life; braking is the other half, and it
- * is the one you see most, because every car in the city brakes.
- */
-function layRubber(
-  effects: Effects,
-  id: number,
-  wx: number,
-  wy: number,
-  heading: number,
-  speed: number,
-  nowMs: number,
-  /** In the air: keep the history, lay nothing. There is no road up there. */
-  airborne = false,
-): void {
-  const prev = skidState.get(id);
-  skidState.set(id, {
-    heading,
-    speed,
-    ms: nowMs,
-    nextAtMs: prev?.nextAtMs ?? 0,
-  });
-  if (!prev || airborne) return;
-
-  const dtMs = nowMs - prev.ms;
-  if (dtMs <= 0 || dtMs > 250) return; // first frame back on screen: no history
-  // Shortest signed angle between the two headings, so wrapping past ±π
-  // doesn't read as a violent slide.
-  let delta = heading - prev.heading;
-  while (delta > Math.PI) delta -= Math.PI * 2;
-  while (delta < -Math.PI) delta += Math.PI * 2;
-  const yawRate = Math.abs(delta) / (dtMs / 1000);
-  const sliding = Math.abs(speed) >= SKID_MIN_SPEED && yawRate >= SKID_MIN_YAW_RATE;
-
-  // Braking, as opposed to crashing: a wall reverses the speed outright, and
-  // a rebound is not a brake mark.
-  const decel = (Math.abs(prev.speed) - Math.abs(speed)) / (dtMs / 1000);
-  const braking =
-    Math.abs(speed) >= SKID_MIN_BRAKE_SPEED && speed * prev.speed > 0 && decel >= SKID_MIN_DECEL;
-
-  if (!sliding && !braking) return;
-  if (nowMs < prev.nextAtMs) return;
-
-  const cos = Math.cos(heading);
-  const sin = Math.sin(heading);
-  const track = 5;
-  // A slide marks the rear wheels; all four lock up under braking.
-  const axles = braking ? [8, -8] : [8];
-  for (const back of axles) {
-    for (const s of [-1, 1]) {
-      effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
-    }
-  }
-  skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: nowMs + SKID_INTERVAL_MS });
-}

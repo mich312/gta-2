@@ -33,6 +33,7 @@ import { cameraLead, computeCamera, render, type Scene } from './render/renderer
 import { SpriteSheet } from './render/sprites.js';
 import { TileLayer } from './render/tiles.js';
 import { Effects } from './render/effects.js';
+import { spawnSceneEffects } from './render/sceneEffects.js';
 import { LightPass } from './render/lighting.js';
 import { PoseSmoother } from './render/smoothing.js';
 import { Connection } from './net/connection.js';
@@ -40,6 +41,7 @@ import { LocalConnection } from './net/localConnection.js';
 import { CityView } from './three/cityView.js';
 import { EntityLayer } from './three/entities.js';
 import { SceneryLayer } from './three/scenery.js';
+import { Effects3dLayer } from './three/effects3d.js';
 import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
@@ -255,6 +257,7 @@ let world3d: {
   view: CityView;
   entities: EntityLayer;
   scenery: SceneryLayer;
+  fx: Effects3dLayer;
 } | null = null;
 let lastSeed = 0;
 let lastWorldgen: WorldgenParams | null = null;
@@ -697,10 +700,11 @@ function drawWorld3d(scene: Scene | null): void {
       // coordinate means what the rest of the game means by it.
       entities: new EntityLayer(view.world),
       scenery: new SceneryLayer(view.world),
+      fx: new Effects3dLayer(view.world),
     };
     world3d.scenery.setMap(map);
   }
-  const { view, entities, scenery } = world3d;
+  const { view, entities, scenery, fx } = world3d;
 
   // Match the HUD canvas exactly, in both backing store and CSS box, so a
   // world pixel lands on the same screen pixel in both layers.
@@ -732,6 +736,7 @@ function drawWorld3d(scene: Scene | null): void {
       : {}),
   });
   scenery.updateProps(scene.remotes.props);
+  fx.update(effects);
   view.lookAt(cam.x + viewport.w / 2, cam.y + viewport.h / 2);
   view.render();
 }
@@ -834,6 +839,15 @@ function frameBody(now: number): void {
         tick: sync.latest.tick,
       }
     : null;
+  // Advance the particle pools and spawn what this frame's world implies, for
+  // BOTH renderers. This used to happen inside the 2D `render()`, which is why
+  // 3D had no skid marks, no exhaust, no engine smoke and no blood pools: the
+  // effects were never created, let alone drawn.
+  if (scene) {
+    effects.update(scene.dt);
+    spawnSceneEffects(effects, scene);
+  }
+
   {
     // Measured around the world render only — not the HUD, not the minimap,
     // not the overlay that reports it. See NetStats.renderMs for why the rAF
@@ -982,6 +996,10 @@ function frameBody(now: number): void {
     // question when the terrain and the radar disagree.
     region: lastWorldgen ? { x: lastWorldgen.windowX, y: lastWorldgen.windowY } : null,
     tick: sync.latest?.tick ?? -1,
+    // Live particles and decals. Both renderers present the same pools, so a
+    // count that moves in one and not the other is a presentation bug and a
+    // count that moves in neither is a spawning one.
+    fx: effects.counts(),
     cops: sync.latest?.cops.length ?? 0,
     vehicles: sync.latest?.vehicles.length ?? 0,
     // Ambient traffic: how many streamed vehicles have an AI at the wheel,
