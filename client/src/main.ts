@@ -29,7 +29,14 @@ import {
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
 import { viewport } from './render/viewport.js';
-import { cameraLead, computeCamera, render, sceneNight, type Scene } from './render/renderer.js';
+import {
+  cameraLead,
+  computeCamera,
+  drawNameTags,
+  render,
+  sceneNight,
+  type Scene,
+} from './render/renderer.js';
 import { SpriteSheet } from './render/sprites.js';
 import { TileLayer } from './render/tiles.js';
 import { Effects } from './render/effects.js';
@@ -729,8 +736,18 @@ function drawWorld3d(scene: Scene | null): void {
 
   view.setNight(lights.nightAmount);
   entities.update(scene.remotes, playerId, {
-    ...(scene.localPos
-      ? { player: { ...scene.localPos, z: scene.local?.z ?? 0, heading: scene.localPos.angle } }
+    ...(scene.localPos && scene.local
+      ? {
+          player: {
+            ...scene.localPos,
+            z: scene.local.z ?? 0,
+            heading: scene.localPos.angle,
+            // A dead local player lies on the tarmac like anybody else, and the
+            // pose is hashed off their id so it is the same body on every screen.
+            id: scene.local.id,
+            mode: scene.local.mode,
+          },
+        }
       : {}),
     ...(scene.localVehicle && predictor.predictedVehicle
       ? {
@@ -741,6 +758,7 @@ function drawWorld3d(scene: Scene | null): void {
             y: scene.localVehicle.pos.y,
             z: scene.localVehicle.z,
             heading: scene.localVehicle.heading,
+            wear: scene.localVehicle.wear,
           },
         }
       : {}),
@@ -749,6 +767,9 @@ function drawWorld3d(scene: Scene | null): void {
   fx.update(effects);
   objects.update(scene, cam, { w: viewport.w, h: viewport.h });
   const focus = { x: cam.x + viewport.w / 2, y: cam.y + viewport.h / 2 };
+  // `?lights=off` leaves the scene lit by the sun alone; `?lights=cheap` keeps
+  // the lighting but spends a quarter of the budget on it.
+  lights3d.setCheap(lights.cheap);
   if (lights.enabled) {
     lights3d.update(scene, effects, lights.nightAmount, focus, cam, {
       w: viewport.w,
@@ -948,6 +969,8 @@ function frameBody(now: number): void {
     cam,
     predictor.predictedVehicle?.speed ?? 0,
   );
+  // Over the world and under the panels: a name should not cover the radar.
+  if (scene) drawNameTags(screen.ctx, scene, cam);
   minimap.draw(
     screen.ctx,
     predictor.predicted ?? null,

@@ -266,6 +266,26 @@ describe('the 3D light budget', () => {
     expect(fx.counts().wanted).toBeGreaterThan(drawn.length);
   });
 
+  it('spends a quarter of the budget when told to be cheap', () => {
+    // `?lights=off` and `?lights=cheap` are the 2D pass's escape hatches for a
+    // machine that cannot afford it, and they have to mean something here too.
+    const fx = layer();
+    const scene = emptyScene({ remotes: { ...emptyScene().remotes, props: lamps(200) } } as never);
+    fx.update(scene, new Effects(), 1, FOCUS, CAM, VIEW);
+    const full = live(fx).length;
+
+    fx.setCheap(true);
+    fx.update(scene, new Effects(), 1, FOCUS, CAM, VIEW);
+    const cheap = live(fx).length;
+    expect(cheap).toBeLessThan(full);
+    expect(cheap).toBeGreaterThan(0);
+
+    // ...and back again, or a session that ever ran cheap would stay cheap.
+    fx.setCheap(false);
+    fx.update(scene, new Effects(), 1, FOCUS, CAM, VIEW);
+    expect(live(fx).length).toBe(full);
+  });
+
   it('parks a light rather than leaving it burning where it was', () => {
     // The pools are reused every frame. A slot that is not claimed this frame
     // has to go out, or last frame's explosion lights the street for ever.

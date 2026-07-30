@@ -194,7 +194,7 @@ const COP_TINT: Record<string, string> = {
  * purpose, so the four still read as the same species — a helmet and a visor,
  * a long coat, webbing and a rifle. See GTA.md P3b.
  */
-const COP_SPRITE: Record<string, string> = {
+export const COP_SPRITE: Record<string, string> = {
   patrol: 'cop',
   swat: 'copSwat',
   fed: 'copFed',
@@ -749,19 +749,42 @@ export function render(
   effects.drawParticles(ctx, originX, originY, lights);
   lights.render(ctx);
 
-  // Name tags go on last, above the grade, so they stay readable at night.
+  // Name tags are drawn in HUD space from `main.ts` now, for both renderers.
+  // See `drawNameTags`.
+}
+
+/**
+ * Who everybody is, over their heads.
+ *
+ * Drawn in HUD units rather than device pixels, and from `main.ts` rather than
+ * from inside a renderer, because both renderers need it and the mapping is the
+ * same for both: the 3D camera hangs straight down over the middle of the same
+ * frame, so a point on the ground lands at `world - cam` in either view. That
+ * is the same identity the radar and mouse aim rely on.
+ *
+ * Last, above everything including the night grade, so a name stays readable in
+ * the dark.
+ */
+export function drawNameTags(ctx: CanvasRenderingContext2D, scene: Scene, cam: Vec2): void {
+  const tag = (text: string, color: string, wx: number, wy: number): void => {
+    const img = label(text, color);
+    // `label` rasterises at RENDER_SCALE for the device-pixel path it was
+    // written for; in HUD units that is one scale factor too many.
+    const w = img.width / RENDER_SCALE;
+    const h = img.height / RENDER_SCALE;
+    ctx.drawImage(img, wx - cam.x - w / 2, wy - cam.y - (PLAYER_RADIUS + 12), w, h);
+  };
   for (const r of scene.remotes.players) {
-    const color = REMOTE_COLORS[r.player.id % REMOTE_COLORS.length] as string;
-    const tag = label(r.player.name, color);
-    ctx.drawImage(tag, dx(r.x) - tag.width / 2, dy(r.y) - (PLAYER_RADIUS + 12) * RENDER_SCALE);
+    if (r.player.mode === 'dead') continue;
+    tag(
+      r.player.name,
+      REMOTE_COLORS[r.player.id % REMOTE_COLORS.length] as string,
+      r.x,
+      r.y,
+    );
   }
   if (scene.local && scene.localPos && scene.local.mode !== 'driving') {
-    const tag = label(scene.local.name, LOCAL_COLOR);
-    ctx.drawImage(
-      tag,
-      dx(scene.localPos.x) - tag.width / 2,
-      dy(scene.localPos.y) - (PLAYER_RADIUS + 12) * RENDER_SCALE,
-    );
+    tag(scene.local.name, LOCAL_COLOR, scene.localPos.x, scene.localPos.y);
   }
 }
 

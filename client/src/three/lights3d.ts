@@ -130,6 +130,7 @@ export class Lights3dLayer {
   private readonly spots: THREE.SpotLight[] = [];
   private map: CityMap | null = null;
   private readonly wants: Want[] = [];
+  private budget = { points: MAX_POINTS, spots: MAX_SPOTS };
   private readonly colors = new Map<LightKind, THREE.Color>();
 
   constructor(scene: THREE.Object3D) {
@@ -154,6 +155,21 @@ export class Lights3dLayer {
 
   setMap(map: CityMap): void {
     this.map = map;
+  }
+
+  /**
+   * Spend less, for a machine that cannot afford the full pool.
+   *
+   * `?lights=cheap` is the 2D pass's escape hatch — it drops shadow casting and
+   * bloom there — and it means the same thing here: a quarter of the point
+   * lights and half the spots. The ranking is what makes that survivable: what
+   * is left is the headlights and the flashes, which is the half that carries
+   * information, and the street lamps go before them.
+   */
+  setCheap(cheap: boolean): void {
+    this.budget = cheap
+      ? { points: Math.floor(MAX_POINTS / 4), spots: 1 }
+      : { points: MAX_POINTS, spots: MAX_SPOTS };
   }
 
   /**
@@ -427,7 +443,7 @@ export class Lights3dLayer {
       const ref = w.cone ? Math.max(MIN_REF, w.radius * 0.5) : Math.max(MIN_REF, w.z);
       const intensity = w.alpha * GAIN * ref * ref;
       const color = this.colors.get(w.kind) ?? this.colors.get('lamp')!;
-      if (w.cone && si < this.spots.length) {
+      if (w.cone && si < this.budget.spots) {
         const light = this.spots[si++]!;
         light.color.copy(color);
         light.intensity = intensity;
@@ -444,7 +460,7 @@ export class Lights3dLayer {
         light.target.updateMatrixWorld();
         continue;
       }
-      if (pi >= this.points.length) continue;
+      if (pi >= this.budget.points) continue;
       const light = this.points[pi++]!;
       light.color.copy(color);
       light.intensity = intensity;

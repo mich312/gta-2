@@ -22,6 +22,7 @@ star level over several seeds instead of hoping for one.
 
 | file | what it shows |
 |---|---|
+| `render-3d-parity.png` | The 3D client at dusk with the parity work in: blood and rubber on the road, pickups and hidden packages as solids, traffic signals standing on posts showing the phase the traffic is obeying, real street lamps and headlights, bodies that lie down, and the name tag drawn by the same HUD pass the 2D renderer uses. Retake with `?local=1&seed=7&night=0.62`. |
 | `render-3d-client.png` | **The real game client** at `?render=3d` — not the sibling page. Wallet, street name, minimap, respect bar, health, weapon and export list are the actual HUD drawing on a transparent canvas over a three.js world, and the player is drawn from the predictor rather than the wire. This is what "3D" means once it is the game rather than a viewer. |
 | `city-3d-night.png` | Night. Windows light up across the facades — a per-window hash against the night amount, so a lit window stays lit rather than flickering as the camera moves. |
 | `city-3d-facades.png` | The original GTA camera: perspective, straight down, so buildings splay away from the screen centre and show the face turned toward it. Facades are shader-computed — window columns with mullions, a slab line between storeys, a shopfront on the ground floor — so one material covers every building height. |
