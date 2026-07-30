@@ -205,7 +205,12 @@ const SURFACES: Record<number, Surface> = {
   // the 2D `paintBridge` starts by calling `paintRoad` for exactly that reason.
   // The rails that tell you it is a bridge are geometry — see `buildKerbs`.
   [T_BRIDGE]: { key: 'road', color: col('road', 0x33383f), road: true, line: ROAD_LINE },
-  [T_RAMP]: { key: 'ramp', color: col('lot', 0x45463f), grain: 0.14 },
+  // Chevrons on concrete, as the 2D painter draws it: `road: true` routes it
+  // through `roadMaterial`, and mark 5 is the chevron branch.
+  // Chevrons on concrete, as the 2D painter draws it. Not `road: true` — that
+  // routes a tile through the junction crossing and centre-line rules, and a
+  // ramp is not a carriageway. It only needs the marking material.
+  [T_RAMP]: { key: 'ramp', color: col('lot', 0x45463f), line: col('uiAccent', 0xf0c040) },
   [T_FLOOR]: { key: 'floor', color: col('shopFloor', 0x6a6259), grain: 0.06, edge: 0.18 },
   [T_BANK]: { key: 'bank', color: col('bank', 0x77705f), grain: 0.1, edge: 0.1 },
   // Canopy, not lawn. It stands 36 px proud because `volume.ts` makes woodland
@@ -495,8 +500,10 @@ export function buildCity(map: CityMap): CityBuild {
     // material serves every height. Ground surfaces stay flat toon.
     const material = surface.solid
       ? facadeMaterial({ color })
-      : key === 'road'
-        ? roadMaterial(color, 0, surface.line)
+      : key === 'ramp'
+        ? roadMaterial(color, 5, surface.line ?? ROAD_LINE)
+        : key === 'road'
+          ? roadMaterial(color, 0, surface.line)
         : key === 'roadMarkX'
           ? roadMaterial(color, 1, surface.line)
           : key === 'roadMarkY'

@@ -34,6 +34,7 @@ import {
   cameraLead,
   computeCamera,
   drawNameTags,
+  playerPose as poseOf,
   render,
   sceneNight,
   type Scene,
@@ -848,6 +849,10 @@ function drawWorld3d(scene: Scene | null): void {
             id: scene.local.id,
             mode: scene.local.mode,
             cosmeticId: scene.local.cosmeticId,
+            // Bare fists and the swing are poses the sheet carries and the 3D
+            // layer had no way to ask for: it has no weapon state, and this
+            // does.
+            pose: poseOf(scene.local),
           },
         }
       : {}),

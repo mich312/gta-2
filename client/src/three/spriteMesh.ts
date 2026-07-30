@@ -148,9 +148,19 @@ function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
   // `zBase` is the floor this shape stands on; `z` is still its top. A shape
   // with no `zBase` starts at the ground exactly as it always did, so every
   // sprite that has not been given one is unchanged.
-  const base = Math.max(0, s.zBase ?? 0);
-  const top = Math.max(base + 0.5, s.z ?? DEFAULT_Z);
-  const depth = top - base;
+  const top = Math.max(0.5, s.z ?? DEFAULT_Z);
+  // A shape the 2D pass draws see-through is a plate here, not a solid.
+  //
+  // `alpha` exists so the sprite generator can wash a shape over what is behind
+  // it — every aircraft's `rotorBlur` is a disc at `alpha` 0.22 standing for a
+  // spinning blade. Extruded solid it became an opaque drum 19 art px across
+  // and taller than the airframe, which swallowed the entire helicopter inside
+  // it. Nothing this file does can make it translucent without a second
+  // material and a second draw, but a spinning rotor is a thin disc at rotor
+  // height, and drawn as one it reads correctly and stops hiding the aircraft.
+  const plate = s.alpha !== undefined && s.alpha < 0.5;
+  const base = plate ? Math.max(0, top - 0.6) : Math.max(0, s.zBase ?? 0);
+  const depth = Math.max(0.5, top - base);
 
   if (s.rect) {
     const [x, y, w, h] = s.rect;

@@ -8,6 +8,7 @@ import {
   STRIDE,
   WALK_FRAMES,
   deadPose,
+  playerPose,
   vehicleSpriteVariant,
 } from '../render/renderer.js';
 import { addOutline, toonMaterial } from './toon.js';
@@ -44,6 +45,11 @@ export interface LocalBodies {
     mode: string;
     /** Which of the four player colourways they wear. */
     cosmeticId?: number;
+    /**
+     * Standing pose, from `playerPose`. Handed in rather than derived, because
+     * this carries no weapon state and the caller has it.
+     */
+    pose?: 'player' | 'playerFist' | 'playerPunch';
   };
   vehicle?: {
     id: number;
@@ -486,9 +492,13 @@ export class EntityLayer {
       }
       const key = `player${pl.player.id}`;
       this.seen.add(key);
-      const frame = this.walk.frame(key, pl.x, pl.y);
+      // The pose the 2D renderer would draw: armed, bare-fisted, or mid-swing.
+      // This pooled `'player'` unconditionally, so an unarmed player still held
+      // a pistol and a punch never played. `playerPunch` has a single frame.
+      const pose = playerPose(pl.player);
+      const frame = pose === 'playerPunch' ? 0 : this.walk.frame(key, pl.x, pl.y);
       place(
-        this.pool('player', variant, frame, PLAYER, 16),
+        this.pool(pose, variant, frame, PLAYER, 16),
         pl.x,
         pl.y,
         pl.player.z ?? 0,
@@ -541,7 +551,9 @@ export class EntityLayer {
         // `mounted` below.
         const key = 'local';
         this.seen.add(key);
-        place(this.pool('player', variant, this.walk.frame(key, p.x, p.y), PLAYER, 16), p.x, p.y, p.z, p.heading);
+        const pose = p.pose ?? 'player';
+        const frame = pose === 'playerPunch' ? 0 : this.walk.frame(key, p.x, p.y);
+        place(this.pool(pose, variant, frame, PLAYER, 16), p.x, p.y, p.z, p.heading);
       }
     }
     if (local?.vehicle) {

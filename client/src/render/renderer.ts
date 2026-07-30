@@ -329,6 +329,28 @@ export function cameraLead(
   return { x: (velX / mag) * LEAD_MAX * f, y: (velY / mag) * LEAD_MAX * f };
 }
 
+/**
+ * Which standing pose a player is in: armed, bare-fisted, or mid-swing.
+ *
+ * Exported because the 3D renderer needs the same answer. It used to pool
+ * `'player'` unconditionally, so an unarmed player still held a pistol and a
+ * punch never played at all — the two views disagreed about what the player was
+ * doing, which is exactly the drift `sprites.json` being one source of art is
+ * supposed to prevent.
+ */
+export function playerPose(p: PlayerState): 'player' | 'playerFist' | 'playerPunch' {
+  // A state with no weapon list at all is not unarmed, it is under-described —
+  // an interpolated body the wire has not filled in yet, or a fixture. Drawing
+  // it armed is the safe answer: it is what this drew before poses existed.
+  if (!p.weapons) return 'player';
+  const weapon = weaponOf(p);
+  const melee = weapon === null || weapon.melee;
+  if (!melee) return 'player';
+  const swinging =
+    p.fireCooldown > 0 && weapon !== null && p.fireCooldown * 2 > weapon.cooldownTicks;
+  return swinging ? 'playerPunch' : 'playerFist';
+}
+
 /** Tuning of the weapon a player is holding, or null for bare hands. */
 function weaponOf(p: PlayerState): WeaponTuning | null {
   const slot = p.weapons[p.activeWeapon];
@@ -1407,14 +1429,11 @@ export function drawPlayer(
   // Empty hands look like empty hands. The avatar used to hold a pistol
   // whatever was selected, so a fist fight was two men pointing guns at each
   // other and a punch came out of the barrel.
-  const weapon = weaponOf(p);
-  const melee = weapon === null || weapon.melee;
-  const swinging = melee && p.fireCooldown > 0 && weapon !== null && p.fireCooldown * 2 > weapon.cooldownTicks;
-  const name = swinging
-    ? `playerPunch_v${variant}`
-    : melee
-      ? `playerFist_v${variant}_f${frame}`
-      : `player_v${variant}_f${frame}`;
+  const pose = playerPose(p);
+  const name =
+    pose === 'playerPunch'
+      ? `playerPunch_v${variant}`
+      : `${pose}_v${variant}_f${frame}`;
   // Off the ground: bailing out of an aircraft is a real fall in the sim, and
   // without this it read as standing still for a quarter of a second and then
   // bleeding for no reason. Same lift-and-shadow trick as an air unit, at the

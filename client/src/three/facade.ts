@@ -149,7 +149,14 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              float slab = 1.0 - step(0.06, inStorey);
              vec3 wall = diffuseColor.rgb * (1.0 - slab * 0.35);
 
-             float r = win_hash(vec2(col, storey));
+             // Salted per building, so the lit windows are that building's own
+             // pattern rather than one grid laid across the whole city. Without
+             // it every block showed the same 55% lit fraction at midnight —
+             // none dark, none full — and two walls of one tower carried an
+             // identical arrangement. The salt is the instance's own origin,
+             // which is stable frame to frame, so a lit window still stays lit.
+             vec2 origin = floor(vWorld.xy / 64.0);
+             float r = win_hash(vec2(col, storey) + origin * 17.0);
              // More windows lit as it gets darker; never all of them.
              float on = step(1.0 - uNight * 0.55, r);
              vec3 pane = mix(uGlass, uLit, on * uNight);
@@ -239,7 +246,18 @@ export function roadMaterial(color: number, mark: number, lineColor = ROAD_LANE)
            // Grain first, so the marking sits on the tarmac rather than under.
            float grain = road_hash(floor(vWorld.xy * 0.7));
            diffuseColor.rgb *= 0.95 + grain * 0.10;
-           if (uMark > 2.5) {
+           if (uMark > 4.5) {
+             // Stunt ramp: chevrons, so it reads as "hit this fast". The 2D
+             // painter draws three of them on the lot base; in 3D the tile was
+             // bare lot colour and drawnSpans flattens it to street level, so a
+             // ramp was pixel-for-pixel an industrial yard and frenzy.ts
+             // launched the player off unmarked tarmac.
+             vec2 t = fract(vWorld.xy / uTile);
+             float v = abs(t.y - 0.5) * 2.0;
+             float band = fract(t.x * 3.0 - v * 0.5);
+             float chev = (1.0 - step(0.42, band)) * step(0.08, t.x) * step(t.x, 0.92);
+             diffuseColor.rgb = mix(diffuseColor.rgb, uLine, chev * 0.75);
+           } else if (uMark > 2.5) {
              // Crossing: stripes across the carriageway at a junction mouth.
              vec2 t = vWorld.xy / uTile;
              float bars = uMark < 3.5 ? fract(t.x * 4.0) : fract(t.y * 4.0);
