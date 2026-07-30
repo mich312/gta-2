@@ -43,7 +43,14 @@ export type LightKind = 'lamp' | 'head' | 'red' | 'blue' | 'muzzle' | 'shop' | '
  */
 export type ShadowMode = 'none' | 'static' | 'dynamic';
 
-const LIGHT_COLORS: Record<LightKind, string> = {
+/**
+ * What each kind of light is coloured.
+ *
+ * Exported because the 3D renderer lights the same city with real lights and a
+ * lamp that is sodium-orange in one view and white in the other is not the same
+ * street. One table, both renderers.
+ */
+export const LIGHT_COLORS: Record<LightKind, string> = {
   lamp: palette.lampGlow,
   head: palette.headlight,
   red: palette.sirenRed,

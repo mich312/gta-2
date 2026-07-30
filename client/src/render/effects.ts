@@ -58,7 +58,7 @@ export interface Particle {
  * what you see is the area that actually hurt.
  */
 /** A light with a lifetime: a fireball, a muzzle flash, a blown transformer. */
-interface Flash {
+export interface Flash {
   x: number;
   y: number;
   radius: number;
@@ -228,6 +228,17 @@ export class Effects {
 
   get particlePool(): readonly Particle[] {
     return this.particles;
+  }
+
+  /**
+   * The live flashes: a fireball, a muzzle flash, a blown transformer.
+   *
+   * These are lights with a lifetime and nothing else — they draw no pixels of
+   * their own. The 2D pass feeds them into its Canvas compositor as it draws
+   * the particles; the 3D one hands them to real lights.
+   */
+  get flashPool(): readonly Flash[] {
+    return this.flashes;
   }
 
   /**

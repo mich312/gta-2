@@ -435,7 +435,7 @@ export function render(
   // The hour, from the tick being rendered. A pure function of it, like the
   // traffic signals: nothing about the clock is on the wire, and two players
   // on the same corner see the same sky because they compute the same number.
-  lights.setNight(scene.night ?? nightAmount(timeOfDay(scene.tick, dayLengthSec(map))));
+  // The hour is set in `main.ts` now, for both renderers. See `sceneNight`.
 
   // One rounded origin for the whole frame. Every world position derives from
   // it, so the scene translates as a rigid body: no seams between cached
@@ -772,6 +772,23 @@ export function render(
  * so the client's clock and the server's are the same function of the tick
  * without a second thing to keep in step.
  */
+/**
+ * How dark it is in the scene being rendered, 0 (midday) to 1 (midnight).
+ *
+ * A pure function of the tick, like the traffic signals: nothing about the clock
+ * is on the wire, and two players on the same corner see the same sky because
+ * they compute the same number.
+ *
+ * Exported and called from `main.ts` because BOTH renderers need it. It used to
+ * be computed inside `render()` and pushed into the light pass there, which
+ * meant the 3D path read `lights.nightAmount` before anything had ever set it —
+ * so the 3D city sat at the pass's initial 0.5 for ever and the day never turned
+ * over. Same shape of bug as the effects that were never advanced.
+ */
+export function sceneNight(map: CityMap, scene: Scene): number {
+  return scene.night ?? nightAmount(timeOfDay(scene.tick, dayLengthSec(map)));
+}
+
 function dayLengthSec(map: CityMap): number {
   return map.dayLengthSec > 0 ? map.dayLengthSec : 1440;
 }
