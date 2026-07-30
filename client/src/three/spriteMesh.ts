@@ -266,9 +266,64 @@ export function spriteGeometry(
   merged.translate(-px, -py, 0);
   merged.scale(1 / SCALE, 1 / SCALE, zScale / SCALE);
   merged.computeVertexNormals();
+  addOutlineNormals(merged);
 
   cache.set(key, merged);
   return merged;
+}
+
+/**
+ * A second, welded set of normals — for the outline hull only.
+ *
+ * The merge is non-indexed, so `computeVertexNormals` gives every triangle its
+ * own normals and nothing is shared along an edge. That is exactly right for
+ * the shading: flat faces are what the banding lands on. It is wrong for the
+ * inverted hull, which displaces each vertex along its normal to build the
+ * silhouette — with per-face normals every triangle is pushed out on its own
+ * and the hull comes apart at every edge. A tree read as a fan of black
+ * spikes, and the gaps between them let the hull show through the middle of
+ * the shape instead of around it.
+ *
+ * Averaging by position welds the hull back together without touching the
+ * normals the shading uses. Positions are quantised before keying because the
+ * primitives that were merged do not agree to the last bit about where a
+ * shared corner is.
+ */
+function addOutlineNormals(geom: THREE.BufferGeometry): void {
+  const pos = geom.attributes['position'] as THREE.BufferAttribute;
+  const nrm = geom.attributes['normal'] as THREE.BufferAttribute;
+  if (!pos || !nrm) return;
+  const sums = new Map<string, [number, number, number]>();
+  const key = (i: number): string => {
+    const q = (v: number): number => Math.round(v * 1000) / 1000;
+    return `${q(pos.getX(i))},${q(pos.getY(i))},${q(pos.getZ(i))}`;
+  };
+  for (let i = 0; i < pos.count; i++) {
+    const k = key(i);
+    const acc = sums.get(k) ?? [0, 0, 0];
+    acc[0] += nrm.getX(i);
+    acc[1] += nrm.getY(i);
+    acc[2] += nrm.getZ(i);
+    sums.set(k, acc);
+  }
+  const out = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const acc = sums.get(key(i))!;
+    const len = Math.hypot(acc[0], acc[1], acc[2]);
+    // A vertex whose faces cancel exactly has no meaningful welded normal;
+    // fall back to the face normal rather than emitting a zero the shader
+    // would have to normalise.
+    if (len > 1e-6) {
+      out[i * 3] = acc[0] / len;
+      out[i * 3 + 1] = acc[1] / len;
+      out[i * 3 + 2] = acc[2] / len;
+    } else {
+      out[i * 3] = nrm.getX(i);
+      out[i * 3 + 1] = nrm.getY(i);
+      out[i * 3 + 2] = nrm.getZ(i);
+    }
+  }
+  geom.setAttribute('outlineNormal', new THREE.BufferAttribute(out, 3));
 }
 
 /** How many walk-cycle frames a sprite has. 1 for anything that stands still. */

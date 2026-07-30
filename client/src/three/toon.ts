@@ -65,12 +65,20 @@ export function toonMaterial(color: number, bands = 3): THREE.MeshToonMaterial {
  * swollen copy's front faces are culled, so it is only visible where it pokes
  * out past the real mesh's silhouette.
  */
-export function outlineMaterial(thickness: number, color = 0x0a0d12): THREE.ShaderMaterial {
+export function outlineMaterial(
+  thickness: number,
+  color = 0x0a0d12,
+  welded = false,
+): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     side: THREE.BackSide,
+    defines: welded ? { USE_OUTLINE_NORMAL: '' } : {},
     uniforms: { thickness: { value: thickness }, outlineColor: { value: new THREE.Color(color) } },
     vertexShader: /* glsl */ `
       uniform float thickness;
+      #ifdef USE_OUTLINE_NORMAL
+        attribute vec3 outlineNormal;
+      #endif
       #include <common>
       #include <skinning_pars_vertex>
       void main() {
@@ -85,7 +93,20 @@ export function outlineMaterial(thickness: number, color = 0x0a0d12): THREE.Shad
         vec4 mvPosition = modelViewMatrix * im * vec4(position, 1.0);
         // Fatten along the normal in VIEW space, so the outline keeps an
         // even width whatever the surface is facing.
-        vec3 n = normalize(normalMatrix * mat3(im) * normal);
+        //
+        // Welded normals where the geometry carries them (see
+        // addOutlineNormals). The shading wants per-face normals and the
+        // hull wants shared ones, so sprite meshes supply both.
+        #ifdef USE_OUTLINE_NORMAL
+          vec3 raw = normalMatrix * mat3(im) * outlineNormal;
+        #else
+          vec3 raw = normalMatrix * mat3(im) * normal;
+        #endif
+        // Unused pool slots are parked by zeroing their instance matrix, which
+        // makes this vector zero, and normalize() of a zero vector is a NaN
+        // written into gl_Position. Drivers are free to do anything with that,
+        // including drawing a stray triangle across the screen.
+        vec3 n = dot(raw, raw) > 0.0 ? normalize(raw) : vec3(0.0);
         mvPosition.xyz += n * thickness;
         gl_Position = projectionMatrix * mvPosition;
       }
@@ -109,7 +130,7 @@ export function addOutline(
   parent: THREE.Object3D,
   thickness: number,
 ): THREE.Mesh | THREE.InstancedMesh {
-  const mat = outlineMaterial(thickness);
+  const mat = outlineMaterial(thickness, 0x0a0d12, !!mesh.geometry.attributes['outlineNormal']);
   let twin: THREE.Mesh | THREE.InstancedMesh;
   if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
     const src = mesh as THREE.InstancedMesh;

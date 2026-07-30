@@ -41,6 +41,8 @@ const PARTICLE_Z = 5;
  */
 class QuadPool {
   readonly mesh: THREE.InstancedMesh;
+  /** What the buffers hold. `mesh.count` is how many are drawn this frame. */
+  private readonly capacity: number;
   private readonly alpha: THREE.InstancedBufferAttribute;
   private readonly shape: THREE.InstancedBufferAttribute;
   private used = 0;
@@ -98,11 +100,23 @@ class QuadPool {
           }
           if (a <= 0.0) discard;
           gl_FragColor = vec4(vColor, a);
+          // A ShaderMaterial gets the *pars* chunks injected for it and none
+          // of the applications, so these two have to be asked for by name.
+          // Without them the linear colour that THREE.Color converted on the
+          // way in is written straight into an sRGB buffer: every skid mark,
+          // blood pool, scorch, spark and muzzle flash came out far darker and
+          // more saturated than the 2D effect it mirrors — palette fireGlow
+          // #ff8a30 arriving on screen as a dark blood red. They were also the
+          // only thing in the frame skipping ACES, so additive flashes clipped
+          // hard while everything around them rolled off.
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
         }
       `,
     });
     // `instanceColor` is only declared in the shader when three.js knows the
     // mesh has one, which it learns from the attribute existing.
+    this.capacity = capacity;
     this.mesh = new THREE.InstancedMesh(geometry, material, capacity);
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(
       new Float32Array(capacity * 3),
@@ -139,7 +153,7 @@ class QuadPool {
     shape = 0,
   ): void {
     const i = this.used;
-    if (i >= this.mesh.count || alpha <= 0 || w <= 0 || h <= 0) return;
+    if (i >= this.capacity || alpha <= 0 || w <= 0 || h <= 0) return;
     this.m.compose(
       this.pos.set(x, y, z),
       this.quat.setFromAxisAngle(this.axis, angle),
@@ -158,7 +172,9 @@ class QuadPool {
 
   /** Park the unused tail at zero scale and flush. */
   end(): void {
-    for (let i = this.used; i < this.mesh.count; i++) this.alpha.setX(i, 0);
+    // Draw only what was placed. The tail used to be hidden by zeroing its
+    // alpha, which still rasterised every quad and discarded it per fragment.
+    this.mesh.count = this.used;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.alpha.needsUpdate = true;

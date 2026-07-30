@@ -27,6 +27,32 @@ import { spriteGeometry } from './spriteMesh.js';
 const PLANT_ZSCALE = 1.9;
 const PROP_Z = 1.5;
 
+/**
+ * Per-prop height, where one multiplier for all of them is wrong.
+ *
+ * The authored `z` in `sprites.json` is a relighting hint for flat art, not a
+ * height, and the props are where treating it as one shows worst. At a flat
+ * 1.5 a street lamp came out 9.0 world px against a pedestrian's 9.75 — every
+ * lamp in the city stopping at shoulder height — while a bench came out 7.5
+ * and a bin 9.0, so the things you can walk straight through (the sim gives
+ * props no collision at all) were drawn as chest-high walls and the player
+ * ended up standing inside them with the rails through their chest.
+ *
+ * So: the things that should tower do, and the things you can walk through are
+ * kept low enough that walking through them reads as stepping over.
+ */
+const PROP_Z_BY_KIND: Readonly<Record<string, number>> = Object.freeze({
+  lamp: 5.0,
+  hydrant: 0.9,
+  bench: 0.5,
+  bin: 0.7,
+  fence: 0.6,
+});
+
+function propZ(name: string): number {
+  return PROP_Z_BY_KIND[name.replace(/_broken$/, '')] ?? PROP_Z;
+}
+
 /** How far outside the view to keep planting resident, in tiles. */
 const PLANT_MARGIN = 40;
 
@@ -71,9 +97,12 @@ export class SceneryLayer {
     this.map = map;
     // Whatever was planted for the last region goes first. Sprite geometries
     // are cached and shared by every plant of a kind, so only the instanced
-    // meshes and their materials are ours to throw away.
+    // meshes and their materials are ours to throw away — plus the instance
+    // matrices, which belong to the mesh rather than to either of those and
+    // are freed only by `InstancedMesh.dispose()`.
     for (const child of [...this.plants.children]) {
       const mesh = child as THREE.Mesh;
+      if ((mesh as THREE.InstancedMesh).isInstancedMesh) (mesh as THREE.InstancedMesh).dispose();
       const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
       if (Array.isArray(mat)) for (const mm of mat) mm.dispose();
       else mat?.dispose();
@@ -178,7 +207,7 @@ export class SceneryLayer {
   private propPool(name: string): { mesh: THREE.InstancedMesh; used: number } | null {
     const hit = this.propPools.get(name);
     if (hit) return hit;
-    const geom = spriteGeometry(name, { zScale: PROP_Z });
+    const geom = spriteGeometry(name, { zScale: propZ(name) });
     if (!geom) return null;
     const mat = toonMaterial(0xffffff);
     mat.vertexColors = true;

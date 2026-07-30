@@ -68,6 +68,8 @@ function whitened(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
  */
 class SolidPool {
   private readonly mesh: THREE.InstancedMesh;
+  /** What the buffers hold. `mesh.count` is how many are drawn this frame. */
+  private readonly capacity: number;
   private readonly outline: THREE.InstancedMesh;
   private used = 0;
   private readonly m = new THREE.Matrix4();
@@ -76,7 +78,6 @@ class SolidPool {
   private readonly scl = new THREE.Vector3();
   private readonly up = new THREE.Vector3(0, 0, 1);
   private readonly color = new THREE.Color();
-  private readonly zero = new THREE.Matrix4().makeScale(0, 0, 0);
 
   constructor(
     parent: THREE.Object3D,
@@ -86,6 +87,7 @@ class SolidPool {
   ) {
     const material = toonMaterial(0xffffff);
     material.vertexColors = true;
+    this.capacity = capacity;
     this.mesh = new THREE.InstancedMesh(whitened(geometry), material, capacity);
     this.mesh.instanceColor = new THREE.InstancedBufferAttribute(
       new Float32Array(capacity * 3),
@@ -107,7 +109,7 @@ class SolidPool {
 
   put(x: number, y: number, z: number, scale: number, angle: number, css: string): void {
     const i = this.used;
-    if (i >= this.mesh.count) return;
+    if (i >= this.capacity) return;
     this.m.compose(
       this.pos.set(x, y, z),
       this.quat.setFromAxisAngle(this.up, angle),
@@ -131,7 +133,7 @@ class SolidPool {
     css: string,
   ): void {
     const i = this.used;
-    if (i >= this.mesh.count) return;
+    if (i >= this.capacity) return;
     this.m.compose(
       this.pos.set(x, y, z),
       this.quat.setFromAxisAngle(this.up, angle),
@@ -143,8 +145,16 @@ class SolidPool {
     this.used++;
   }
 
+  /**
+   * Draw only what was placed this frame.
+   *
+   * Shortening `count` rather than zero-scaling the tail: a collapsed instance
+   * still goes through the vertex shader and the shadow pass, and the outline
+   * twin pays for it a second time.
+   */
   end(): void {
-    for (let i = this.used; i < this.mesh.count; i++) this.mesh.setMatrixAt(i, this.zero);
+    this.mesh.count = this.used;
+    this.outline.count = this.used;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     this.outline.instanceMatrix.needsUpdate = true;

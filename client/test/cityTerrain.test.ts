@@ -2,11 +2,13 @@ import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   BRIDGE_DECK_Z,
+  KERB_Z,
   RAMP_Z,
   T_BRIDGE,
   T_RAMP,
   T_ROAD,
   T_RUNWAY,
+  T_SIDEWALK,
   T_SAND,
   T_TREES,
   TILE_SIZE,
@@ -110,6 +112,26 @@ describe('the 3D city, against the world the simulation runs', () => {
     // emitted into the deck's own bucket, which paved the water under every
     // bridge in the city.
     expect(spans[0]!.bottom).toBeLessThan(0);
+    // The deck runs down to the earth like any other ground column, rather
+    // than floating as a slab of its own thickness. Drawn as a 6 px slab it
+    // stopped at -6 while the water beside it topped out at -8, and the 2 px
+    // slot between them ran the length of every span — you could see the sky
+    // through the parapet from any low camera. Anything at or below the -16
+    // floor `buildCity` clamps to closes it.
+    expect(spans[0]!.bottom).toBeLessThanOrEqual(-16);
+  });
+
+  it('draws the pavement at the height pedestrians walk on', () => {
+    // `volume.ts` gives the kerb a KERB_Z of 3 for the collision that will one
+    // day read it. Nothing reads it yet: `peds.ts` paths pedestrians along
+    // T_SIDEWALK, `isSolidTile` does not block it, and every body is placed at
+    // z = 0. Drawing the kerb literally buried every ped, officer and player
+    // on a pavement to the hips, with the outline hull of the sunk half
+    // haloed across the slabs around them.
+    expect(KERB_Z).toBeGreaterThan(0);
+    const spans = drawnSpans(T_SIDEWALK, [{ bottom: -4096, top: KERB_Z }]);
+    expect(spans).toHaveLength(1);
+    expect(spans[0]!.top).toBe(0);
   });
 
   it('lays a ramp at street level too', () => {

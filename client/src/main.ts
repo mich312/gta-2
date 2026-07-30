@@ -689,11 +689,49 @@ let lead: Vec2 = { x: 0, y: 0 };
  */
 function fallBackTo2d(): void {
   render3d = false;
+  // Hand the GPU back before letting go of the renderer. The canvas is only
+  // hidden, so without this the context, its shadow map and a whole city's
+  // buffers stay resident — on precisely the machine that has just failed to
+  // render 3D, and browsers cap how many live WebGL contexts a page may hold.
+  world3d?.view.dispose();
   world3d = null;
   const worldCanvas = document.getElementById('world') as HTMLCanvasElement | null;
   if (worldCanvas) worldCanvas.hidden = true;
   document.body.classList.remove('render3d');
   hud.notice('3D unavailable on this device — using the 2D renderer');
+}
+
+/**
+ * Notice when the GPU takes the context away, and do something about it.
+ *
+ * This is the one 3D failure the `try/catch` around `drawWorld3d` cannot see.
+ * three.js does not throw on a lost context — it sets a flag and quietly makes
+ * `render()` a no-op — so the simulation kept ticking, input kept working, the
+ * frame counter kept counting, and the player got a blank white screen
+ * reporting a happy 60 fps for as long as they cared to watch it.
+ *
+ * `preventDefault` is what makes the context restorable at all. If it comes
+ * back, the city is rebuilt into the new context by the ordinary path: the
+ * layers are dropped so the next frame constructs them again. If it does not
+ * come back, 2D is better than nothing.
+ */
+function watchContextLoss(worldCanvas: HTMLCanvasElement): void {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  worldCanvas.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    hud.notice('graphics reset — restoring');
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      if (render3d) fallBackTo2d();
+    }, 5000);
+  });
+  worldCanvas.addEventListener('webglcontextrestored', () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    // Everything on the GPU died with the old context. Dropping the layers
+    // makes the next frame build them again against the new one.
+    world3d = null;
+  });
 }
 
 /**
@@ -727,6 +765,7 @@ function drawWorld3d(scene: Scene | null): void {
       pitch: 0,
       viewHeight: viewport.h,
     });
+    watchContextLoss(worldCanvas);
     world3d = {
       view,
       // `view.world`, not `view.scene`: entities and scenery are placed at the

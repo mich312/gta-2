@@ -1,5 +1,19 @@
 import * as THREE from 'three';
 import { Z_PER_STOREY } from 'shared';
+import palette from 'shared/data/palette.json';
+import { toonGradient } from './toon.js';
+
+/**
+ * Marking colours come from the palette, not from this file.
+ *
+ * Both of these were re-invented here as literals a shade or two brighter
+ * than the game's own — a lane line at `#d8cf94` against the palette's
+ * `#b9b183`, a crossing at `vec3(0.86)` against `#c2bfae` — which is why the
+ * 3D street read as a motorway and the crossings glared white in every
+ * screenshot while the 2D view of the same junction did not.
+ */
+const ROAD_LANE = Number.parseInt(palette.roadLane.slice(1), 16);
+const ROAD_CROSSING = new THREE.Color(palette.roadCrossing);
 
 /**
  * Building facades, computed in the fragment shader from world position.
@@ -42,7 +56,13 @@ export interface FacadeOptions {
  * city would look like it was made of graph paper.
  */
 export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
-  const mat = new THREE.MeshToonMaterial({ color: opts.color });
+  // The gradient map is not optional decoration — without one three.js falls
+  // back to a single hard step between 0.7 and 1.0, so a wall facing away from
+  // the sun is only 30% darker than one facing it and the banding the whole
+  // art direction rests on never appears. Props and vehicles went through
+  // `toonMaterial()` and got the real three-band ramp; the city did not, so
+  // the two halves of the world were quantised on different curves.
+  const mat = new THREE.MeshToonMaterial({ color: opts.color, gradientMap: toonGradient() });
   const glass = new THREE.Color(opts.glass ?? 0x2b3a4d);
   const lit = new THREE.Color(opts.lit ?? 0xffd9a0);
   const uniforms = {
@@ -171,10 +191,11 @@ export function setFacadeNight(scene: THREE.Object3D, night: number): void {
  * Still one material per case rather than per road, so the ground stays three
  * instanced draws.
  */
-export function roadMaterial(color: number, mark: number, lineColor = 0xd8cf94): THREE.MeshToonMaterial {
-  const mat = new THREE.MeshToonMaterial({ color });
+export function roadMaterial(color: number, mark: number, lineColor = ROAD_LANE): THREE.MeshToonMaterial {
+  const mat = new THREE.MeshToonMaterial({ color, gradientMap: toonGradient() });
   const uniforms = {
     uLine: { value: new THREE.Color(lineColor) },
+    uCrossing: { value: ROAD_CROSSING },
     uTile: { value: 16 },
     uMark: { value: mark },
   };
@@ -204,6 +225,7 @@ export function roadMaterial(color: number, mark: number, lineColor = 0xd8cf94):
          varying vec3 vWorld;
          varying vec3 vWN;
          uniform vec3 uLine;
+         uniform vec3 uCrossing;
          uniform float uTile;
          uniform float uMark;
          float road_hash(vec2 p) {
@@ -223,14 +245,17 @@ export function roadMaterial(color: number, mark: number, lineColor = 0xd8cf94):
              float bars = uMark < 3.5 ? fract(t.x * 4.0) : fract(t.y * 4.0);
              float band = uMark < 3.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);
              float zebra = (1.0 - step(0.5, bars)) * (1.0 - step(0.42, band));
-             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.86, 0.82), zebra * 0.8);
+             diffuseColor.rgb = mix(diffuseColor.rgb, uCrossing, zebra * 0.8);
            } else if (uMark > 0.5) {
              vec2 t = vWorld.xy / uTile;
              // Across the lane: how far from the tile centre, 0 at the middle.
              float across = uMark < 1.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);
              // Along the lane: the dash cadence.
              float along  = uMark < 1.5 ? fract(t.x * 1.5) : fract(t.y * 1.5);
-             float line = (1.0 - step(0.075, across)) * (1.0 - step(0.55, along));
+             // Half-width 0.031 of a 16 px tile is a 1 px line, which is what
+             // tiles.ts paints. 0.075 was 2.4 px — nearly two and a half
+             // times the 2D line, on every road in the city.
+             float line = (1.0 - step(0.031, across)) * (1.0 - step(0.55, along));
              diffuseColor.rgb = mix(diffuseColor.rgb, uLine, line * 0.72);
            }
          }`,
@@ -256,7 +281,7 @@ export function roadMaterial(color: number, mark: number, lineColor = 0xd8cf94):
  * rectangle.
  */
 export function groundMaterial(color: number, grain = 0.1, edge = 0): THREE.MeshToonMaterial {
-  const mat = new THREE.MeshToonMaterial({ color });
+  const mat = new THREE.MeshToonMaterial({ color, gradientMap: toonGradient() });
   const uniforms = { uGrain: { value: grain }, uEdge: { value: edge }, uTile: { value: 16 } };
 
   mat.onBeforeCompile = (shader) => {

@@ -112,17 +112,35 @@ describe('rebuilding the city when the window moves', () => {
   it('gives back the GPU memory rather than only unhooking the group', () => {
     const built = buildCity(windowAt(0, 0));
     const disposed: string[] = [];
+    let instanced = 0;
+    let instancedDisposed = 0;
     built.group.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.addEventListener('dispose', () => disposed.push('geometry'));
       const mat = mesh.material as THREE.Material | undefined;
       if (mat && !Array.isArray(mat)) mat.addEventListener('dispose', () => disposed.push('material'));
+      // The mesh itself, which is the one that was being missed. An
+      // `InstancedMesh` owns its per-instance transform buffer — it is not
+      // part of the geometry — and three.js frees that buffer and the VAO
+      // bound to it only from `InstancedMesh.dispose()`. A city is ~74 of
+      // them holding ~3.9 MB of matrices, so disposing the geometry and the
+      // material while leaving the mesh alone freed the shapes and kept the
+      // transforms, once per rebase, until the context was lost.
+      //
+      // This assertion is the point of the test: the two above it were both
+      // passing while that was happening.
+      if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
+        instanced++;
+        mesh.addEventListener('dispose', () => instancedDisposed++);
+      }
     });
     disposeCity(built.group);
     // A session that crosses a few regions would otherwise leave a whole
     // city's buffers resident for each one it has left.
     expect(disposed).toContain('geometry');
     expect(disposed).toContain('material');
+    expect(instanced).toBeGreaterThan(0);
+    expect(instancedDisposed).toBe(instanced);
   });
 
   it('replants rather than piling planting on planting', () => {

@@ -36,6 +36,15 @@ export interface MissionView {
 }
 
 const BUY_KEYS = ['Y', 'U', 'I', 'O', 'H', 'J', 'N', 'P'];
+
+/**
+ * Baseline of the first kill-feed row, in HUD px.
+ *
+ * Below the radar (which ends at y 78) and below the place and district labels
+ * beneath it (y 90 and y 100), so five rows of feed have the right-hand column
+ * to themselves.
+ */
+const FEED_TOP = 112;
 /** Gang colours, in gang-id order. Mirrors shared/data/gangs.json. */
 const GANG_COLORS = [
   '#c8543c',
@@ -399,11 +408,18 @@ export class Hud {
       ctx.stroke();
     }
 
-    // Kill feed (top right).
+    // Kill feed, down the right-hand side under the radar and the place name.
+    //
+    // It used to start at y = 10, which is inside the radar: the panel is
+    // opaque, covers x from `w - 78` and y from 4 to 78, and is drawn after the
+    // HUD — so it painted over all five rows. Right-aligned text loses its END
+    // first, so what survived was the opening of each sentence and never the
+    // point of it. Every kill notice, gang warning and mission line in the game
+    // arrived truncated, and the shipped screenshots show it.
     ctx.font = '8px monospace';
     ctx.textAlign = 'right';
     ctx.fillStyle = '#e8e0c8';
-    this.feed.forEach((f, i) => ctx.fillText(f.text, viewport.w - 4, 10 + i * 10));
+    this.feed.forEach((f, i) => ctx.fillText(f.text, viewport.w - 4, FEED_TOP + i * 10));
     ctx.textAlign = 'left';
 
     if (!me) return;

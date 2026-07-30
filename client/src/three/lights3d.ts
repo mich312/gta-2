@@ -370,6 +370,14 @@ export class Lights3dLayer {
     const headR = (broken & PART_HEADLIGHT_R) === 0;
     // Each lamp is gated on its own bit: a car coming the other way on one
     // headlight tells you what has happened to it.
+    // Dipped by day, full beam at night.
+    //
+    // `lit` is the day/night factor every other emitter here is scaled by, and
+    // it was being discarded. A headlight is a real light in 3D rather than an
+    // additive smear over a bright frame as it is in 2D, so an ungated one is
+    // as bright as the midday sun: every occupied car dragged a white pool
+    // down the road at noon, and the four spot slots were spent before dusk.
+    const beam = 0.18 + 0.82 * lit;
     if (headL || headR) {
       const both = headL && headR;
       this.wants.push({
@@ -378,7 +386,7 @@ export class Lights3dLayer {
         z: HEAD_Z,
         radius: both ? 66 : 46,
         kind: 'head',
-        alpha: both ? 0.46 : 0.32,
+        alpha: (both ? 0.46 : 0.32) * beam,
         rank: RANK.headlight,
         cone: { angle: heading, spread: 0.62 },
       });
@@ -395,7 +403,7 @@ export class Lights3dLayer {
         z: HEAD_Z,
         radius: braking ? 6 : 4,
         kind: 'red',
-        alpha: braking ? 0.55 : 0.32,
+        alpha: (braking ? 0.55 : 0.32) * beam,
         rank: RANK.taillight,
       });
     }
@@ -409,11 +417,12 @@ export class Lights3dLayer {
         z: HEAD_Z + 4,
         radius: 22,
         kind: phase ? 'red' : 'blue',
-        alpha: 0.85,
+        // A strobe is meant to be seen in daylight, so it keeps most of its
+        // punch — but not all of it, or a squad car outshines the sun.
+        alpha: 0.85 * (0.45 + 0.55 * lit),
         rank: RANK.strobe,
       });
     }
-    void lit;
   }
 
   /**
@@ -460,11 +469,25 @@ export class Lights3dLayer {
         light.target.updateMatrixWorld();
         continue;
       }
+      // A beam that could not get a spot slot is dropped, not demoted.
+      //
+      // Falling through to the point path turned it into an omnidirectional
+      // light carrying the cone's intensity — a headlight became a sun-bright
+      // sphere on the car's bonnet, throwing light backwards and sideways down
+      // a street it should have been aiming along. And because headlights
+      // outrank lamps, those fakes then evicted the street lighting that was
+      // doing an honest job.
+      if (w.cone) continue;
       if (pi >= this.budget.points) continue;
       const light = this.points[pi++]!;
       light.color.copy(color);
       light.intensity = intensity;
-      light.distance = w.radius * 2.6;
+      // Reach close to the authored radius. At 2.6× a lamp lit nearly seven
+      // times the area the 2D renderer gives it, so sixteen of them overlapped
+      // into a flat ambient wash with no pools in it — the thing street lamps
+      // exist to make. `GAIN` carries the brightness; this is only how far it
+      // gets before falling off.
+      light.distance = w.radius * 1.25;
       light.position.set(w.x, w.y, w.z);
     }
     for (let i = pi; i < this.points.length; i++) this.points[i]!.intensity = 0;

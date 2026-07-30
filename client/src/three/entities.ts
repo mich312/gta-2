@@ -82,6 +82,26 @@ const RIGHT = new THREE.Vector3(1, 0, 0);
  */
 const Z_EXAGGERATION = 1.5;
 
+/**
+ * How flat a body on the ground is drawn.
+ *
+ * The sprawl and curl poses are drawn from above, so their art is as wide as a
+ * standing figure and the authored `z` values are the same relighting hints
+ * every other sprite carries. Extruded at the standing exaggeration a corpse
+ * came out 77–85% of the height of a person on their feet — a body-shaped
+ * block, upright, at eye level with the living, which reads as a bug rather
+ * than as a death.
+ *
+ * Low enough to lie down, not zero: a body still has to catch the light and
+ * hold an outline, or it becomes a decal.
+ */
+const DEAD_Z = 0.3;
+
+/** Bodies on the ground lie flat; everything else keeps its standing height. */
+function zScaleFor(name: string): number {
+  return /Dead|Downed/.test(name) ? DEAD_Z : Z_EXAGGERATION;
+}
+
 /** How high off the road a body of this kind sits, and how big it is. */
 interface Body {
   /** Half-extents in world px: along, across, up. */
@@ -155,6 +175,8 @@ class Pool {
   readonly mesh: THREE.InstancedMesh;
   private readonly outline: THREE.Mesh | THREE.InstancedMesh;
   private used = 0;
+  /** How many instances the buffers hold. `mesh.count` is how many are drawn. */
+  private readonly capacity: number;
   private readonly tint = new THREE.Color();
 
   constructor(
@@ -167,6 +189,7 @@ class Pool {
     // black tyres) so the whole thing is one instanced draw.
     const mat = toonMaterial(0xffffff);
     mat.vertexColors = true;
+    this.capacity = capacity;
     this.mesh = new THREE.InstancedMesh(geometry, mat, capacity);
     // Per-instance tint, multiplied over the model's own paint. White leaves the
     // art alone; a damaged car is darkened towards soot, which is what the 2D
@@ -192,7 +215,7 @@ class Pool {
 
   /** Place one instance. Silently drops past capacity rather than throwing. */
   put(m: THREE.Matrix4, shade = 1): void {
-    if (this.used >= this.mesh.count) return;
+    if (this.used >= this.capacity) return;
     this.mesh.setMatrixAt(this.used, m);
     this.tint.setScalar(shade);
     this.mesh.setColorAt(this.used, this.tint);
@@ -200,14 +223,21 @@ class Pool {
   }
 
   /**
-   * Park the unused tail somewhere harmless and flush.
+   * Draw only what was placed this frame, and flush.
    *
-   * An instance that is not written keeps last frame's matrix, so a crowd
-   * that shrinks leaves corpses standing in the street. Scaling the tail to
-   * zero is cheaper than rebuilding the mesh.
+   * An instance that is not written keeps last frame's matrix, so a crowd that
+   * shrinks would leave corpses standing in the street. Shortening `count` is
+   * how that is avoided: a zero-scaled tail collapses to nothing on screen but
+   * is still transformed, still counted and still walked by the shadow pass,
+   * and pools are sized for the worst case — a pool of 200 holding 3 peds paid
+   * for 197 invisible ones, twice over, because the outline twin pays it too.
+   *
+   * `count` is the draw length; `capacity` is what the buffers hold, so
+   * growing back next frame costs nothing.
    */
-  end(zero: THREE.Matrix4): void {
-    for (let i = this.used; i < this.mesh.count; i++) this.mesh.setMatrixAt(i, zero);
+  end(): void {
+    this.mesh.count = this.used;
+    (this.outline as THREE.InstancedMesh).count = this.used;
     this.mesh.instanceMatrix.needsUpdate = true;
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     (this.outline as THREE.InstancedMesh).instanceMatrix.needsUpdate = true;
@@ -236,8 +266,14 @@ export class EntityLayer {
   private readonly q = new THREE.Quaternion();
   private readonly pos = new THREE.Vector3();
   private readonly scl = new THREE.Vector3(1, 1, 1);
-  private readonly zero = new THREE.Matrix4().makeScale(0, 0, 0);
-  /** Last facing per officer, so a stopped one does not snap east. */
+  /**
+   * Last facing per officer, so a stopped one does not snap east.
+   *
+   * Pruned to who is actually on screen once it gets large, exactly as
+   * `WalkCycle.state` is. Officer ids are not reused and a rebase mints fresh
+   * ones, so without this a long session with a lot of police contact grows
+   * an entry per officer ever seen and never gives one back.
+   */
   private readonly copFacing = new Map<number, number>();
 
   constructor(scene: THREE.Object3D) {
@@ -263,7 +299,7 @@ export class EntityLayer {
     let pool = this.pools.get(key);
     if (!pool) {
       const geom =
-        spriteGeometry(name, { variant, zScale: Z_EXAGGERATION, frame }) ??
+        spriteGeometry(name, { variant, zScale: zScaleFor(name), frame }) ??
         fallback?.() ??
         personGeometry(shape.color, 0x7d6a52, 0x33383f);
       pool = new Pool(this.group, geom, shape, capacity);
@@ -453,9 +489,14 @@ export class EntityLayer {
       );
     }
 
-    for (const pool of this.pools.values()) pool.end(this.zero);
-    this.escorts?.end(this.zero);
+    for (const pool of this.pools.values()) pool.end();
+    this.escorts?.end();
     this.walk.sweep(this.seen);
+    if (this.copFacing.size >= 256) {
+      const live = new Set<number>();
+      for (const c of world.cops) live.add(c.cop.id);
+      for (const id of this.copFacing.keys()) if (!live.has(id)) this.copFacing.delete(id);
+    }
   }
 
   /**

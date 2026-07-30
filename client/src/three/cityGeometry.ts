@@ -19,6 +19,7 @@ import {
   TILE_SIZE,
   type CityMap,
   type Span,
+  EARTH,
   buildVolumeGrid,
   spansAt,
 } from 'shared';
@@ -51,6 +52,15 @@ import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 const Z_SCALE = 1;
 
 /**
+ * How much wider than its tile each box is drawn, in world px.
+ *
+ * Small enough to be invisible — a sixteenth of a world pixel, well under one
+ * device pixel at any camera height the game uses — and enough to stop two
+ * neighbours sharing an edge exactly.
+ */
+const SEAM_OVERLAP = 0.06;
+
+/**
  * Is this tile part of a carriageway, for the purpose of markings?
  *
  * A bridge is: it is the same street, and the 2D `paintBridge` starts by
@@ -79,9 +89,9 @@ export function isCarriageway(tile: number): boolean {
  * approach and no ramp tile anywhere beside it, and traffic drove straight
  * underneath its own bridge and disappeared for the length of the span.
  *
- * So the two surfaces the simulation walks on at zero are drawn at zero.
- * Everything else — buildings, canopy, the kerb, the water — is solid or
- * unreachable, and its volume is exactly what you should see.
+ * So every surface the simulation walks on at zero is drawn at zero.
+ * Everything else — buildings, canopy, the water — is solid or unreachable,
+ * and its volume is exactly what you should see.
  *
  * This function is the whole of the reconciliation, deliberately: when the sim
  * does adopt `collide3`, deleting it is the change.
@@ -89,11 +99,25 @@ export function isCarriageway(tile: number): boolean {
 export function drawnSpans(tile: number, spans: readonly Span[]): readonly Span[] {
   switch (tile) {
     case T_BRIDGE:
-      // A deck at road level, as thick as `volume.ts` says a deck is. The
-      // river span below it is dropped rather than redrawn: it was being
-      // emitted into the deck's own bucket, which paved the water under every
-      // bridge in the city and hung an outline hull round it.
-      return [{ bottom: -BRIDGE_DECK_THICKNESS, top: 0 }];
+      // A deck at road level. It runs down to EARTH like any other ground
+      // column rather than being a 6 px slab: the caller clamps the bottom to
+      // -16, and a slab left the band between -16 and -6 empty while the
+      // river beside it topped out at -8. That 2 px slot ran the length of
+      // every span and you could see the sky through it from the parapet.
+      //
+      // `BRIDGE_DECK_THICKNESS` still means what it says in `volume.ts`,
+      // where the collision will read it. It is the drawing that has no use
+      // for it while the deck is at street level.
+      return [{ bottom: EARTH, top: 0 }];
+    case T_SIDEWALK:
+      // The pavement is walked on at zero exactly like the road: `peds.ts`
+      // paths pedestrians along these tiles, `isSolidTile` does not block
+      // them, and every body and prop is placed at z = 0. `volume.ts` gives
+      // it a KERB_Z of 3 for the collision that will one day read it, and
+      // drawing that literally buried every ped, officer and player to the
+      // hips — legs gone, and the outline hull of the sunk half smeared a
+      // black halo across the slabs around them.
+      return [{ bottom: EARTH, top: 0 }];
     case T_RAMP:
       // Stepped ramps are the same story one twelfth the size. The launch is
       // `frenzy.ts` reading the tile type, not a climb, so the surface a car
@@ -389,7 +413,13 @@ export function buildCity(map: CityMap): CityBuild {
         // the whole point of having heights at all.
         const bottom = Math.max(span.bottom, -16);
         const h = Math.max(1, (span.top - bottom) * Z_SCALE);
-        m.makeScale(TILE_SIZE, TILE_SIZE, h);
+        // A hair wider than the tile so neighbours overlap rather than meet.
+        // Boxes that share an edge exactly leave the rasteriser to break the
+        // tie, and it breaks it in favour of the darker side wall — scoring
+        // every roof, road and stretch of water with a dark 1 px line on a
+        // 16 px grid. That regular scratching is the first thing in the frame
+        // that reads as an engine artefact rather than as art.
+        m.makeScale(TILE_SIZE + SEAM_OVERLAP, TILE_SIZE + SEAM_OVERLAP, h);
         m.setPosition(
           (tx + 0.5) * TILE_SIZE,
           (ty + 0.5) * TILE_SIZE,
@@ -640,12 +670,21 @@ function addBoxes(
  * geometries are collected before being disposed rather than disposed as they
  * are met — disposing the same buffer twice is not an error, but walking a set
  * says what is meant.
+ *
+ * The `InstancedMesh` itself has to be disposed as well as its geometry. The
+ * per-instance transform buffer does not belong to the geometry — it hangs off
+ * the object as `instanceMatrix`, and three.js only releases it (and the VAO
+ * bound to it) from `InstancedMesh.dispose()`. A city is 74 instanced meshes
+ * and ~3.9 MB of instance matrices, so leaving them out meant a rebase freed
+ * the shapes and kept the transforms: invisible, unreclaimable, and fatal
+ * after enough of them.
  */
 export function disposeCity(group: THREE.Group): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
   group.traverse((o) => {
     const mesh = o as THREE.Mesh;
+    if ((mesh as THREE.InstancedMesh).isInstancedMesh) (mesh as THREE.InstancedMesh).dispose();
     if (mesh.geometry) geometries.add(mesh.geometry);
     const mat = mesh.material;
     if (Array.isArray(mat)) for (const mm of mat) materials.add(mm);

@@ -76,8 +76,24 @@ export const SUN_OFFSET = Object.freeze({ x: -420, y: -620, z: 900 });
  * night end is untouched from where it was tuned: night has to actually be
  * dark or a street lamp cannot read against it, and that is the whole point of
  * having lamps.
+ *
+ * The split between them matters as much as the total. The sun is the only
+ * term that is banded — ambient and hemisphere are flat fill by definition —
+ * so when fill outweighs key, the quantisation it is all built for lands on a
+ * few percent of the final pixel and the city reads as flat colour. The old
+ * numbers had 3.02 of fill against 2.18 of key, which measured as a 5% step
+ * across the terminator. These keep the lit level where it was calibrated and
+ * put the contrast back into the banded term.
  */
-const DAYLIGHT = Object.freeze({ sun: 2.18, ambient: 1.84, hemi: 1.18 });
+const DAYLIGHT = Object.freeze({ sun: 2.95, ambient: 1.18, hemi: 0.62 });
+
+/**
+ * Half-extent of the sun's shadow camera, in world px.
+ *
+ * Shared by the rig and by `lookAt`, which needs it to work out how big a
+ * shadow texel is before it can snap the camera to one.
+ */
+export const SHADOW_HALF_EXTENT = 460;
 const MOONLIGHT = Object.freeze({ sun: 0.21, ambient: 0.4, hemi: 0.39 });
 
 /** Where the camera sits and what it points at, both in SCENE space. */
@@ -156,7 +172,20 @@ export class CityView {
     this.viewHeight = opts.viewHeight;
 
     this.renderer = new THREE.WebGLRenderer({ canvas: opts.canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(2, globalThis.devicePixelRatio || 1));
+    // One backing pixel per pixel asked for, deliberately.
+    //
+    // `setPixelRatio` multiplies whatever `setSize` is given, so a ratio of 2
+    // made `canvas.width` twice the size the caller requested. `main.ts` then
+    // compared `worldCanvas.width` against the size it had asked for, never
+    // saw them agree, and called `setSize` again on every single frame — and
+    // writing `canvas.width` makes the browser throw away and rebuild the
+    // colour, depth and multisample buffers. A HiDPI display was paying for
+    // four times the fill rate and a full framebuffer reallocation per frame.
+    //
+    // The 2D renderer draws the world at half resolution (`RENDER_SCALE`) and
+    // upscales; matching that here keeps the two views consistent as well as
+    // cheap.
+    this.renderer.setPixelRatio(1);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     // ACES filmic instead of the linear default: it rolls off the highlights
@@ -208,10 +237,19 @@ export class CityView {
    * The old city is disposed rather than merely detached: a session that
    * crosses a few regions would otherwise leave a whole city's buffers on the
    * GPU each time.
+   *
+   * It is disposed *after* the replacement is built, which is not fussiness.
+   * three.js reference-counts compiled programs by how many materials use
+   * them, so disposing first drops every count to zero, deletes the four
+   * programs, and then the identical materials built a line later have to
+   * compile and link them all over again — a stall added to the one frame that
+   * could least afford it. Building first keeps each count above zero across
+   * the handover and no recompile happens.
    */
   setMap(map: CityMap): void {
-    if (this.city) disposeCity(this.city);
+    const previous = this.city;
     const built = buildCity(map);
+    if (previous) disposeCity(previous);
     this.city = built.group;
     this.instanceCount = built.instances;
     this.world.add(this.city);
@@ -227,12 +265,26 @@ export class CityView {
     sun.position.set(SUN_OFFSET.x, SUN_OFFSET.y, SUN_OFFSET.z);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
-    const d = 900;
+    // Half-extent of the shadow camera, in world px.
+    //
+    // This was 900, which is 1800 px of map across 1024 texels — 1.76 world px
+    // per texel — for a frame that is at most 700×400 (`viewport.ts`). Over
+    // nine tenths of the map was spent on world nobody could see. 460 covers
+    // the visible frame with room for the shadows thrown into it from just
+    // outside, at nearly 4× the texel density.
+    const d = SHADOW_HALF_EXTENT;
     sun.shadow.camera.left = -d;
     sun.shadow.camera.right = d;
     sun.shadow.camera.top = d;
     sun.shadow.camera.bottom = -d;
     sun.shadow.camera.far = 4000;
+    // Without a bias a surface shadows itself: the depth it compares against
+    // is its own, quantised to a texel, so half of every lit roof and wall
+    // came out in dashed diagonal stripes at noon. `normalBias` pushes the
+    // lookup along the surface normal, which is what fixes acne on the large
+    // flat faces this city is made of; the constant bias mops up the rest.
+    sun.shadow.normalBias = 1.5;
+    sun.shadow.bias = -0.0005;
     // In the world group, so the sun is rigged in world coordinates like
     // everything else: `SUN_OFFSET` is the direction `SUN_X`/`SUN_Y` throw the
     // 2D renderer's walls and drop shadows, and the two views now agree on
@@ -241,11 +293,19 @@ export class CityView {
     this.world.add(sun.target);
     this.sun = sun;
 
-    // Ambient and hemisphere stay in scene space. Neither describes a place in
-    // the city — the hemisphere's axis is a screen-space one — so mirroring
-    // them would change how the city is lit for no reason.
+    // Ambient has no direction, so it stays in scene space; the hemisphere
+    // does have one and it has to be the world's.
+    //
+    // A `HemisphereLight` mixes ground colour into sky colour by the surface
+    // normal along its own axis, and left at its default position that axis is
+    // scene +Y. This is a Z-up world: buildings extrude in z, the camera sits
+    // on +z. So roofs and roads — the surfaces most of the frame is made of —
+    // were taking the exact 50/50 blend of sky and ground instead of the sky
+    // they face, while north-facing walls got a blue wash and south-facing
+    // walls an olive one, for a light that does not exist.
     this.ambient = new THREE.AmbientLight(0x8493ad, DAYLIGHT.ambient);
     this.hemi = new THREE.HemisphereLight(0xa8cbe6, 0x3a3d33, DAYLIGHT.hemi);
+    this.hemi.position.set(0, 0, 1);
     this.scene.add(this.ambient);
     this.scene.add(this.hemi);
   }
@@ -322,13 +382,38 @@ export class CityView {
     // Keep the sun rigged to the camera so the shadow map always covers what
     // is on screen. The sun lives in the world group, so `SUN_OFFSET` is in
     // world px and means the same thing here as `SUN_X`/`SUN_Y` do in 2D.
-    this.sun.target.position.set(x, y, 0);
+    //
+    // Snapped to whole shadow texels. Following the camera to unquantised
+    // float coordinates slides the depth grid by a fraction of a texel every
+    // frame, and every shadow edge in the city crawls and fizzes while you
+    // drive. Moving in texel steps means the samples land on the same places
+    // frame to frame and the edges hold still.
+    const texel = (2 * SHADOW_HALF_EXTENT) / this.sun.shadow.mapSize.x;
+    const sx = Math.round(x / texel) * texel;
+    const sy = Math.round(y / texel) * texel;
+    this.sun.target.position.set(sx, sy, 0);
     this.sun.target.updateMatrixWorld();
-    this.sun.position.set(x + SUN_OFFSET.x, y + SUN_OFFSET.y, SUN_OFFSET.z);
+    this.sun.position.set(sx + SUN_OFFSET.x, sy + SUN_OFFSET.y, SUN_OFFSET.z);
   }
 
   render(): void {
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Give the GPU everything back.
+   *
+   * For when 3D is being abandoned rather than merely paused — the fallback to
+   * the 2D renderer. Hiding the canvas leaves the context, the shadow map and
+   * the city resident, and a browser will only grant a page so many contexts
+   * before it starts taking the oldest ones away.
+   */
+  dispose(): void {
+    if (this.city) disposeCity(this.city);
+    this.city = null;
+    this.sun.shadow.map?.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   /**
