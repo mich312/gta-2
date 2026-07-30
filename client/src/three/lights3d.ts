@@ -503,11 +503,13 @@ export class Lights3dLayer {
       if (pi >= this.budget.points) continue;
       const light = this.points[pi++]!;
       light.color.copy(color);
-      // Reach close to the authored radius. At 2.6× a lamp lit nearly seven
-      // times the area the 2D renderer gives it, so sixteen of them overlapped
-      // into a flat ambient wash with no pools in it — the thing street lamps
-      // exist to make.
-      const distance = w.radius * 1.5;
+      // Wide enough for the pool to reach the road it is lighting, but short
+      // of the 2.6× that had sixteen lamps overlapping into a flat ambient
+      // wash with no pools in it at all. At 1.25× the patch stopped at the
+      // kerb and the carriageway stayed black, which is not what a street lamp
+      // is for either. The compensation below is what makes this a free choice
+      // about the shape of the pool rather than one about its brightness.
+      const distance = w.radius * 2.0;
       // Shortening the range dims the light as well as narrowing it, which is
       // not what was wanted and is easy to miss. three.js windows the inverse
       // square by `(1 - (d/distance)^4)^2`, so at a lamp's own 30 px height

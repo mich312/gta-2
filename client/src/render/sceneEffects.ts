@@ -42,8 +42,25 @@ const SKID_INTERVAL_MS = 45;
 
 const skidState = new Map<
   number,
-  { heading: number; speed: number; ms: number; nextAtMs: number }
+  { heading: number; speed: number; ms: number; nextAtMs: number; seq: number }
 >();
+
+/**
+ * Which frame we are on, so a gap in a vehicle's history can be told from a
+ * long frame.
+ *
+ * These are not the same thing and conflating them cost every skid mark in the
+ * game on a slow machine. What the history check is for is a vehicle that left
+ * the screen and came back — its last sample is old and the heading change
+ * since then is meaningless. That was detected by asking whether the sample was
+ * more than 250 ms ago, which is also true of *every* vehicle on any machine
+ * rendering below four frames a second, so `layRubber` bailed every frame for
+ * everyone and no rubber was ever laid.
+ *
+ * Counting frames asks the question directly: was this vehicle sampled on the
+ * frame before this one? A long frame is then just a long frame.
+ */
+let frameSeq = 0;
 
 /** Seconds a fresh body keeps bleeding out onto the ground. */
 const BLEED_SEC = 4.5;
@@ -77,11 +94,13 @@ function layRubber(
   airborne: boolean,
 ): void {
   const prev = skidState.get(id);
-  skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: prev?.nextAtMs ?? 0 });
+  skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: prev?.nextAtMs ?? 0, seq: frameSeq });
   if (!prev || airborne) return;
 
   const dtMs = nowMs - prev.ms;
-  if (dtMs <= 0 || dtMs > 250) return; // first frame back on screen: no history
+  // Continuous history only: this vehicle has to have been sampled on the
+  // previous frame for the heading change since then to mean anything.
+  if (dtMs <= 0 || prev.seq !== frameSeq - 1) return;
   // Shortest signed angle between the two headings, so wrapping past ±π
   // doesn't read as a violent slide.
   let delta = heading - prev.heading;
@@ -109,7 +128,13 @@ function layRubber(
       effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
     }
   }
-  skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: nowMs + SKID_INTERVAL_MS });
+  skidState.set(id, {
+    heading,
+    speed,
+    ms: nowMs,
+    nextAtMs: nowMs + SKID_INTERVAL_MS,
+    seq: frameSeq,
+  });
 }
 
 /**
@@ -182,6 +207,7 @@ function vehicleEffects(
  */
 export function spawnSceneEffects(effects: Effects, scene: Scene): void {
   const nowMs = scene.nowMs;
+  frameSeq++;
 
   for (const rv of scene.remotes.vehicles) {
     const v = rv.vehicle;
