@@ -657,12 +657,25 @@ setInterval(() => conn.ping(performance.now()), 1000);
 /**
  * Frame budget guards. `MAX_CATCHUP_TICKS` stops a stalled tab — or a blocking
  * `window.prompt` — from dumping a hundred queued ticks into one frame; the old
- * loop had no bound, so coming back to the tab locked it up. `MAX_FRAME_MS`
- * throws away the one absurd delta a stall produces instead of simulating
- * through it.
+ * loop had no bound, so coming back to the tab locked it up.
+ *
+ * A long frame is **clamped to that same bound rather than discarded.** It used
+ * to be replaced with a single tick, on the reasoning that a huge delta is the
+ * one absurd number a stall produces. That is true of a stall and false of a
+ * slow machine, where every frame is long and none of them is absurd: the world
+ * kept its 30 Hz while the player's input was sampled once per frame, so on a
+ * box rendering at 1.4 fps a car reached about 10 px/s against a 200 px/s top
+ * speed. Every speed threshold in the game sits above that — `WALL_HIT_MIN_SPEED`
+ * 54, `RUNOVER_MIN_SPEED` 24, `SKID_MIN_SPEED` 170 — so a player on hardware
+ * that slow could not crash, skid or run anybody over at all. Not dropped
+ * frames: slow motion, with the world going on around them at full speed.
+ *
+ * Clamping to the catch-up bound keeps the stall protection — five ticks is
+ * still the most one frame may ever simulate — while spending the real elapsed
+ * time up to it.
  */
 const MAX_CATCHUP_TICKS = 5;
-const MAX_FRAME_MS = 250;
+const MAX_FRAME_MS = TICK_MS * MAX_CATCHUP_TICKS;
 
 let last = performance.now();
 let acc = 0;
@@ -851,7 +864,10 @@ function drawWorld3d(scene: Scene | null): void {
 function frameBody(now: number): void {
   const rawMs = now - last;
   last = now;
-  const frameMs = rawMs > MAX_FRAME_MS || rawMs < 0 ? TICK_MS : rawMs;
+  // A negative delta is a clock going backwards and means nothing; a long one
+  // is real time this machine actually took, capped at what one frame is
+  // allowed to simulate.
+  const frameMs = rawMs < 0 ? TICK_MS : Math.min(rawMs, MAX_FRAME_MS);
   stats.onFrame(rawMs);
   acc = Math.min(acc + frameMs, TICK_MS * MAX_CATCHUP_TICKS);
 

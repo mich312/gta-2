@@ -117,6 +117,26 @@ interface Want {
   cone?: { angle: number; spread: number };
 }
 
+/**
+ * three.js's range window at a distance, for a light of the given range.
+ *
+ * A `PointLight`/`SpotLight` with `decay = 2` attenuates as
+ * `(1 - (d/distance)^4)^2 / d^2`. The second factor is the physical inverse
+ * square and is what `GAIN` is tuned against; the first exists only so the
+ * light reaches zero at its stated range instead of being clipped there. That
+ * window is what makes a shorter range quietly darker as well as smaller.
+ *
+ * Floored rather than allowed to reach zero: a source converting at or beyond
+ * its own range is a tuning mistake, and dividing by nearly nothing would turn
+ * it into a flare rather than showing up as one.
+ */
+function falloffWindow(d: number, distance: number): number {
+  if (distance <= 0) return 1;
+  const t = Math.min(1, d / distance);
+  const w = (1 - t * t * t * t) ** 2;
+  return Math.max(0.15, w);
+}
+
 /** Squared distance, for ranking without a square root. */
 function dist2(ax: number, ay: number, bx: number, by: number): number {
   const dx = ax - bx;
@@ -455,8 +475,10 @@ export class Lights3dLayer {
       if (w.cone && si < this.budget.spots) {
         const light = this.spots[si++]!;
         light.color.copy(color);
-        light.intensity = intensity;
-        light.distance = w.radius * 2.4;
+        // Same window compensation as the point path below.
+        const throwTo = w.radius * 2.4;
+        light.intensity = intensity / falloffWindow(ref, throwTo);
+        light.distance = throwTo;
         light.angle = w.cone.spread;
         light.position.set(w.x, w.y, w.z + 6);
         // Aimed down the bonnet and slightly at the road, so the beam lands on
@@ -481,13 +503,21 @@ export class Lights3dLayer {
       if (pi >= this.budget.points) continue;
       const light = this.points[pi++]!;
       light.color.copy(color);
-      light.intensity = intensity;
       // Reach close to the authored radius. At 2.6× a lamp lit nearly seven
       // times the area the 2D renderer gives it, so sixteen of them overlapped
       // into a flat ambient wash with no pools in it — the thing street lamps
-      // exist to make. `GAIN` carries the brightness; this is only how far it
-      // gets before falling off.
-      light.distance = w.radius * 1.25;
+      // exist to make.
+      const distance = w.radius * 1.5;
+      // Shortening the range dims the light as well as narrowing it, which is
+      // not what was wanted and is easy to miss. three.js windows the inverse
+      // square by `(1 - (d/distance)^4)^2`, so at a lamp's own 30 px height
+      // that window is 0.97 at the old reach and 0.57 at this one — the pool
+      // on the road came out barely over half as bright, which reads as the
+      // same flat dimness the wide version had. Dividing the window out at the
+      // reference distance makes brightness *there* independent of the range,
+      // so the range is free to be a shape decision on its own.
+      light.intensity = intensity / falloffWindow(ref, distance);
+      light.distance = distance;
       light.position.set(w.x, w.y, w.z);
     }
     for (let i = pi; i < this.points.length; i++) this.points[i]!.intensity = 0;
