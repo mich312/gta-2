@@ -9,3 +9,7 @@ coverage/
 /data/
 server/data/
 sprites.preview.png
+# Scratch space for review harnesses — throwaway capture scripts and the
+# screenshots they produce. Findings get written up in the docs and the
+# pictures worth keeping are promoted into evidence/ by hand.
+/.qa/
