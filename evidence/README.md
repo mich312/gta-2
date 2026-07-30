@@ -170,3 +170,15 @@ The ladder sheet regenerates on demand — run the dev server and open
 `/damage-sheet.html`. It is the quickest way to check the drawing after
 touching any of the damage rendering, and it is why the sheet exists rather
 than these files: the PNGs are a snapshot, the page is the tool.
+
+## The six-lens graphics review
+
+Captured during the review in `REVIEW-3D.md`. See there for what each finding
+was and which of them are still open.
+
+| file | what it shows |
+|---|---|
+| `bug-pavement-kerb.png` | The player and a pedestrian sunk into the pavement to the hips — no legs, and a black ring on the slabs where the outline hull of the buried half pokes through. `volume.ts` gives the kerb a height for a collision nothing reads yet, and `drawnSpans` drew it literally while every body is placed at zero. |
+| `fixed-pavement-kerb.png` | The same street after. Bodies stand on the paving, the halo is gone, and the bushes have continuous outlines rather than the fan of black spikes the per-face hull normals gave them. |
+| `bug-bridge-hole.png` | The gap under a bridge parapet, with the scene background set to magenta to prove it is a hole rather than a shading artifact — the stripe changes colour with the background. The deck was drawn as a 6 px slab stopping at -6 while the water beside it topped out at -8. |
+| `city-3d-lit-night.png` | Night with the light rig repaired: a gradient map on the city's own materials, key above fill, shadow bias, and lamps that make pools instead of a wash. |
