@@ -26,7 +26,7 @@ import {
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
-import { addOutline, toonMaterial } from './toon.js';
+import { addOutline, outlineMaterial, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 
 /**
@@ -60,6 +60,17 @@ const Z_SCALE = 1;
  * neighbours sharing an edge exactly.
  */
 const SEAM_OVERLAP = 0.06;
+
+/**
+ * Tiles per side of a culling chunk.
+ *
+ * The number trades draw calls against wasted geometry. Smaller chunks reject
+ * more of the map but submit more meshes to reject; at 32 the game's own view
+ * touches a small fraction of them and the drawn count stays close to what one
+ * mesh per material cost, while the geometry that reaches the GPU drops by
+ * more than an order of magnitude.
+ */
+const CHUNK_TILES = 32;
 
 /**
  * Is this tile part of a carriageway, for the purpose of markings?
@@ -365,13 +376,29 @@ export function buildCity(map: CityMap): CityBuild {
     }
   }
 
-  // Collect one transform per span, bucketed by the colour it resolves to.
+  // Collect one transform per span, bucketed by the colour it resolves to
+  // AND by where in the city it is.
+  //
   // Buildings get a bucket per palette variant rather than one for all of
   // them: a city where every block is the same grey reads as a model of a
   // city, and the variants already exist for exactly this.
+  //
+  // The chunk half of the key is what makes culling work at all. three.js
+  // culls an `InstancedMesh` against the bounding sphere of all its instances,
+  // so one mesh per material spanning a 240×240 map has a bounding sphere
+  // covering the entire city and is never culled from anywhere — the whole map
+  // was submitted every frame from every camera. Measured at the game's own
+  // view size, 4.2% of instances actually intersect the frustum.
+  //
+  // Chunking trades a larger number of meshes for the ability to reject most
+  // of them with one sphere test each. `TileLayer` makes the same trade with
+  // `CHUNK_TILES`.
+  const chunksX = Math.ceil(W / CHUNK_TILES);
   const buckets = new Map<string, THREE.Matrix4[]>();
   const surfaceOf = new Map<string, Surface>();
-  const bucket = (key: string, surface: Surface): THREE.Matrix4[] => {
+  const bucket = (tx: number, ty: number, surface: Surface): THREE.Matrix4[] => {
+    const chunk = Math.floor(ty / CHUNK_TILES) * chunksX + Math.floor(tx / CHUNK_TILES);
+    const key = `${chunk}|${surface.key}`;
     let list = buckets.get(key);
     if (!list) {
       list = [];
@@ -415,7 +442,7 @@ export function buildCity(map: CityMap): CityBuild {
           }
         }
       }
-      const list = bucket(surface.key, surface);
+      const list = bucket(tx, ty, surface);
 
       for (const span of drawnSpans(tile, spansAt(vg, tx, ty))) {
         // Clamp the earth to something shallow: a ground span runs from
@@ -451,9 +478,17 @@ export function buildCity(map: CityMap): CityBuild {
   instances += buildEdgeSkirt(map, group);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
-  for (const [key, mats] of buckets) {
-    if (mats.length === 0) continue;
-    const surface = surfaceOf.get(key) ?? DEFAULT_SURFACE;
+  // One material per surface, shared by every chunk that has any of it.
+  //
+  // Chunking multiplies the number of meshes, and building a material each
+  // time would multiply the materials with them — which would cost a shader
+  // program per copy and defeat the batching that makes the city cheap. The
+  // material is a property of the surface; only the transforms are per chunk.
+  const materials = new Map<string, THREE.Material>();
+  const materialFor = (surface: Surface): THREE.Material => {
+    const key = surface.key;
+    const hit = materials.get(key);
+    if (hit) return hit;
     const { color } = surface;
     // Buildings get a facade — storey lines, window columns, a shopfront on
     // the ground floor — computed in the shader from world position, so one
@@ -477,7 +512,16 @@ export function buildCity(map: CityMap): CityBuild {
                     : key === 'water'
                       ? toonMaterial(color)
                       : groundMaterial(color, surface.grain ?? 0.1, surface.edge ?? 0);
-    const mesh = new THREE.InstancedMesh(box, material, mats.length);
+    materials.set(key, material);
+    return material;
+  };
+  // And one outline material for the whole city, for the same reason.
+  const cityOutline = outlineMaterial(0.5);
+
+  for (const [key, mats] of buckets) {
+    if (mats.length === 0) continue;
+    const surface = surfaceOf.get(key) ?? DEFAULT_SURFACE;
+    const mesh = new THREE.InstancedMesh(box, materialFor(surface), mats.length);
     mesh.castShadow = surface.solid === true;
     mesh.receiveShadow = true;
     instances += mats.length;
@@ -488,7 +532,7 @@ export function buildCity(map: CityMap): CityBuild {
     // draw a black grid over the whole city — the streets read as one
     // surface, and a surface has no silhouette worth tracing.
     // Thin: at this camera a fat hull rounds off box corners into wedges.
-    if (surface.solid) addOutline(mesh, group, 0.5);
+    if (surface.solid) addOutline(mesh, group, 0.5, cityOutline);
   }
 
   return { group, instances };

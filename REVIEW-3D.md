@@ -175,7 +175,24 @@ Both terrain fixes have regression tests in `client/test/cityTerrain.test.ts`.
   inside them.
 - The three broken instruments above.
 
-**Triangles per frame: 5,083k → 1,656k.** 777 tests pass.
+### Culling
+
+- **Frustum culling was defeated.** One `InstancedMesh` per material spanned
+  the whole 240×240 map, so three.js tested a single bounding sphere covering
+  the entire city, intersected every frustum there is, and submitted the map
+  whole from every camera. Nothing that counts draw calls would show it.
+  Instances are now bucketed by `(chunk, material)` at 32 tiles a side, the way
+  `TileLayer` already chunks, with materials still shared across chunks so the
+  program count and the batching are unchanged.
+
+  At the game's own camera, measured in Node against the real frustum:
+  **9.6% of instances submitted, against 74.5% unchunked** — 7.8× less
+  geometry. The cost is more meshes to test: draw calls rise from 212 to ~320
+  at the viewer's 42° pitch, which sees far more of the map than the game's
+  own straight-down camera does. `client/test/cityCulling.test.ts` fails on
+  both counts if the chunking is removed.
+
+**Triangles per frame: 5,083k → 992k.** 779 tests pass.
 
 ---
 
@@ -185,13 +202,6 @@ These are real and evidenced; they are left because each is a larger change
 than a review pass should make unannounced, or because the call is not the
 renderer's to make.
 
-- **Frustum culling is defeated.** One `InstancedMesh` per material spans the
-  whole 240×240 map, so three.js tests a single bounding sphere covering the
-  entire city and culls nothing. Measured: 3,648 of 86,231 instances (4.2%)
-  actually intersect the frustum; bucketing by 32-tile chunk touches 187 of
-  1,565 chunks, an 18.8× geometry reduction. This is the single largest win
-  available and it wants doing the way `TileLayer` already does it, as its own
-  change with its own tests.
 - **A rebase is ~220 ms of synchronous main-thread work** — four full passes
   over a 57,600-tile grid with no budget. The 2D path solved exactly this with
   `CHUNK_BUILDS_PER_FRAME`.

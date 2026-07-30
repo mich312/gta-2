@@ -129,8 +129,17 @@ export function addOutline(
   mesh: THREE.Mesh | THREE.InstancedMesh,
   parent: THREE.Object3D,
   thickness: number,
+  /**
+   * A material to share rather than making one.
+   *
+   * The city is chunked into hundreds of meshes so that frustum culling has
+   * something to reject, and giving each its own outline material would be
+   * hundreds of copies of one shader.
+   */
+  shared?: THREE.ShaderMaterial,
 ): THREE.Mesh | THREE.InstancedMesh {
-  const mat = outlineMaterial(thickness, 0x0a0d12, !!mesh.geometry.attributes['outlineNormal']);
+  const mat =
+    shared ?? outlineMaterial(thickness, 0x0a0d12, !!mesh.geometry.attributes['outlineNormal']);
   let twin: THREE.Mesh | THREE.InstancedMesh;
   if ((mesh as THREE.InstancedMesh).isInstancedMesh) {
     const src = mesh as THREE.InstancedMesh;
