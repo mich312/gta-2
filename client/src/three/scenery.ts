@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TILE_SIZE, type CityMap } from 'shared';
+import { T_PARK, T_TREES, TILE_SIZE, TREE_Z, type CityMap } from 'shared';
 import type { PropState } from 'shared';
 import { hash2 } from '../render/noise.js';
 import { addOutline, toonMaterial } from './toon.js';
@@ -23,7 +23,8 @@ import { spriteGeometry } from './spriteMesh.js';
  * taken seriously.
  */
 
-const TREE_Z = 1.9;
+/** Height exaggeration for planting, as `Z_EXAGGERATION` is for bodies. */
+const PLANT_ZSCALE = 1.9;
 const PROP_Z = 1.5;
 
 /** How far outside the view to keep planting resident, in tiles. */
@@ -79,8 +80,8 @@ export class SceneryLayer {
     }
     this.plants.clear();
 
-    const tree = spriteGeometry('tree', { zScale: TREE_Z });
-    const bush = spriteGeometry('bush', { zScale: TREE_Z });
+    const tree = spriteGeometry('tree', { zScale: PLANT_ZSCALE });
+    const bush = spriteGeometry('bush', { zScale: PLANT_ZSCALE });
     if (!tree || !bush) return;
 
     const trees: THREE.Matrix4[] = [];
@@ -91,11 +92,17 @@ export class SceneryLayer {
       for (let tx = 0; tx < W; tx++) {
         const tile = map.tiles[ty * W + tx] as number;
         // Park and woodland only — the same two the 2D layer treats as lush.
-        if (tile !== 4 && tile !== 11) continue;
+        if (tile !== T_PARK && tile !== T_TREES) continue;
+        // Woodland stands 36 px proud: `volume.ts` makes canopy solid to
+        // anything on the ground, and `cityGeometry` draws that volume. A tree
+        // planted at 0 on top of it was buried inside its own wood — 2350
+        // woodland tiles in seed 7 and not one visible tree, which is what
+        // made a forest read as a raised lawn.
+        const z = tile === T_TREES ? TREE_Z : 0;
         const roll = hash2(tx, ty, 71);
         if (roll > 0.92) {
           this.m.compose(
-            this.pos.set((tx + 0.5) * TILE_SIZE, (ty + 0.5) * TILE_SIZE, 0),
+            this.pos.set((tx + 0.5) * TILE_SIZE, (ty + 0.5) * TILE_SIZE, z),
             // Turn each one differently so a wood is not a grid of clones.
             this.q.setFromAxisAngle(this.up, hash2(tx, ty, 74) * Math.PI * 2),
             this.one,
@@ -106,7 +113,7 @@ export class SceneryLayer {
             this.pos.set(
               (tx + 0.3 + hash2(tx, ty, 72) * 0.4) * TILE_SIZE,
               (ty + 0.3 + hash2(tx, ty, 73) * 0.4) * TILE_SIZE,
-              0,
+              z,
             ),
             this.q.setFromAxisAngle(this.up, hash2(tx, ty, 75) * Math.PI * 2),
             this.one,

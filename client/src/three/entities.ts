@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 import { getVehicleTuning } from 'shared';
 import type { RenderWorld } from '../net/interpolation.js';
-import { COP_SPRITE, deadPose } from '../render/renderer.js';
+import {
+  COP_SPRITE,
+  PED_VARIANTS,
+  PLAYER_VARIANTS,
+  STRIDE,
+  WALK_FRAMES,
+  deadPose,
+  vehicleSpriteVariant,
+} from '../render/renderer.js';
 import { addOutline, toonMaterial } from './toon.js';
 import { carGeometry, personGeometry } from './models.js';
-import { hasSprite, spriteGeometry, variantCount } from './spriteMesh.js';
+import { frameCount, hasSprite, spriteGeometry } from './spriteMesh.js';
 
 /**
  * Everything that moves, as instanced 3D bodies.
@@ -15,12 +23,13 @@ import { hasSprite, spriteGeometry, variantCount } from './spriteMesh.js';
  * Instanced, the whole population is a handful of draws and the per-frame
  * work is writing matrices into a buffer.
  *
- * Bodies are boxes for now. That is not the shipping art — it is the shape
- * the *simulation* already agrees on, since vehicles collide as oriented
- * boxes and always have. Drawing exactly the collider is worth a stage of its
- * own: anything that looks wrong here is wrong in the sim too, which stops
- * being true the moment a modelled car hides its own hitbox. Meshes arrive
- * with 3D.md W3c, and the sprite-to-mesh generator is how.
+ * Bodies come out of `shared/data/sprites.json`, extruded — the same art the
+ * 2D renderer rasterises. That is what keeps the two views the same game and
+ * not two games: a paint job, a walk frame, a gang livery or a turret exists
+ * once, in the data, and both renderers read it. Everywhere this file used to
+ * substitute its own answer for one the sim or the sheet already had — a
+ * colour off the entity id, a single standing pose, no turret, no rider — the
+ * two views disagreed about what the player was looking at.
  */
 
 /** The local player and their vehicle, from the predictor rather than the wire. */
@@ -33,6 +42,8 @@ export interface LocalBodies {
     /** Their id and mode, so a dead local player lies down like everyone else. */
     id: number;
     mode: string;
+    /** Which of the four player colourways they wear. */
+    cosmeticId?: number;
   };
   vehicle?: {
     id: number;
@@ -43,6 +54,16 @@ export interface LocalBodies {
     heading: number;
     /** 0 undamaged, 1 about to burn. Darkens the paint, as the dents do in 2D. */
     wear: number;
+    /** Factory colour off the sim, or -1 to fall back to the id. */
+    paint?: number;
+    /** Whose car it is, for a gang livery. */
+    gangId?: number;
+    /**
+     * Where the driver is aiming, for a turret. Your own comes off your own
+     * smoothed aim rather than off the wire, so the barrel answers the mouse
+     * on the frame you move it — the same split the 2D renderer makes.
+     */
+    aim?: number | null;
   };
 }
 
@@ -72,28 +93,8 @@ interface Body {
 const PED: Body = { size: [3, 3, 9], color: 0xc98f6a, outline: 1.1 };
 const COP: Body = { size: [3.2, 3.2, 9.5], color: 0x3f5c9a, outline: 1.1 };
 const PLAYER: Body = { size: [3.4, 3.4, 10], color: 0xd94b3a, outline: 1.3 };
-
-/** Body paint per vehicle kind. Civilian cars get a spread; services do not. */
-const PAINT: Record<string, number> = {
-  copcar: 0x2c4f9e,
-  copbike: 0x2c4f9e,
-  ambulance: 0xe4e7ea,
-  firetruck: 0xb8322a,
-  taxi: 0xe0b53a,
-  bus: 0x3f7f5a,
-  truck: 0x8a8f98,
-  garbage: 0x4b5540,
-  tank: 0x5c6349,
-  plane: 0xdfe3e8,
-  chopper: 0x37424f,
-  boat: 0xdadfe4,
-  limo: 0x1c1f24,
-  sports: 0xc4392c,
-  muscle: 0x8a3fa0,
-  van: 0xb9b3a4,
-  digger: 0xd8a12a,
-  icecream: 0xefd9c0,
-};
+/** A turret or a rider: pooled like a body, sized like the hull it rides on. */
+const MOUNTED: Body = { size: [6, 6, 6], color: 0xffffff, outline: 1.2 };
 
 /**
  * How much a car's paint darkens as it takes damage.
@@ -118,11 +119,35 @@ function wearOf(v: { kind: string; health: number }): number {
   return wear < 0 ? 0 : wear > 1 ? 1 : wear;
 }
 
-/** Sprite art for a name, or the hand-built fallback if the sheet lacks it. */
-function body(name: string, fallback: THREE.BufferGeometry): THREE.BufferGeometry {
-  return hasSprite(name)
-    ? (spriteGeometry(name, { zScale: Z_EXAGGERATION }) ?? fallback)
-    : fallback;
+/**
+ * Which walk frame a body is on, from how far it has walked.
+ *
+ * The same rule and the same `STRIDE` the 2D renderer uses, so a pedestrian is
+ * mid-stride at the same moment in both views. Keyed per entity, and a big
+ * jump — a respawn, a resync, an interest-management pop — is not counted, or
+ * the legs would spin on teleport.
+ */
+class WalkCycle {
+  private readonly state = new Map<string, { x: number; y: number; dist: number }>();
+
+  frame(key: string, x: number, y: number): number {
+    let s = this.state.get(key);
+    if (!s) {
+      s = { x, y, dist: 0 };
+      this.state.set(key, s);
+    }
+    const moved = Math.hypot(x - s.x, y - s.y);
+    if (moved < 24) s.dist += moved;
+    s.x = x;
+    s.y = y;
+    return Math.floor(s.dist / STRIDE) % WALK_FRAMES;
+  }
+
+  /** Forget anybody not seen this frame, so the map does not grow forever. */
+  sweep(seen: Set<string>): void {
+    if (this.state.size < 512) return;
+    for (const key of this.state.keys()) if (!seen.has(key)) this.state.delete(key);
+  }
 }
 
 /** A pool of instances of one body kind, grown on demand. */
@@ -191,98 +216,76 @@ class Pool {
 
 export class EntityLayer {
   private readonly group = new THREE.Group();
-  private readonly peds: Pool;
-  private readonly cops: Pool;
-  private readonly players: Pool;
-  /** One pool per vehicle kind, so each keeps its own size and colour. */
-  private readonly vehicles = new Map<string, Pool>();
-  /** One pool per body sprite: standing, downed, dead, and each police tier. */
-  private readonly bodies = new Map<string, Pool>();
+  /**
+   * One pool per (sprite, variant, frame).
+   *
+   * Keyed that widely because a pool is a geometry, and all three of those
+   * change the geometry: a colourway is baked into the vertex colours, and a
+   * walk frame moves the legs. It sounds expensive and is not — a pool is
+   * created the first time it is asked for and then reused for the rest of the
+   * session, and six shirts times four frames is twenty-four draws for the
+   * entire crowd.
+   */
+  private readonly pools = new Map<string, Pool>();
   /** A marker over somebody you are meant to be protecting. */
   private escorts: Pool | null = null;
-  private readonly vehicleParent: THREE.Object3D;
+  private readonly walk = new WalkCycle();
+  private readonly seen = new Set<string>();
 
   private readonly m = new THREE.Matrix4();
   private readonly q = new THREE.Quaternion();
   private readonly pos = new THREE.Vector3();
-  private readonly scl = new THREE.Vector3();
+  private readonly scl = new THREE.Vector3(1, 1, 1);
   private readonly zero = new THREE.Matrix4().makeScale(0, 0, 0);
   /** Last facing per officer, so a stopped one does not snap east. */
   private readonly copFacing = new Map<number, number>();
 
   constructor(scene: THREE.Object3D) {
     scene.add(this.group);
-    // The figures come out of the same sprite definitions the 2D renderer
-    // draws, extruded. `models.ts` survives only as the fallback for a name
-    // the sheet has no art for.
-    this.peds = new Pool(this.group, body('ped', personGeometry(0xc98f6a, 0x7d6a52, 0x33383f)), PED, 400);
-    this.cops = new Pool(this.group, body('cop', personGeometry(0xd0a184, 0x27407a, 0x1b2436)), COP, 96);
-    this.players = new Pool(this.group, body('player', personGeometry(0xd8a184, 0xc4392c, 0x2b3038)), PLAYER, 16);
-    this.vehicleParent = this.group;
   }
 
   /**
-   * The pool for one body sprite.
+   * The pool for one (sprite, variant, frame).
    *
-   * Keyed by name because a body is not one drawing. Somebody on the ground is
-   * a different shape from somebody standing — you are looking down at a back,
-   * not at a head and two shoulders — and the sheet carries `pedDowned`,
-   * `pedDeadA/B`, `copDead` and `playerDeadA/B` for exactly that. Drawn as the
-   * standing figure, a corpse in 3D stood up in the middle of the road, which
-   * is a hard thing not to notice and was the most visible gap left.
-   *
-   * The four police tiers get their own entry for the same reason: a SWAT
-   * officer under a different tint reads as "that officer is standing in a
-   * different light", not as "that is a different force".
+   * `fallback` is only reached for a name the sheet has no art for, which
+   * today is none of them — it exists so a body kind whose art has not landed
+   * yet is a plain figure rather than an invisible one.
    */
-  private bodyPool(name: string, fallback: Body, capacity: number): Pool {
-    let pool = this.bodies.get(name);
+  private pool(
+    name: string,
+    variant: number,
+    frame: number,
+    shape: Body,
+    capacity: number,
+    fallback?: () => THREE.BufferGeometry,
+  ): Pool {
+    const key = `${name}#${variant}#${frame}`;
+    let pool = this.pools.get(key);
     if (!pool) {
-      const geom = body(name, personGeometry(fallback.color, 0x7d6a52, 0x33383f));
-      pool = new Pool(this.group, geom, fallback, capacity);
-      this.bodies.set(name, pool);
-    }
-    return pool;
-  }
-
-  /**
-   * The pool for one (kind, paint) pair.
-   *
-   * Keyed by variant as well as kind because a car's colourway is baked into
-   * its vertex colours — which is what keeps a painted car a single instanced
-   * draw. Ten paint jobs is ten pools of the same geometry, and ten draws for
-   * every car in the city is still cheaper than one draw per car.
-   */
-  private vehiclePool(kind: string, variant: number): Pool {
-    const key = `${kind}#${variant}`;
-    let pool = this.vehicles.get(key);
-    if (!pool) {
-      const t = getVehicleTuning(kind);
-      // The collider, drawn. `t.halfLength`/`t.halfWidth` are the numbers the
-      // sim resolves against, so the box on screen is the box you hit things
-      // with — see the note at the top of this file.
-      const along = t?.halfLength ?? 8;
-      const across = t?.halfWidth ?? 4;
-      // Sprite art first; the hand-built car is only reached for a kind the
-      // sheet has no entry for, which today is none of them.
       const geom =
-        spriteGeometry(kind, { variant, zScale: Z_EXAGGERATION }) ??
-        carGeometry(along, across, 0x9aa4b2);
-      pool = new Pool(
-        this.vehicleParent,
-        geom,
-        { size: [along, across, 8], color: 0xffffff, outline: 1.4 },
-        kind === 'plane' || kind === 'chopper' ? 12 : 48,
-      );
-      this.vehicles.set(key, pool);
+        spriteGeometry(name, { variant, zScale: Z_EXAGGERATION, frame }) ??
+        fallback?.() ??
+        personGeometry(shape.color, 0x7d6a52, 0x33383f);
+      pool = new Pool(this.group, geom, shape, capacity);
+      this.pools.set(key, pool);
     }
     return pool;
   }
 
-  /** A stable paint job per vehicle id, so a car does not change colour. */
-  private variantFor(kind: string, id: number): number {
-    const n = variantCount(kind);
-    return n <= 1 ? 0 : Math.abs(Math.imul(id, 2654435761)) % n;
+  /** A body on its feet, walking: variant off the id, frame off the distance. */
+  private walker(
+    name: string,
+    variants: number,
+    id: number,
+    x: number,
+    y: number,
+    shape: Body,
+    capacity: number,
+  ): Pool {
+    const key = `${name}${id}`;
+    this.seen.add(key);
+    const frame = frameCount(name) > 1 ? this.walk.frame(key, x, y) : 0;
+    return this.pool(name, variants > 1 ? Math.abs(id) % variants : 0, frame, shape, capacity);
   }
 
   /**
@@ -293,12 +296,9 @@ export class EntityLayer {
    * the 3D path checkable against the one that already works.
    */
   update(world: RenderWorld, localPlayerId: number, local?: LocalBodies): void {
-    this.peds.begin();
-    this.cops.begin();
-    this.players.begin();
-    for (const pool of this.vehicles.values()) pool.begin();
-    for (const pool of this.bodies.values()) pool.begin();
+    for (const pool of this.pools.values()) pool.begin();
     this.escorts?.begin();
+    this.seen.clear();
 
     // Models are authored at world scale with their feet at z=0, so an
     // instance is placed unscaled — scaling them here would stretch the
@@ -306,7 +306,6 @@ export class EntityLayer {
     const place = (pool: Pool, x: number, y: number, z: number, heading: number): void => {
       this.pos.set(x, y, z);
       this.q.setFromAxisAngle(UP, heading);
-      this.scl.set(1, 1, 1);
       this.m.compose(this.pos, this.q, this.scl);
       pool.put(this.m);
     };
@@ -331,17 +330,19 @@ export class EntityLayer {
           // Point down at them, and turn slowly so it reads as a marker rather
           // than as something standing on their head.
           this.q.setFromAxisAngle(RIGHT, Math.PI),
-          this.scl.set(1, 1, 1),
+          this.scl,
         );
         this.escorts.put(this.m);
       }
       const dying = p.ped.mode === 'downed';
       if (dying || p.ped.mode === 'dead') {
         const name = dying ? 'pedDowned' : `pedDead${deadPose(p.ped.id)}`;
-        place(this.bodyPool(name, PED, 96), p.x, p.y, 0, facing);
+        place(this.pool(name, p.ped.id % PED_VARIANTS, 0, PED, 96), p.x, p.y, 0, facing);
         continue;
       }
-      place(this.peds, p.x, p.y, 0, facing);
+      // Six shirts, off the id, exactly as `ped_v${id % PED_VARIANTS}` picks
+      // them in 2D. One pool at variant 0 dressed the entire city alike.
+      place(this.walker('ped', PED_VARIANTS, p.ped.id, p.x, p.y, PED, 200), p.x, p.y, 0, facing);
     }
     for (const c of world.cops) {
       const { x: vx, y: vy } = c.cop.vel;
@@ -351,17 +352,18 @@ export class EntityLayer {
       this.copFacing.set(c.cop.id, heading);
       // An officer at zero health is a body, not a pursuer.
       if (c.cop.health <= 0) {
-        place(this.bodyPool('copDead', COP, 48), c.x, c.y, 0, heading);
+        place(this.pool('copDead', 0, 0, COP, 48), c.x, c.y, 0, heading);
         continue;
       }
       const sprite = COP_SPRITE[c.cop.kind] ?? 'cop';
-      place(this.bodyPool(sprite, COP, 96), c.x, c.y, 0, heading);
+      place(this.walker(sprite, 1, c.cop.id, c.x, c.y, COP, 96), c.x, c.y, 0, heading);
     }
     for (const pl of world.players) {
       if (pl.player.id === localPlayerId) continue;
+      const variant = Math.abs(pl.player.cosmeticId) % PLAYER_VARIANTS;
       if (pl.player.mode === 'dead') {
         place(
-          this.bodyPool(`playerDead${deadPose(pl.player.id)}`, PLAYER, 16),
+          this.pool(`playerDead${deadPose(pl.player.id)}`, variant, 0, PLAYER, 16),
           pl.x,
           pl.y,
           0,
@@ -369,20 +371,45 @@ export class EntityLayer {
         );
         continue;
       }
-      place(this.players, pl.x, pl.y, pl.player.z ?? 0, pl.player.aimAngle ?? 0);
+      const key = `player${pl.player.id}`;
+      this.seen.add(key);
+      const frame = this.walk.frame(key, pl.x, pl.y);
+      place(
+        this.pool('player', variant, frame, PLAYER, 16),
+        pl.x,
+        pl.y,
+        pl.player.z ?? 0,
+        pl.player.aimAngle ?? 0,
+      );
     }
     for (const v of world.vehicles) {
       const kind = v.vehicle.kind;
-      const pool = this.vehiclePool(kind, this.variantFor(kind, v.vehicle.id));
+      // Paint off the SIM, not off the entity id. `VehicleState.paint` exists
+      // because a rebase re-spawns every parked car with a fresh id, and a
+      // colour hashed from the id repainted the whole street in front of the
+      // player when the window moved — the exact bug that field was added to
+      // fix. `gangId` is the other half: a gang car wears its gang's colours,
+      // which is how you tell whose turf you are parked on.
+      const pool = this.vehiclePool(kind, v.vehicle.id, v.vehicle.paint, v.vehicle.gangId);
       const shade = wearShade(wearOf(v.vehicle));
       // Vehicle boxes carry their own geometry size, so the instance is
       // placed unscaled: composing with a unit scale keeps the outline hull's
       // thickness even instead of stretching it along the longer axis.
-      this.pos.set(v.x, v.y, v.vehicle.z ?? 0);
+      const z = v.vehicle.z ?? 0;
+      this.pos.set(v.x, v.y, z);
       this.q.setFromAxisAngle(UP, v.heading);
-      this.scl.set(1, 1, 1);
       this.m.compose(this.pos, this.q, this.scl);
       pool.put(this.m, shade);
+      this.mounted(
+        kind,
+        v.x,
+        v.y,
+        z,
+        v.heading,
+        shade,
+        this.aimOf(world, localPlayerId, local, v.vehicle.driverId),
+        this.riderOf(world, localPlayerId, local, v.vehicle.driverId),
+      );
     }
 
     // The local player and their car come from PREDICTION, not from the
@@ -391,29 +418,152 @@ export class EntityLayer {
     // player is steering three ticks behind their own input.
     if (local?.player) {
       const p = local.player;
+      const variant = Math.abs(p.cosmeticId ?? 0) % PLAYER_VARIANTS;
       if (p.mode === 'dead') {
-        place(this.bodyPool(`playerDead${deadPose(p.id)}`, PLAYER, 16), p.x, p.y, 0, p.heading);
-      } else {
-        place(this.players, p.x, p.y, p.z, p.heading);
+        place(this.pool(`playerDead${deadPose(p.id)}`, variant, 0, PLAYER, 16), p.x, p.y, 0, p.heading);
+      } else if (p.mode !== 'driving') {
+        // Somebody at the wheel is INSIDE the car, and was being drawn standing
+        // on its roof: the 2D renderer guards this at its call site and the 3D
+        // one did not. A two-wheeler puts them back on top, deliberately, via
+        // `mounted` below.
+        const key = 'local';
+        this.seen.add(key);
+        place(this.pool('player', variant, this.walk.frame(key, p.x, p.y), PLAYER, 16), p.x, p.y, p.z, p.heading);
       }
     }
     if (local?.vehicle) {
       const v = local.vehicle;
-      const pool = this.vehiclePool(v.kind, this.variantFor(v.kind, v.id));
+      const pool = this.vehiclePool(v.kind, v.id, v.paint ?? -1, v.gangId ?? 0);
+      const shade = wearShade(v.wear);
       this.m.compose(
         this.pos.set(v.x, v.y, v.z),
         this.q.setFromAxisAngle(UP, v.heading),
-        this.scl.set(1, 1, 1),
+        this.scl,
       );
-      pool.put(this.m, wearShade(v.wear));
+      pool.put(this.m, shade);
+      this.mounted(
+        v.kind,
+        v.x,
+        v.y,
+        v.z,
+        v.heading,
+        shade,
+        v.aim ?? null,
+        local.player ? `player#${Math.abs(local.player.cosmeticId ?? 0) % PLAYER_VARIANTS}` : 'ped#0',
+      );
     }
 
-    this.peds.end(this.zero);
-    this.cops.end(this.zero);
-    this.players.end(this.zero);
-    for (const pool of this.vehicles.values()) pool.end(this.zero);
-    for (const pool of this.bodies.values()) pool.end(this.zero);
+    for (const pool of this.pools.values()) pool.end(this.zero);
     this.escorts?.end(this.zero);
+    this.walk.sweep(this.seen);
   }
 
+  /**
+   * The pool for one vehicle's (kind, colourway).
+   *
+   * Keyed by variant as well as kind because a car's colourway is baked into
+   * its vertex colours — which is what keeps a painted car a single instanced
+   * draw. Ten paint jobs is ten pools of the same geometry, and ten draws for
+   * every car in the city is still cheaper than one draw per car.
+   */
+  private vehiclePool(kind: string, id: number, paint: number, gangId: number): Pool {
+    const { name, variant } = vehicleSpriteVariant(kind, id, gangId, paint);
+    const t = getVehicleTuning(kind);
+    // The collider, drawn. `t.halfLength`/`t.halfWidth` are the numbers the
+    // sim resolves against, so the box on screen is the box you hit things
+    // with.
+    const along = t?.halfLength ?? 8;
+    const across = t?.halfWidth ?? 4;
+    return this.pool(
+      name,
+      variant,
+      0,
+      { size: [along, across, 8], color: 0xffffff, outline: 1.4 },
+      kind === 'plane' || kind === 'chopper' ? 12 : 48,
+      () => carGeometry(along, across, 0x9aa4b2),
+    );
+  }
+
+  /**
+   * The two things that ride ON a vehicle rather than inside it.
+   *
+   * A turret is the one part that does NOT turn with the body — it points
+   * where its driver points — and a rider is the one part that must, because
+   * somebody on a motorcycle faces where the motorcycle goes. `turretOffset`
+   * and `riderOffset` in `vehicles.json` carry the pivot for each, and their
+   * presence is what says the vehicle has one at all. Both were read by the 2D
+   * renderer and by nothing here, so the tank had no gun and traffic ran
+   * driverless motorcycles through the city at 60 px/s.
+   */
+  private mounted(
+    kind: string,
+    x: number,
+    y: number,
+    z: number,
+    heading: number,
+    shade: number,
+    aim: number | null,
+    rider: string | null,
+  ): void {
+    const t = getVehicleTuning(kind);
+    const turret = t?.turretOffset ?? null;
+    if (turret !== null && hasSprite(`${kind}_turret`)) {
+      const pool = this.pool(`${kind}_turret`, 0, 0, MOUNTED, 16);
+      this.pos.set(x + Math.cos(heading) * turret, y + Math.sin(heading) * turret, z);
+      this.q.setFromAxisAngle(UP, aim ?? heading);
+      this.m.compose(this.pos, this.q, this.scl);
+      pool.put(this.m, shade);
+    }
+    const seat = t?.riderOffset ?? null;
+    if (seat !== null && rider !== null) {
+      const [name, variant] = rider.split('#');
+      const pool = this.pool(name as string, Number(variant) || 0, 0, MOUNTED, 32);
+      this.pos.set(x + Math.cos(heading) * seat, y + Math.sin(heading) * seat, z);
+      this.q.setFromAxisAngle(UP, heading);
+      this.m.compose(this.pos, this.q, this.scl);
+      pool.put(this.m);
+    }
+  }
+
+  /**
+   * Where the driver of this vehicle is aiming, or null if nobody is at the
+   * wheel. An empty tank rests its gun along the hull.
+   */
+  private aimOf(
+    world: RenderWorld,
+    localPlayerId: number,
+    local: LocalBodies | undefined,
+    driverId: number | null,
+  ): number | null {
+    if (driverId === null) return null;
+    if (driverId === localPlayerId) return local?.vehicle?.aim ?? local?.player?.heading ?? null;
+    for (const r of world.players) if (r.player.id === driverId) return r.aimAngle;
+    return null;
+  }
+
+  /**
+   * Who to sit on a two-wheeler, as `sprite#variant`.
+   *
+   * Null for an empty bike. An AI driver falls back to a pedestrian — the same
+   * answer `riderSprite` gives in 2D, and for the same reason: somebody
+   * generic on a motorcycle is a far smaller lie than nobody on one.
+   */
+  private riderOf(
+    world: RenderWorld,
+    localPlayerId: number,
+    local: LocalBodies | undefined,
+    driverId: number | null,
+  ): string | null {
+    if (driverId === null) return null;
+    if (driverId < 0) return 'ped#0';
+    if (driverId === localPlayerId && local?.player) {
+      return `player#${Math.abs(local.player.cosmeticId ?? 0) % PLAYER_VARIANTS}`;
+    }
+    for (const r of world.players) {
+      if (r.player.id === driverId) {
+        return `player#${Math.abs(r.player.cosmeticId) % PLAYER_VARIANTS}`;
+      }
+    }
+    return 'ped#0';
+  }
 }

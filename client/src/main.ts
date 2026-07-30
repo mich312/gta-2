@@ -2,6 +2,7 @@ import {
   type WorldgenParams,
   type Catalog,
   type CityMap,
+  type FullSnapshot,
   type GameEvent,
   type ServerMessage,
   type ShopKind,
@@ -695,6 +696,26 @@ function fallBackTo2d(): void {
   hud.notice('3D unavailable on this device — using the 2D renderer');
 }
 
+/**
+ * Cars you could get into, nearest first, for the debug readout.
+ *
+ * A harness driving the game has to be able to find one — walking in hopeful
+ * circles pressing the action key is how the first attempt at this failed.
+ */
+function boardable(
+  me: { pos: { x: number; y: number } },
+  snap: FullSnapshot,
+): Array<{ id: number; kind: string; dx: number; dy: number; dist: number }> {
+  const out: Array<{ id: number; kind: string; dx: number; dy: number; dist: number }> = [];
+  for (const v of snap.vehicles) {
+    if (v.driverId !== null || v.condition === 'wreck') continue;
+    const dx = v.pos.x - me.pos.x;
+    const dy = v.pos.y - me.pos.y;
+    out.push({ id: v.id, kind: v.kind, dx, dy, dist: Math.hypot(dx, dy) });
+  }
+  return out.sort((a, b) => a.dist - b.dist);
+}
+
 function drawWorld3d(scene: Scene | null): void {
   if (!map || !scene) return;
   const worldCanvas = document.getElementById('world') as HTMLCanvasElement;
@@ -746,6 +767,7 @@ function drawWorld3d(scene: Scene | null): void {
             // pose is hashed off their id so it is the same body on every screen.
             id: scene.local.id,
             mode: scene.local.mode,
+            cosmeticId: scene.local.cosmeticId,
           },
         }
       : {}),
@@ -759,6 +781,11 @@ function drawWorld3d(scene: Scene | null): void {
             z: scene.localVehicle.z,
             heading: scene.localVehicle.heading,
             wear: scene.localVehicle.wear,
+            paint: predictor.predictedVehicle.paint,
+            gangId: predictor.predictedVehicle.gangId,
+            // Your own turret comes off your own smoothed aim, not off the
+            // wire, so the barrel answers the mouse on the frame you move it.
+            aim: scene.localPos?.angle ?? scene.local?.aimAngle ?? null,
           },
         }
       : {}),
@@ -1070,15 +1097,19 @@ function frameBody(now: number): void {
     nearestVehicle: (() => {
       const me = predictor.predicted;
       if (!me || !sync.latest) return null;
-      let best: { id: number; dx: number; dy: number; dist: number } | null = null;
-      for (const v of sync.latest.vehicles) {
-        if (v.driverId !== null || v.condition === 'wreck') continue;
-        const dx = v.pos.x - me.pos.x;
-        const dy = v.pos.y - me.pos.y;
-        const dist = Math.hypot(dx, dy);
-        if (!best || dist < best.dist) best = { id: v.id, dx, dy, dist };
-      }
-      return best;
+      return boardable(me, sync.latest)[0] ?? null;
+    })(),
+    /**
+     * The eight nearest cars you could get into, with their kinds.
+     *
+     * `nearestVehicle` alone is not enough to drive the game with: a harness
+     * told to photograph the tank has to be able to walk past the coupe parked
+     * next to it, and the proving ground hands out a row of six cars.
+     */
+    boardableVehicles: (() => {
+      const me = predictor.predicted;
+      if (!me || !sync.latest) return [];
+      return boardable(me, sync.latest).slice(0, 8);
     })(),
     carCondition: predictor.predictedVehicle?.condition ?? null,
     // Altitude and the take-off latch. Same reason as `carHealth`: a harness

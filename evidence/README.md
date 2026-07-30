@@ -125,6 +125,33 @@ What the damage model looks like, for the change described in `DAMAGE.md`.
 | `hud-1-fresh.png` / `hud-2-damaged.png` | The HUD damage panel at 8×, before and after a prang. The damaged one is `broken = 0x4301`: front bumper, LEFT headlight only, both front tyres. |
 | `live-*-hud.png` | The same panel, captured from a browser driving the actual game. |
 
+## Bugs, and the repairs
+
+Findings from the 3D play-test, written up in `BUGS.md`. The `bug-*` shots are
+the record of what was wrong; the `fixed-*` shots are the same thing after.
+They are here to be argued with, not admired.
+
+| file | what it shows |
+|---|---|
+| `fixed-bridge-deck.png` | **BUGS.md §2.1, fixed.** The same cars, at the same `z = 0` the simulation gives them, on the same span. The deck is now drawn at road level with the carriageway markings running across it and a parapet on the edges that face open water — so every car is on the bridge instead of under it, and the beach beside it is sand rather than industrial yard. |
+| `fixed-woodland.png` | **BUGS.md §2.2, fixed.** The same wood. `palette.trees` instead of the field green, and the planting is on top of the canopy column instead of buried 36 px inside it. It reads as a wood you drive around, which is what `isSolidTile` says it is. |
+| `fixed-3d-bodies.png` | **BUGS.md §3, fixed.** Built by the real `EntityLayer` from the real snapshot shape. The tank has its barrel, traversed to its driver's aim rather than lying along the hull. The three two-wheelers on the road carry riders; the three below them are empty and show nobody. The four pedestrians wear four of the six shirts and stand on four different walk frames. |
+| `bug-bridge-deck.png` | **BUGS.md §2.1.** Cars placed at `z = 0` — the height the simulation actually gives a ground vehicle — along the row that crosses a bridge. The two on the road are visible; every one on the span has been swallowed by a deck the renderer builds 46 px up, out of a volume grid the sim does not use. The sheer face where the road meets the deck is the missing approach: no bridge tile in the city has a ramp beside it. |
+| `bug-woodland-plateau.png` | **BUGS.md §2.2.** Woodland. `T_TREES` stands 36 px proud as a collision volume but is painted the same green as open field, and `SceneryLayer` plants its trees at `z = 0` — inside the slab. What is left is a featureless raised mesa that reads as lawn from the game's own camera and stops a car dead. |
+| `bug-3d-bodies.png` | **BUGS.md §3.1–3.2.** The vehicle meshes, built by the same `spriteGeometry()` calls the game makes. The tank (top left) has no barrel: `tank_turret` exists in the sheet and the 2D renderer traverses it to the driver's aim, and the 3D path has no turret code at all. The moto, copbike and bicycle along the top have no rider, for the same reason — `riderOffset` is never read. |
+| `bug-shop-shaft.png` | **BUGS.md §2.5.** A shop interior. `T_FLOOR` sits at street level inside a building whose tiles run solid to the roof, so the shop is a light-well punched clean through the block, window-covered facades and all. Half of this turned out to be the design — the floor is documented "open to the sky" so you can look down into the room — and what was actually wrong was the floor being drawn in the industrial-lot grey, with no way to tell a gun shop from a garage. |
+| `bug-runway-markings.png` | **BUGS.md §2.4.** The airstrip. `isRoad()` counts `T_RUNWAY` as road, so the carriageway-centre-line rule paints a dashed road marking down the one surface an aeroplane can take off from. |
+
+Retake the terrain ones from the flyover, which has no player in the way, by
+driving the camera yourself:
+
+```bash
+pnpm --filter client dev
+# open /city3d.html?fly=1&seed=7&pitch=40&h=170 and, in the console:
+#   requestAnimationFrame = () => 0        // stop the orbit
+#   __city.lookAt(1024, 2856); __city.render()
+```
+
 ## Retaking these
 
 ```bash
