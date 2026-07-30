@@ -73,6 +73,21 @@ const SEAM_OVERLAP = 0.06;
 const CHUNK_TILES = 32;
 
 /**
+ * Outline weight for building mass, in world px.
+ *
+ * The hull fattens in world units, so what a weight is worth on screen is
+ * `thickness * deviceH / viewHeight` — about one device pixel at 0.5, against
+ * 2.8 for a car and 2.0 for a tree. Buildings therefore had no black rim at all
+ * while everything standing in front of them was heavily drawn, which is the
+ * assets-from-another-game symptom. This puts them nearer the rest of the world.
+ *
+ * The proper fix is one target weight in device pixels with every thickness
+ * derived from it and updated when the view height changes, which wants the
+ * outline materials to carry a live uniform. They do not yet.
+ */
+const BUILDING_OUTLINE = 0.9;
+
+/**
  * Is this tile part of a carriageway, for the purpose of markings?
  *
  * A bridge is: it is the same street, and the 2D `paintBridge` starts by
@@ -523,7 +538,7 @@ export function buildCity(map: CityMap): CityBuild {
     return material;
   };
   // And one outline material for the whole city, for the same reason.
-  const cityOutline = outlineMaterial(0.5);
+  const cityOutline = outlineMaterial(BUILDING_OUTLINE);
 
   for (const [key, mats] of buckets) {
     if (mats.length === 0) continue;
@@ -539,7 +554,7 @@ export function buildCity(map: CityMap): CityBuild {
     // draw a black grid over the whole city — the streets read as one
     // surface, and a surface has no silhouette worth tracing.
     // Thin: at this camera a fat hull rounds off box corners into wedges.
-    if (surface.solid) addOutline(mesh, group, 0.5, cityOutline);
+    if (surface.solid) addOutline(mesh, group, BUILDING_OUTLINE, cityOutline);
   }
 
   return { group, instances };

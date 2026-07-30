@@ -134,6 +134,14 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
 
              // A band of wall at the top and bottom of each storey, and a
              // mullion between columns. What is left is glass.
+             // How fast the pattern is moving across this pixel. On a wall seen
+             // almost edge-on a storey is 24 world px and a window column 8, and
+             // both fall under one screen pixel — the step() grid then samples
+             // noise and the wall turns to scribble. Fading the pattern out as
+             // its own features approach a pixel is the standard answer, and it
+             // costs two derivatives.
+             float fade = 1.0 - smoothstep(0.25, 0.5, max(fwidth(inCol), fwidth(inStorey)));
+
              float glassMask =
                step(0.22, inStorey) * step(inStorey, 0.80) *
                step(0.20, inCol) * step(inCol, 0.80);
@@ -146,7 +154,7 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
 
              // A floor slab line between storeys reads as structure and is
              // what stops a tall building looking like one stretched decal.
-             float slab = 1.0 - step(0.06, inStorey);
+             float slab = (1.0 - step(0.06, inStorey)) * fade;
              vec3 wall = diffuseColor.rgb * (1.0 - slab * 0.35);
 
              // Salted per building, so the lit windows are that building's own
@@ -161,7 +169,7 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              float on = step(1.0 - uNight * 0.55, r);
              vec3 pane = mix(uGlass, uLit, on * uNight);
 
-             diffuseColor.rgb = mix(wall, pane, glassMask * side);
+             diffuseColor.rgb = mix(wall, pane, glassMask * side * fade);
            }
          }`,
       );
@@ -174,14 +182,34 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
   return mat;
 }
 
-/** Update the night amount on every facade material in a scene. */
-export function setFacadeNight(scene: THREE.Object3D, night: number): void {
-  scene.traverse((o) => {
+/** The night uniform of one facade material, if it has one. */
+type NightUniform = { uNight: { value: number } };
+
+/**
+ * Every facade material under a group, found once.
+ *
+ * `setFacadeNight` used to walk the whole scene graph on every frame — every
+ * city chunk, every outline twin, every entity and prop pool, hundreds of nodes
+ * — to write one float into a handful of uniform objects. Chunking the city
+ * multiplied the nodes it had to visit. The set only changes when the city is
+ * rebuilt, so it is collected there instead.
+ */
+export function collectFacadeNight(root: THREE.Object3D): NightUniform[] {
+  const out: NightUniform[] = [];
+  const seen = new Set<THREE.Material>();
+  root.traverse((o) => {
     const m = (o as THREE.Mesh).material as THREE.Material | undefined;
-    const u = (m as unknown as { userData?: { uniforms?: { uNight: { value: number } } } })?.userData
-      ?.uniforms;
-    if (u) u.uNight.value = night;
+    if (!m || seen.has(m)) return;
+    seen.add(m);
+    const u = (m as unknown as { userData?: { uniforms?: NightUniform } }).userData?.uniforms;
+    if (u && u.uNight) out.push(u);
   });
+  return out;
+}
+
+/** Update the night amount on a set collected by `collectFacadeNight`. */
+export function setFacadeNight(mats: readonly NightUniform[], night: number): void {
+  for (const u of mats) u.uNight.value = night;
 }
 
 

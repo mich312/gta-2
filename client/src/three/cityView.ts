@@ -3,7 +3,7 @@ import { type CityMap } from 'shared';
 import palette from 'shared/data/palette.json';
 import { GRADE_DAY, GRADE_NIGHT } from '../render/config.js';
 import { buildCity, disposeCity } from './cityGeometry.js';
-import { setFacadeNight } from './facade.js';
+import { collectFacadeNight, setFacadeNight } from './facade.js';
 
 /**
  * The renderer, the camera and the lights — the frame the city is drawn in.
@@ -94,6 +94,14 @@ const DAYLIGHT = Object.freeze({ sun: 2.95, ambient: 1.18, hemi: 0.62 });
  * shadow texel is before it can snap the camera to one.
  */
 export const SHADOW_HALF_EXTENT = 460;
+
+/** Sun and sky colours at each end of the day, for the night grade. */
+const SUN_DAY = new THREE.Color(0xffeccd);
+const SUN_NIGHT = new THREE.Color(0x9fb4d8);
+const HEMI_SKY_DAY = new THREE.Color(0xa8cbe6);
+const HEMI_SKY_NIGHT = new THREE.Color(0x2a3a58);
+const HEMI_GROUND_DAY = new THREE.Color(0x3a3d33);
+const HEMI_GROUND_NIGHT = new THREE.Color(0x181c26);
 const MOONLIGHT = Object.freeze({ sun: 0.21, ambient: 0.4, hemi: 0.39 });
 
 /** Where the camera sits and what it points at, both in SCENE space. */
@@ -256,7 +264,8 @@ export class CityView {
     // The new facades are built at midday whatever time it is, so hand them
     // back the hour. `main.ts` sets this every frame and would fix it anyway;
     // `city3d.html` and `live.ts` set it once and would not.
-    setFacadeNight(this.scene, this.night);
+    this.facadeNight = collectFacadeNight(this.scene);
+    setFacadeNight(this.facadeNight, this.night);
   }
 
   private buildLights(): void {
@@ -315,6 +324,8 @@ export class CityView {
   private hemi!: THREE.HemisphereLight;
   private instanceCount = 0;
   private night = 0;
+  /** Facade night uniforms, refreshed when the city is rebuilt. */
+  private facadeNight: ReturnType<typeof collectFacadeNight> = [];
 
   /**
    * 0 midday, 1 midnight — the same scale the 2D renderer's `?night=` uses.
@@ -336,6 +347,16 @@ export class CityView {
     this.sun.intensity = lerp(DAYLIGHT.sun, MOONLIGHT.sun);
     this.ambient.intensity = lerp(DAYLIGHT.ambient, MOONLIGHT.ambient);
     this.hemi.intensity = lerp(DAYLIGHT.hemi, MOONLIGHT.hemi);
+    // Night is a colour, not just less of the day.
+    //
+    // Only the ambient was being graded; the sun kept its warm 0xffeccd at
+    // midnight and the hemisphere kept its daylight sky and ground. So 3D night
+    // held full daytime chroma and read as an underexposed afternoon, where the
+    // 2D pass shifts blue-over-red by 48% across the same hours and this shifted
+    // 11%. Moonlight is cool and weak; the sky it falls out of is cooler still.
+    this.sun.color.copy(SUN_DAY).lerp(SUN_NIGHT, t);
+    this.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, t);
+    this.hemi.groundColor.copy(HEMI_GROUND_DAY).lerp(HEMI_GROUND_NIGHT, t);
     const grade = (c: { r: number; g: number; b: number }): THREE.Color =>
       new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
     this.ambient.color = grade(GRADE_DAY).lerp(grade(GRADE_NIGHT), t);
@@ -343,7 +364,7 @@ export class CityView {
     this.scene.background = sky;
     // Windows light up as it gets dark — the one cue that turns a block of
     // flats at night from a silhouette into somewhere people live.
-    setFacadeNight(this.scene, t);
+    setFacadeNight(this.facadeNight, t);
     this.night = t;
   }
 

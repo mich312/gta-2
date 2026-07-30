@@ -533,8 +533,28 @@ export class Lights3dLayer {
       light.distance = distance;
       light.position.set(w.x, w.y, w.z);
     }
-    for (let i = pi; i < this.points.length; i++) this.points[i]!.intensity = 0;
-    for (let i = si; i < this.spots.length; i++) this.spots[i]!.intensity = 0;
+    // Unspent slots are hidden, not merely dimmed.
+    //
+    // `WebGLLights.setup` counts every *visible* light whatever its intensity,
+    // and the count is a program cache key — so a zeroed light still made the
+    // toon shader loop over it for every fragment it touched, and `?lights=cheap`
+    // bought nothing at all on the GPU. `projectObject` skips an invisible one,
+    // so this is what makes the option mean something. It costs one shader
+    // recompile at the moment the count changes, which is why intensity is
+    // zeroed as well: a light that is off looks the same either way, and the
+    // count only moves when the budget does.
+    for (let i = pi; i < this.points.length; i++) {
+      const light = this.points[i]!;
+      light.intensity = 0;
+      light.visible = i < this.budget.points;
+    }
+    for (let i = si; i < this.spots.length; i++) {
+      const light = this.spots[i]!;
+      light.intensity = 0;
+      light.visible = i < this.budget.spots;
+    }
+    for (let i = 0; i < pi; i++) this.points[i]!.visible = true;
+    for (let i = 0; i < si; i++) this.spots[i]!.visible = true;
   }
 
   /** What the budget actually spent, for the debug overlay. */

@@ -557,10 +557,14 @@ export class Hud {
       // NOT "WANTED": that word belongs to the police, and using it here for
       // the crushers' shopping list put two unrelated meanings on screen at
       // once.
-      ctx.fillText(`EXPORT x${this.exportBonus}`, viewport.w - 6, viewport.h - 46);
+      // Clear of the car-damage panel below it. That panel occupies the bottom
+      // 23 px of this column while you are driving, and the third export kind
+      // used to land at h-21 — inside it — which is the ordinary case, since
+      // three kinds and a car is what the crushers usually want.
+      ctx.fillText(`EXPORT x${this.exportBonus}`, viewport.w - 6, viewport.h - 68);
       ctx.fillStyle = '#d8c88f';
       this.exportKinds.forEach((k, i) => {
-        ctx.fillText(k, viewport.w - 6, viewport.h - 37 + i * 8);
+        ctx.fillText(k, viewport.w - 6, viewport.h - 59 + i * 8);
       });
       ctx.textAlign = 'left';
     }
