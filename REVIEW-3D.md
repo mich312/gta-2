@@ -286,3 +286,109 @@ plainly visible in both renderers. There is no phantom collider.
 - **Night still has fewer pools than 2D** — about 40 there against the 16-light
   budget here. The pools that exist now reach the road; the budget is the
   remaining difference and is the architectural item listed above.
+
+---
+
+# Part two: the models
+
+Four artists — vehicle, character, environment, and an art director adjudicating
+— went over the models after the renderer work. The brief was a per-sprite height
+table. What came back was mostly a reason not to want one.
+
+## The disease
+
+`z` in `sprites.json` is a **relighting hint for flat art**. The 2D sprite
+generator reads it as a height field to compute shading normals, and that is all
+it was ever for. So every sprite sits in roughly the same 0–16 range whatever it
+depicts, and extruded under one global multiplier a bus came out exactly as tall
+as the person waiting for it. The corpses-standing-upright and
+lamps-shorter-than-people fixes earlier in this branch were both symptoms of this,
+treated one at a time.
+
+## What was fixed
+
+Heights are now per sprite (`Z_BY_SPRITE` in `entities.ts`, `PROP_Z_BY_KIND` and
+the split `TREE_ZSCALE`/`BUSH_ZSCALE` in `scenery.ts`). The pedestrian stays the
+ruler at 9.75 px: the character artist measured it at 1.75 m against the car and
+concluded the ped was right and the *car* was wrong, which is independently where
+the vehicle artist arrived from the opposite direction.
+
+The **lamp came down**, 30 px → 14. At 30 it was the tallest object in the game,
+swept the same screen area as a pedestrian with more contrast, and read as a plank
+lying in the road. `LAMP_Z` in `lights3d.ts` moved with it — the light height was
+silently equal to the old mesh height and nothing said so.
+
+`DEAD_Z` 0.3 → 0.45 (0.3 gave a corpse a 1.05 px torso, nearer a decal than a
+body). Prop outlines 0.9 → 0.55, because the hull fattens in world units and was
+swallowing 1.0 px fence rails into a dark lattice.
+
+## The two limits that keep the table short
+
+Both measured at the shipped camera, not argued:
+
+- **Occlusion ceiling, 20 world px.** Straight down, an object of height `h`
+  hides a strip of ground behind it `r·(h − h_t)/(H − h)` deep, pointing radially
+  outward. Past 20 px that strip exceeds a pedestrian's width at the frame corner.
+  Never-exceed is 24 (one storey).
+- **Resolution floor, ~8 world px.** Two heights closer than that are the same
+  height at this camera. Three bands — clutter, people and cars, big vehicles —
+  is the entire usable palette.
+
+## What heights cannot fix
+
+**Every shape extrudes from the ground.** A shape that is both lower than another
+and inside its footprint contributes nothing at all. Three artists, three separate
+families, arrived here independently:
+
+| family | what does not exist |
+|---|---|
+| vehicles | every tyre, inside every body shell — no wheels, ride height or arches |
+| characters | trousers (measured 0.00 px of visible top area — **nobody has legs**), the cop's chest badge, the Fed's coat |
+| planting | the tree's trunk — the canopy is a disc starting at ground |
+
+This needs a per-shape floor (`zBase`) plus an authoring pass over 57 sprites, and
+it is the single largest remaining improvement to the models. `z` itself must not
+be touched: the 2D generator reads it, so changing it changes the 2D art.
+
+## Still open
+
+- **`zBase` and the authoring pass** — as above. Everything else here is cosmetic
+  by comparison.
+- **Aircraft are opaque drums.** `rotorBlur` carries `alpha` and `noOutline`;
+  `spriteMesh` honours neither, so every helicopter renders as a cylinder that
+  swallows its own fuselage. Their heights are deliberately left alone until this
+  is read — raising them makes the drum worse.
+- **`plane` has no fin** — its tail surfaces are authored below its wings.
+- **`playerFist` / `playerPunch` are never placed in 3D.** The 2D path picks them
+  at `renderer.ts:1414`; `entities.ts` always pools `'player'`, so an unarmed
+  player still holds a pistol and a punch never animates.
+- **SWAT is not bulkier than a Fed** in footprint or volume, so no multiplier can
+  make the police tiers read by size. That needs art.
+- **The walk cycle skates** — a 7:1 slide-to-swing ratio, nothing lifts, and armed
+  bodies pump the gun barrel because it carries the arm's offsets.
+- **Props are still passable.** The environment artist's recommendation is to make
+  `fence` and `lamp` solid rather than to keep shrinking them: the lie is "this
+  object does not exist", not "the rails are at chest height". `props.json`
+  already carries a `radius` for every kind.
+- **Buildings lean 5.3× more in 3D than 2D** — `PARALLAX_PX_PER_STOREY` 3.0
+  against `Z_PER_STOREY` 24 at the frame edge. The largest 2D/3D divergence in the
+  game, and a constants problem rather than an art one.
+
+## The finding worth acting on before any of the above
+
+At `pitch: 0` — what the shipped client uses — **height is very nearly
+invisible**. It does not read at screen centre, where the player lives: the camera
+lead is clamped to `LEAD_MAX = 54`, so the player's own model leans 1.2 world px,
+under a sixth of a body width. It does not read at night at all, because cast
+shadow is the only channel that works straight down and there is no sun at night.
+At the frame edge it converts into outward smear, which is a liability for thin
+objects and worth about +20% swept screen area for wide ones. The size hierarchy
+the whole exercise was meant to deliver — a bus reading as bigger than a person —
+is **already delivered 8:1 by plan footprint**, in art nobody needed to touch.
+
+The same models at 42° are legible immediately and completely. `3D.md` says as
+much in its own design rationale — *"a pitch angle gives height somewhere to go"* —
+and the shipped client is hardcoded to 0.
+
+**The highest-leverage change available to the look of this game is not any
+artist's number. It is 8–15° of camera pitch.**
