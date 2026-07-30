@@ -47,6 +47,19 @@ interface SpriteDef {
   pivot?: [number, number];
   shapes: Shape[];
   variants?: Record<string, string[]>;
+  /** How many walk-cycle frames the sheet emits for this body. */
+  frames?: number;
+  /**
+   * Per-shape offsets, one per frame, keyed by the shape's index.
+   *
+   * This is the walk cycle: a leg is a shape, and swinging it is moving that
+   * shape a couple of art pixels forward and back. The sprite generator has
+   * always read this (`buildSprite`, `sprites.ts`) and the 2D renderer has
+   * always drawn `_f0.._f3` off distance walked — this reader ignored both,
+   * so every pedestrian, officer and player in 3D slid across the city frozen
+   * in frame 0. That is what "the people do not move" was.
+   */
+  anim?: Record<string, Array<[number, number]>>;
 }
 
 // The JSON's inferred type is a literal shape per sprite, which does not
@@ -88,13 +101,13 @@ function paint(g: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
  * over a body at z=8 therefore overlaps it, and that is correct — the solid
  * they describe together is the union, and the union is what you see.
  */
-function shapeGeometry(s: Shape): THREE.BufferGeometry | null {
+function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
   const depth = Math.max(0.5, s.z ?? DEFAULT_Z);
 
   if (s.rect) {
     const [x, y, w, h] = s.rect;
     const g = new THREE.BoxGeometry(w, h, depth);
-    g.translate(x + w / 2, y + h / 2, depth / 2);
+    g.translate(x + w / 2 + ox, y + h / 2 + oy, depth / 2);
     return g;
   }
 
@@ -104,7 +117,7 @@ function shapeGeometry(s: Shape): THREE.BufferGeometry | null {
     // pedestrian's head is not more triangles than the car beside them.
     const g = new THREE.CylinderGeometry(r, r, depth, 12);
     g.rotateX(Math.PI / 2);
-    g.translate(cx, cy, depth / 2);
+    g.translate(cx + ox, cy + oy, depth / 2);
     return g;
   }
 
@@ -113,7 +126,7 @@ function shapeGeometry(s: Shape): THREE.BufferGeometry | null {
     const g = new THREE.CylinderGeometry(1, 1, depth, 14);
     g.rotateX(Math.PI / 2);
     g.scale(rx, ry, 1);
-    g.translate(cx, cy, depth / 2);
+    g.translate(cx + ox, cy + oy, depth / 2);
     return g;
   }
 
@@ -124,17 +137,17 @@ function shapeGeometry(s: Shape): THREE.BufferGeometry | null {
     const len = Math.hypot(dx, dy) || 1;
     const g = new THREE.BoxGeometry(len, t, depth);
     g.rotateZ(Math.atan2(dy, dx));
-    g.translate((x0 + x1) / 2, (y0 + y1) / 2, depth / 2);
+    g.translate((x0 + x1) / 2 + ox, (y0 + y1) / 2 + oy, depth / 2);
     return g;
   }
 
   if (s.poly && s.poly.length >= 3) {
     const shape = new THREE.Shape();
     const first = s.poly[0] as [number, number];
-    shape.moveTo(first[0], first[1]);
+    shape.moveTo(first[0] + ox, first[1] + oy);
     for (let i = 1; i < s.poly.length; i++) {
       const p = s.poly[i] as [number, number];
-      shape.lineTo(p[0], p[1]);
+      shape.lineTo(p[0] + ox, p[1] + oy);
     }
     shape.closePath();
     return new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false });
@@ -181,6 +194,11 @@ export interface SpriteMeshOptions {
    * them, so a little exaggeration reads better in 3D. 1 is faithful.
    */
   zScale?: number;
+  /**
+   * Walk-cycle frame. Wrapped against the sprite's own `frames`, so asking a
+   * body with no walk cycle for frame 3 gets frame 0 rather than nothing.
+   */
+  frame?: number;
 }
 
 const cache = new Map<string, THREE.BufferGeometry>();
@@ -195,14 +213,15 @@ export function spriteGeometry(
   name: string,
   opts: SpriteMeshOptions = {},
 ): THREE.BufferGeometry | null {
-  const variant = opts.variant ?? 0;
-  const zScale = opts.zScale ?? 1;
-  const key = `${name}|${variant}|${zScale}`;
-  const hit = cache.get(key);
-  if (hit) return hit;
-
   const def = DEFS[name];
   if (!def) return null;
+
+  const variant = opts.variant ?? 0;
+  const zScale = opts.zScale ?? 1;
+  const frame = Math.abs(Math.trunc(opts.frame ?? 0)) % Math.max(1, def.frames ?? 1);
+  const key = `${name}|${variant}|${zScale}|${frame}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
 
   // Resolve `$key` colour substitutions against the sprite's variant lists,
   // which is where a car's ten paint jobs come from.
@@ -214,17 +233,27 @@ export function spriteGeometry(
   };
 
   const parts: THREE.BufferGeometry[] = [];
-  for (const s of def.shapes) {
-    const copies = s.mirrorY ? [{ ...s, mirrorY: false }, mirrored(s, def.h)] : [s];
-    for (const c of copies) {
-      const g = shapeGeometry(c);
+  def.shapes.forEach((s, si) => {
+    // The frame's offset for this shape, in art px. The mirrored copy takes
+    // the same offset with y negated — the arm on the far side swings the
+    // other way — which is exactly what `buildSprite` does when it rasterises
+    // the sheet, so the 3D body and the 2D body are the same pose.
+    const [ox, oy] = def.anim?.[String(si)]?.[frame] ?? [0, 0];
+    const copies: Array<[Shape, number, number]> = s.mirrorY
+      ? [
+          [{ ...s, mirrorY: false }, ox, oy],
+          [mirrored(s, def.h), ox, -oy],
+        ]
+      : [[s, ox, oy]];
+    for (const [c, cx, cy] of copies) {
+      const g = shapeGeometry(c, cx, cy);
       // `ExtrudeGeometry` comes back non-indexed while the box and cylinder
       // primitives are indexed, and `mergeGeometries` requires all or none.
       // Flattening every part is the cheap way to make them compatible, and
       // it has to happen BEFORE painting because it changes the vertex count.
       if (g) parts.push(paint(g.index ? g.toNonIndexed() : g, resolve(c.color)));
     }
-  }
+  });
   if (parts.length === 0) return null;
 
   const merged = mergeGeometries(parts, false);
@@ -242,12 +271,9 @@ export function spriteGeometry(
   return merged;
 }
 
-/** How many paint jobs a sprite has, for picking one per vehicle. */
-export function variantCount(name: string): number {
-  const def = DEFS[name];
-  if (!def?.variants) return 1;
-  const lists = Object.values(def.variants);
-  return lists.length > 0 ? (lists[0] as string[]).length : 1;
+/** How many walk-cycle frames a sprite has. 1 for anything that stands still. */
+export function frameCount(name: string): number {
+  return Math.max(1, DEFS[name]?.frames ?? 1);
 }
 
 /** True if the sheet has art for this name. */

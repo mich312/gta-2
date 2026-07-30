@@ -150,5 +150,6 @@ direction, and `PROGRESS.md` for the per-phase log. `GTA.md`, `GAPS.md`,
 `FEATURES.md` and `ROADMAP.md` are the feature backlogs, all of them now
 delivered. `SHIP.md` is the current forward plan — not more systems, but what
 it would take to turn this into a game somebody buys. `BUGS.md` is a play-test
-of the 3D renderer against the 2D one and against the simulation: what is
-visibly wrong today, with pictures in `evidence/bug-*.png`.
+of the 3D renderer against the 2D one and against the simulation — what was
+visibly wrong, what was done about it, and what is left — with before-and-after
+pictures in `evidence/bug-*.png` and `evidence/fixed-*.png`.

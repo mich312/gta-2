@@ -1,5 +1,27 @@
 import * as THREE from 'three';
-import { TILE_SIZE, type CityMap, buildVolumeGrid, spansAt } from 'shared';
+import {
+  BRIDGE_DECK_THICKNESS,
+  RAMP_Z,
+  T_BANK,
+  T_BRIDGE,
+  T_BUILDING,
+  T_FIELD,
+  T_FLOOR,
+  T_LOT,
+  T_PARK,
+  T_RAMP,
+  T_ROAD,
+  T_RUNWAY,
+  T_SAND,
+  T_SIDEWALK,
+  T_TREES,
+  T_WATER,
+  TILE_SIZE,
+  type CityMap,
+  type Span,
+  buildVolumeGrid,
+  spansAt,
+} from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
 import { addOutline, toonMaterial } from './toon.js';
@@ -16,11 +38,9 @@ import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
  * that seam. It also means the thing can be tested in node, which a method on
  * a class that owns a `WebGLRenderer` cannot be.
  *
- * Built from the **volume grid**, not from the tile grid — which is the whole
- * point of the exercise. A span is a box: bottom, top, one tile square. So the
- * thing the collision resolves against and the thing you look at are the same
- * description of the world, and a bridge you can sail under is a bridge you
- * can *see* under, because both come from the same two numbers.
+ * Built from the **volume grid**, so the thing the collision will one day
+ * resolve against and the thing you look at come from one description of the
+ * world — with the one reservation `drawnSpans` exists to record. See there.
  *
  * Everything is instanced. A 240×240 city is ~57,600 columns and rather more
  * spans; as individual meshes that is a five-figure draw count and a dead
@@ -30,10 +50,58 @@ import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 /** Vertical exaggeration, so a 3-storey street reads at a shallow angle. */
 const Z_SCALE = 1;
 
-interface Layer {
-  /** Which spans go in this layer. */
-  match: (tileType: number) => boolean;
-  color: number;
+/**
+ * Is this tile part of a carriageway, for the purpose of markings?
+ *
+ * A bridge is: it is the same street, and the 2D `paintBridge` starts by
+ * calling `paintRoad` for exactly that reason. A **runway** is not, and used
+ * to be — it was in this test, so the centre-line rule painted a dashed road
+ * marking down the one surface an aeroplane can take off from. A runway has
+ * its own line, its own colour and its own cadence; see `runwayMark`.
+ */
+export function isCarriageway(tile: number): boolean {
+  return tile === T_ROAD || tile === T_BRIDGE;
+}
+
+/**
+ * What to DRAW for a column, which is not always what `volume.ts` models.
+ *
+ * `volume.ts` and `collide3.ts` describe the city the 3D collision will
+ * resolve against once the simulation adopts them: a bridge deck 40 px up
+ * with a river underneath, a ramp you climb. **Nothing in the simulation uses
+ * either of them yet.** `step()` still collides on the flat tile grid, and
+ * `integrateVehicle` pins every land vehicle to `z = 0` — so a car crossing a
+ * bridge is at street level, and a car crossing a ramp is at street level with
+ * a `vz` kick from `frenzy.ts` rather than a climb.
+ *
+ * Drawing the volume grid literally therefore built a city the game was not
+ * being played in: the deck stood 46 px above the road that fed it, with no
+ * approach and no ramp tile anywhere beside it, and traffic drove straight
+ * underneath its own bridge and disappeared for the length of the span.
+ *
+ * So the two surfaces the simulation walks on at zero are drawn at zero.
+ * Everything else — buildings, canopy, the kerb, the water — is solid or
+ * unreachable, and its volume is exactly what you should see.
+ *
+ * This function is the whole of the reconciliation, deliberately: when the sim
+ * does adopt `collide3`, deleting it is the change.
+ */
+export function drawnSpans(tile: number, spans: readonly Span[]): readonly Span[] {
+  switch (tile) {
+    case T_BRIDGE:
+      // A deck at road level, as thick as `volume.ts` says a deck is. The
+      // river span below it is dropped rather than redrawn: it was being
+      // emitted into the deck's own bucket, which paved the water under every
+      // bridge in the city and hung an outline hull round it.
+      return [{ bottom: -BRIDGE_DECK_THICKNESS, top: 0 }];
+    case T_RAMP:
+      // Stepped ramps are the same story one twelfth the size. The launch is
+      // `frenzy.ts` reading the tile type, not a climb, so the surface a car
+      // crosses is the street.
+      return [{ bottom: -RAMP_Z, top: 0 }];
+    default:
+      return spans;
+  }
 }
 
 export interface CityBuild {
@@ -43,9 +111,71 @@ export interface CityBuild {
   instances: number;
 }
 
-function hex(s: string): number {
-  return parseInt(s.replace('#', ''), 16);
+function hex(s: string | undefined, fallback: number): number {
+  return s === undefined ? fallback : parseInt(s.replace('#', ''), 16);
 }
+
+const PAL = palette as unknown as Record<string, string | undefined>;
+const col = (name: string, fallback: number): number => hex(PAL[name], fallback);
+
+/**
+ * How a terrain type is surfaced.
+ *
+ * One entry per tile type, against the palette entries the 2D tile layer
+ * already paints with. This used to be six buckets for fourteen types, and
+ * the collapse was visible from the pavement: field, parkland and woodland
+ * all shared one green, and beach, quay, ramp, shop floor and industrial lot
+ * all shared one olive — so a beach rendered as a scrapyard. `palette.json`
+ * has had `field`, `park`, `trees`, `sand`, `bank` and `runway` in it the
+ * whole time.
+ *
+ * `road` gets the carriageway marking rules; `runway` gets its own centreline
+ * cadence; everything else is a ground surface with a grain and, where the 2D
+ * layer slabs it, an edge.
+ */
+interface Surface {
+  key: string;
+  color: number;
+  /** Carriageway markings and crossings. */
+  road?: boolean;
+  /** Speckle strength and per-tile edge darkening for `groundMaterial`. */
+  grain?: number;
+  edge?: number;
+  /** Line colour for a marked surface. */
+  line?: number;
+  /** Outlined and shadow-casting: something that stands up. */
+  solid?: boolean;
+}
+
+/** Carriageway markings. `roadMaterial`'s own default, named once. */
+const ROAD_LINE = 0xd8cf94;
+/** The proving ground's green, matching `DEPOT_ACCENT` in the 2D tile layer. */
+const DEPOT_ACCENT = 0x5aa84e;
+
+const SURFACES: Record<number, Surface> = {
+  [T_FIELD]: { key: 'field', color: col('field', 0x2b3630), grain: 0.2 },
+  [T_ROAD]: { key: 'road', color: col('road', 0x33383f), road: true, line: ROAD_LINE },
+  [T_SIDEWALK]: { key: 'pavement', color: col('sidewalk', 0x5f646c), grain: 0.09, edge: 0.1 },
+  [T_PARK]: { key: 'park', color: col('park', 0x2f4c33), grain: 0.2 },
+  [T_LOT]: { key: 'lot', color: col('lot', 0x45463f), grain: 0.14, edge: 0.06 },
+  [T_WATER]: { key: 'water', color: col('water', 0x22384a) },
+  // Road-coloured and road-marked: a bridge is the carriageway continuing, and
+  // the 2D `paintBridge` starts by calling `paintRoad` for exactly that reason.
+  // The rails that tell you it is a bridge are geometry — see `buildKerbs`.
+  [T_BRIDGE]: { key: 'road', color: col('road', 0x33383f), road: true, line: ROAD_LINE },
+  [T_RAMP]: { key: 'ramp', color: col('lot', 0x45463f), grain: 0.14 },
+  [T_FLOOR]: { key: 'floor', color: col('shopFloor', 0x6a6259), grain: 0.06, edge: 0.18 },
+  [T_BANK]: { key: 'bank', color: col('bank', 0x77705f), grain: 0.1, edge: 0.1 },
+  // Canopy, not lawn. It stands 36 px proud because `volume.ts` makes woodland
+  // solid to anything on the ground — which `isSolidTile` agrees with — so the
+  // height is right and only the colour was wrong. `SceneryLayer` plants its
+  // trees on top of it; before that they were sunk inside it.
+  [T_TREES]: { key: 'trees', color: col('trees', 0x22391f), grain: 0.22 },
+  [T_SAND]: { key: 'sand', color: col('sand', 0xb0a074), grain: 0.16 },
+  [T_RUNWAY]: { key: 'runway', color: col('runway', 0x3a3d42), grain: 0.08 },
+};
+
+const DEFAULT_SURFACE: Surface = { key: 'lot', color: col('lot', 0x45463f), grain: 0.14 };
 
 /**
  * A building's colour: the same hash and the same palette variants
@@ -61,15 +191,15 @@ function roofColor(index: number, district: string): number {
   // needs out of a module full of canvas helpers.
   const h = Math.sin(id * 127.1 + (id * 7 + 3) * 311.7) * 43758.5453;
   const pick = h - Math.floor(h);
-  return hex(variants[Math.floor(pick * variants.length) % variants.length] as string);
+  return hex(variants[Math.floor(pick * variants.length) % variants.length] as string, 0x6b6f7a);
 }
 
 /**
  * Turn every span into a box, batched by what it is.
  *
- * The `ground` layer is one flat plane per tile rather than a deep box — the
- * earth below is `EARTH`-deep and drawing that would waste most of the depth
- * buffer on dirt nobody sees.
+ * The ground layers are one shallow slab per tile rather than a deep box —
+ * the earth below is `EARTH`-deep and drawing that would waste most of the
+ * depth buffer on dirt nobody sees.
  */
 export function buildCity(map: CityMap): CityBuild {
   const group = new THREE.Group();
@@ -78,14 +208,8 @@ export function buildCity(map: CityMap): CityBuild {
   const H = map.heightTiles;
   let instances = 0;
 
-  const LAYERS: Record<string, Layer> = {
-    road: { match: (t) => t === 1 || t === 13, color: hex(palette.road ?? '#2c3038') },
-    pavement: { match: (t) => t === 2, color: hex(palette.sidewalk ?? '#575d68') },
-    grass: { match: (t) => t === 4 || t === 0 || t === 11, color: hex(palette.grassDark ?? '#2f4a2a') },
-    water: { match: (t) => t === 6, color: hex(palette.water ?? '#25506b') },
-    deck: { match: (t) => t === 7, color: hex(palette.road ?? '#2c3038') },
-    other: { match: () => true, color: hex(palette.lot ?? '#4a4a44') },
-  };
+  const tileAt = (tx: number, ty: number): number =>
+    tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
 
   // Road runs, so a marking can be painted down the middle of a carriageway
   // rather than on every tile edge.
@@ -96,11 +220,10 @@ export function buildCity(map: CityMap): CityBuild {
   // horizontal road the VERTICAL run is the carriageway width, so its midpoint
   // is the centre line. Same measurement here, so the markings land in the same
   // places in both renderers.
-  const isRoad = (tx: number, ty: number): boolean => {
-    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
-    const t = map.tiles[ty * W + tx] as number;
-    return t === 1 || t === 7 || t === 13;
-  };
+  //
+  // A bridge counts, because it is the same street; a runway does not. See
+  // `isCarriageway`.
+  const isRoad = (tx: number, ty: number): boolean => isCarriageway(tileAt(tx, ty));
   /** Carriageway width and length through a tile, both axes. */
   const runs = (tx: number, ty: number): [number, number] => {
     let up = 0;
@@ -155,6 +278,14 @@ export function buildCity(map: CityMap): CityBuild {
     }
     return left === Math.floor((runH - 1) / 2) ? 2 : 0;
   };
+  /**
+   * Runway centreline: dashed, along the strip, on the tiles with runway both
+   * sides of them. The same rule and the same cadence `paintRunway` uses, so
+   * the strip is marked out the same way in both renderers — and marked out as
+   * a runway rather than as a B-road.
+   */
+  const runwayMark = (tx: number, ty: number): boolean =>
+    tileAt(tx, ty - 1) === T_RUNWAY && tileAt(tx, ty + 1) === T_RUNWAY && tx % 2 === 0;
 
   // Which building covers each tile, so a block of them shares one colour
   // instead of every tile rolling its own — the same reason the 2D renderer
@@ -169,20 +300,43 @@ export function buildCity(map: CityMap): CityBuild {
     }
   });
 
+  // Which shop's floor each `T_FLOOR` tile belongs to, and whether it is the
+  // room or the threshold. A shop is identified from the street by its colour
+  // in the 2D view; without this the 3D one drew every shop interior in the
+  // industrial-lot grey and there was no telling a gun shop from a garage.
+  const shopAccent = new Int32Array(W * H);
+  const ACCENTS: Record<string, number> = {
+    gun: col('shopGun', 0xc8583c),
+    clothing: col('shopClothing', 0x3ca0c8),
+    spray: col('shopSpray', 0xc8a13c),
+    // The proving ground is not a shop and should not look like one.
+    depot: DEPOT_ACCENT,
+  };
+  for (const shop of map.shops) {
+    const accent = (ACCENTS[shop.kind] ?? col('shopSpray', 0xc8a13c)) + 1;
+    const r = shop.interior;
+    for (let ty = r.y - 1; ty <= r.y + r.h; ty++) {
+      for (let tx = r.x - 1; tx <= r.x + r.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        // The threshold tile only — the room keeps its chequered floor.
+        const inRoom = tx >= r.x && tx < r.x + r.w && ty >= r.y && ty < r.y + r.h;
+        if (!inRoom && tileAt(tx, ty) === T_FLOOR) shopAccent[ty * W + tx] = accent;
+      }
+    }
+  }
+
   // Collect one transform per span, bucketed by the colour it resolves to.
   // Buildings get a bucket per palette variant rather than one for all of
   // them: a city where every block is the same grey reads as a model of a
   // city, and the variants already exist for exactly this.
   const buckets = new Map<string, THREE.Matrix4[]>();
-  const colorOf = new Map<string, number>();
-  const solidKeys = new Set<string>();
-  const bucket = (key: string, color: number, solid: boolean): THREE.Matrix4[] => {
+  const surfaceOf = new Map<string, Surface>();
+  const bucket = (key: string, surface: Surface): THREE.Matrix4[] => {
     let list = buckets.get(key);
     if (!list) {
       list = [];
       buckets.set(key, list);
-      colorOf.set(key, color);
-      if (solid) solidKeys.add(key);
+      surfaceOf.set(key, surface);
     }
     return list;
   };
@@ -195,34 +349,36 @@ export function buildCity(map: CityMap): CityBuild {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
       const tile = map.tiles[idx] as number;
-      let key: string;
-      let color: number;
-      let solid = false;
-      if (tile === 3) {
+      let surface: Surface;
+      if (tile === T_BUILDING) {
         const bi = (buildingOf[idx] as number) - 1;
         const bd = bi >= 0 ? map.buildings[bi] : undefined;
-        color = roofColor(bi, bd?.district ?? 'downtown');
-        key = `b${color.toString(16)}`;
-        solid = true;
+        const color = roofColor(bi, bd?.district ?? 'downtown');
+        surface = { key: `b${color.toString(16)}`, color, solid: true };
       } else {
-        const k = Object.keys(LAYERS).find((n) => (LAYERS[n] as Layer).match(tile)) ?? 'other';
-        key = k;
-        color = (LAYERS[k] as Layer).color;
-        solid = k === 'deck';
-        if (k === 'road') {
-          // A road tile touching a pavement across its short axis is the
-          // mouth of a junction — where a crossing goes.
+        surface = SURFACES[tile] ?? DEFAULT_SURFACE;
+        if (surface.road) {
+          // A road tile at the mouth of a junction is where a crossing goes.
           const cross = crossing(tx, ty);
-          if (cross) key = cross === 1 ? 'crossX' : 'crossY';
+          if (cross) surface = { ...surface, key: cross === 1 ? 'crossX' : 'crossY' };
           else {
             const mark = roadMark(tx, ty);
-            if (mark) key = mark === 1 ? 'roadMarkX' : 'roadMarkY';
+            if (mark) surface = { ...surface, key: mark === 1 ? 'roadMarkX' : 'roadMarkY' };
+          }
+        } else if (tile === T_RUNWAY && runwayMark(tx, ty)) {
+          surface = { ...surface, key: 'runwayMark' };
+        } else if (tile === T_FLOOR) {
+          const accent = shopAccent[idx] as number;
+          if (accent > 0) surface = { ...surface, key: `shop${accent}`, color: accent - 1 };
+          // Chequered, exactly as `paintShopFloor` lays it out.
+          else if (((tx + ty) & 1) === 1) {
+            surface = { ...surface, key: 'floorAlt', color: col('shopFloorAlt', 0x7a7168) };
           }
         }
       }
-      const list = bucket(key, color, solid);
+      const list = bucket(surface.key, surface);
 
-      for (const span of spansAt(vg, tx, ty)) {
+      for (const span of drawnSpans(tile, spansAt(vg, tx, ty))) {
         // Clamp the earth to something shallow: a ground span runs from
         // EARTH (-4096) and nobody is looking at the bottom of it.
         //
@@ -240,43 +396,44 @@ export function buildCity(map: CityMap): CityBuild {
           (span.top * Z_SCALE) - h / 2,
         );
         list.push(m.clone());
-        if (tile === 3) heightAt[idx] = span.top * Z_SCALE;
+        if (tile === T_BUILDING) heightAt[idx] = span.top * Z_SCALE;
       }
     }
   }
 
   instances += buildRoofDetail(map, group, heightAt);
+  instances += buildBridgeRails(map, group);
+  instances += buildEdgeSkirt(map, group);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
   for (const [key, mats] of buckets) {
     if (mats.length === 0) continue;
-    const color = colorOf.get(key) ?? 0x6b6f7a;
-    const solid = solidKeys.has(key);
+    const surface = surfaceOf.get(key) ?? DEFAULT_SURFACE;
+    const { color } = surface;
     // Buildings get a facade — storey lines, window columns, a shopfront on
     // the ground floor — computed in the shader from world position, so one
     // material serves every height. Ground surfaces stay flat toon.
-    const material =
-      solid && key.startsWith('b')
-        ? facadeMaterial({ color })
-        : key === 'road'
-          ? roadMaterial(color, 0)
-          : key === 'roadMarkX'
-            ? roadMaterial(color, 1)
-            : key === 'roadMarkY'
-              ? roadMaterial(color, 2)
-              : key === 'crossX'
-                ? roadMaterial(color, 3)
-                : key === 'crossY'
-                  ? roadMaterial(color, 4)
-              : key === 'grass'
-                ? groundMaterial(color, 0.20)
-                : key === 'pavement'
-                  ? groundMaterial(color, 0.09, 0.10)
-                  : key === 'water'
-                    ? toonMaterial(color)
-                    : groundMaterial(color, 0.10, 0.05);
+    const material = surface.solid
+      ? facadeMaterial({ color })
+      : key === 'road'
+        ? roadMaterial(color, 0, surface.line)
+        : key === 'roadMarkX'
+          ? roadMaterial(color, 1, surface.line)
+          : key === 'roadMarkY'
+            ? roadMaterial(color, 2, surface.line)
+            : key === 'crossX'
+              ? roadMaterial(color, 3, surface.line)
+              : key === 'crossY'
+                ? roadMaterial(color, 4, surface.line)
+                : key === 'runway'
+                  ? roadMaterial(color, 0, col('runwayLine', 0xc9c3a8))
+                  : key === 'runwayMark'
+                    ? roadMaterial(color, 1, col('runwayLine', 0xc9c3a8))
+                    : key === 'water'
+                      ? toonMaterial(color)
+                      : groundMaterial(color, surface.grain ?? 0.1, surface.edge ?? 0);
     const mesh = new THREE.InstancedMesh(box, material, mats.length);
-    mesh.castShadow = solid;
+    mesh.castShadow = surface.solid === true;
     mesh.receiveShadow = true;
     instances += mats.length;
     mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
@@ -286,7 +443,7 @@ export function buildCity(map: CityMap): CityBuild {
     // draw a black grid over the whole city — the streets read as one
     // surface, and a surface has no silhouette worth tracing.
     // Thin: at this camera a fat hull rounds off box corners into wedges.
-    if (solid) addOutline(mesh, group, 0.5);
+    if (surface.solid) addOutline(mesh, group, 0.5);
   }
 
   return { group, instances };
@@ -312,7 +469,7 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
   const H = map.heightTiles;
   const T = TILE_SIZE;
   const isBuilding = (tx: number, ty: number): boolean =>
-    tx >= 0 && ty >= 0 && tx < W && ty < H && map.tiles[ty * W + tx] === 3;
+    tx >= 0 && ty >= 0 && tx < W && ty < H && map.tiles[ty * W + tx] === T_BUILDING;
 
   const parapets: THREE.Matrix4[] = [];
   const clutter: THREE.Matrix4[] = [];
@@ -323,7 +480,7 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
-      if (map.tiles[idx] !== 3) continue;
+      if (map.tiles[idx] !== T_BUILDING) continue;
       const top = heightAt[idx] as number;
       if (top <= 0) continue;
       const cx = (tx + 0.5) * T;
@@ -363,29 +520,119 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
     }
   }
 
-  const box = new THREE.BoxGeometry(1, 1, 1);
   let instances = 0;
-  const add = (mats: THREE.Matrix4[], color: number, outline: number): void => {
-    if (mats.length === 0) return;
-    const mesh = new THREE.InstancedMesh(box, toonMaterial(color), mats.length);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
-    mesh.instanceMatrix.needsUpdate = true;
-    instances += mats.length;
-    group.add(mesh);
-    addOutline(mesh, group, outline);
-  };
-  add(parapets, hex(palette.roofEdgeLight ?? '#9aa0aa'), 0.4);
-  add(clutter, hex(palette.roofUnit ?? '#6b7079'), 0.5);
+  instances += addBoxes(group, parapets, col('roofEdgeLight', 0x8f97a6), 0.4);
+  instances += addBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
   return instances;
+}
+
+/**
+ * The rails along a bridge deck.
+ *
+ * `paintBridge` draws these in 2D, and they are what says "bridge" rather than
+ * "a stretch of road that happens to have water beside it" — which is all the
+ * deck reads as now that it sits at the height the game drives at.
+ *
+ * On the sides that face open water, and only those. The 2D painter rails
+ * whichever axis the deck runs along and lets consecutive tiles overlap into
+ * one line; in 3D that would stand a parapet down the middle of the
+ * carriageway, and picking the axis per tile leaves stray posts on the deck
+ * wherever the shoreline crosses it at an angle. "Is there river on this side"
+ * is the question a parapet actually answers, so it is the one asked.
+ */
+function buildBridgeRails(map: CityMap, group: THREE.Group): number {
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const T = TILE_SIZE;
+  const RAIL_H = 5;
+  const RAIL_W = 2;
+  const at = (tx: number, ty: number): number =>
+    tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
+
+  const rails: THREE.Matrix4[] = [];
+  const m = new THREE.Matrix4();
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      if (at(tx, ty) !== T_BRIDGE) continue;
+      const cx = (tx + 0.5) * T;
+      const cy = (ty + 0.5) * T;
+      const rail = (x: number, y: number, w: number, d: number): void => {
+        m.makeScale(w, d, RAIL_H);
+        m.setPosition(x, y, RAIL_H / 2);
+        rails.push(m.clone());
+      };
+      if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, T, RAIL_W);
+      if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, T, RAIL_W);
+      if (at(tx - 1, ty) === T_WATER) rail(cx - T / 2 + RAIL_W / 2, cy, RAIL_W, T);
+      if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, T);
+    }
+  }
+  return addBoxes(group, rails, col('kerb', 0x787d86), 0.4);
+}
+
+/**
+ * Ground beyond the window, so the world does not end in sky.
+ *
+ * The session's window is 240×240 tiles of a world that is notionally
+ * infinite; at the frame's edge the tiles simply stopped and the background
+ * colour showed through, which reads as the map having fallen off rather than
+ * as countryside carrying on. Four slabs of field around the outside, at the
+ * height the field is at, cost one draw between them.
+ *
+ * A ring rather than one big plane under everything: a plane would have to sit
+ * above the water surface at −8 to avoid z-fighting the grass at 0, and would
+ * then have paved over every river in the city.
+ */
+function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
+  const w = map.widthTiles * TILE_SIZE;
+  const h = map.heightTiles * TILE_SIZE;
+  const OUT = 4096;
+  const m = new THREE.Matrix4();
+  const slabs: THREE.Matrix4[] = [];
+  const slab = (x: number, y: number, sx: number, sy: number): void => {
+    m.makeScale(sx, sy, 8);
+    m.setPosition(x, y, -4);
+    slabs.push(m.clone());
+  };
+  slab(w / 2, -OUT / 2, w + OUT * 2, OUT);
+  slab(w / 2, h + OUT / 2, w + OUT * 2, OUT);
+  slab(-OUT / 2, h / 2, OUT, h);
+  slab(w + OUT / 2, h / 2, OUT, h);
+  const mesh = new THREE.InstancedMesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    groundMaterial(col('field', 0x2b3630), 0.2),
+    slabs.length,
+  );
+  mesh.receiveShadow = true;
+  slabs.forEach((mm, i) => mesh.setMatrixAt(i, mm));
+  mesh.instanceMatrix.needsUpdate = true;
+  group.add(mesh);
+  return slabs.length;
+}
+
+/** One instanced batch of boxes, outlined. */
+function addBoxes(
+  group: THREE.Group,
+  mats: THREE.Matrix4[],
+  color: number,
+  outline: number,
+): number {
+  if (mats.length === 0) return 0;
+  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), toonMaterial(color), mats.length);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
+  mesh.instanceMatrix.needsUpdate = true;
+  group.add(mesh);
+  addOutline(mesh, group, outline);
+  return mats.length;
 }
 
 /**
  * Throw a built group away, GPU memory and all.
  *
  * `Object3D.remove` unhooks it from the scene graph and nothing else: the
- * buffers and the compiled programs stay resident, and a session that rebases
+ * buffers and the compiled programs stay resident, and a session that rebased
  * across a few regions would leak a whole city each time. three.js has no
  * cascading dispose, so this is the whole of it.
  *

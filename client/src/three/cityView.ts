@@ -61,6 +61,25 @@ export const WORLD_TO_SCENE = Object.freeze({ x: 1, y: -1, z: 1 });
  */
 export const SUN_OFFSET = Object.freeze({ x: -420, y: -620, z: 900 });
 
+/**
+ * What the sun, the ambient and the sky are worth at midday and at midnight.
+ *
+ * **Midday is calibrated against the palette, not chosen by eye.** Both
+ * renderers colour the world out of `shared/data/palette.json`, and the 2D one
+ * paints those values almost neat: its own day grade is (252, 246, 232) — a
+ * multiply by 0.98 — so at noon a road is very nearly `palette.road`. The 3D
+ * one lights them, and was lighting them to about 1.17× in sRGB, so the same
+ * street was a fifth brighter here than in the view next door. Switching
+ * renderers changed the hour, which is a thing a renderer must not do.
+ *
+ * These numbers put a flat, sun-facing surface back on its palette colour. The
+ * night end is untouched from where it was tuned: night has to actually be
+ * dark or a street lamp cannot read against it, and that is the whole point of
+ * having lamps.
+ */
+const DAYLIGHT = Object.freeze({ sun: 2.18, ambient: 1.84, hemi: 1.18 });
+const MOONLIGHT = Object.freeze({ sun: 0.21, ambient: 0.4, hemi: 0.39 });
+
 /** Where the camera sits and what it points at, both in SCENE space. */
 export interface CameraPose {
   position: THREE.Vector3;
@@ -204,7 +223,7 @@ export class CityView {
 
   private buildLights(): void {
     // One sun with a shadow map, replacing 761 lines of Canvas compositing.
-    const sun = new THREE.DirectionalLight(0xffeccd, 2.6);
+    const sun = new THREE.DirectionalLight(0xffeccd, DAYLIGHT.sun);
     sun.position.set(SUN_OFFSET.x, SUN_OFFSET.y, SUN_OFFSET.z);
     sun.castShadow = true;
     sun.shadow.mapSize.set(1024, 1024);
@@ -225,8 +244,8 @@ export class CityView {
     // Ambient and hemisphere stay in scene space. Neither describes a place in
     // the city — the hemisphere's axis is a screen-space one — so mirroring
     // them would change how the city is lit for no reason.
-    this.ambient = new THREE.AmbientLight(0x8493ad, 2.2);
-    this.hemi = new THREE.HemisphereLight(0xa8cbe6, 0x3a3d33, 1.4);
+    this.ambient = new THREE.AmbientLight(0x8493ad, DAYLIGHT.ambient);
+    this.hemi = new THREE.HemisphereLight(0xa8cbe6, 0x3a3d33, DAYLIGHT.hemi);
     this.scene.add(this.ambient);
     this.scene.add(this.hemi);
   }
@@ -253,10 +272,10 @@ export class CityView {
    */
   setNight(amount: number): void {
     const t = Math.max(0, Math.min(1, amount));
-    // Moonlight: enough to keep a silhouette, not enough to read a street by.
-    this.sun.intensity = 2.6 * (1 - t * 0.92);
-    this.ambient.intensity = 2.2 * (1 - t * 0.82);
-    this.hemi.intensity = 1.4 * (1 - t * 0.72);
+    const lerp = (a: number, b: number): number => a + (b - a) * t;
+    this.sun.intensity = lerp(DAYLIGHT.sun, MOONLIGHT.sun);
+    this.ambient.intensity = lerp(DAYLIGHT.ambient, MOONLIGHT.ambient);
+    this.hemi.intensity = lerp(DAYLIGHT.hemi, MOONLIGHT.hemi);
     const grade = (c: { r: number; g: number; b: number }): THREE.Color =>
       new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
     this.ambient.color = grade(GRADE_DAY).lerp(grade(GRADE_NIGHT), t);

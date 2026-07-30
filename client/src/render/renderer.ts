@@ -93,7 +93,17 @@ const PAINTED_KINDS = new Set([
   'chopper',
 ]);
 
-export function vehicleSpriteName(
+/**
+ * Which sprite a vehicle wears, and which of its colourways.
+ *
+ * Split from `vehicleSpriteName` because the two renderers want the same
+ * answer in two shapes: the 2D one draws a sheet frame called `car_v3`, and
+ * the 3D one extrudes the `car` definition asking for variant 3. Keeping the
+ * rule in one place is what stops a car being one colour in one view and
+ * another colour in the other — and it is not a cosmetic detail, because a
+ * gang's colours are how you read whose street you are parked on.
+ */
+export function vehicleSpriteVariant(
   kind: string,
   id: number,
   gangId = 0,
@@ -109,7 +119,7 @@ export function vehicleSpriteName(
    * derived from the KERB survives that; see `paintAt` in worldgen.
    */
   paint = -1,
-): string {
+): { name: string; variant: number } {
   // A gang car wears its gang's colours, not a colour off the rank: the whole
   // reason it exists is that you can tell whose street you are on by what is
   // parked on it.
@@ -117,14 +127,21 @@ export function vehicleSpriteName(
   // identifier — the tint, the turf wash and the respect bar all carry the
   // gang, and minting three more near-identical car sprites would cost sheet
   // space to say something already said three ways.
-  if (kind === 'gangcar') return `gangcar_v${Math.max(0, gangId - 1) % 4}`;
+  if (kind === 'gangcar') return { name: 'gangcar', variant: Math.max(0, gangId - 1) % 4 };
   // Every civilian body comes in the same ten colours, so the suffix rule is
   // a property of the SET rather than of one kind. It used to test
   // `kind === 'car'`, which silently drew each new body in variant-less form
   // — that is, not at all, since no such frame exists.
-  if (!PAINTED_KINDS.has(kind)) return kind;
-  const variant = paint >= 0 ? paint % CAR_VARIANTS : Math.abs(id) % CAR_VARIANTS;
-  return `${kind}_v${variant}`;
+  if (!PAINTED_KINDS.has(kind)) return { name: kind, variant: 0 };
+  return { name: kind, variant: paint >= 0 ? paint % CAR_VARIANTS : Math.abs(id) % CAR_VARIANTS };
+}
+
+/** The sheet frame name for a vehicle: `vehicleSpriteVariant`, as a string. */
+export function vehicleSpriteName(kind: string, id: number, gangId = 0, paint = -1): string {
+  const { name, variant } = vehicleSpriteVariant(kind, id, gangId, paint);
+  if (name === 'gangcar') return `gangcar_v${variant}`;
+  if (!PAINTED_KINDS.has(kind)) return name;
+  return `${name}_v${variant}`;
 }
 
 /**
@@ -202,12 +219,12 @@ export const COP_SPRITE: Record<string, string> = {
 };
 
 /** World px a walking entity covers per animation frame. */
-const STRIDE = 7;
+export const STRIDE = 7;
 /** Sprite variant counts, mirroring shared/data/sprites.json. */
 export const PLAYER_VARIANTS = 4;
 export const PED_VARIANTS = 6;
 const CAR_VARIANTS = 10;
-const WALK_FRAMES = 4;
+export const WALK_FRAMES = 4;
 
 export interface Scene {
   /** Predicted local player. */
