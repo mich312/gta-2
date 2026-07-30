@@ -29,10 +29,18 @@ import {
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
 import { viewport } from './render/viewport.js';
-import { cameraLead, computeCamera, render, type Scene } from './render/renderer.js';
+import {
+  cameraLead,
+  computeCamera,
+  drawNameTags,
+  render,
+  sceneNight,
+  type Scene,
+} from './render/renderer.js';
 import { SpriteSheet } from './render/sprites.js';
 import { TileLayer } from './render/tiles.js';
 import { Effects } from './render/effects.js';
+import { spawnSceneEffects } from './render/sceneEffects.js';
 import { LightPass } from './render/lighting.js';
 import { PoseSmoother } from './render/smoothing.js';
 import { Connection } from './net/connection.js';
@@ -40,6 +48,9 @@ import { LocalConnection } from './net/localConnection.js';
 import { CityView } from './three/cityView.js';
 import { EntityLayer } from './three/entities.js';
 import { SceneryLayer } from './three/scenery.js';
+import { Effects3dLayer } from './three/effects3d.js';
+import { WorldObjectsLayer } from './three/worldObjects.js';
+import { Lights3dLayer } from './three/lights3d.js';
 import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
@@ -255,6 +266,9 @@ let world3d: {
   view: CityView;
   entities: EntityLayer;
   scenery: SceneryLayer;
+  fx: Effects3dLayer;
+  objects: WorldObjectsLayer;
+  lights: Lights3dLayer;
 } | null = null;
 let lastSeed = 0;
 let lastWorldgen: WorldgenParams | null = null;
@@ -506,6 +520,8 @@ function adoptMap(next: CityMap): void {
   if (world3d) {
     world3d.view.setMap(next);
     world3d.scenery.setMap(next);
+    world3d.objects.setMap(next);
+    world3d.lights.setMap(next);
   }
 }
 
@@ -697,10 +713,15 @@ function drawWorld3d(scene: Scene | null): void {
       // coordinate means what the rest of the game means by it.
       entities: new EntityLayer(view.world),
       scenery: new SceneryLayer(view.world),
+      fx: new Effects3dLayer(view.world),
+      objects: new WorldObjectsLayer(view.world),
+      lights: new Lights3dLayer(view.world),
     };
     world3d.scenery.setMap(map);
+    world3d.objects.setMap(map);
+    world3d.lights.setMap(map);
   }
-  const { view, entities, scenery } = world3d;
+  const { view, entities, scenery, fx, objects, lights: lights3d } = world3d;
 
   // Match the HUD canvas exactly, in both backing store and CSS box, so a
   // world pixel lands on the same screen pixel in both layers.
@@ -715,8 +736,18 @@ function drawWorld3d(scene: Scene | null): void {
 
   view.setNight(lights.nightAmount);
   entities.update(scene.remotes, playerId, {
-    ...(scene.localPos
-      ? { player: { ...scene.localPos, z: scene.local?.z ?? 0, heading: scene.localPos.angle } }
+    ...(scene.localPos && scene.local
+      ? {
+          player: {
+            ...scene.localPos,
+            z: scene.local.z ?? 0,
+            heading: scene.localPos.angle,
+            // A dead local player lies on the tarmac like anybody else, and the
+            // pose is hashed off their id so it is the same body on every screen.
+            id: scene.local.id,
+            mode: scene.local.mode,
+          },
+        }
       : {}),
     ...(scene.localVehicle && predictor.predictedVehicle
       ? {
@@ -727,12 +758,25 @@ function drawWorld3d(scene: Scene | null): void {
             y: scene.localVehicle.pos.y,
             z: scene.localVehicle.z,
             heading: scene.localVehicle.heading,
+            wear: scene.localVehicle.wear,
           },
         }
       : {}),
   });
   scenery.updateProps(scene.remotes.props);
-  view.lookAt(cam.x + viewport.w / 2, cam.y + viewport.h / 2);
+  fx.update(effects);
+  objects.update(scene, cam, { w: viewport.w, h: viewport.h });
+  const focus = { x: cam.x + viewport.w / 2, y: cam.y + viewport.h / 2 };
+  // `?lights=off` leaves the scene lit by the sun alone; `?lights=cheap` keeps
+  // the lighting but spends a quarter of the budget on it.
+  lights3d.setCheap(lights.cheap);
+  if (lights.enabled) {
+    lights3d.update(scene, effects, lights.nightAmount, focus, cam, {
+      w: viewport.w,
+      h: viewport.h,
+    });
+  }
+  view.lookAt(focus.x, focus.y);
   view.render();
 }
 
@@ -834,6 +878,19 @@ function frameBody(now: number): void {
         tick: sync.latest.tick,
       }
     : null;
+  // Advance the particle pools and spawn what this frame's world implies, for
+  // BOTH renderers. This used to happen inside the 2D `render()`, which is why
+  // 3D had no skid marks, no exhaust, no engine smoke and no blood pools: the
+  // effects were never created, let alone drawn.
+  if (scene) {
+    effects.update(scene.dt);
+    spawnSceneEffects(effects, scene);
+    // The hour, for whichever renderer draws. This lived inside the 2D
+    // `render()`, so the 3D path read a night amount nothing had ever set and
+    // the city sat at a fixed dusk for the whole session.
+    if (map) lights.setNight(sceneNight(map, scene));
+  }
+
   {
     // Measured around the world render only — not the HUD, not the minimap,
     // not the overlay that reports it. See NetStats.renderMs for why the rAF
@@ -912,6 +969,8 @@ function frameBody(now: number): void {
     cam,
     predictor.predictedVehicle?.speed ?? 0,
   );
+  // Over the world and under the panels: a name should not cover the radar.
+  if (scene) drawNameTags(screen.ctx, scene, cam);
   minimap.draw(
     screen.ctx,
     predictor.predicted ?? null,
@@ -982,6 +1041,12 @@ function frameBody(now: number): void {
     // question when the terrain and the radar disagree.
     region: lastWorldgen ? { x: lastWorldgen.windowX, y: lastWorldgen.windowY } : null,
     tick: sync.latest?.tick ?? -1,
+    // Live particles and decals. Both renderers present the same pools, so a
+    // count that moves in one and not the other is a presentation bug and a
+    // count that moves in neither is a spawning one.
+    fx: effects.counts(),
+    // What the 3D light budget spent this frame, and what it was asked for.
+    lights3d: world3d?.lights.counts() ?? null,
     cops: sync.latest?.cops.length ?? 0,
     vehicles: sync.latest?.vehicles.length ?? 0,
     // Ambient traffic: how many streamed vehicles have an AI at the wheel,

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { type CityMap } from 'shared';
 import palette from 'shared/data/palette.json';
+import { GRADE_DAY, GRADE_NIGHT } from '../render/config.js';
 import { buildCity, disposeCity } from './cityGeometry.js';
 import { setFacadeNight } from './facade.js';
 
@@ -236,12 +237,29 @@ export class CityView {
   private instanceCount = 0;
   private night = 0;
 
-  /** 0 midday, 1 midnight — the same scale the 2D renderer's ?night= uses. */
+  /**
+   * 0 midday, 1 midnight — the same scale the 2D renderer's `?night=` uses.
+   *
+   * Night has to actually be dark, and it was not. The daylight was dimmed by
+   * about half and the ambient barely at all, which looked like an overcast
+   * afternoon and — worse — left every street lamp invisible, because a lamp
+   * cannot read against an ambient brighter than itself. That is the whole
+   * point of a night: the sun goes away and the lights you put in the street
+   * become the thing you see by.
+   *
+   * The hue comes from `GRADE_NIGHT`, the 2D pass's own night grade, so the two
+   * renderers at least agree on what colour night is even though one gets there
+   * by grading a flat image and the other by turning the sun down.
+   */
   setNight(amount: number): void {
     const t = Math.max(0, Math.min(1, amount));
-    this.sun.intensity = 2.6 * (1 - t * 0.85);
-    this.ambient.intensity = 2.2 * (1 - t * 0.6);
-    this.hemi.intensity = 1.4 * (1 - t * 0.5);
+    // Moonlight: enough to keep a silhouette, not enough to read a street by.
+    this.sun.intensity = 2.6 * (1 - t * 0.92);
+    this.ambient.intensity = 2.2 * (1 - t * 0.82);
+    this.hemi.intensity = 1.4 * (1 - t * 0.72);
+    const grade = (c: { r: number; g: number; b: number }): THREE.Color =>
+      new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
+    this.ambient.color = grade(GRADE_DAY).lerp(grade(GRADE_NIGHT), t);
     const sky = new THREE.Color(0x9fc4dd).lerp(new THREE.Color(0x0a1020), t);
     this.scene.background = sky;
     // Windows light up as it gets dark — the one cue that turns a block of

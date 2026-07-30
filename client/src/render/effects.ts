@@ -17,7 +17,7 @@ const MAX_FLASHES = 24;
  */
 const MAX_DECALS = 460;
 
-interface Particle {
+export interface Particle {
   alive: boolean;
   /** World position and velocity, px and px/s. */
   x: number;
@@ -58,7 +58,7 @@ interface Particle {
  * what you see is the area that actually hurt.
  */
 /** A light with a lifetime: a fireball, a muzzle flash, a blown transformer. */
-interface Flash {
+export interface Flash {
   x: number;
   y: number;
   radius: number;
@@ -71,7 +71,7 @@ interface Flash {
 
 type DecalShape = 'rect' | 'ellipse' | 'scorch';
 
-interface Decal {
+export interface Decal {
   x: number;
   y: number;
   angle: number;
@@ -113,6 +113,46 @@ export const BLOOD_LIFE_SEC = 26;
 export function spreadEase(t: number): number {
   const c = t < 0 ? 0 : t > 1 ? 1 : t;
   return 1 - (1 - c) * (1 - c);
+}
+
+
+/**
+ * How a decal and a particle look right now, as pure functions of their state.
+ *
+ * Exported, and used by `drawDecals`/`drawParticles` themselves, because there
+ * is now more than one renderer presenting this simulation: the Canvas one here
+ * and the instanced-quad one in `three/effects3d.ts`. The *simulation* is
+ * shared by construction — both read the same `Effects` — and these keep the
+ * *presentation* shared too, so blood cannot fade at one rate in 2D and another
+ * in 3D. Sizes come back in world px; each renderer applies its own scale.
+ */
+
+/** Alpha of a decal: it holds full strength, then fades over its last third. */
+export function decalAlpha(d: Decal): number {
+  return Math.min(1, d.life / (d.maxLife * 0.35));
+}
+
+/** How far a decal has spread towards its final size, 0..1. */
+export function decalSpread(d: Decal): number {
+  if (d.spreadSec <= 0) return 1;
+  return spreadEase(1 - Math.max(0, d.life - (d.maxLife - d.spreadSec)) / d.spreadSec);
+}
+
+/** Alpha of a particle. Additive ones carry their own brightness. */
+export function particleAlpha(p: Particle): number {
+  const t = p.life / p.maxLife;
+  return p.additive ? t : t * 0.85;
+}
+
+/**
+ * Size of a particle in WORLD px.
+ *
+ * Sparks shrink as they die; smoke grows as it thins. Same curve in both
+ * renderers, which is the whole point of it living out here.
+ */
+export function particleSize(p: Particle): number {
+  const t = p.life / p.maxLife;
+  return p.size * (p.additive ? t : 1 + (1 - t));
 }
 
 let scorchTexture: HTMLCanvasElement | null = null;
@@ -173,6 +213,47 @@ export class Effects {
   }
 
   /** Advance every live particle and age the decals. `dt` in seconds. */
+  /**
+   * The live pools, for a renderer other than the Canvas one below.
+   *
+   * Read-only views rather than a copy: the 3D layer presents the *same*
+   * simulation, so a skid mark is one skid mark that two renderers can draw
+   * rather than two that have to be kept in step. Dead particles are included
+   * — the pool is a ring buffer and `alive` is the filter — so a caller must
+   * skip them exactly as `drawParticles` does.
+   */
+  get decalPool(): readonly Decal[] {
+    return this.decals;
+  }
+
+  get particlePool(): readonly Particle[] {
+    return this.particles;
+  }
+
+  /**
+   * The live flashes: a fireball, a muzzle flash, a blown transformer.
+   *
+   * These are lights with a lifetime and nothing else — they draw no pixels of
+   * their own. The 2D pass feeds them into its Canvas compositor as it draws
+   * the particles; the 3D one hands them to real lights.
+   */
+  get flashPool(): readonly Flash[] {
+    return this.flashes;
+  }
+
+  /**
+   * How much is live right now: decals, and particles that have not expired.
+   *
+   * For the debug overlay and for tests. "Is the blood there?" is otherwise a
+   * question you can only answer by staring at pixels, and it is the first
+   * question to ask when one renderer shows an effect and the other does not.
+   */
+  counts(): { decals: number; particles: number } {
+    let particles = 0;
+    for (const p of this.particles) if (p.alive) particles++;
+    return { decals: this.decals.length, particles };
+  }
+
   update(dt: number): void {
     const step = Math.min(dt, 0.1);
     for (const p of this.particles) {
@@ -574,14 +655,12 @@ export class Effects {
     if (this.decals.length === 0) return;
     ctx.save();
     for (const d of this.decals) {
-      const fade = Math.min(1, d.life / (d.maxLife * 0.35));
-      ctx.globalAlpha = fade;
+      ctx.globalAlpha = decalAlpha(d);
       ctx.fillStyle = d.color;
       ctx.translate(originX + d.x * RENDER_SCALE, originY + d.y * RENDER_SCALE);
       ctx.rotate(d.angle);
       // Still spreading? Ease out, so it runs fastest at the moment it lands.
-      const spread =
-        d.spreadSec > 0 ? spreadEase(1 - Math.max(0, d.life - (d.maxLife - d.spreadSec)) / d.spreadSec) : 1;
+      const spread = decalSpread(d);
       const w = d.w * spread * RENDER_SCALE;
       const h = d.h * spread * RENDER_SCALE;
       if (d.shape === 'scorch') {
@@ -615,9 +694,9 @@ export class Effects {
         additive = p.additive;
         ctx.globalCompositeOperation = additive ? 'lighter' : 'source-over';
       }
-      ctx.globalAlpha = additive ? t : t * 0.85;
+      ctx.globalAlpha = particleAlpha(p);
       ctx.fillStyle = p.color;
-      const size = Math.max(1, Math.round(p.size * RENDER_SCALE * (additive ? t : 1 + (1 - t))));
+      const size = Math.max(1, Math.round(particleSize(p) * RENDER_SCALE));
       ctx.fillRect(
         Math.floor(originX + p.x * RENDER_SCALE - size / 2),
         Math.floor(originY + p.y * RENDER_SCALE - size / 2),

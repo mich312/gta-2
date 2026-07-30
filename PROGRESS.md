@@ -1,5 +1,109 @@
 # PROGRESS
 
+## Feature parity between the 2D and 3D renderers
+
+Four waves, and the finding that shaped all of them: **almost every gap was
+shared state advanced inside one renderer, not a missing draw call.** Effects
+spawning, effects ticking and the day/night clock all lived inside the 2D
+`render()`. So in 3D they did not exist to be drawn — which is why the gaps
+read as "the 3D view is wrong" rather than as "the 3D view is incomplete", and
+why the fix was almost always to move something out rather than to write
+something new.
+
+**Wave 1 — particles and decals.** No skid marks, exhaust, engine smoke, flame
+or blood pools in 3D. `effects.update()` and the spawns for skid, exhaust,
+smoke, fire and bleeding were side effects of the 2D renderer drawing a car or
+a corpse. The derivation moved to `render/sceneEffects.ts`, called once a frame
+from `main.ts` before either renderer runs; the 2D drawing functions lost the
+side effects and 134 lines with them. `three/effects3d.ts` presents the pools
+as instanced quads, and the presentation maths (`decalAlpha`, `decalSpread`,
+`particleAlpha`, `particleSize`) is exported and used by the Canvas path too,
+so blood cannot fade at one rate in 2D and another in 3D. Flat quads are not a
+compromise here: the camera hangs straight down, so a quad already faces it
+square on, and what it buys over compositing the 2D canvas is depth — a blood
+pool behind a tower is behind the tower. Shape rides along per instance, so a
+scorch is a soft radial burn rather than the hard black square an untextured
+quad gives, which is the exact artifact the 2D cached gradient exists to avoid.
+
+**Wave 2 — pickups, packages, traffic signals, projectiles.** Four object kinds
+with no 3D representation at all. The signals mattered most: the traffic obeys
+them and only the 2D player could see what it was obeying. Phase comes from
+`signalColour`, the same function the drivers consult. Colours come from the 2D
+renderer's tables, now exported rather than duplicated. Where 3D can do better
+than a flat square it does — a crate is an octahedron with the same overhead
+silhouette, a signal head stands on a post, a rocket points along its flight.
+
+**Wave 3 — the city gets lit.** Real lights and a shadow map, per 3D.md's
+instruction to delete the 761-line Canvas pass rather than port it: lamps, shop
+signs, lit interiors, headlights, brake lights, cop strobes, signal glow,
+package glints, muzzle flashes, fireballs. Found on the way in, and worse than
+the missing lights: **the day/night cycle never ran in 3D at all**, because
+`lights.setNight()` was only called from the 2D `render()` and the 3D path read
+a night amount nothing had ever set — the city sat at a fixed dusk for the
+whole session. Night also had to *be* night; the old fade left ambient brighter
+than any lamp, and a lamp cannot read against that.
+
+**Wave 4 — bodies, tiers, damage, tags.** A dead pedestrian in 3D stood up in
+the middle of the road. Somebody on the ground is a different drawing from
+somebody standing, and the sheet has carried `pedDowned`, `pedDeadA/B`,
+`copDead` and `playerDeadA/B` all along. The entity layer keys its pools by
+sprite name now, which also gives the four police tiers their own figures
+rather than one figure under four tints. Escort markers are back, so the NPC
+you must protect is identifiable. Damage arrives as paint that has been through
+a wall: a merged sprite mesh cannot lose a panel without being rebuilt, so wear
+darkens the body instead, bottoming out at 0.55 rather than at black because a
+wreck still has to read as the colour of car it is. Name tags moved to a shared
+HUD-space pass in `main.ts` — the ground plane projects identically in both
+views, so this is one function with no renderer branch.
+
+**Three things learned that are worth not relearning.**
+
+`material.vertexColors = true` compiles `vColor *= color` whether or not the
+geometry has a `color` attribute, and an unbound attribute reads as (0, 0, 0).
+Every instanced object came out black, and a city full of traffic signals had
+heads you could not read the phase off. Geometries are painted white at
+construction so `instanceColor` has something to multiply.
+
+The light budget is the design, and the ranking is the feature. three.js
+compiles a fixed light count into every shader, so one light per lamp is not
+available. The first cut ranked by category and put signals and package glints
+above street lamps: both are 7 px pools nobody can see, both already draw as
+bright geometry, and every junction has several heads — so they took all
+sixteen slots and the city had no street lighting whatsoever.
+
+Intensity does not convert at a light's radius. three.js is physical, so
+irradiance falls as 1/d², while the 2D pass speaks in "alpha of a gradient of
+radius R". What a lamp lights is the road thirty pixels beneath it; converted
+at its 34 px reach instead, every lamp in the city was on and none of them lit
+anything.
+
+**Deliberately not ported.** Walk-cycle frames: the 2D `_f{n}` poses are a
+top-down art trick, and a mesh with real volume reads without them. Broken
+panels as geometry: conveyed as darkened paint, see above. Gang tints on
+pedestrians: the audit found the 2D `tint` argument is only the fallback colour
+for a missing sprite, so it is not a behaviour 3D was missing.
+
+**Verification.** 24 new cases across `client/test/effects3d.test.ts`,
+`worldObjects.test.ts`, `lights3d.test.ts` and `entities3d.test.ts` — three.js
+needs no WebGL to build a scene graph, so all of it runs in node against the
+real layers, reading instance buffers and light intensities back. In a real
+browser: a 40 px explosion scorch inside the mirrored world group darkens the
+road 192/384 at its centre and leaves the corners of its bounding box at 384
+untouched (round, soft-edged, depth-correct); signal and pickup pixels near the
+2D table colours went from 0 to 313 and 246 when the black-instance bug was
+fixed; at `?night=0.9` mean luma is 30.2 against 2D's 44.4 with warm-pool
+pixels at 4.1% against 0.58%, and the cycle moves 90.9 / 59.0 / 25.5 across
+night 0 / 0.5 / 0.9; the local name tag lands in the identical pixel box in
+both renderers (x 594-683, y 325-338). Full suite 757 green. Evidence:
+`evidence/render-3d-parity.png`.
+
+**Not measured, and it is the open risk.** Frame cost. This box has no GPU and
+SwiftShader pins the client at 1 fps whatever the window size, so the light
+count and the instance pools are bounded by design rather than by measurement.
+`?lights=cheap` spends a quarter of the light budget and `?lights=off` none of
+it, and `?render=2d` remains the measured path — 60 fps, p50 4.5 ms. The first
+person to open this on a machine with a GPU learns something nobody here knows.
+
 ## The 3D world was built once, and the world moves
 
 Reported as "the new generated terrain does not fit with the minimap, there

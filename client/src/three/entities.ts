@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { getVehicleTuning } from 'shared';
 import type { RenderWorld } from '../net/interpolation.js';
+import { COP_SPRITE, deadPose } from '../render/renderer.js';
 import { addOutline, toonMaterial } from './toon.js';
 import { carGeometry, personGeometry } from './models.js';
 import { hasSprite, spriteGeometry, variantCount } from './spriteMesh.js';
@@ -24,12 +25,31 @@ import { hasSprite, spriteGeometry, variantCount } from './spriteMesh.js';
 
 /** The local player and their vehicle, from the predictor rather than the wire. */
 export interface LocalBodies {
-  player?: { x: number; y: number; z: number; heading: number };
-  vehicle?: { id: number; kind: string; x: number; y: number; z: number; heading: number };
+  player?: {
+    x: number;
+    y: number;
+    z: number;
+    heading: number;
+    /** Their id and mode, so a dead local player lies down like everyone else. */
+    id: number;
+    mode: string;
+  };
+  vehicle?: {
+    id: number;
+    kind: string;
+    x: number;
+    y: number;
+    z: number;
+    heading: number;
+    /** 0 undamaged, 1 about to burn. Darkens the paint, as the dents do in 2D. */
+    wear: number;
+  };
 }
 
 /** Reused so the hot path allocates nothing. */
 const UP = new THREE.Vector3(0, 0, 1);
+/** For tipping the escort marker over so its point faces the ground. */
+const RIGHT = new THREE.Vector3(1, 0, 0);
 
 /**
  * How much to exaggerate the authored sprite heights.
@@ -75,6 +95,29 @@ const PAINT: Record<string, number> = {
   icecream: 0xefd9c0,
 };
 
+/**
+ * How much a car's paint darkens as it takes damage.
+ *
+ * The 2D renderer draws actual dents and missing panels. A merged sprite mesh
+ * cannot lose a panel without being rebuilt, so this carries the same
+ * information the cheap way: a car that has been through a wall is visibly
+ * darker than one off the forecourt, and one about to catch fire is sooty.
+ * Bottoming out at 0.55 rather than at black, because a wreck still has to read
+ * as the colour of car it is.
+ */
+function wearShade(wear: number): number {
+  const w = wear < 0 ? 0 : wear > 1 ? 1 : wear;
+  return 1 - 0.45 * w;
+}
+
+/** Wear of a streamed vehicle, 0..1, from the two numbers a snapshot carries. */
+function wearOf(v: { kind: string; health: number }): number {
+  const max = getVehicleTuning(v.kind)?.health ?? 0;
+  if (max <= 0) return 0;
+  const wear = (max - v.health) / max;
+  return wear < 0 ? 0 : wear > 1 ? 1 : wear;
+}
+
 /** Sprite art for a name, or the hand-built fallback if the sheet lacks it. */
 function body(name: string, fallback: THREE.BufferGeometry): THREE.BufferGeometry {
   return hasSprite(name)
@@ -87,6 +130,7 @@ class Pool {
   readonly mesh: THREE.InstancedMesh;
   private readonly outline: THREE.Mesh | THREE.InstancedMesh;
   private used = 0;
+  private readonly tint = new THREE.Color();
 
   constructor(
     parent: THREE.Object3D,
@@ -99,6 +143,13 @@ class Pool {
     const mat = toonMaterial(0xffffff);
     mat.vertexColors = true;
     this.mesh = new THREE.InstancedMesh(geometry, mat, capacity);
+    // Per-instance tint, multiplied over the model's own paint. White leaves the
+    // art alone; a damaged car is darkened towards soot, which is what the 2D
+    // renderer's dents do to a battered one.
+    this.mesh.instanceColor = new THREE.InstancedBufferAttribute(
+      new Float32Array(capacity * 3).fill(1),
+      3,
+    );
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     // Instances are placed every frame; without this three.js culls against a
@@ -115,9 +166,11 @@ class Pool {
   }
 
   /** Place one instance. Silently drops past capacity rather than throwing. */
-  put(m: THREE.Matrix4): void {
+  put(m: THREE.Matrix4, shade = 1): void {
     if (this.used >= this.mesh.count) return;
     this.mesh.setMatrixAt(this.used, m);
+    this.tint.setScalar(shade);
+    this.mesh.setColorAt(this.used, this.tint);
     this.used++;
   }
 
@@ -131,6 +184,7 @@ class Pool {
   end(zero: THREE.Matrix4): void {
     for (let i = this.used; i < this.mesh.count; i++) this.mesh.setMatrixAt(i, zero);
     this.mesh.instanceMatrix.needsUpdate = true;
+    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
     (this.outline as THREE.InstancedMesh).instanceMatrix.needsUpdate = true;
   }
 }
@@ -142,6 +196,10 @@ export class EntityLayer {
   private readonly players: Pool;
   /** One pool per vehicle kind, so each keeps its own size and colour. */
   private readonly vehicles = new Map<string, Pool>();
+  /** One pool per body sprite: standing, downed, dead, and each police tier. */
+  private readonly bodies = new Map<string, Pool>();
+  /** A marker over somebody you are meant to be protecting. */
+  private escorts: Pool | null = null;
   private readonly vehicleParent: THREE.Object3D;
 
   private readonly m = new THREE.Matrix4();
@@ -161,6 +219,30 @@ export class EntityLayer {
     this.cops = new Pool(this.group, body('cop', personGeometry(0xd0a184, 0x27407a, 0x1b2436)), COP, 96);
     this.players = new Pool(this.group, body('player', personGeometry(0xd8a184, 0xc4392c, 0x2b3038)), PLAYER, 16);
     this.vehicleParent = this.group;
+  }
+
+  /**
+   * The pool for one body sprite.
+   *
+   * Keyed by name because a body is not one drawing. Somebody on the ground is
+   * a different shape from somebody standing — you are looking down at a back,
+   * not at a head and two shoulders — and the sheet carries `pedDowned`,
+   * `pedDeadA/B`, `copDead` and `playerDeadA/B` for exactly that. Drawn as the
+   * standing figure, a corpse in 3D stood up in the middle of the road, which
+   * is a hard thing not to notice and was the most visible gap left.
+   *
+   * The four police tiers get their own entry for the same reason: a SWAT
+   * officer under a different tint reads as "that officer is standing in a
+   * different light", not as "that is a different force".
+   */
+  private bodyPool(name: string, fallback: Body, capacity: number): Pool {
+    let pool = this.bodies.get(name);
+    if (!pool) {
+      const geom = body(name, personGeometry(fallback.color, 0x7d6a52, 0x33383f));
+      pool = new Pool(this.group, geom, fallback, capacity);
+      this.bodies.set(name, pool);
+    }
+    return pool;
   }
 
   /**
@@ -215,6 +297,8 @@ export class EntityLayer {
     this.cops.begin();
     this.players.begin();
     for (const pool of this.vehicles.values()) pool.begin();
+    for (const pool of this.bodies.values()) pool.begin();
+    this.escorts?.begin();
 
     // Models are authored at world scale with their feet at z=0, so an
     // instance is placed unscaled — scaling them here would stretch the
@@ -232,7 +316,32 @@ export class EntityLayer {
     // rather than added to the wire, because a facing that can be computed
     // from something already sent is not worth a byte per entity per tick.
     for (const p of world.peds) {
-      place(this.peds, p.x, p.y, 0, Math.atan2(p.ped.dirY, p.ped.dirX));
+      const facing = Math.atan2(p.ped.dirY, p.ped.dirX);
+      // Somebody in your care, marked. An unmarked NPC you must protect is a
+      // mission you fail without ever knowing which person mattered.
+      if (p.ped.escortOf !== null) {
+        this.escorts ??= new Pool(
+          this.group,
+          new THREE.ConeGeometry(3.2, 6, 4),
+          { size: [3, 3, 6], color: 0xffd27a, outline: 0.8 },
+          24,
+        );
+        this.m.compose(
+          this.pos.set(p.x, p.y, 22),
+          // Point down at them, and turn slowly so it reads as a marker rather
+          // than as something standing on their head.
+          this.q.setFromAxisAngle(RIGHT, Math.PI),
+          this.scl.set(1, 1, 1),
+        );
+        this.escorts.put(this.m);
+      }
+      const dying = p.ped.mode === 'downed';
+      if (dying || p.ped.mode === 'dead') {
+        const name = dying ? 'pedDowned' : `pedDead${deadPose(p.ped.id)}`;
+        place(this.bodyPool(name, PED, 96), p.x, p.y, 0, facing);
+        continue;
+      }
+      place(this.peds, p.x, p.y, 0, facing);
     }
     for (const c of world.cops) {
       const { x: vx, y: vy } = c.cop.vel;
@@ -240,15 +349,32 @@ export class EntityLayer {
       // snapping to east, which is what atan2(0, 0) would give.
       const heading = vx === 0 && vy === 0 ? (this.copFacing.get(c.cop.id) ?? 0) : Math.atan2(vy, vx);
       this.copFacing.set(c.cop.id, heading);
-      place(this.cops, c.x, c.y, 0, heading);
+      // An officer at zero health is a body, not a pursuer.
+      if (c.cop.health <= 0) {
+        place(this.bodyPool('copDead', COP, 48), c.x, c.y, 0, heading);
+        continue;
+      }
+      const sprite = COP_SPRITE[c.cop.kind] ?? 'cop';
+      place(this.bodyPool(sprite, COP, 96), c.x, c.y, 0, heading);
     }
     for (const pl of world.players) {
       if (pl.player.id === localPlayerId) continue;
+      if (pl.player.mode === 'dead') {
+        place(
+          this.bodyPool(`playerDead${deadPose(pl.player.id)}`, PLAYER, 16),
+          pl.x,
+          pl.y,
+          0,
+          pl.player.aimAngle ?? 0,
+        );
+        continue;
+      }
       place(this.players, pl.x, pl.y, pl.player.z ?? 0, pl.player.aimAngle ?? 0);
     }
     for (const v of world.vehicles) {
       const kind = v.vehicle.kind;
       const pool = this.vehiclePool(kind, this.variantFor(kind, v.vehicle.id));
+      const shade = wearShade(wearOf(v.vehicle));
       // Vehicle boxes carry their own geometry size, so the instance is
       // placed unscaled: composing with a unit scale keeps the outline hull's
       // thickness even instead of stretching it along the longer axis.
@@ -256,7 +382,7 @@ export class EntityLayer {
       this.q.setFromAxisAngle(UP, v.heading);
       this.scl.set(1, 1, 1);
       this.m.compose(this.pos, this.q, this.scl);
-      pool.put(this.m);
+      pool.put(this.m, shade);
     }
 
     // The local player and their car come from PREDICTION, not from the
@@ -265,7 +391,11 @@ export class EntityLayer {
     // player is steering three ticks behind their own input.
     if (local?.player) {
       const p = local.player;
-      place(this.players, p.x, p.y, p.z, p.heading);
+      if (p.mode === 'dead') {
+        place(this.bodyPool(`playerDead${deadPose(p.id)}`, PLAYER, 16), p.x, p.y, 0, p.heading);
+      } else {
+        place(this.players, p.x, p.y, p.z, p.heading);
+      }
     }
     if (local?.vehicle) {
       const v = local.vehicle;
@@ -275,13 +405,15 @@ export class EntityLayer {
         this.q.setFromAxisAngle(UP, v.heading),
         this.scl.set(1, 1, 1),
       );
-      pool.put(this.m);
+      pool.put(this.m, wearShade(v.wear));
     }
 
     this.peds.end(this.zero);
     this.cops.end(this.zero);
     this.players.end(this.zero);
     for (const pool of this.vehicles.values()) pool.end(this.zero);
+    for (const pool of this.bodies.values()) pool.end(this.zero);
+    this.escorts?.end(this.zero);
   }
 
 }
