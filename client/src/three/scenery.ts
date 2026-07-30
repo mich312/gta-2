@@ -23,9 +23,32 @@ import { spriteGeometry } from './spriteMesh.js';
  * taken seriously.
  */
 
-/** Height exaggeration for planting, as `Z_EXAGGERATION` is for bodies. */
-const PLANT_ZSCALE = 1.9;
-const PROP_Z = 1.5;
+/**
+ * Height per plant. Trees and bushes are not one family.
+ *
+ * At a shared 1.9 a tree came out 13.3 world px against a 17 px canopy width —
+ * a mound, wider than it was tall — and a bush came out at 64% of it, which is
+ * a sapling rather than a shrub. Splitting them is what makes a bush read as
+ * ground cover and a tree as something you stand under.
+ *
+ * The tree stops well short of the 3-4x a real street tree would want, and the
+ * binding reason is shape rather than the occlusion ceiling. The canopy is a
+ * disc extruded from the ground, so there is no trunk under it: past about here
+ * raising the number stops making a taller tree and starts making a taller
+ * drum, and at 2.85 a park reads as a field of green oil barrels. 2.2 is enough
+ * to lift it off the mound it was without reaching that. A tree that is
+ * actually a tree needs a trunk, which needs a per-shape floor -- see the note
+ * in spriteMesh.ts.
+ */
+const TREE_ZSCALE = 2.2;
+const BUSH_ZSCALE = 1.2;
+/**
+ * Fallback height for a prop with no entry below.
+ *
+ * 1.0, not 1.5: an unknown prop should default to something ankle-to-knee high,
+ * not to a person's height.
+ */
+const PROP_Z = 1.0;
 
 /**
  * Per-prop height, where one multiplier for all of them is wrong.
@@ -33,20 +56,37 @@ const PROP_Z = 1.5;
  * The authored `z` in `sprites.json` is a relighting hint for flat art, not a
  * height, and the props are where treating it as one shows worst. At a flat
  * 1.5 a street lamp came out 9.0 world px against a pedestrian's 9.75 — every
- * lamp in the city stopping at shoulder height — while a bench came out 7.5
- * and a bin 9.0, so the things you can walk straight through (the sim gives
- * props no collision at all) were drawn as chest-high walls and the player
- * ended up standing inside them with the rails through their chest.
+ * lamp in the city stopping at shoulder height — while the things you can walk
+ * straight through (the sim gives props no collision at all) were drawn as
+ * chest-high walls and the player ended up standing inside them.
  *
- * So: the things that should tower do, and the things you can walk through are
- * kept low enough that walking through them reads as stepping over.
+ * **The occlusion ceiling.** Seen straight down, an object of height `h` hides
+ * a strip of ground behind it `r*(h - h_t)/(H - h)` deep, pointing radially
+ * outward from the screen centre. Past 20 world px that strip is wider than a
+ * pedestrian at the frame corner, so people and pickups genuinely vanish behind
+ * street furniture. Nothing here may exceed it.
+ *
+ * **And a slenderness limit**, which binds harder for exactly these objects: a
+ * thing whose top leans further than about twice its own plan width stops
+ * reading as tall and starts reading as fallen over. A lamp is 4.5 px wide in
+ * plan, so it may be about 14 px tall and no more.
+ *
+ * That last one is why the lamp comes *down* from the 30 px it was given when
+ * the fix was "lamps are shorter than pedestrians". At 30 it was the tallest
+ * object in the game, taller than any vehicle, and it swept the same screen
+ * area as a pedestrian with more contrast — so a prop with no gameplay meaning
+ * was outranking the people you are supposed to be watching, and reading as a
+ * plank lying in the road rather than a post standing in it. Its light pool
+ * carries it at night, which is the one channel this camera renders well.
  */
 const PROP_Z_BY_KIND: Readonly<Record<string, number>> = Object.freeze({
-  lamp: 5.0,
-  hydrant: 0.9,
-  bench: 0.5,
-  bin: 0.7,
-  fence: 0.6,
+  lamp: 2.33,
+  bin: 1.0,
+  bench: 0.9,
+  fence: 0.9,
+  hydrant: 0.75,
+  barrel: 1.1,
+  crate: 1.15,
 });
 
 function propZ(name: string): number {
@@ -109,8 +149,8 @@ export class SceneryLayer {
     }
     this.plants.clear();
 
-    const tree = spriteGeometry('tree', { zScale: PLANT_ZSCALE });
-    const bush = spriteGeometry('bush', { zScale: PLANT_ZSCALE });
+    const tree = spriteGeometry('tree', { zScale: TREE_ZSCALE });
+    const bush = spriteGeometry('bush', { zScale: BUSH_ZSCALE });
     if (!tree || !bush) return;
 
     const trees: THREE.Matrix4[] = [];
@@ -151,8 +191,8 @@ export class SceneryLayer {
         }
       }
     }
-    this.bake(tree, trees, 1.0);
-    this.bake(bush, bushes, 0.8);
+    this.bake(tree, trees, 0.9);
+    this.bake(bush, bushes, 0.55);
   }
 
   private bake(geom: THREE.BufferGeometry, mats: THREE.Matrix4[], outline: number): PlantPool | null {
@@ -216,7 +256,12 @@ export class SceneryLayer {
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     this.group.add(mesh);
-    const twin = addOutline(mesh, this.group, 0.9);
+    // Thinner than it looks like it should be. The hull fattens in world
+    // units, so one weight for every prop adds the same 1.8 px to a lamp post
+    // and to a fence rail that is 1.0 px thick — which swallows the rail and
+    // renders a fence as a dark lattice. The lamp is the one that needs weight
+    // at distance, and it is tall enough to carry it.
+    const twin = addOutline(mesh, this.group, name.startsWith('lamp') ? 0.8 : 0.55);
     twin.frustumCulled = false;
     const pool = { mesh, used: 0 };
     this.propPools.set(name, pool);

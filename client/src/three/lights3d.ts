@@ -77,11 +77,22 @@ const GAIN = 5;
 /** No source converts closer than this, or a light at road level goes nuclear. */
 const MIN_REF = 8;
 
-/** How high a light hangs, in world px. A lamp is on a post; a headlight is not. */
-const LAMP_Z = 30;
+/**
+ * How high a light hangs, in world px. A lamp is on a post; a headlight is not.
+ *
+ * `LAMP_Z` tracks the lamp *mesh*, and the two have to be changed together —
+ * it was 30 because the lamp sprite's max z of 12 at a scale of 5.0 came out
+ * at exactly 30, and nothing said so. Leave it behind and the glow floats
+ * above the bulb it is supposed to be coming from.
+ *
+ * It is also the distance the lamp's brightness is converted at, so lowering
+ * it dims the source and the pool on the road beneath stays where it was
+ * tuned. See `GAIN`.
+ */
+export const LAMP_Z = 14;
 const SIGN_Z = 16;
 const HEAD_Z = 5;
-const FLASH_Z = 8;
+export const FLASH_Z = 8;
 
 /**
  * What outranks what when there are more lights than slots.

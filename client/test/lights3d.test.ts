@@ -10,7 +10,7 @@ import propsJson from 'shared/data/props.json';
 import weaponsJson from 'shared/data/weapons.json';
 import { Effects } from '../src/render/effects.js';
 import type { Scene } from '../src/render/renderer.js';
-import { Lights3dLayer } from '../src/three/lights3d.js';
+import { FLASH_Z, LAMP_Z, Lights3dLayer } from '../src/three/lights3d.js';
 
 /**
  * The light budget.
@@ -161,7 +161,11 @@ describe('the 3D light budget', () => {
     );
     // Lamps hang on posts; markers sit at knee height or below. Every slot
     // taken by something at lamp height is a slot doing the job of lighting.
-    const atLampHeight = live(fx).filter((l) => l.z > 20 && l.kind === 'point');
+    // Against the real LAMP_Z rather than a number that happens to sit above
+    // it today: this read `z > 20`, which was silently a copy of a LAMP_Z of
+    // 30, and broke the moment the lamp mesh — and the bulb with it — came
+    // down to the height the camera can afford.
+    const atLampHeight = live(fx).filter((l) => l.z >= LAMP_Z && l.kind === 'point');
     expect(atLampHeight.length).toBeGreaterThanOrEqual(8);
   });
 
@@ -245,8 +249,8 @@ describe('the 3D light budget', () => {
     // not comparable across heights: intensity converts at the distance to the
     // surface a light is for, so a lamp thirty pixels up carries a bigger
     // figure than a fireball at eight for the same brightness on the ground.
-    expect(drawn.some((l) => l.z < 20)).toBe(true);
-    expect(drawn.filter((l) => l.z > 20).length).toBeGreaterThan(0); // lamps too
+    expect(drawn.some((l) => l.z <= FLASH_Z)).toBe(true);
+    expect(drawn.filter((l) => l.z >= LAMP_Z).length).toBeGreaterThan(0); // lamps too
     expect(drawn.length).toBeLessThanOrEqual(20);
   });
 

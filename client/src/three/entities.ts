@@ -93,13 +93,90 @@ const Z_EXAGGERATION = 1.5;
  * than as a death.
  *
  * Low enough to lie down, not zero: a body still has to catch the light and
- * hold an outline, or it becomes a decal.
+ * hold an outline, or it becomes a decal. At 0.3 the torso came out 1.05 px
+ * thick, which is nearer a decal than a body; 0.45 gives it a 0.28 m chest and
+ * still reads as unambiguously down at 23% of a standing figure.
  */
-const DEAD_Z = 0.3;
+const DEAD_Z = 0.45;
+/** The curl pose should be lumpier than the sprawl — it is still breathing. */
+const DOWNED_Z = 0.5;
 
-/** Bodies on the ground lie flat; everything else keeps its standing height. */
+/**
+ * Height per sprite, where one multiplier for all of them is wrong.
+ *
+ * `z` in `sprites.json` is a relighting hint for flat art, not a height — the
+ * 2D generator reads it as a field to compute shading normals from, and that is
+ * all it was ever for. So every sprite sits in the same 0–16 range whatever it
+ * depicts, and extruded at one exaggeration a bus came out exactly as tall as
+ * the person waiting for it.
+ *
+ * Two limits bound every number here, both measured at the shipped camera:
+ *
+ * **Ceiling, 20 world px.** Straight down, a tall object hides the ground
+ * behind it in a strip `r·(h − h_t)/(H − h)` deep, pointing radially outward.
+ * Past 20 px that strip exceeds a pedestrian's width at the frame corner, so
+ * things genuinely disappear behind other things. 24 px — one storey — is the
+ * never-exceed.
+ *
+ * **Resolution, ~8 world px.** Two heights closer than that are the same height
+ * at this camera. These are therefore three bands wearing a table: ground
+ * clutter, people and cars, big vehicles. Precision beyond that is invisible.
+ *
+ * The pedestrian is the ruler at 9.75 px and does not move. A car roof belongs
+ * *below* head height, which is why the fix for "a car is as tall as a person"
+ * is on this side rather than by inflating the ped.
+ */
+const Z_BY_SPRITE: Readonly<Record<string, number>> = Object.freeze({
+  // Low-slung cars: the roofline is the whole difference between these.
+  sports: 1.05,
+  coupe: 1.15,
+  muscle: 1.15,
+  gangcar: 1.15,
+  car: 1.2,
+  limo: 1.2,
+  hatch: 1.25,
+  estate: 1.25,
+  // Roof furniture — a taxi sign, a lightbar — carries these above the saloon.
+  taxi: 1.25,
+  copcar: 1.25,
+  // Working vehicles, tall enough to read as bigger without reaching the cap.
+  pickup: 1.55,
+  van: 1.7,
+  icecream: 1.75,
+  ambulance: 2.05,
+  garbage: 2.15,
+  digger: 2.25,
+  bus: 2.55,
+  truck: 2.65,
+  firetruck: 2.65,
+  // A tank is squat, not tall: wide and tracked is what makes it read, and the
+  // turret was the tallest object in the game, which was simply wrong.
+  tank: 1.55,
+  tank_turret: 1.25,
+  boat: 1.4,
+  // Two wheels: bar height, and the lowest things on the road.
+  moto: 1.2,
+  copbike: 1.2,
+  bicycle: 1.25,
+  // Aircraft stay where they were. Their rotor discs are authored with `alpha`
+  // and `noOutline`, and `spriteMesh` honours neither, so each one renders as
+  // an opaque outlined drum that swallows the fuselage. Raising these makes the
+  // drum worse, not the aircraft better — see the note in `spriteMesh.ts`.
+  heli: 1.5,
+  gunship: 1.5,
+  chopper: 1.5,
+  plane: 1.5,
+  // The only bulk lever a multiplier has for the police tiers. It is a weak
+  // one — SWAT is not wider than a Fed in plan, and that is what would actually
+  // read — but it costs nothing.
+  copSwat: 1.6,
+});
+
+/** Bodies on the ground lie flat; everything else takes its authored height. */
 function zScaleFor(name: string): number {
-  return /Dead|Downed/.test(name) ? DEAD_Z : Z_EXAGGERATION;
+  if (/Downed/.test(name)) return DOWNED_Z;
+  if (/Dead/.test(name)) return DEAD_Z;
+  return Z_BY_SPRITE[name] ?? Z_EXAGGERATION;
 }
 
 /** How high off the road a body of this kind sits, and how big it is. */

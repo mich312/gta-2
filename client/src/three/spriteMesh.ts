@@ -38,7 +38,15 @@ interface Shape {
   color: string;
   z?: number;
   mirrorY?: boolean;
+  /**
+   * Authored for the 2D pass and **not honoured here**. `rotorBlur` on every
+   * aircraft is a disc carrying `alpha: 0.22` and `noOutline: true`; extruded
+   * opaque and outlined it becomes a drum 19 px across that swallows the
+   * fuselage inside it. Until this is read, raising an aircraft's height makes
+   * the drum bigger rather than the aircraft taller.
+   */
   alpha?: number;
+  noOutline?: boolean;
 }
 
 interface SpriteDef {
@@ -93,13 +101,38 @@ function paint(g: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
 }
 
 /**
- * One shape, extruded from the ground to its own height.
+ * One shape, as a solid.
  *
- * Every shape starts at z=0 rather than stacking on whatever is beneath it,
- * which is exactly what the height field means: `z` is the height of that
- * surface above the ground, not a thickness. A car's cabin at z=12 sitting
- * over a body at z=8 therefore overlaps it, and that is correct — the solid
- * they describe together is the union, and the union is what you see.
+ * A shape's `z` is the height of its top surface above the ground, not a
+ * thickness, so a car's cabin at z=12 over a body at z=8 overlaps it and the
+ * solid you see is their union. That much is right.
+ *
+ * **Every shape is extruded from the ground up**, and that is the single
+ * biggest thing wrong with these models. Its bottom is always zero, so any shape that is both lower than another and inside its
+ * footprint is not merely hidden, it contributes nothing at all:
+ *
+ * - a car's tyres (z 2) sit wholly inside its body shell (z 8), so no vehicle
+ *   in the game has visible wheels, ride height or arches — a car is a loaf
+ *   with two black stickers at the sill, and a motorbike is a brick
+ * - a pedestrian's trousers (z 4) sit wholly inside the torso ellipse (z 8),
+ *   measured at 0.00 px of visible top area, so nobody in the city has legs:
+ *   62% of a figure is one undivided cylinder to the pavement
+ * - a police officer's chest badge and a Fed's coat are buried under the cap
+ *   disc above them, so two of the four police tiers lose their identifying
+ *   garment
+ * - a tree's canopy starts at the ground, so there is no trunk and raising the
+ *   tree makes a taller drum rather than a taller tree
+ *
+ * Three artists reviewing three separate families each arrived here
+ * independently. No height multiplier can reach any of it, because a
+ * multiplier scales the buried shape and the thing burying it equally.
+ *
+ * The fix is a per-shape floor — a `zBase` alongside `z`, so a body can start
+ * at ride height while its tyres still start at zero. That is an authoring job
+ * across 57 sprites as well as a change here, and it wants doing as its own
+ * piece of work. `z` itself must not be touched: the 2D sprite generator reads
+ * it as a height field for relighting, so changing it silently changes the 2D
+ * art.
  */
 function shapeGeometry(s: Shape, ox = 0, oy = 0): THREE.BufferGeometry | null {
   const depth = Math.max(0.5, s.z ?? DEFAULT_Z);
