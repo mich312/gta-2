@@ -392,3 +392,81 @@ and the shipped client is hardcoded to 0.
 
 **The highest-leverage change available to the look of this game is not any
 artist's number. It is 8–15° of camera pitch.**
+
+---
+
+# Part three: working the open list
+
+Everything below was on the "not fixed" lists above and now is, except where
+noted.
+
+## Models
+
+- **A per-shape floor.** Shapes carry an optional `zBase`, so a vehicle's shell
+  sits on its wheels instead of swallowing them. `z` is untouched — proved by
+  `pnpm sprites` regenerating the sheet byte-identical.
+- **Aircraft were opaque drums.** A shape authored with a low `alpha` — every
+  `rotorBlur` — is now drawn as a thin plate at its own height rather than a
+  solid cylinder, so the airframe is visible.
+- **`playerFist` / `playerPunch`** are placed in 3D, via one `playerPose`
+  function both renderers call.
+- **Stunt ramps** get their chevrons.
+- **Per-building window salt**, so blocks no longer share one lit-window grid.
+
+## Look
+
+- **Night is graded**, not dimmed: the sun cools toward moonlight and the
+  hemisphere with it.
+- **Facade aliasing** fades out as the pattern approaches a pixel.
+- **Buildings have an outline** — 0.5 world px was about one device pixel
+  against a car's 2.8.
+
+## Cost
+
+- **`?lights=cheap` now saves GPU work.** Unspent slots are hidden, not merely
+  dimmed; three.js counts visible lights whatever their intensity.
+- **`setFacadeNight`** no longer walks the scene graph every frame.
+
+## Gameplay
+
+- **The input hold adapts to the client.** A fixed six ticks was chosen for
+  network jitter and is wrong for a slow machine, where the gap is the client's
+  frame time: at 1.4 fps a client emits an intent every ~21 ticks, so ten ticks
+  in twenty-one had no throttle and a car topped out at 20 px/s against 255 in
+  2D. Every threshold in the game sits above that. The hold now tracks the
+  client's own measured cadence, bounded at a second.
+  `ci/hostParity.mjs` passes.
+- **The camera tilts 10°**, which is what makes any of the height work visible.
+  `?pitch=` overrides, so the old view is `?pitch=0`.
+
+## Still open, and why
+
+- **Pedestrians still have no legs.** The trousers sit inside the torso
+  ellipse, and lifting the torso onto them leaves it floating — the leg rect is
+  far smaller, so most of the torso has nothing beneath it, and it renders as
+  disconnected slabs with the outline hull tracing each gap. I tried it, looked
+  at it, and reverted it. Fixing this means re-authoring the leg *shape* so it
+  supports the torso, which changes the 2D silhouette too.
+- **`plane` has no fin.** Its tail surfaces are authored at z 6–7, below the z 9
+  wings, so they are inside the fuselage's own column. `zBase` cannot lift a
+  shape above its own top; the fix is a taller tail, which is a `z` change and
+  therefore a 2D change.
+- **Props are still passable.** Making `fence` and `lamp` solid is the
+  environment artist's recommendation and `props.json` already carries a
+  `radius` for each — but it changes which positions are legal in a
+  deterministic sim shared by every client, and fences run along the pavements
+  pedestrians path down. That is a design decision with a real chance of
+  trapping peds, not a rendering fix.
+- **The ~220 ms rebase hitch.** Still four full passes over a 57,600-tile grid
+  with no budget. Chunking the *build* the way the draw is now chunked is the
+  fix.
+- **46 draw calls exist only to vary a colour** — one bucket plus
+  `instanceColor` would collapse them.
+- **SWAT is not bulkier than a Fed**, and the **walk cycle skates** at a 7:1
+  slide-to-swing ratio. Both need art, not numbers.
+- **Buildings lean 5.3× more in 3D than 2D** (`PARALLAX_PX_PER_STOREY` 3.0
+  against `Z_PER_STOREY` 24). The largest remaining 2D/3D divergence, and a
+  constants decision rather than a bug.
+- **A wrecked car keeps lit tail lamps and blue glazing.** The paint darkens
+  through a per-instance tint that multiplies every vertex colour equally, so
+  there is no way to single out the lights without a wreck sprite.

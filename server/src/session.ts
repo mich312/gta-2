@@ -79,6 +79,33 @@ const PED_RESPAWN_PER_SEC = 2;
 const PED_RESPAWN_MIN_DIST = 700;
 /** Max consecutive ticks a missing client keeps "holding" their last keys. */
 const MAX_HELD_TICKS = 6;
+/**
+ * Ceiling on that hold however sparse a client's input is.
+ *
+ * A second. Past this the player has genuinely stopped talking to us and should
+ * come to a halt rather than carry on under their own momentum.
+ */
+const MAX_HELD_CEILING = 30;
+
+/**
+ * How long to keep applying a client's last input while it has sent nothing.
+ *
+ * Six ticks was a fixed 200 ms, chosen for network jitter, and it is wrong for
+ * a slow machine — where the gap is not jitter but the client's frame time. A
+ * client rendering at 1.4 fps emits an intent about every 21 ticks, so ten
+ * ticks in every twenty-one had no throttle at all and `driveVehicle` applied
+ * friction instead of acceleration. Measured, a car topped out at 20 px/s
+ * against 255 in the 2D renderer on the same box: every speed threshold in the
+ * game — crashing, skidding, running someone over — sits above that, so the
+ * player could do none of them.
+ *
+ * Holding for as long as that client's own gap, with headroom, makes the world
+ * respond to what they are actually pressing. It is still bounded, and it still
+ * stops at `MAX_HELD_CEILING` for someone who has gone quiet altogether.
+ */
+function holdLimit(slot: { gapTicks: number }): number {
+  return Math.min(MAX_HELD_CEILING, Math.max(MAX_HELD_TICKS, Math.ceil(slot.gapTicks * 1.5)));
+}
 /** Hard ceiling on the backlog. Past this we fast-forward, jitter or no jitter. */
 const MAX_INPUT_LAG_TICKS = 8;
 /**
@@ -103,6 +130,15 @@ export interface PlayerSlot {
   lastIntent: InputIntent | null;
   /** Consecutive ticks the hold has been in effect; capped so a stalled client stops moving. */
   heldTicks: number;
+  /**
+   * Rolling estimate of how many ticks this client leaves between batches.
+   *
+   * A client sends one intent per tick it simulates, and a slow one simulates
+   * fewer ticks than the wall clock has: at 1.4 fps it emits about 7 intents a
+   * second against the world's 30. The hold exists to cover exactly that gap,
+   * so how long to hold for is a property of the client rather than a constant.
+   */
+  gapTicks: number;
   lastQueuedSeq: number;
   /** Last seq actually folded into the sim; echoed as ackSeq. */
   lastInputSeq: number;
@@ -404,6 +440,7 @@ export class Session {
       queue: [],
       lastIntent: null,
       heldTicks: 0,
+      gapTicks: 0,
       lastQueuedSeq: 0,
       lastInputSeq: 0,
       depthLowWater: Infinity,
@@ -576,11 +613,25 @@ export class Session {
         }
         intent = slot.queue.shift() as InputIntent;
         slot.lastIntent = intent;
+        // Learn how long this client actually leaves between batches, from the
+        // gap that just ended. Counted separately from the hold, because the
+        // hold stops at its own limit and would otherwise only ever measure
+        // itself — an estimator that converges on the constant it is supposed
+        // to replace. Weighted so one hitch does not stretch the hold for the
+        // rest of the session.
+        if (slot.heldTicks > 0) {
+          // The first gap is taken whole rather than blended up from zero: a
+          // slow client is slow from its first frame, and easing towards the
+          // truth would leave it in slow motion for the seconds it takes to
+          // get there.
+          slot.gapTicks =
+            slot.gapTicks === 0 ? slot.heldTicks : slot.gapTicks * 0.6 + slot.heldTicks * 0.4;
+        }
         slot.heldTicks = 0;
-      } else if (slot.lastIntent && slot.heldTicks < MAX_HELD_TICKS) {
-        // Brief gap: hold the last keys so movement doesn't stutter.
-        intent = slot.lastIntent;
+      } else {
         slot.heldTicks++;
+        // Brief gap: hold the last keys so movement doesn't stutter.
+        if (slot.lastIntent && slot.heldTicks <= holdLimit(slot)) intent = slot.lastIntent;
       }
       if (intent) {
         inputs[id] = intent;
