@@ -26,6 +26,7 @@
         ?seed=   city seed          ?pitch=  camera tilt, degrees from vertical
         ?h=      view height, px    ?night=  0 midday, 1 midnight
         ?peds=   crowd size         ?fly=1   circle the city instead of playing
+        ?wet=    0 dry, 1 just rained
     -->
     <div id="hud">building…</div>
     <canvas id="view"></canvas>
@@ -41,6 +42,7 @@
       const pitch = num('pitch', 42);
       const viewHeight = num('h', 420);
       const night = num('night', 0.15);
+      const wet = num('wet', 0);
       const peds = Number.parseInt(q.get('peds') ?? '160', 10);
 
       const canvas = document.getElementById('view');
@@ -83,7 +85,7 @@
         requestAnimationFrame(tick);
         globalThis.__city = view;
       } else {
-        const live = new Live({ canvas, seed, pitch, viewHeight, peds, night });
+        const live = new Live({ canvas, seed, pitch, viewHeight, peds, night, wet });
         live.start();
         globalThis.__live = live;
         let frames = 0, last = performance.now(), fps = 0;

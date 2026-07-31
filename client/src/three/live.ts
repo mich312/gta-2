@@ -11,8 +11,11 @@ import {
   type WorldgenParams,
 } from 'shared';
 import { Interpolator } from '../net/interpolation.js';
+import { SpriteSheet } from '../render/sprites.js';
+import { TileLayer } from '../render/tiles.js';
 import { CityView } from './cityView.js';
 import { EntityLayer } from './entities.js';
+import { GroundLayer } from './ground.js';
 import { SceneryLayer } from './scenery.js';
 
 /**
@@ -38,6 +41,8 @@ export interface LiveOptions {
   viewHeight: number;
   peds: number;
   night: number;
+  /** How wet the streets are, 0 to 1. Fixed here; the game runs it off a clock. */
+  wet: number;
 }
 
 export class Live {
@@ -47,6 +52,14 @@ export class Live {
   private view: CityView | null = null;
   private entities: EntityLayer | null = null;
   private scenery: SceneryLayer | null = null;
+  private ground: GroundLayer | null = null;
+  /**
+   * The 2D tile painter, here only as the ground layer's texture source.
+   *
+   * It needs a `SpriteSheet` to draw entities and this one is never loaded —
+   * `groundChunk` paints terrain and nothing else, so it never asks.
+   */
+  private readonly tiles = new TileLayer(new SpriteSheet());
   private map: CityMap | null = null;
   /** Kept so a rebase can regenerate at the new origin. */
   private worldgen: WorldgenParams | null = null;
@@ -121,11 +134,16 @@ export class Live {
         map: this.map,
         pitch: this.opts.pitch,
         viewHeight: this.opts.viewHeight,
+        post: true,
       });
       this.view.setNight(this.opts.night);
       this.entities = new EntityLayer(this.view.world);
       this.scenery = new SceneryLayer(this.view.world);
       this.scenery.setMap(this.map);
+      this.ground = new GroundLayer(this.view.world, this.tiles);
+      this.tiles.setMap(this.map);
+      this.ground.setMap(this.map);
+      this.ground.setWeather(this.opts.wet, this.opts.night);
     } else if (msg.type === 'rebase' && this.worldgen && this.view) {
       // ROAM is on here too (`start()` boots the host with it), so the window
       // moves and the map is regenerated under the view. Told nothing, it went
@@ -134,6 +152,8 @@ export class Live {
       this.map = generateCity(this.seed, this.worldgen);
       this.view.setMap(this.map);
       this.scenery?.setMap(this.map);
+      this.tiles.setMap(this.map);
+      this.ground?.setMap(this.map);
     }
     if (this.sync.applyServerMessage(msg) && this.sync.latest) {
       this.interp.push(this.sync.latest as FullSnapshot);
@@ -187,6 +207,14 @@ export class Live {
       const fx = inCar ? inCar.x : (me?.x ?? 0);
       const fy = inCar ? inCar.y : (me?.y ?? 0);
       if (me) this.view.lookAt(fx, fy);
+      // `lookAt` takes the centre of the frame; the ground layer wants the
+      // top-left corner, as the 2D renderer means a camera. The width is
+      // guessed at twice the height rather than measured off the canvas —
+      // this page has no `viewport`, and the layer only uses the box to
+      // decide which chunks to paint, with a margin round it either way.
+      const gw = this.opts.viewHeight * 2;
+      const gh = this.opts.viewHeight;
+      this.ground?.update({ x: fx - gw / 2, y: fy - gh / 2 }, { w: gw, h: gh });
       this.view.render();
     }
 
