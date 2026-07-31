@@ -53,6 +53,7 @@ import { SceneryLayer } from './three/scenery.js';
 import { Effects3dLayer } from './three/effects3d.js';
 import { WorldObjectsLayer } from './three/worldObjects.js';
 import { Lights3dLayer } from './three/lights3d.js';
+import { GroundLayer } from './three/ground.js';
 import type { LocalHostOptions } from './local/host.worker.js';
 import { Interpolator } from './net/interpolation.js';
 import { InputSource } from './input/keyboard.js';
@@ -299,6 +300,7 @@ let world3d: {
   fx: Effects3dLayer;
   objects: WorldObjectsLayer;
   lights: Lights3dLayer;
+  ground: GroundLayer;
 } | null = null;
 let lastSeed = 0;
 let lastWorldgen: WorldgenParams | null = null;
@@ -735,6 +737,8 @@ function fallBackTo2d(): void {
   // hidden, so without this the context, its shadow map and a whole city's
   // buffers stay resident — on precisely the machine that has just failed to
   // render 3D, and browsers cap how many live WebGL contexts a page may hold.
+  // The ground layer holds up to 96 chunk textures of its own.
+  world3d?.ground.disposeAll();
   world3d?.view.dispose();
   world3d = null;
   const worldCanvas = document.getElementById('world') as HTMLCanvasElement | null;
@@ -818,12 +822,17 @@ function drawWorld3d(scene: Scene | null): void {
       fx: new Effects3dLayer(view.world),
       objects: new WorldObjectsLayer(view.world),
       lights: new Lights3dLayer(view.world),
+      // The 2D tile painter, reused as a ground texture source. It is built
+      // either way — in 3D it just stops being drawn — so this costs an object
+      // that already exists.
+      ground: new GroundLayer(view.world, tiles),
     };
+    world3d.ground.setMap(map);
     world3d.scenery.setMap(map);
     world3d.objects.setMap(map);
     world3d.lights.setMap(map);
   }
-  const { view, entities, scenery, fx, objects, lights: lights3d } = world3d;
+  const { view, entities, scenery, fx, objects, lights: lights3d, ground } = world3d;
 
   // Match the HUD canvas exactly, in both backing store and CSS box, so a
   // world pixel lands on the same screen pixel in both layers.
@@ -888,6 +897,9 @@ function drawWorld3d(scene: Scene | null): void {
       h: viewport.h,
     });
   }
+  // Paint the ground around wherever the camera is looking. Budgeted inside,
+  // so this is a couple of chunks a frame at most.
+  ground.update(cam, { w: viewport.w, h: viewport.h });
   view.lookAt(focus.x, focus.y);
   view.render();
 }

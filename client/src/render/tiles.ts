@@ -370,6 +370,68 @@ export class TileLayer {
     return variants[Math.floor(pick * variants.length) % variants.length] as string;
   }
 
+  /**
+   * A chunk with ONLY the ground painted, for the 3D renderer to stand on.
+   *
+   * The 3D city is built from instanced boxes carrying one flat colour per
+   * surface type — fourteen of them for the whole world — while this class has
+   * always painted the same ground out of forty-odd palette entries with
+   * grain, resurfacing patches, manholes, kerb shading, paving joints, lane
+   * marks and a per-district pavement tint. Ground is around ninety per cent
+   * of a top-down frame, so that difference is most of why the 3D city reads
+   * as a model of a city rather than a city.
+   *
+   * Rather than re-implement any of it in a shader, the 3D ground layer takes
+   * these canvases as textures. It is a divergence being removed, not an art
+   * pipeline being forked.
+   *
+   * Ground only: no walls, no roofs, and none of the baked drop shadows
+   * `buildChunk` adds — 3D has its own geometry and its own shadow map, and
+   * baking a second set under them would double every one.
+   *
+   * **Water is left transparent; buildings are not.** Both are real volumes in
+   * 3D, but only one of them is a hole. A building stands well above this
+   * plane and hides its own footprint, so the footprint can be filled with
+   * anything and painting it costs nothing. Water sits *below* the plane, so
+   * painting it would lay a flat lid over a surface that is supposed to have a
+   * depth and a shoreline.
+   *
+   * That distinction is worth the extra flag it returns: a chunk with no water
+   * in it needs no alpha at all, and most chunks have none. `holes` says which
+   * ones do, so the ground layer can draw the rest opaque and keep early-z.
+   */
+  groundChunk(cx: number, cy: number): { canvas: HTMLCanvasElement; holes: boolean } {
+    const canvas = document.createElement('canvas');
+    canvas.width = CHUNK_DEVICE;
+    canvas.height = CHUNK_DEVICE;
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
+    ctx.imageSmoothingEnabled = false;
+
+    const tx0 = cx * CHUNK_TILES;
+    const ty0 = cy * CHUNK_TILES;
+    let holes = false;
+    for (let ty = ty0; ty < ty0 + CHUNK_TILES; ty++) {
+      for (let tx = tx0; tx < tx0 + CHUNK_TILES; tx++) {
+        const tile = this.tileAt(tx, ty);
+        const x = (tx - tx0) * TD;
+        const y = (ty - ty0) * TD;
+        if (tile === T_WATER) {
+          holes = true;
+          continue;
+        }
+        if (tile === T_BUILDING) {
+          // Under a building and never seen. Filled rather than left clear so
+          // the chunk can stay opaque.
+          ctx.fillStyle = palette.wallShade ?? palette.road;
+          ctx.fillRect(x, y, TD, TD);
+          continue;
+        }
+        this.paintGround(ctx, tx, ty, x, y, tile);
+      }
+    }
+    return { canvas, holes };
+  }
+
   private buildChunk(cx: number, cy: number): HTMLCanvasElement {
     const canvas = document.createElement('canvas');
     canvas.width = CHUNK_DEVICE;
