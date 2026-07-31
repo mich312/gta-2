@@ -322,39 +322,6 @@ function applyCommand(state: GameState, cmd: SimCommand, map: CityMap): void {
       removeEntity(state.peds, cmd.pedId);
       break;
     }
-    case 'rebase': {
-      // The viewport moved. Players and the vehicles they drive come along
-      // (a whole-tile pixel shift, so q8 exactness is untouched); the
-      // ambient world belongs to the old region and despawns — the session
-      // reseeds the new region with ordinary spawn commands this same tick.
-      // Deterministic by construction: fixed iteration over sorted id
-      // arrays, no rng.
-      const keepVehicles = new Set<number>();
-      for (const pid of state.players.ids) {
-        const p = state.players.byId[pid];
-        if (!p) continue;
-        p.pos.x += cmd.dxPx;
-        p.pos.y += cmd.dyPx;
-        if (p.vehicleId !== null) keepVehicles.add(p.vehicleId);
-      }
-      for (const vid of [...state.vehicles.ids]) {
-        const v = state.vehicles.byId[vid];
-        if (!v) continue;
-        if (keepVehicles.has(vid)) {
-          v.pos.x += cmd.dxPx;
-          v.pos.y += cmd.dyPx;
-        } else {
-          removeEntity(state.vehicles, vid);
-          delete state.trafficDrivers[vid];
-        }
-      }
-      for (const id of [...state.peds.ids]) removeEntity(state.peds, id);
-      for (const id of [...state.cops.ids]) removeEntity(state.cops, id);
-      for (const id of [...state.props.ids]) removeEntity(state.props, id);
-      for (const id of [...state.pickups.ids]) removeEntity(state.pickups, id);
-      for (const id of [...state.projectiles.ids]) removeEntity(state.projectiles, id);
-      break;
-    }
     case 'healPlayer': {
       const p = getEntity(state.players, cmd.playerId);
       if (!p || p.mode === 'dead') return;

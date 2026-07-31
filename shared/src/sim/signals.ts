@@ -40,6 +40,19 @@ import { CARDINALS, RIGHT_STEP, drivableTile } from './roadgrid.js';
 const MAX_LANE_TILES = 4;
 
 /**
+ * The largest patch of tarmac that still counts as one signalled junction.
+ *
+ * A square crossroads of two four-lane roads is sixteen tiles. Taken at an
+ * angle, or where a curved arterial spills into a grid, the connected patch
+ * runs to thirty and beyond with a dozen arms off it — and the head rule
+ * below, which walks the kerb of each arm, has no sensible answer for a shape
+ * like that. Those places are plazas: many ways in, no phase that governs
+ * them, negotiated the way junctions were before signals existed. Left
+ * unlabelled, so no head is collected and no light is drawn.
+ */
+const MAX_JUNCTION_TILES = 20;
+
+/**
  * How far short of the junction the stop line sits, in px, beyond the car's
  * own nose.
  *
@@ -53,37 +66,60 @@ const MAX_LANE_TILES = 4;
 const STOP_LINE_SETBACK = 6;
 
 /**
- * How far the drivable road runs either side of a tile, across `alongX`, in
- * tiles — capped, because all any caller needs to know is whether the span is
- * wider than a carriageway.
+ * How far the drivable road runs either side of a tile along one direction,
+ * in tiles — capped, because all any caller needs to know is whether the span
+ * is wider than a carriageway.
  */
-function crossSpan(map: CityMap, tx: number, ty: number, alongX: boolean): number {
+function spanAlong(map: CityMap, tx: number, ty: number, dx: number, dy: number): number {
   let span = 1;
   for (let i = 1; i <= MAX_LANE_TILES; i++) {
-    if (!drivableTile(map, alongX ? tx : tx - i, alongX ? ty - i : ty)) break;
+    if (!drivableTile(map, tx + dx * i, ty + dy * i)) break;
     span++;
   }
   for (let i = 1; i <= MAX_LANE_TILES; i++) {
-    if (!drivableTile(map, alongX ? tx : tx + i, alongX ? ty + i : ty)) break;
+    if (!drivableTile(map, tx - dx * i, ty - dy * i)) break;
     span++;
   }
   return span;
 }
 
 /**
+ * The four directions a span is measured along: the two axes and the two
+ * diagonals.
+ *
+ * The diagonals are not decoration. A carriageway is narrow ACROSS its
+ * direction of travel and long along it — but "across" only means "along y"
+ * if the road runs along x, and the city's roads are polylines now. A
+ * four-tile road at forty-five degrees measures nearly six tiles across both
+ * axes, so an axis-only test called every tile of every diagonal road a
+ * junction, and the ring road came out as one junction with thirty-three
+ * arms. Taking the NARROWEST of the four asks the right question — is this
+ * tile narrow in any direction at all — and answers it the same way for a
+ * road at any angle.
+ */
+const SPAN_DIRS = [
+  [0, 1],
+  [1, 0],
+  [1, 1],
+  [1, -1],
+] as const;
+
+/**
  * A tile where two roads genuinely cross, rather than a wide road.
  *
  * The test is the lane model's own: a carriageway is a strip that is narrow
  * across the direction of travel and long along it, so an ordinary road tile
- * is over-wide in exactly one axis. A tile that is over-wide in *both* is not
- * a carriageway at all — it is a junction, a plaza or a car park, which is
- * precisely the set of places a driver has to negotiate rather than follow.
+ * is narrow in at least one direction. A tile that is over-wide in EVERY
+ * direction is not a carriageway at all — it is a junction, a plaza or a car
+ * park, which is precisely the set of places a driver has to negotiate rather
+ * than follow.
  */
 function isJunctionTile(map: CityMap, tx: number, ty: number): boolean {
   if (!drivableTile(map, tx, ty)) return false;
-  return (
-    crossSpan(map, tx, ty, true) > MAX_LANE_TILES && crossSpan(map, tx, ty, false) > MAX_LANE_TILES
-  );
+  for (const [dx, dy] of SPAN_DIRS) {
+    if (spanAlong(map, tx, ty, dx, dy) <= MAX_LANE_TILES) return false;
+  }
+  return true;
 }
 
 /**
@@ -116,6 +152,7 @@ export function labelJunctions(map: CityMap): JunctionMap {
       idOf[seed] = id;
       queue.length = 0;
       queue.push(tx, ty);
+      const members: number[] = [seed];
       for (let q = 0; q < queue.length; q += 2) {
         const cx = queue[q] as number;
         const cy = queue[q + 1] as number;
@@ -126,8 +163,19 @@ export function labelJunctions(map: CityMap): JunctionMap {
           const idx = ny * w + nx;
           if (idOf[idx] !== -1 || !isJunctionTile(map, nx, ny)) continue;
           idOf[idx] = id;
+          members.push(idx);
           queue.push(nx, ny);
         }
+      }
+      // Past a certain size it is not a junction, it is a plaza — the apron
+      // where a curved arterial merges into a grid, or a yard, or the mouth
+      // of a bus station. Those places have a dozen ways in and no sensible
+      // phase, and a signal on one governs nothing; drivers negotiate them
+      // the way they did before signals existed. Unlabelled, so no head is
+      // collected and no light is drawn.
+      if (members.length > MAX_JUNCTION_TILES) {
+        for (const i of members) idOf[i] = -1;
+        count--;
       }
     }
   }
@@ -200,7 +248,44 @@ function collectHeads(map: CityMap, idOf: Int16Array): SignalHead[] {
       }
     }
   }
-  return heads;
+  // One head per arm, enforced rather than hoped for.
+  //
+  // The kerb-most rule above is a purely local test, and it gives exactly one
+  // head per arm on a grid — which is what the city used to be. Where a
+  // curved arterial meets a grid the approach tiles wrap round the junction
+  // in steps instead of lying in one straight run, and each step passes the
+  // local test: eighteen lights round one crossroads. Keeping the single
+  // approach closest to the junction, per junction and per cardinal, says the
+  // thing the local test was a proxy for, and says it for a road at any angle.
+  const centres = new Map<number, { x: number; y: number; n: number }>();
+  for (const h of heads) {
+    const c = centres.get(h.junctionId) ?? { x: 0, y: 0, n: 0 };
+    c.x += h.x;
+    c.y += h.y;
+    c.n++;
+    centres.set(h.junctionId, c);
+  }
+  const best = new Map<number, SignalHead>();
+  for (const h of heads) {
+    const c = centres.get(h.junctionId) as { x: number; y: number; n: number };
+    const d = Math.abs(h.x - c.x / c.n) + Math.abs(h.y - c.y / c.n);
+    const key = h.junctionId * 4 + h.dirIdx;
+    const held = best.get(key);
+    // Ties break on position, so every host keeps the same head.
+    if (
+      !held ||
+      d < heldDistance(held, c) ||
+      (d === heldDistance(held, c) && (h.y < held.y || (h.y === held.y && h.x < held.x)))
+    ) {
+      best.set(key, h);
+    }
+  }
+  return [...best.values()].sort((a, b) => a.junctionId - b.junctionId || a.dirIdx - b.dirIdx);
+}
+
+/** How far a head sits from its junction's centre of gravity. */
+function heldDistance(h: SignalHead, c: { x: number; y: number; n: number }): number {
+  return Math.abs(h.x - c.x / c.n) + Math.abs(h.y - c.y / c.n);
 }
 
 /**

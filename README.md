@@ -21,7 +21,7 @@ the art on whole pixels.
 
 | Query parameter | Effect |
 | --- | --- |
-| `?local=1` | **no server**: run the whole game in a Web Worker in this tab. `?seed=`, `?peds=`, `?roam=0`, `?interest=`, `?proving=1`, `?difficulty=` are the offline equivalents of the server's environment variables |
+| `?local=1` | **no server**: run the whole game in a Web Worker in this tab. `?seed=`, `?peds=`, `?interest=`, `?proving=1`, `?difficulty=` are the offline equivalents of the server's environment variables |
 | `?server=ws://host:port` | connect elsewhere (default `ws://<hostname>:8080`) |
 | `?night=0..1` | force the hour, 0 midday to 1 midnight. A day is 24 minutes long, so this is the only practical way to look at the night lighting |
 | `?lights=cheap` | keep the grade and the lamps, drop the shadow casting and the bloom |
@@ -50,10 +50,9 @@ the art on whole pixels.
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `PORT`, `HOST` | `8080`, `127.0.0.1` | WebSocket bind |
-| `SEED` | random | city + session seed |
+| `SEED` | random | session seed. **Not** a city seed: there is one city and it is the same one every time (see *The city*, below). What the seed moves is the furniture — which kerbs are parked up, where the crates and hidden packages are, which gang holds what |
 | `WEAPONS_LOST_ON_DEATH` | `true` | death costs your guns (design flag) |
 | `PED_COUNT` | `200` | pedestrians per session |
-| `ROAM` | `1` | the window follows the players — the world is infinite in all directions (`0` pins it) |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
 | `DIFFICULTY` | `normal` | police preset: `relaxed`, `normal` or `hard` (`police.json` → `presets`). Server-side: in a shared city a per-player difficulty is a cheat |
@@ -71,10 +70,10 @@ You spawn on the doorstep of a proving ground: walk in and the shop keys
 drive down, a bus, a truck, every weapon, full health, and $10,000 — free, and
 with no ledger, standings or district in the way. Green on the minimap.
 
-Turning it on changes nothing about the city: the same seed gives the same
-streets, buildings, parked cars, props and pickups with the room and without
-it, so a bug you find with it open is still there when you close it. The one
-thing it does change is where you start, which is the point. Everything it
+Turning it on changes nothing about the city: the same streets, buildings,
+parked cars, props and pickups with the room and without it, so a bug you find
+with it open is still there when you close it. The one thing it does change is
+where you start, which is the point. Everything it
 hands out arrives as an ordinary `SimCommand`, so the session still records and
 replays like any other.
 
@@ -90,8 +89,38 @@ digger at the quarry, a pickup at the farm, the tank behind a police station.
 Those homes are marked on the minimap, and there is a test that walks the
 whole roster rather than spot-checking it.
 
+## The city
+
+There is one city and it was drawn, not rolled: **Anywhere City**, 384×384
+tiles (6144×6144 px) of island group — three boroughs joined by four bridges,
+with the sea all the way round as the map's edge.
+
+| Borough | What it is |
+| --- | --- |
+| **Port Vasco** (north-west) | The working waterfront. Huge industrial lots, few streets, a harbour biting into its east shore, the power station and the quarry. |
+| **Ravenhill** (north-east) | Downtown. A tight grid, long avenues north–south and short streets east–west, a park in the middle of it, the tower on First Avenue. |
+| **Sunridge** (south) | The mainland. Commercial along the waterfront, suburbs behind it, the stadium, then open country, the airfield, the farm and the beach at the bottom of the map. |
+
+The source of it is `shared/data/city-plan.json`: the coastline as a picture
+(one character per eight tiles), the boroughs as rectangles with a street
+pitch each, the avenues as named lines, and every landmark at the spot
+somebody chose for it. `pnpm citybake` expands that into ground, checks it —
+one road network, every landmark reachable, every shopfront enterable, no
+street ending in the sea — and freezes the result into
+`shared/src/world/city.data.ts`, which is what the game loads. **Edit the
+plan, run the bake, commit both.** `shared/test/city.test.ts` fails if you
+forget the second step.
+
+Nothing about the layout is a runtime parameter any more, and nothing about it
+depends on a seed: server, client and replay load the same bytes rather than
+running the same algorithm twice. `WORLDGEN.md` §12 is the design, and why the
+generator that used to be here went.
+
+![Anywhere City](evidence/city-anywhere.png)
+
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
-weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette)
+weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette,
+and the city plan itself)
 — restart the server to apply; clients receive tunables in the welcome message.
 
 ## Tooling
@@ -100,7 +129,14 @@ weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette)
 pnpm test                                   # vitest across shared + server
 pnpm bots --count=8 --script=brawl --duration=60   # headless multiplayer harness
                                             # scripts: idle|cruise|circle|joyride|brawl|jitter
-pnpm mapgen --seed=7                        # render a city to PNG without the game
+pnpm citybake                               # draw the city from city-plan.json,
+                                            #   check it, and freeze it into
+                                            #   shared/src/world/city.data.ts
+pnpm citybake --check                       # check it without writing (CI)
+pnpm citybake --fit                         # for every landmark the plan puts
+                                            #   somewhere it will not go, name
+                                            #   the nearest block that fits
+pnpm mapgen                                 # render the city to PNG, no game
 pnpm chase                                  # the chase bench: escape rate + survival time
                                             #   per star level, over several seeds
 pnpm sprites                                # regenerate the sprite sheet
@@ -123,8 +159,11 @@ re-simulating to identical hashes is the desync alarm.
 
 ## Layout
 
-- `shared/` — the entire deterministic simulation + worldgen + wire protocol.
-  Zero DOM, zero Node imports. Both other packages import it.
+- `shared/` — the entire deterministic simulation + the city + wire protocol.
+  Zero DOM, zero Node imports. Both other packages import it. The city lives in
+  `src/world/`: `plan.ts` reads the drawing, `layout.ts` turns it into ground,
+  `bake.ts` builds and freezes it, `city.data.ts` is the frozen result and
+  `generate.ts` loads it and dresses it for a session.
 - `server/` — authoritative 30 Hz session over `ws`; economy (append-only
   ledger, shops, scrypt accounts) lives here, outside the sim, and touches it
   only through recorded SimCommands.

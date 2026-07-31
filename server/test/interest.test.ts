@@ -6,6 +6,7 @@ import policeJson from '../../shared/data/police.json';
 import pedsJson from '../../shared/data/peds.json';
 import worldgenJson from '../../shared/data/worldgen.json';
 import {
+  areaScale,
   SnapshotSync,
   hashSnapshot,
   initTuning,
@@ -38,7 +39,11 @@ describe('interest management', () => {
     const session = new Session(99, worldgen, null, { pedCount: 200 });
     session.addPlayer('p', 'tok');
     const snap = session.tick();
-    expect(snap.peds.length).toBe(200);
+    // The crowd is a DENSITY now, not a count: `pedCount` is per nominal
+    // 384-tile city and the session scales it by the map's area, so a city
+    // four times the size is four times as busy rather than four times as
+    // empty. See session.ts PEDS_PER_CITY.
+    expect(snap.peds.length).toBe(Math.round(200 * areaScale(session.map)));
 
     const me = snap.players[0]!;
     const filtered = filterSnapshot(snap, me.pos, RADIUS);

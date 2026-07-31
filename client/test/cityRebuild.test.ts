@@ -3,7 +3,6 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import {
   TILE_SIZE,
   type CityMap,
-  type WorldgenParams,
   generateCity,
   initTuning,
   parseWorldgenParams,
@@ -20,28 +19,74 @@ import { buildCity, disposeCity } from '../src/three/cityGeometry.js';
 import { SceneryLayer } from '../src/three/scenery.js';
 
 /**
- * The city gets built more than once.
+ * The city gets built more than once, and the second build has to REPLACE the
+ * first rather than land on top of it.
  *
- * With ROAM on, the session recentres its window whenever a player nears the
- * edge and regenerates the whole map at the new origin. The tile layer and the
- * radar were told; the 3D world was not — it was built lazily on the first
- * frame and never again — so from the first rebase onwards it drew the region
- * the player had left. Terrain that did not match the radar, buildings from the
- * old window standing in the middle of the new one's streets, and the whole
- * disagreement arriving at once, the moment a new region was generated.
+ * The bug this pins was a roaming one: the session used to recentre its window
+ * and regenerate the map under the view, and the 3D world — built lazily on
+ * the first frame and never again — went on drawing the region the player had
+ * left. There is one city now and it never moves, so the fault can no longer
+ * be reached that way; the machinery it broke is still here and still worth
+ * holding, because `setMap` is called whenever the client adopts a map at all
+ * and "replaces" versus "adds to" is the difference between a city and two
+ * cities in the same place.
+ *
+ * The two maps below are therefore made rather than generated: the real one,
+ * and the real one with its ground rolled a few tiles. Any two DIFFERENT maps
+ * would do — the claim is about the renderer, not about worldgen.
  *
  * Testable in node because the geometry is a function of a map rather than a
  * method on the class that owns the `WebGLRenderer`. Which is most of why it is
  * a function of a map.
  */
 
-const SMALL: Partial<WorldgenParams> = { widthTiles: 64, heightTiles: 64 };
+const CITY: CityMap = generateCity(7, parseWorldgenParams(worldgenJson));
 
-/** Two windows onto the same world: what a rebase moves between. */
-function windowAt(x: number, y: number): CityMap {
-  const base = parseWorldgenParams(worldgenJson);
-  return generateCity(7, { ...base, ...SMALL, windowX: x, windowY: y } as WorldgenParams);
+/**
+ * The city with its ground rolled by a few tiles, wrapping at the edges: a
+ * different map, built the same way, with every list moved to match.
+ */
+function rolled(dx: number, dy: number): CityMap {
+  const W = CITY.widthTiles;
+  const H = CITY.heightTiles;
+  const roll = (plane: Uint8Array): Uint8Array => {
+    const out = new Uint8Array(plane.length);
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        out[((ty + dy + H) % H) * W + ((tx + dx + W) % W)] = plane[ty * W + tx] as number;
+      }
+    }
+    return out;
+  };
+  const movedTile = <T extends { x: number; y: number }>(v: T): T => ({
+    ...v,
+    x: ((v.x + dx) % W + W) % W,
+    y: ((v.y + dy) % H + H) % H,
+  });
+  const movedPx = <T extends { x: number; y: number }>(v: T): T => ({
+    ...v,
+    x: ((v.x + dx * TILE_SIZE) % CITY.widthPx + CITY.widthPx) % CITY.widthPx,
+    y: ((v.y + dy * TILE_SIZE) % CITY.heightPx + CITY.heightPx) % CITY.heightPx,
+  });
+  return {
+    ...CITY,
+    tiles: roll(CITY.tiles),
+    district: roll(CITY.district),
+    blocks: CITY.blocks.map(movedTile),
+    buildings: CITY.buildings.map(movedTile),
+    landmarks: CITY.landmarks.map(movedTile),
+    shops: [],
+    propSpawns: CITY.propSpawns.map(movedPx),
+    pedSpawns: CITY.pedSpawns.map(movedPx),
+    pickupSpawns: CITY.pickupSpawns.map(movedPx),
+    vehicleSpawns: CITY.vehicleSpawns.map(movedPx),
+    parkingSpots: CITY.parkingSpots.map(movedPx),
+  };
 }
+
+/** The two maps every test here builds and rebuilds between. */
+const windowAt = (x: number, y: number): CityMap =>
+  x === 0 && y === 0 ? CITY : rolled(Math.round(x / 8), Math.round(y / 8));
 
 /** Every instance transform in a built group, as a flat list of positions. */
 function positions(group: THREE.Group): string[] {
@@ -60,7 +105,7 @@ function positions(group: THREE.Group): string[] {
   return out;
 }
 
-describe('rebuilding the city when the window moves', () => {
+describe('rebuilding the city', () => {
   beforeAll(() => {
     initTuning({
       player: playerTuning,

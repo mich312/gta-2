@@ -6,11 +6,14 @@ import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { boxInSolid, isSolidTile, moveWithCollision } from '../src/world/collide.js';
+import cityPlanJson from '../data/city-plan.json';
+import { parseCityPlan } from '../src/world/plan.js';
 import {
   T_BUILDING,
   T_FLOOR,
   T_ROAD,
   T_SIDEWALK,
+  T_WATER,
   TILE_SIZE,
   type CityMap,
 } from '../src/world/types.js';
@@ -32,7 +35,7 @@ function tileCounts(map: CityMap): Map<number, number> {
 }
 
 describe('world generation', () => {
-  it('is a pure function of the seed (identical twice, different across seeds)', () => {
+  it('is one city: the same ground whatever the seed, the same map twice', () => {
     const a = generateCity(1111, params);
     const b = generateCity(1111, params);
     expect(Buffer.from(a.tiles).equals(Buffer.from(b.tiles))).toBe(true);
@@ -40,33 +43,44 @@ describe('world generation', () => {
     expect(a.playerSpawns).toEqual(b.playerSpawns);
     expect(a.vehicleSpawns).toEqual(b.vehicleSpawns);
 
+    // A different seed is a different SESSION, not a different city. The
+    // streets, the buildings, the shopfronts and the landmarks come out of
+    // the bake and are the same bytes every time; what a seed moves is the
+    // furniture — which kerbs are parked up, where the crates and the hidden
+    // packages are, which gang holds what.
     const c = generateCity(2222, params);
-    expect(Buffer.from(a.tiles).equals(Buffer.from(c.tiles))).toBe(false);
+    expect(c.name).toBe(a.name);
+    expect(c.blocks).toEqual(a.blocks);
+    expect(c.buildings).toEqual(a.buildings);
+    expect(c.shops).toEqual(a.shops);
+    expect(c.landmarks).toEqual(a.landmarks);
+    expect(c.packages).not.toEqual(a.packages);
   });
 
   it('produces a real city: roads, sidewalks, buildings, all districts in use', () => {
     for (const seed of [7, 8, 9]) {
       const map = generateCity(seed, params);
       const counts = tileCounts(map);
-      const total = map.widthTiles * map.heightTiles;
-      expect((counts.get(T_ROAD) ?? 0) / total).toBeGreaterThan(0.08);
-      expect((counts.get(T_SIDEWALK) ?? 0) / total).toBeGreaterThan(0.03);
-      // 0.07, not 0.10: the window now spends real area on countryside —
-      // meadow, forest, beach — where a city used to run wall to wall. The
-      // city itself is as dense as ever; the share is of the whole window.
-      expect((counts.get(T_BUILDING) ?? 0) / total).toBeGreaterThan(0.07);
-      expect(map.buildings.length).toBeGreaterThan(100);
+      // Measured against DRY LAND, not against the map. Anywhere City is an
+      // island group: a good third of the map is the sea it stands in, and a
+      // share of the whole thing would say the city had thinned out when all
+      // that happened is that it acquired a coast.
+      const land = map.widthTiles * map.heightTiles - (counts.get(T_WATER) ?? 0);
+      expect((counts.get(T_ROAD) ?? 0) / land).toBeGreaterThan(0.12);
+      expect((counts.get(T_SIDEWALK) ?? 0) / land).toBeGreaterThan(0.05);
+      expect((counts.get(T_BUILDING) ?? 0) / land).toBeGreaterThan(0.07);
+      expect(map.buildings.length).toBeGreaterThan(400);
       const districtsUsed = new Set(map.blocks.map((b) => b.district));
       expect(districtsUsed.size).toBeGreaterThanOrEqual(4);
     }
   });
 
-  it('meets shop quotas with walkable doorways', () => {
+  it('meets the plan\'s shop quotas with walkable doorways', () => {
     const map = generateCity(31337, params);
-    const guns = map.shops.filter((s) => s.kind === 'gun');
-    const clothes = map.shops.filter((s) => s.kind === 'clothing');
-    expect(guns.length).toBeGreaterThanOrEqual(params.shopQuota.gun);
-    expect(clothes.length).toBeGreaterThanOrEqual(params.shopQuota.clothing);
+    const quota = parseCityPlan(cityPlanJson).shopQuota;
+    for (const kind of ['gun', 'clothing', 'spray'] as const) {
+      expect(map.shops.filter((s) => s.kind === kind).length).toBeGreaterThanOrEqual(quota[kind]);
+    }
     for (const s of map.shops) {
       expect(isSolidTile(map, s.doorX, s.doorY)).toBe(false);
     }

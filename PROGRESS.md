@@ -1,5 +1,198 @@
 # PROGRESS
 
+## The join, measured rather than estimated
+
+The entry below left the join sequence flagged as "the first thing that will
+hurt on a slow machine" and did not say by how much. It has now been measured
+in a real browser against a production build, and the estimate it was carrying
+— 2.5–4 s of frozen tab — was wrong in an instructive way.
+
+**What the join actually costs, as JS:** ~1.15 s on this box. `generateCity`
+350 ms (loading the baked planes and dressing the session), `buildCity` 520 ms
+of which `buildVolumeGrid` is 80 ms, minimap bake 240 ms, everything else under
+30 ms. Time to a playable frame with `?render=2d` — the arm with no WebGL in it
+at all — was 1.15 s, and the longest single blocking task 400 ms.
+
+**Why the first number looked like 7 s.** The 3D arm reported 7.2 s to playable
+and ~2 s frames afterwards, which reads as a catastrophe and is an artefact of
+the box: this container has no GPU, so ANGLE falls back to SwiftShader and
+rasterises 639,193 instances in software. Shrinking the viewport sixteenfold
+moved the frame time by a quarter — vertex-bound, not fill-bound, which is the
+signature of a software rasteriser and not of anything the client is doing
+wrong. Worth writing down because the number is real, reproducible here, and
+means nothing about a machine with a graphics card.
+
+**Two of the engine reviewer's items, done.** `Minimap.bake` painted the city
+one `fillRect` per tile: fine at 240 tiles, 589,824 canvas calls at 768, and
+240–300 ms of frozen tab on the first frame after joining. One `putImageData`
+over a `Uint32Array`: **242 ms → 8 ms**, and the third blocking task of the
+join disappears entirely. And `buildCity` collected its transforms as
+`THREE.Matrix4[]` — 639,193 JS objects each wrapping a 16-element array,
+allocated and dropped inside the one synchronous task that joins a session.
+Every box in the city is a scale and a translation, so six floats in a growable
+`Float32Array` say the same thing and expand straight into `instanceMatrix`:
+**peak heap 164 MB → 143 MB**, build 720 ms → 520 ms, instance count and
+rendered frame identical to the pixel.
+
+**Still deferred:** the volume grid's `Span[][]` intermediate, chunked
+`SceneryLayer`, moving the join off-thread, `filterSnapshot` grid bucketing.
+None of them is now the largest term, and the largest term left — `generateCity`
+at 350 ms — is a one-off on a background-coloured canvas rather than a stutter
+during play.
+
+## The drawn city, reviewed and redrawn: an island four times the size
+
+The first drawn city (below) replaced the generator and was still, visibly, a
+drawing. Three reviewers — a level designer, an urban geographer and an engine
+engineer — were pointed at it, and between them said the same thing three
+ways. `WORLDGEN.md` §12.7 records what each found; this is what it cost.
+
+**The map.** 384×384 → **768×768 tiles** (12288 px, four times the area, about
+a minute corner to corner at top speed). Not a rectangle of land any more: one
+long island split by a tidal strait, a second island across a sound, a spit
+round a lagoon, barrier islands, a rock stack. Five boroughs, eight crossings.
+
+**Coastline.** The killer observation was that a coast drawn on an eight-tile
+grid has power at exactly two scales and a real one has power at every scale.
+The plan holds OUTLINES now; the rasteriser builds a signed distance field and
+displaces the *sample point* by a four-octave vector warp (wavelengths
+256/128/64/32, amplitudes 40/20/10/5 — amplitude/wavelength ≈ 0.15 is the whole
+trick). Plus one asymmetry worth more than another octave: the swell comes from
+one direction, so the shore facing it is planed straight and the lee keeps its
+inlets, and the same number decides where sand collects.
+
+**Density.** Measured on the first draft: 31% of dry land was carriageway and
+9% was building; downtown itself was 13% built against 28% bare dirt. A block
+was a kerb ring with detached three-tile sheds scattered inside. Blocks are
+built as street FRONTAGE now — shoulder-to-shoulder units four to six deep with
+a yard behind, and a per-borough density deciding how often the ring breaks.
+Building share of dry land 9% → 15.5%. Alleys exist, per borough.
+
+**Two real bugs, both found by drawing curved roads.** `signals.isJunctionTile`
+calls tarmac that is over-wide across both axes a junction; a four-tile road at
+45° measures nearly six across both, so every diagonal road was a junction and
+the ring carried 333 signal heads. The span test measures four directions now —
+two axes and two diagonals — and asks whether the tile is narrow in *any* of
+them. Second: a bridge was judged by the water span along whatever heading the
+road had when it left the bank, and a curved road crossing a harbour has a
+segment somewhere pointing along the water — it laid a hundred-tile causeway
+out to sea. Bridges are checked after the fact, over four directions.
+
+Two rules came with them: a connected junction over twenty tiles is a plaza,
+not a signalled junction (many ways in, no phase that governs them), and
+exactly one head is kept per junction per cardinal rather than trusting a local
+kerb test that only ever gave one per arm on a grid.
+
+**Scaling.** `planRoute` allocated 5 MB per call and cleared two of the three
+arrays before looking at a tile, five to fifteen times a second; it reuses one
+working set with a generation stamp and has an expansion cap, because a route
+to somewhere unreachable used to exhaust the whole network mid-tick. Ambulance
+dispatch planned a route per improving candidate; it sorts by distance and
+plans once. Every ambient budget was a flat count — 48 cars, 200 pedestrians,
+400 props, 100 packages — which on four times the ground is an emptier city,
+not a bigger one; they are rates per nominal 384² city now, scaled by area.
+
+**Gannet Rock.** A plateau in the western approaches with an airstrip on top
+and cliff the whole way round: no bridge, and nowhere to bring a boat
+alongside. Three general primitives carry it — `cliffIslands` (a point on a
+landmass, not an outline, because the shore is warped after it is drawn),
+`landmarks[].byAir` (no driveway cut, no road demanded, but a runway required
+on the same ground and a shore nobody can step onto), and a final seal in the
+bake that re-asserts "nothing walkable touches water here" after every pass
+that could have opened it — three of which did. The checker also learned that
+ground with a runway is an airfield rather than an orphan, and ground with a
+walkable shore is reached by boat; what is left flagged after those two is
+445 tiles of genuinely enclosed courtyard, down from five thousand.
+
+**Deferred, and said out loud:** grade separation (road over road) is the
+biggest missing chase primitive and needs a new tile type through collision,
+the volume grid and both renderers. One-way systems need direction in the
+traffic model. The engine reviewer's client-side list — instance matrices as
+`Float32Array` rather than `THREE.Matrix4[]`, the volume grid's span
+intermediate, chunked scenery, an off-thread join — is real and unaddressed;
+the join sequence is the first thing that will hurt on a slow machine.
+
+**Test fallout: 49 of 789.** Most were fixtures pinned to a map that no longer
+exists — hard-coded coordinates that are now open sea, scans that assumed an
+axis-aligned grid, counts that assumed a flat ambient budget. Two were real
+regressions in my own new code and are worth naming: the reused A* scratch is
+never cleared, so reconstructing a path by walking `cameFrom` until -1 walked
+into a previous search; and boroughs are polygons that abut, so their lattices
+produce overlapping blocks, and one block's park pond was being carved through
+the terrace the block next door had already built — leaving a Building record
+whose tiles were open water.
+
+789 tests green; six bots, twenty-five seconds, zero desyncs.
+
+
+## The map generator is replaced by one drawn city
+
+`WORLDGEN.md` §12 is the design; this is what it cost and what it fixed.
+
+**The finding.** The generator was not broken in the sense of having a bug. It
+was broken in the sense that **nothing about it could be reviewed**: the map a
+player got did not exist until they got it, so every quality problem — noise
+water cutting the road network into islands, boroughs with no shape, a grid of
+uniform texture from edge to edge, landmarks that were a dice roll with names
+on them — was addressed by tuning a constant and hoping, and every fix moved
+every other seed. Look at `evidence/city-old-generator.png` and
+`evidence/city-anywhere.png` together; the second is not a better generator, it
+is a different kind of thing.
+
+**What shipped.** One city, Anywhere City, 384×384 tiles: three boroughs on an
+island group joined by four bridges, with the sea all the way round as the map's
+edge. The source is `shared/data/city-plan.json` — the coast as a 48×48 picture,
+the boroughs as rectangles with a street pitch each, the avenues as named lines,
+every landmark at a chosen rectangle. `pnpm citybake` expands it, checks it, and
+freezes it into `shared/src/world/city.data.ts` (118 kB, RLE + base64). The game
+decodes that and dresses it; server, client and replay load the same bytes
+instead of running the same algorithm twice.
+
+**The three passes that only a baked map can afford.** Validation runs once,
+offline, so it gets to be exhaustive rather than fast: one road network, every
+landmark with a road within six tiles, every shopfront with a pavement outside
+and a walkable room behind, no carriageway ending in open water. It also
+*repairs* — a landmark with no road gets a driveway cut by breadth-first search;
+carriageway that is not part of the main network goes back to being ground
+rather than stranding an ambient car forever — and it *refuses*: a landmark
+drawn over the sea or across a street throws, naming the landmark and the tile.
+Both of those refusals fired during authoring, and both would otherwise have
+baked silently into a pier nobody meant and a severed road network.
+
+**One real bug found on the way in.** `signals.isJunctionTile` calls tarmac
+that is over-wide across *both* axes a junction. The first plan drew avenues
+five tiles wide; `MAX_LANE_TILES` is four, so every tile of every avenue was a
+junction and one of them carried 333 signal heads. Two fixes: avenues are four
+tiles wide, and the layout now refuses to carve a street within three tiles of
+one already there — a lattice cut landing beside an avenue does not read as two
+streets, it reads as one very wide one, and the traffic model agreed.
+
+**What went.** `world/fields.ts` down to its hash primitives; `world/districts.ts`,
+`world/roads.ts` and `world/store.ts` deleted outright; the `rebase` SimCommand
+and server message; `ROAM` and `?roam=`; and every layout parameter in
+`worldgen.json` — `windowX/Y`, `widthTiles/heightTiles`, `arterialSpacing`,
+`blockSize`, `fields`, `water`, `countryside`. What is left in that file is what
+a session is entitled to vary on top of a fixed map. A seed no longer touches
+the ground: it moves the furniture — parked cars, crates, hidden packages, turf,
+ramps, which of sixteen spawn points you get.
+
+**Test fallout, and what it taught.** 24 of 778 tests failed on the new map and
+all but four were fixtures rather than regressions: tests that scanned the map
+from the top-left corner for "a straight street" or "open ground", which on a
+drawn map is the sea and then the quietest dock road in the city. `helpers.ts`
+now searches outward from the first player spawn and says why, and player spawns
+themselves are restricted to built-up districts with street around them — a
+player starting on a dock with no traffic, no crowd and nothing to steal was
+technically a spawn and a bad first thirty seconds. Two new helpers came out of
+it (`busyKerb`, `spotFacingWall`) and one test file was rewritten around what it
+was actually claiming rather than around where the old map happened to put
+things. `shared/test/city.test.ts` is new and holds the asset to the plan: it
+bakes the plan and compares tile-for-tile, so a plan edited without re-baking
+fails the suite rather than shipping a map that does not match its description.
+
+775 tests green; six bots, twenty-five seconds, zero desyncs.
+
+
 ## Feature parity between the 2D and 3D renderers
 
 Four waves, and the finding that shaped all of them: **almost every gap was

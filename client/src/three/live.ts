@@ -61,8 +61,6 @@ export class Live {
    */
   private readonly tiles = new TileLayer(new SpriteSheet());
   private map: CityMap | null = null;
-  /** Kept so a rebase can regenerate at the new origin. */
-  private worldgen: WorldgenParams | null = null;
   private seed = 0;
   private playerId = -1;
   private last = performance.now();
@@ -84,7 +82,6 @@ export class Live {
       localBoot: {
         seed: this.opts.seed,
         pedCount: this.opts.peds,
-        roam: true,
         interestRadius: 900,
         provingGround: false,
         difficulty: 'normal',
@@ -126,7 +123,6 @@ export class Live {
     if (msg.type === 'welcome') {
       this.playerId = msg.playerId;
       initTuning(msg.tuning, { lenient: true });
-      this.worldgen = msg.worldgen;
       this.seed = msg.seed;
       this.map = generateCity(msg.seed, msg.worldgen);
       this.view = new CityView({
@@ -144,16 +140,6 @@ export class Live {
       this.tiles.setMap(this.map);
       this.ground.setMap(this.map);
       this.ground.setWeather(this.opts.wet, this.opts.night);
-    } else if (msg.type === 'rebase' && this.worldgen && this.view) {
-      // ROAM is on here too (`start()` boots the host with it), so the window
-      // moves and the map is regenerated under the view. Told nothing, it went
-      // on drawing the region the player had left.
-      this.worldgen = { ...this.worldgen, windowX: msg.windowX, windowY: msg.windowY };
-      this.map = generateCity(this.seed, this.worldgen);
-      this.view.setMap(this.map);
-      this.scenery?.setMap(this.map);
-      this.tiles.setMap(this.map);
-      this.ground?.setMap(this.map);
     }
     if (this.sync.applyServerMessage(msg) && this.sync.latest) {
       this.interp.push(this.sync.latest as FullSnapshot);

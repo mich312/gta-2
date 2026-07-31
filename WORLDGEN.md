@@ -865,3 +865,322 @@ worldgen tests.
 Done in this order, the world stops being a window with walls at
 step 6 — and every step before that ships something visible or proves
 something the next step needs.
+
+---
+
+## 12. The city, drawn — DELIVERED
+
+Everything above this line describes a **generator**. The generator is gone.
+This section says what replaced it, why, and how to change the city now.
+
+### 12.1 What was actually wrong
+
+The layer stack of §9 was well built and the unbounded world of §10 was a real
+achievement, and neither of them made a good city. Open
+`evidence/city-old-generator.png` — seed 42, the shipped configuration:
+
+- **The water did not know what it was for.** Waterways were a noise contour
+  band. At one seed it was a river with a bridge over it; at the next it was a
+  lagoon that swallowed a district, cut the road network into four pieces and
+  left islands of street with no crossing to them. Nothing in the pipeline
+  could tell the difference, because "is this crossing worth a bridge" was a
+  span measurement and not a decision anybody made.
+- **The districts had no shape.** Land use was thresholds on a radial density
+  field plus noise, so a borough was wherever the noise happened to cross 0.52
+  — ragged, unnamed, and the same shape in every direction. There was no
+  downtown you could point at, because downtown was a contour.
+- **The grid went on until it stopped.** Recursive subdivision inside a
+  jittered arterial lattice gives blocks of the right size and a city of
+  uniform texture: no high street, no waterfront, no reason for any junction
+  to be more interesting than any other.
+- **Nothing could be navigated by.** Landmarks were rolled per lattice cell,
+  so which ones a session got, and where, was luck. A city with two towers and
+  no stadium is not a landmark system, it is a dice roll with names on it.
+- **The edges were a lie.** With `ROAM` on, the window walked and the session
+  dragged the whole ambient world with it — a rebase command, a despawn of
+  everything not bolted down, and a metered reseed. It worked. It also meant
+  every pass in worldgen had to be a pure function of global coordinates,
+  every quota had to be phrased as a density, and no part of the map could
+  ever be looked at as a whole and judged.
+
+That last point is the one that decides everything else. **A procedural map
+cannot be reviewed.** You can review a generator, and you can review a sample,
+but you cannot review the thing the player gets, because it does not exist
+until they get it. Every quality problem above was therefore fixed by tuning a
+constant and hoping, and every fix moved every other seed.
+
+### 12.2 What the genre actually did
+
+The obvious research, done properly, because the answer is not subtle.
+
+- **GTA (1997)** shipped three hand-built cities — Liberty City, San Andreas,
+  Vice City — as fixed 256×256 tile maps. **GTA 2 (1999)** shipped *Anywhere
+  City* as three connected districts: Downtown, Residential and Industrial,
+  each with its own architecture, its own gangs and its own missions, all on
+  one traversable map. The `.gmp` format is a compressed column table over a
+  256×256 grid: a **baked asset**, authored in an editor, not generated.
+- **GTA III (2001)** cut Liberty City into three islands — Portland, Staunton,
+  Shoreside Vale — each joined to the next by a bridge, and used those bridges
+  as the progression gate. The islands were a technical necessity (streaming)
+  that turned into the best structural idea in the series: a bridge is a
+  landmark, a chokepoint, a chase venue and a mental map all at once.
+- **Vice City (2002)** is two big islands and a handful of small ones, and its
+  reputation rests on density of *identity* rather than size — Ocean Beach
+  reads nothing like Little Havana reads nothing like the Downtown skyline.
+
+Three lessons, and we took all three:
+
+1. **One city, authored.** Not a generator with good defaults.
+2. **Boroughs with names, joined by bridges.** Water as structure, not as
+   noise: it is what makes a map legible from the air and memorable on the
+   ground.
+3. **The sea is the edge.** An island city needs no invisible walls and no
+   infinite plane. Where the map stops, there is water, and that is an answer
+   a player accepts without being told.
+
+### 12.3 The design
+
+**Anywhere City** — the name is GTA 2's, and the debt is acknowledged; the
+city is our own. **768×768 tiles, 12288×12288 px**: four times the area of the
+first draft and about ten times the old generated window. Roughly a minute
+corner to corner at a fast car's top speed.
+
+An archipelago, not a rectangle. One long island on a NNE–SSW axis, split
+across its middle by a tidal strait open to the sea at both ends; a second
+island across a narrow sound to the west; a spit hooking round a lagoon in the
+south-east; barrier islands off the south shore and a rock stack off the west.
+
+| Borough | Character | Holds |
+| --- | --- | --- |
+| **Kelvin** (north bank, east) | The old quarter round the harbour — 11×9 pitch, alleys, the tightest streets in the city — and the financial spine behind it | Vantage Tower, The Spire, Halloran Building, 1st Precinct, Mercy General |
+| **Ravenhill** (north bank, west) | Nineteenth-century commercial grid, the park, terraces climbing from the water | Ravenhill Park, St. Brannoch, Ironside Stadium |
+| **Sunridge** (south bank) | Seafront, then suburbs loosening as they go inland: 16×13 at the front, 23×18 at the edge | The Bowl, Seaview Infirmary, Kelvin Road Station, Sunridge Park |
+| **Marsh End** (south-east) | Flats and coast road, the airfield, the country destinations | Marsh End Airfield, Hollis Farm, Pinewatch Camp, Old Point Light |
+| **Port Vasco** (west island) | Docks and foundry across the sound, with the housing that serves them | Kessler Power, Greyhill Quarry, Harbour Precinct, Riverside Infirmary |
+
+Crossings, and there are eight of them, because on an archipelago the question
+"which bridge" is the interesting one: three over the strait (Kelvin Bridge,
+Old Bridge, Marsh Causeway), two over the sound to Port Vasco, and the ring
+road's own two crossings.
+
+### 12.4 The pipeline
+
+```
+shared/data/city-plan.json     the drawing            (authored, reviewed, diffed)
+        │  parseCityPlan               plan.ts
+        ▼
+    buildLayout                 ground                 layout.ts
+        │   coast → boroughs → avenues → streets → blocks → shores → quays → prune
+        ▼
+    bakeCity                    the finished city      bake.ts
+        │   landmarks → aprons → block fill → driveways → shopfronts
+        ▼
+shared/src/world/city.data.ts   frozen, committed      (RLE + base64, ~118 kB)
+        │  decodeBakedCity + the amenity passes        generate.ts
+        ▼
+    CityMap                     what a session plays
+```
+
+The plan is four things, all of them editable by a person:
+
+1. **The geography**: islands and bays as OUTLINES, rivers and spits as
+   courses that are meandered before they are cut, lagoons, islets, and the
+   swell direction. Nothing in it is drawn at tile resolution — the outline is
+   the intent and the warp supplies the detail (§12.7).
+2. **The boroughs**, as polygons carrying a district type, a street pitch, a
+   built density and an alley threshold. Polygons rather than rectangles so a
+   borough can follow a shoreline; different pitches so they read differently;
+   a density so a downtown wall and a loose suburb come out of one filler.
+3. **The roads**, as named polylines with a width, optionally smoothed into
+   curves and optionally dual-carriageway. A road crossing water becomes a
+   bridge where the far bank is within `maxBridgeSpan` — measured afterwards,
+   over four directions, because a curved road has a segment somewhere that
+   points along the water instead of over it and will happily lay a
+   hundred-tile causeway out to sea if you let it.
+4. **The landmarks**, each at a chosen rectangle, with a per-kind recipe for
+   the ground it stands on and the apron round it. `pnpm citybake --fit` names
+   the nearest block that would hold one the plan has put somewhere it will
+   not go, which is how two dozen buildings get placed on a 768-tile island
+   without doing it by eye twenty-three times.
+
+Three things the bake does that the generator could not:
+
+- **It validates.** One road network, every borough reachable, every landmark
+  with a road within six tiles, every shopfront with a pavement outside it and
+  a walkable room behind it, no carriageway ending in open water. A plan that
+  fails is not committed. This is affordable precisely because it runs once.
+- **It repairs what it can.** A landmark with no road to it gets a two-tile
+  driveway cut to the nearest street by breadth-first search. Carriageway that
+  is not part of the main network — the scraps the quay pass leaves behind —
+  goes back to being ground rather than stranding an ambient car on it forever.
+- **It refuses what it cannot.** A landmark drawn over the sea or across a
+  street throws, naming the landmark and the tile. Both were authoring slips
+  we made, and both would have baked silently into a pier nobody meant and a
+  severed road network.
+
+### 12.5 What a seed still does
+
+A session seed no longer touches the ground. It moves the furniture: which
+kerbs are parked up and with what, where the crates and the hidden packages
+are, which gang holds which cell of turf, where the stunt ramps are cut into
+the industrial lots, and which of the sixteen spawn points a player gets. That
+is worth keeping — two sessions in the same city should not be the same
+evening — and it costs nothing, because none of it is geometry.
+
+### 12.6 What went
+
+| Gone | Why |
+| --- | --- |
+| `world/fields.ts` (the L0 field stack) | Reduced to its hash and value-noise primitives. Nothing decides where a city is any more. |
+| `world/districts.ts` | Land use is drawn, not scored. |
+| `world/roads.ts` | The arterial lattice and the recursive subdivision under it. |
+| `world/store.ts` (§11.2 B1) | A cell-keyed store over an unbounded world, for a world that is now 384 tiles across and fits in memory forty times over. |
+| `rebase` (SimCommand + server message) | The window does not walk, so nothing has to be told that it did. |
+| `ROAM`, `?roam=` | Same. |
+| `windowX/Y`, `widthTiles/heightTiles`, `arterialSpacing`, `blockSize`, `fields`, `water`, `countryside` in `worldgen.json` | None of them can move a street now. What is left in that file is what a session varies. |
+
+The §11.4 questions — turf across many cities, respawn across regions, a soft
+world bound — are answered by not having many cities. Turf is a partition of
+one map. You wake up at the nearest hospital, and every hospital is a place
+you have been. The world bound is the coastline.
+
+### 12.7 The review, and the second draft
+
+The first drawn city was reviewed by three people wearing different hats — a
+level designer, an urban geographer and an engine engineer. Between them they
+said one thing three ways: **it was better than the generator and it was still
+a drawing.** What follows is what each of them found and what was done, because
+the findings are the design rationale.
+
+**The geographer: "convex blobs with chamfered corners."** The coast picture
+had power at exactly two scales — the eight-tile grid it was drawn on, and a
+two-tile hashed erosion — and a real coast has power at every scale, which is
+the whole content of the how-long-is-a-coastline result. Nothing on it was
+re-entrant: no bay, no headland, no spit, no island. Both water bodies were
+constant-width straight channels. The fix, and it is exactly what they
+prescribed: the shape is authored as an OUTLINE, rasterised to a signed
+distance field, and the SAMPLE POINT is displaced by a four-octave vector warp
+— wavelengths 256/128/64/32 tiles, amplitudes 40/20/10/5. The ratio
+amplitude/wavelength ≈ 0.15 is the whole trick; below 0.08 the island stays a
+blob and above 0.3 it frays into confetti. Warping the sample point rather
+than the threshold is what keeps the authored silhouette while making its edge
+sinuous all the way down.
+
+Their second point earned its keep more than another octave would have: make
+it **directional**. The swell comes from one place, so the shore facing it is
+planed straight and the shore in its lee keeps its inlets. `geography.swell`
+is one vector and the warp is damped by the shore normal's dot product with
+it; the same number decides where sand collects, because sand is a low-energy
+deposit and an exposed headland gets rock.
+
+**The level designer: "a road network with confetti on it, not a city."** They
+measured it: 31% of dry land was carriageway and only 9% was building, and
+downtown — the densest district on the map — was 13% built against 28% bare
+dirt. A city block had been a sidewalk ring with detached three-tile sheds
+scattered inside it. Blocks are built as FRONTAGE now: shoulder-to-shoulder
+units four to six deep facing the street, with a yard behind reached through a
+gap, and how often the ring breaks is per-borough (`density`). Building share
+of dry land went 9% → 15.5%, and downtown reads as a wall from a car.
+
+They also counted **fifty dead-end road tiles in thirty-two thousand**, no
+alleys at all, and one road width for the entire map. Alleys are a borough
+setting now (`street.alleyOver`) and every dense borough has them. Road
+hierarchy is three levels: a dual-carriageway ring, four-lane arterials,
+three-lane streets, two-lane alleys.
+
+**The engine engineer: numbers, mostly about the join.** `planRoute` allocated
+three typed arrays per call — five megabytes at this size — and cleared two of
+them before looking at a single tile, at five to fifteen calls a second. It
+reuses one working set with a generation stamp now, and has an expansion cap,
+because a route to somewhere the roads do not reach used to exhaust the entire
+network mid-tick. Ambulance dispatch planned a route for every candidate that
+beat the best distance so far; it sorts first and plans once. And every ambient
+budget in the game was a flat count — 48 parked cars, 200 pedestrians, 400
+props, 100 packages — which on four times the ground is not a bigger city but
+an emptier one. They are rates per nominal 384² city now, scaled by area.
+
+**What was deferred, and honestly.** Grade separation — road over road, tunnels
+and flyovers — is the single biggest missing chase primitive and it needs a new
+tile type through collision, the volume grid and both renderers. One-way
+systems need the traffic model to carry direction. Neither is in this pass. The
+client-side items on the engineer's list (instance matrices built as
+`Float32Array` rather than `THREE.Matrix4[]`, the volume grid's span
+intermediate, chunked scenery, an off-thread join) are real and unaddressed:
+the join sequence is the first thing that will hurt on a slow machine.
+
+### 12.8 Why the roads are the width they are
+
+`sim/signals.ts` calls tarmac that is over-wide across every direction a
+junction — which is right, because a plaza IS a junction — and the threshold is
+four tiles. Two consequences fell out of drawing roads as polylines:
+
+1. **No single carriageway may exceed four tiles.** An eight-lane road makes
+   every tile of itself a junction; the first attempt gave the ring road one
+   junction with 333 signal heads on it. A motorway is therefore built the way
+   a motorway is actually built: two carriageways with a reservation between
+   them (`PlanRoad.median`), which the traffic model reads as two roads and the
+   eye reads as a motorway. `parseCityPlan` refuses anything wider.
+2. **The junction test had to stop being axis-aligned.** A four-tile road at
+   forty-five degrees measures nearly six tiles across both axes, so the old
+   test called every diagonal road a junction. It measures the narrowest span
+   over four directions — two axes and two diagonals — and asks whether the
+   tile is narrow in ANY of them.
+
+Two smaller rules came with them. A connected patch of junction over twenty
+tiles is a plaza, not a signalled junction: many ways in, no phase that governs
+them, left unlabelled. And exactly one signal head is kept per junction per
+cardinal, rather than trusting a local kerb test that only ever gave one per
+arm on a grid.
+
+### 12.9 Gannet Rock: the island you can only fly to
+
+Out in the western approaches, a plateau with a strip on top and cliff the
+whole way round. There is no bridge to it and nowhere to bring a boat
+alongside; the only way on is to land, and the only way off is to take off
+again.
+
+It exists because the map had three ways of getting somewhere — road, water,
+air — and only ever asked about the first. A place that refuses two of them
+makes the third mean something, and it makes the aeroplane a vehicle you seek
+out rather than one you find at the airfield and crash for fun.
+
+Three plan primitives carry it, and each is general rather than a special
+case:
+
+- **`geography.cliffIslands`** — a point on a landmass, not an outline round
+  it. The shore is warped after it is drawn, so an outline traced round the
+  intended coast is tens of tiles adrift by the time the bake finishes; "the
+  island under this point" survives the warp exactly. Every shore tile on a
+  marked landmass becomes rock rather than quay or beach, and rock is solid.
+- **`landmarks[].byAir`** — the bake will not cut it a driveway and the
+  checker will not ask for a road to it. What the checker asks instead is
+  that there is a runway on the same piece of ground (an airfield you can
+  land at and not leave is a trap, not a destination) and that not one tile
+  of its shore can be stepped onto from a boat.
+- **A final seal, stated once.** Every pass between the shore and the finished
+  map can open a cliff by accident — a runway apron painted a tile too far, a
+  lane cleared through the scrub, a landmark's ground overwriting the rock it
+  stands on. Three of them did. Rather than patch each, `bake.ts` re-asserts
+  the invariant last: on a cliff-bound landmass, nothing walkable touches
+  water. One walkable tile at the waterline is the difference between an
+  island you fly to and an island you moor at.
+
+The checker learned two things along the way that are worth more than the
+island is. Ground with a runway on it is not "cut off from the road network",
+it is an airfield; and ground with a shore you can step onto is reached by
+boat, which is a way of getting somewhere. What is left after those two —
+445 tiles, down from five thousand — is genuinely enclosed courtyards inside
+blocks, which is a thing the city is supposed to have.
+
+### 12.10 Changing the city
+
+```bash
+$EDITOR shared/data/city-plan.json
+pnpm citybake          # draws it, checks it, writes shared/src/world/city.data.ts
+pnpm mapgen            # look at it
+pnpm test              # shared/test/city.test.ts holds the asset to the plan
+```
+
+Commit the plan and the baked data together. The test that compares them is
+the only thing standing between "the map in the repository" and "the map the
+plan describes", and they are different files.

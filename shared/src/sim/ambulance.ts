@@ -12,7 +12,7 @@ import {
 } from './traffic.js';
 import { dAtan2 } from '../math/trig.js';
 import { drivableAt, drivableTile, planRoute } from './roadgrid.js';
-import { TILE_SIZE } from '../world/types.js';
+import { TILE_SIZE, type VehicleSpawn } from '../world/types.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 
@@ -153,24 +153,38 @@ function turnOutNearest(
   scene: { x: number; y: number },
 ): number | null {
   const t = getTuning().ambulance;
-  let chosen: AiSpawnPlacement | null = null;
-  let chosenD = Infinity;
-  for (const s of map.vehicleSpawns) {
+  // Nearest first, THEN route — not route-every-improvement.
+  //
+  // This used to plan a route for every candidate that beat the best distance
+  // so far, which on a list of kerbs sorted by nothing in particular is four
+  // to six searches per dispatch, twice a second, per casualty. Sorting first
+  // makes it one search in the ordinary case; the cap is there because a
+  // depot with no road out of it should cost a few searches, not a hundred.
+  const ROUTE_TRIES = 4;
+  const candidates: Array<{ s: VehicleSpawn; d: number; i: number }> = [];
+  for (const [i, s] of map.vehicleSpawns.entries()) {
     const toScene = dist(s.x, s.y, scene.x, scene.y);
     if (toScene < t.spawnMinDist || toScene > t.spawnMaxDist) continue;
-    if (toScene >= chosenD) continue;
     if (nearestPlayerDist(state, s.x, s.y) < t.spawnMinDist) continue;
+    candidates.push({ s, d: toScene, i });
+  }
+  // Ties break on list position, so the choice is the same on every host.
+  candidates.sort((a, b) => a.d - b.d || a.i - b.i);
+  let chosen: AiSpawnPlacement | null = null;
+  let tries = 0;
+  for (const c of candidates) {
     // Facing the way the call is, not the way the parking bay happens to
     // point: a van put down backwards has to complete a U-turn before it can
     // set off, and a U-turn is taken at `turnSpeed`.
-    const place = aiSpawnPlacement(state, map, s, dAtan2(scene.y - s.y, scene.x - s.x));
+    const place = aiSpawnPlacement(state, map, c.s, dAtan2(scene.y - c.s.y, scene.x - c.s.x));
     if (!place) continue;
+    if (++tries > ROUTE_TRIES) break;
     // And a road that connects. Checked BEFORE the van exists, so a call that
     // cannot be driven costs nothing instead of leaving an ambulance stranded
     // on the far side of the city for the rest of the session.
     if (!planRoute(map, place.x, place.y, scene.x, scene.y)) continue;
     chosen = place;
-    chosenD = toScene;
+    break;
   }
   if (!chosen) return null;
   // An ordinary ambient driver with somewhere to be: same id band, same lane

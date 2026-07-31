@@ -114,9 +114,53 @@ function nearestDrivable(map: CityMap, x: number, y: number): number {
  *
  * Deterministic by construction: the open list is a binary heap keyed on
  * (f, tile index) packed into one integer, so ties in f always resolve to the
- * lower tile index on every host. Integer arithmetic throughout; the packed
- * keys stay far under 2^53. No rng.
+ * lower tile index on every host. Integer arithmetic throughout. The packed
+ * key is f * size + idx, so it stays exact while size is under about 2^26 —
+ * a map of ninety million tiles, against the six hundred thousand this one
+ * has. No rng.
  */
+/**
+ * The A* working set, allocated once and reused.
+ *
+ * It used to be three fresh typed arrays per call — five megabytes on a city
+ * this size, plus two full `.fill(-1)` passes before the search had looked at
+ * a single tile. Traffic replans, ambulance dispatch and errand assignment
+ * between them call this several times a second, so that was tens of
+ * megabytes a second of pure scratch and a measurable slice of a core spent
+ * zeroing memory.
+ *
+ * `stamp` is what makes reuse safe without clearing: every call takes a fresh
+ * era, a cell is "seen this call" when its stamp is +era and "closed" when it
+ * is -era, and anything left over from a previous call is simply neither.
+ * Module state, but not shared state in any sense the simulation can observe:
+ * the search reads the map and writes only here, and two hosts running the
+ * same query still walk the same tiles in the same order.
+ */
+interface RouteScratch {
+  size: number;
+  gScore: Int32Array;
+  cameFrom: Int32Array;
+  stamp: Int32Array;
+  era: number;
+}
+let scratchStore: RouteScratch | null = null;
+
+/** Never expand more tiles than this in one search. See the call site. */
+const MAX_EXPANSIONS = 60_000;
+
+function routeScratch(size: number): RouteScratch {
+  if (scratchStore === null || scratchStore.size < size) {
+    scratchStore = {
+      size,
+      gScore: new Int32Array(size),
+      cameFrom: new Int32Array(size),
+      stamp: new Int32Array(size),
+      era: 0,
+    };
+  }
+  return scratchStore;
+}
+
 export function planRoute(
   map: CityMap,
   fromX: number,
@@ -134,9 +178,9 @@ export function planRoute(
     return [(x + 0.5) * TILE_SIZE, ((goal - x) / w + 0.5) * TILE_SIZE];
   }
 
-  const gScore = new Int32Array(size).fill(-1);
-  const cameFrom = new Int32Array(size).fill(-1);
-  const closed = new Uint8Array(size);
+  const scratch = routeScratch(size);
+  const { gScore, cameFrom, stamp } = scratch;
+  const era = ++scratch.era;
   const goalX = goal % w;
   const goalY = (goal - goalX) / w;
   const heuristic = (idx: number): number => {
@@ -181,12 +225,19 @@ export function planRoute(
   };
 
   gScore[start] = 0;
+  stamp[start] = era;
   push(heuristic(start) * size + start);
   let found = false;
+  let expanded = 0;
   while (heap.length > 0) {
     const idx = pop() % size;
-    if (closed[idx]) continue; // a stale entry superseded by a better g
-    closed[idx] = 1;
+    if (stamp[idx] === -era) continue; // a stale entry superseded by a better g
+    stamp[idx] = -era;
+    // A tick guard, not a quality knob. Without it, a route to somewhere the
+    // roads do not reach exhausts the whole network before returning null,
+    // and on a city this size that is a twenty-millisecond spike against a
+    // thirty-three-millisecond budget.
+    if (++expanded > MAX_EXPANSIONS) return null;
     if (idx === goal) {
       found = true;
       break;
@@ -199,9 +250,10 @@ export function planRoute(
       const ny = y + dy;
       if (!drivableTile(map, nx, ny)) continue;
       const nIdx = ny * w + nx;
-      if (closed[nIdx]) continue;
-      const known = gScore[nIdx] as number;
+      if (stamp[nIdx] === -era) continue;
+      const known = stamp[nIdx] === era ? (gScore[nIdx] as number) : -1;
       if (known !== -1 && known <= ng) continue;
+      stamp[nIdx] = era;
       gScore[nIdx] = ng;
       cameFrom[nIdx] = idx;
       push((ng + heuristic(nIdx)) * size + nIdx);
@@ -217,8 +269,14 @@ export function planRoute(
   // is re-planned into a livelock. Bounded spacing keeps waypoint distance an
   // honest proxy for off-route distance, at a few extra cloned numbers per
   // straight.
+  // Terminated on the START, not on a sentinel. `cameFrom` is reused scratch
+  // that is never cleared, so a leftover value from an earlier search is not
+  // -1 and walking until it is walks into another route, or into a cycle.
   const tiles: number[] = [];
-  for (let idx = goal; idx !== -1; idx = cameFrom[idx] as number) tiles.push(idx);
+  for (let idx = goal; ; idx = cameFrom[idx] as number) {
+    tiles.push(idx);
+    if (idx === start) break;
+  }
   tiles.reverse();
   const out: number[] = [];
   let sinceEmit = 0;

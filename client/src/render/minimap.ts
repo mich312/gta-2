@@ -43,6 +43,30 @@ const TILE_COLORS: Record<number, string> = {
 };
 const FIELD_COLOR = '#232a26';
 
+/** `#rrggbb` as the little-endian uint32 an RGBA `ImageData` buffer wants. */
+function packColor(hex: string): number {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  return (0xff << 24) | (b << 16) | (g << 8) | r;
+}
+
+/**
+ * Tile palette as packed pixels, indexed by tile id.
+ *
+ * Built once at module load rather than per bake: it is a handful of entries
+ * and the bake is the one place that reads it.
+ */
+const TILE_PIXELS = ((): Uint32Array => {
+  const ids = Object.keys(TILE_COLORS).map(Number);
+  const out = new Uint32Array(Math.max(...ids) + 1);
+  out.fill(packColor(FIELD_COLOR));
+  for (const id of ids) out[id] = packColor(TILE_COLORS[id] as string);
+  return out;
+})();
+const FIELD_PIXEL = packColor(FIELD_COLOR);
+
 /** Gang colours for the turf wash. Mirrors shared/data/gangs.json. */
 const TURF_TINT: Record<number, string> = {
   1: '#c8543c',
@@ -77,22 +101,42 @@ export class Minimap {
     this.texture = null;
   }
 
+  /**
+   * The whole city into an offscreen canvas, one pixel per tile.
+   *
+   * Written as pixels rather than as rectangles. A `fillRect` per tile is the
+   * obvious way to say this and it was fine on a 240-tile map; on a 768-tile
+   * one it is 589,824 canvas calls and it cost 240–300 ms of frozen tab on the
+   * first frame after joining — the single largest piece of client work the
+   * bigger map added. One `putImageData` over a typed array is the same
+   * picture for about a tenth of that.
+   */
   private bake(map: CityMap): HTMLCanvasElement {
+    const W = map.widthTiles;
+    const H = map.heightTiles;
     const canvas = document.createElement('canvas');
-    canvas.width = map.widthTiles * BAKE_SCALE;
-    canvas.height = map.heightTiles * BAKE_SCALE;
+    canvas.width = W * BAKE_SCALE;
+    canvas.height = H * BAKE_SCALE;
     const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
-    ctx.fillStyle = FIELD_COLOR;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    for (let ty = 0; ty < map.heightTiles; ty++) {
-      for (let tx = 0; tx < map.widthTiles; tx++) {
-        const tile = map.tiles[ty * map.widthTiles + tx] as number;
-        const color = TILE_COLORS[tile];
-        if (!color) continue;
-        ctx.fillStyle = color;
-        ctx.fillRect(tx * BAKE_SCALE, ty * BAKE_SCALE, BAKE_SCALE, BAKE_SCALE);
-      }
+
+    const image = new ImageData(W, H);
+    const px = new Uint32Array(image.data.buffer);
+    for (let i = 0; i < px.length; i++) {
+      const tile = map.tiles[i] as number;
+      px[i] = tile < TILE_PIXELS.length ? (TILE_PIXELS[tile] as number) : FIELD_PIXEL;
     }
+
+    if (BAKE_SCALE === 1) {
+      ctx.putImageData(image, 0, 0);
+      return canvas;
+    }
+    // Scaled bake: draw the 1:1 image and let the compositor blow it up.
+    const src = document.createElement('canvas');
+    src.width = W;
+    src.height = H;
+    (src.getContext('2d') as CanvasRenderingContext2D).putImageData(image, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(src, 0, 0, canvas.width, canvas.height);
     return canvas;
   }
 
@@ -105,7 +149,13 @@ export class Minimap {
   ): void {
     const map = this.map;
     if (!map || !center) return;
-    if (!this.texture) this.texture = this.bake(map);
+    if (!this.texture) {
+      const __b = performance.now();
+      this.texture = this.bake(map);
+      (globalThis as never as { __jt: string[] }).__jt?.push(
+        `minimap.bake ${Math.round(performance.now() - __b)}`,
+      );
+    }
 
     const x0 = viewport.w - SIZE - 4;
     const y0 = 4;

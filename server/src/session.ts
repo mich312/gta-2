@@ -14,6 +14,7 @@ import {
   TILE_SIZE,
   createGameState,
   crowdScale,
+  areaScale,
   generateCity,
   step,
   takeSnapshot,
@@ -21,8 +22,17 @@ import {
 } from 'shared';
 
 const INPUT_QUEUE_MAX = 60;
-/** How many parked cars a session starts with. */
-const MAX_VEHICLES = 48;
+/**
+ * How many parked cars a session starts with, and how many pedestrians are
+ * out, per NOMINAL 384x384 city. Both scale with the map's area.
+ *
+ * They were flat counts, which was fine while there was one map size. On a
+ * city four times the area, forty-eight parked cars is one every three
+ * hundred metres and two hundred pedestrians is a ghost town — the same city,
+ * spread thinner, which is the opposite of what a bigger map is for.
+ */
+const VEHICLES_PER_CITY = 48;
+const PEDS_PER_CITY = 200;
 
 /**
  * Spawn commands a reseed may issue on one tick.
@@ -71,8 +81,6 @@ export const DEFAULT_LOADOUT: WeaponSlot[] = [
 export interface SessionOptions {
   weaponsLostOnDeath: boolean;
   pedCount: number;
-  /** ROAM=1: the window recentres on the players when they near its edge. */
-  roam: boolean;
 }
 /** Ped top-ups per second, and how far from a player they may appear. */
 const PED_RESPAWN_PER_SEC = 2;
@@ -195,20 +203,14 @@ export class Session {
   state: GameState;
   latestSnapshot: FullSnapshot;
   readonly seed: number;
-  /** The current window onto the world. Reassigned on rebase (ROAM=1). */
+  /** The city. One map, baked; a session never swaps it. */
   map: CityMap;
   worldgen: WorldgenParams;
-  /** Set for one tick when the window moved, for the broadcaster. */
-  lastRebase: { windowX: number; windowY: number } | null = null;
-  private lastRebaseTick = -Infinity;
   readonly slots = new Map<number, PlayerSlot>();
 
   private readonly snapshotRing = new Map<number, FullSnapshot>();
   private pendingCommands: SimCommand[] = [];
-  /**
-   * Reseed spawns still to be issued, in order, at `RESEED_PER_TICK` a tick.
-   * Empty except in the second after a rebase.
-   */
+  /** Reseed spawns still to be issued, in order, at `RESEED_PER_TICK` a tick. */
   private reseedQueue: SimCommand[] = [];
   /** One counter for every command-spawned entity (players, vehicles). */
   private nextId = 1;
@@ -235,7 +237,6 @@ export class Session {
     this.options = {
       weaponsLostOnDeath: options.weaponsLostOnDeath ?? true,
       pedCount: options.pedCount ?? 200,
-      roam: options.roam ?? false,
     };
     this.seed = seed;
     this.worldgen = worldgen;
@@ -273,12 +274,12 @@ export class Session {
     const ranked = spots.map((spot) => ({
       spot,
       key: kerbRank(
-        this.worldgen.windowX + Math.floor(spot.x / TILE_SIZE),
-        this.worldgen.windowY + Math.floor(spot.y / TILE_SIZE),
+        Math.floor(spot.x / TILE_SIZE),
+        Math.floor(spot.y / TILE_SIZE),
       ),
     }));
     ranked.sort((a, b) => a.key - b.key);
-    return ranked.slice(0, MAX_VEHICLES).map((r) => r.spot);
+    return ranked.slice(0, Math.round(VEHICLES_PER_CITY * areaScale(this.map))).map((r) => r.spot);
   }
 
   /**
@@ -356,7 +357,7 @@ export class Session {
 
     // The crowds. Evenly sampled from the dense sidewalk spawn list.
     const pedSpawns = this.map.pedSpawns;
-    const count = Math.min(this.options.pedCount, pedSpawns.length);
+    const count = Math.min(Math.round(this.options.pedCount * areaScale(this.map)), pedSpawns.length);
     const stride = count > 0 ? Math.max(1, Math.floor(pedSpawns.length / count)) : 1;
     for (let i = 0; i < count; i++) {
       const spot = pedSpawns[(i * stride) % pedSpawns.length];
@@ -366,67 +367,6 @@ export class Session {
 
     if (metered) this.reseedQueue.push(...out);
     else this.pendingCommands.push(...out);
-  }
-
-  /**
-   * The walls come off (WORLDGEN.md §11.2 B2/B3, ROAM=1): when any live
-   * player nears the window's edge, recentre the window on the players and
-   * walk the whole session into the new region. One rebase command shifts
-   * the players and drops the old region's ambient world; the reseed
-   * commands that follow it — same tick, same replay record — populate the
-   * new one. Whole-tile deltas keep every position exact on the q8 grid.
-   */
-  maybeRebase(): void {
-    // Guarded against thrash: players spread wider than the window minus
-    // margins can never all clear the edge check, so without a cooldown
-    // the session rebases every check and the wire drowns in reseeds.
-    if (this.state.tick - this.lastRebaseTick < 150) return;
-    const marginPx = 24 * TILE_SIZE;
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    let live = 0;
-    for (const pid of this.state.players.ids) {
-      const p = this.state.players.byId[pid];
-      if (!p || p.mode === 'dead') continue;
-      live++;
-      minX = Math.min(minX, p.pos.x);
-      minY = Math.min(minY, p.pos.y);
-      maxX = Math.max(maxX, p.pos.x);
-      maxY = Math.max(maxY, p.pos.y);
-    }
-    if (live === 0) return;
-    const nearEdge =
-      minX < marginPx ||
-      minY < marginPx ||
-      maxX > this.map.widthPx - marginPx ||
-      maxY > this.map.heightPx - marginPx;
-    if (!nearEdge) return;
-
-    // Recentre on the players' bounding box, in whole tiles.
-    const shiftTilesX = Math.round(((minX + maxX) / 2 - this.map.widthPx / 2) / TILE_SIZE);
-    const shiftTilesY = Math.round(((minY + maxY) / 2 - this.map.heightPx / 2) / TILE_SIZE);
-    if (Math.abs(shiftTilesX) < 8 && Math.abs(shiftTilesY) < 8) return;
-    this.lastRebaseTick = this.state.tick;
-
-    const windowX = this.worldgen.windowX + shiftTilesX;
-    const windowY = this.worldgen.windowY + shiftTilesY;
-    this.worldgen = { ...this.worldgen, windowX, windowY };
-    this.map = generateCity(this.seed, this.worldgen);
-    this.pendingCommands.push({
-      type: 'rebase',
-      windowX,
-      windowY,
-      dxPx: -shiftTilesX * TILE_SIZE,
-      dyPx: -shiftTilesY * TILE_SIZE,
-    });
-    // Anything the last rebase had not got round to belongs to a region that
-    // no longer exists — issuing it now would scatter the old window's props
-    // across the new one.
-    this.reseedQueue = [];
-    this.seedWorldFromMap(true);
-    this.lastRebase = { windowX, windowY };
   }
 
   addPlayer(name: string, resumeToken: string): PlayerSlot {
@@ -539,7 +479,7 @@ export class Session {
       this.worldgen.nightCrowdScale,
     );
     const target = Math.min(
-      Math.round(this.options.pedCount * scale),
+      Math.round(this.options.pedCount * areaScale(this.map) * scale),
       this.map.pedSpawns.length,
     );
     // Spawns already queued have not reached the sim yet, so they must count
@@ -579,15 +519,8 @@ export class Session {
 
   /** Advance one tick: drain inputs and commands, step, snapshot, record. */
   tick(): FullSnapshot {
-    // The window follows the players, when roaming is on. Checked before
-    // inputs so the rebase and its reseed lead this tick's command batch.
-    // lastRebase is a one-TICK flag: cleared here every tick, not inside
-    // maybeRebase — left set for the 30 ticks between checks, one rebase
-    // broadcast thirty times and the client regenerated the city for each.
-    this.lastRebase = null;
-    if (this.options.roam && this.state.tick % 30 === 0) this.maybeRebase();
-    // The new region fills in over the next few ticks rather than all on the
-    // one the window moved on. See RESEED_PER_TICK.
+    // The ambient world fills in over several ticks rather than all at once.
+    // See RESEED_PER_TICK.
     if (this.reseedQueue.length > 0) {
       this.pendingCommands.push(...this.reseedQueue.splice(0, RESEED_PER_TICK));
     }
