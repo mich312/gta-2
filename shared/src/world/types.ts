@@ -185,11 +185,15 @@ export interface VehicleSpawn {
 }
 
 /**
- * The generated city: a pure function of (seed, params), regenerated
- * identically on server and client. Never transmitted, never mutated.
+ * The city, loaded from the baked plan and dressed for one session. The
+ * ground is identical on every host because it is the same bytes; only the
+ * furniture (parked cars, crates, packages, turf) is a function of the seed.
+ * Never transmitted.
  */
 export interface CityMap {
   seed: number;
+  /** What the city is called. Authored in the plan. */
+  name: string;
   widthTiles: number;
   heightTiles: number;
   widthPx: number;

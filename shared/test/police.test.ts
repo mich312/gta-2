@@ -23,7 +23,7 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
-import { clearSpot, roadLane, straightEastLane } from './helpers.js';
+import { busyKerb, clearSpot, roadLane, straightEastLane, tilesFromSpawn } from './helpers.js';
 import { isSolidTile } from '../src/world/collide.js';
 import { TICK_RATE } from '../src/constants.js';
 
@@ -283,8 +283,8 @@ describe('wanted + police', () => {
     // spree left them: this test is about whether pursuit converges and gets
     // a shot away, not about whether the seed happened to leave them cornered
     // somewhere with no line of sight.
-    const lane = roadLane(map);
-    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+    const lane = straightEastLane(map);
+    state.players.byId[1]!.pos = { x: lane.x + 5 * TILE_SIZE, y: lane.y };
 
     // Cops arrive on a ramp (one per spawnCooldownTicks), not as a wall, so
     // the posse is measured at its peak over the window rather than at a
@@ -689,15 +689,27 @@ describe('escalation by kind', () => {
     // into a building damages itself and eventually detonates. The rule under
     // test is about the officer, so do not hand them a bomb.
     const t = getTuning().police;
-    let solid = { x: 0, y: 0 };
-    outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
-      for (let tx = 4; tx < map.widthTiles - 4; tx++) {
-        if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) {
-          solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-          break outer;
-        }
+    // A wall with twenty tiles of clear approach to the west of it, found
+    // rather than assumed: the cruiser is staged on that approach and has to
+    // be able to DRIVE at the wall for "cannot close" to mean anything. The
+    // first building in scan order used to do, until the first building in
+    // scan order became one on a dockside with the harbour behind it.
+    let solid: { x: number; y: number } | null = null;
+    for (const [tx, ty] of tilesFromSpawn(map, 24)) {
+      if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
+      let open = true;
+      for (let i = 1; i <= 20 && open; i++) {
+        for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
       }
+      // ...and a wall deep enough that driving round it is not the easy way.
+      for (let dy = -2; dy <= 2 && open; dy++) {
+        open = map.tiles[(ty + dy) * map.widthTiles + tx] === T_BUILDING;
+      }
+      if (!open) continue;
+      solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      break;
     }
+    expect(solid, 'no wall with a clear approach on this map').not.toBeNull();
     let state = createGameState(71);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
     state.players.byId[1]!.pos = { x: solid.x, y: solid.y };
@@ -733,16 +745,28 @@ describe('escalation by kind', () => {
     // P1a: `blocked` and `seen` are the same ray test, so it could never
     // fire once pursuit stopped being omniscient. A fugitive inside a
     // building is now a search that expires, covered by its own test above.)
-    let solid = { x: 0, y: 0 };
-    outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
-      for (let tx = 4; tx < map.widthTiles - 4; tx++) {
-        if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) {
-          solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-          break outer;
-        }
+    // A wall with twenty tiles of clear approach to the west of it, found
+    // rather than assumed: the cruiser is staged on that approach and has to
+    // be able to DRIVE at the wall for "cannot close" to mean anything. The
+    // first building in scan order used to do, until the first building in
+    // scan order became one on a dockside with the harbour behind it.
+    let solid: { x: number; y: number } | null = null;
+    for (const [tx, ty] of tilesFromSpawn(map, 24)) {
+      if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
+      let open = true;
+      for (let i = 1; i <= 20 && open; i++) {
+        for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
       }
+      // ...and a wall deep enough that driving round it is not the easy way.
+      for (let dy = -2; dy <= 2 && open; dy++) {
+        open = map.tiles[(ty + dy) * map.widthTiles + tx] === T_BUILDING;
+      }
+      if (!open) continue;
+      solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      break;
     }
-    let state = wedged({ x: solid.x - 300, y: solid.y }, solid);
+    expect(solid, 'no wall with a clear approach on this map').not.toBeNull();
+    let state = wedged({ x: solid!.x - 300, y: solid!.y }, solid!);
     for (let i = 0; i < 400 && state.cops.byId[500]?.vehicleId != null; i++) {
       const c = state.cops.byId[500];
       if (c?.vehicleId != null) {
@@ -780,26 +804,28 @@ describe('escalation by kind', () => {
     // work slowed low-speed steering, a cruiser boxed between kerbs runs
     // out of patience and bails — which is the OTHER test's behaviour. The
     // claim here is "given room, it turns and closes".
-    // 26×5 tiles of open ground with the start NINE tiles in: the cruiser
+    // 38×9 tiles of open ground with the start twelve tiles in: the cruiser
     // faces AWAY (west) before it turns, so it needs arc room behind it as
     // well as the driving line to the target in front — a clearing checked
-    // only eastward parks it against whatever lies west and it bails.
+    // only eastward parks it against whatever lies west and it bails. Nine
+    // tiles DEEP is what makes it a clearing rather than a street: a
+    // three-tile carriageway with pavement either side passes a five-tile
+    // test, and a cruiser boxed between kerbs runs out of patience mid-turn,
+    // which is the other test's behaviour and not this one's.
     let clearing: { x: number; y: number } | null = null;
-    outer: for (let ty = 8; ty < map.heightTiles - 8; ty++) {
-      for (let tx = 8; tx < map.widthTiles - 34; tx++) {
-        let open = true;
-        for (let dy = -2; dy <= 2 && open; dy++) {
-          for (let dx = 0; dx < 26; dx++) {
-            if (isSolidTile(map, tx + dx, ty + dy, 'land')) {
-              open = false;
-              break;
-            }
+    for (const [tx, ty] of tilesFromSpawn(map, 40)) {
+      let open = true;
+      for (let dy = -4; dy <= 4 && open; dy++) {
+        for (let dx = -12; dx < 26; dx++) {
+          if (isSolidTile(map, tx + dx, ty + dy, 'land')) {
+            open = false;
+            break;
           }
         }
-        if (!open) continue;
-        clearing = { x: (tx + 9.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-        break outer;
       }
+      if (!open) continue;
+      clearing = { x: (tx + 9.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      break;
     }
     expect(clearing, 'no open clearing on this map').not.toBeNull();
     const start = clearing!;
@@ -807,10 +833,12 @@ describe('escalation by kind', () => {
     let state = wedged(start, targetAt);
     state.vehicles.byId[501]!.heading = Math.PI; // facing directly away
     const before = Math.hypot(start.x - targetAt.x, start.y - targetAt.y);
-    // 40 ticks: enough to turn and start closing, NOT enough to arrive —
+    // 55 ticks: enough to turn and start closing, NOT enough to arrive —
     // a cruiser that reaches dismountDist finishes the chase on foot
-    // (correctly), and this assertion would misread that as ditching.
-    for (let i = 0; i < 40; i++) {
+    // (correctly), and this assertion would misread that as ditching. It was
+    // 40 while the clearing was 26 tiles wide; a wider one gives the U-turn a
+    // wider arc, so the first strides of it now cost a few more ticks.
+    for (let i = 0; i < 55; i++) {
       state.players.byId[1]!.heat = 410;
       state = step(state, {}, [], map);
     }
@@ -950,6 +978,10 @@ describe('waves and equipment (P3)', () => {
   function watch(stars: number, ticks: number): { spawnTicks: number[]; kinds: string[] } {
     let state = createGameState(303);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    // On the busiest kerb in the city, for the reason `forceAt` is: a wave is
+    // only a composition where there is enough kerb for one to turn out on.
+    const lane = busyKerb(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     const spawnTicks: number[] = [];
     const kinds: string[] = [];
     const seen = new Set<number>();
@@ -1305,15 +1337,27 @@ describe('air support (S1)', () => {
 
     // Parked inside a building — invisible to anybody on the street, and in
     // plain view from the air.
-    let solid = { x: 0, y: 0 };
-    outer: for (let ty = 4; ty < map.heightTiles - 4; ty++) {
-      for (let tx = 4; tx < map.widthTiles - 4; tx++) {
-        if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) {
-          solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-          break outer;
-        }
+    // A wall with twenty tiles of clear approach to the west of it, found
+    // rather than assumed: the cruiser is staged on that approach and has to
+    // be able to DRIVE at the wall for "cannot close" to mean anything. The
+    // first building in scan order used to do, until the first building in
+    // scan order became one on a dockside with the harbour behind it.
+    let solid: { x: number; y: number } | null = null;
+    for (const [tx, ty] of tilesFromSpawn(map, 24)) {
+      if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
+      let open = true;
+      for (let i = 1; i <= 20 && open; i++) {
+        for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
       }
+      // ...and a wall deep enough that driving round it is not the easy way.
+      for (let dy = -2; dy <= 2 && open; dy++) {
+        open = map.tiles[(ty + dy) * map.widthTiles + tx] === T_BUILDING;
+      }
+      if (!open) continue;
+      solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      break;
     }
+    expect(solid, 'no wall with a clear approach on this map').not.toBeNull();
     let state = createGameState(901);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
     state.players.byId[1]!.pos = { x: solid.x, y: solid.y };
@@ -1402,6 +1446,13 @@ describe('escalation by kind (I1)', () => {
   function forceAt(stars: number, ticks = 400): GameState {
     let state = createGameState(31);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    // Staged on a found street rather than wherever the spawn lottery put
+    // them. Police turn out from kerbside parking within `spawnMaxDist`, so
+    // "how big a force turns out" is a question about the street you are on;
+    // asked on the quietest lane in the city it has a different answer, and
+    // the test would be measuring the map rather than the escalation ladder.
+    const lane = busyKerb(map);
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     for (let i = 0; i < ticks; i++) {
       const p = state.players.byId[1]!;
       p.heat = stars * 100 + 10;

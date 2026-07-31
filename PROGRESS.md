@@ -1,5 +1,73 @@
 # PROGRESS
 
+## The map generator is replaced by one drawn city
+
+`WORLDGEN.md` §12 is the design; this is what it cost and what it fixed.
+
+**The finding.** The generator was not broken in the sense of having a bug. It
+was broken in the sense that **nothing about it could be reviewed**: the map a
+player got did not exist until they got it, so every quality problem — noise
+water cutting the road network into islands, boroughs with no shape, a grid of
+uniform texture from edge to edge, landmarks that were a dice roll with names
+on them — was addressed by tuning a constant and hoping, and every fix moved
+every other seed. Look at `evidence/city-old-generator.png` and
+`evidence/city-anywhere.png` together; the second is not a better generator, it
+is a different kind of thing.
+
+**What shipped.** One city, Anywhere City, 384×384 tiles: three boroughs on an
+island group joined by four bridges, with the sea all the way round as the map's
+edge. The source is `shared/data/city-plan.json` — the coast as a 48×48 picture,
+the boroughs as rectangles with a street pitch each, the avenues as named lines,
+every landmark at a chosen rectangle. `pnpm citybake` expands it, checks it, and
+freezes it into `shared/src/world/city.data.ts` (118 kB, RLE + base64). The game
+decodes that and dresses it; server, client and replay load the same bytes
+instead of running the same algorithm twice.
+
+**The three passes that only a baked map can afford.** Validation runs once,
+offline, so it gets to be exhaustive rather than fast: one road network, every
+landmark with a road within six tiles, every shopfront with a pavement outside
+and a walkable room behind, no carriageway ending in open water. It also
+*repairs* — a landmark with no road gets a driveway cut by breadth-first search;
+carriageway that is not part of the main network goes back to being ground
+rather than stranding an ambient car forever — and it *refuses*: a landmark
+drawn over the sea or across a street throws, naming the landmark and the tile.
+Both of those refusals fired during authoring, and both would otherwise have
+baked silently into a pier nobody meant and a severed road network.
+
+**One real bug found on the way in.** `signals.isJunctionTile` calls tarmac
+that is over-wide across *both* axes a junction. The first plan drew avenues
+five tiles wide; `MAX_LANE_TILES` is four, so every tile of every avenue was a
+junction and one of them carried 333 signal heads. Two fixes: avenues are four
+tiles wide, and the layout now refuses to carve a street within three tiles of
+one already there — a lattice cut landing beside an avenue does not read as two
+streets, it reads as one very wide one, and the traffic model agreed.
+
+**What went.** `world/fields.ts` down to its hash primitives; `world/districts.ts`,
+`world/roads.ts` and `world/store.ts` deleted outright; the `rebase` SimCommand
+and server message; `ROAM` and `?roam=`; and every layout parameter in
+`worldgen.json` — `windowX/Y`, `widthTiles/heightTiles`, `arterialSpacing`,
+`blockSize`, `fields`, `water`, `countryside`. What is left in that file is what
+a session is entitled to vary on top of a fixed map. A seed no longer touches
+the ground: it moves the furniture — parked cars, crates, hidden packages, turf,
+ramps, which of sixteen spawn points you get.
+
+**Test fallout, and what it taught.** 24 of 778 tests failed on the new map and
+all but four were fixtures rather than regressions: tests that scanned the map
+from the top-left corner for "a straight street" or "open ground", which on a
+drawn map is the sea and then the quietest dock road in the city. `helpers.ts`
+now searches outward from the first player spawn and says why, and player spawns
+themselves are restricted to built-up districts with street around them — a
+player starting on a dock with no traffic, no crowd and nothing to steal was
+technically a spawn and a bad first thirty seconds. Two new helpers came out of
+it (`busyKerb`, `spotFacingWall`) and one test file was rewritten around what it
+was actually claiming rather than around where the old map happened to put
+things. `shared/test/city.test.ts` is new and holds the asset to the plan: it
+bakes the plan and compares tile-for-tile, so a plan edited without re-baking
+fails the suite rather than shipping a map that does not match its description.
+
+775 tests green; six bots, twenty-five seconds, zero desyncs.
+
+
 ## Feature parity between the 2D and 3D renderers
 
 Four waves, and the finding that shaped all of them: **almost every gap was

@@ -10,7 +10,8 @@ import trafficJson from '../data/traffic.json';
 import worldgenJson from '../data/worldgen.json';
 import { initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
-import { makeFields } from '../src/world/fields.js';
+import cityPlanJson from '../data/city-plan.json';
+import { parseCityPlan } from '../src/world/plan.js';
 import { generateCity } from '../src/world/generate.js';
 import { openWater } from './helpers.js';
 import { createGameState } from '../src/sim/state.js';
@@ -32,7 +33,45 @@ initTuning({
 });
 
 const params = parseWorldgenParams(worldgenJson);
+const plan = parseCityPlan(cityPlanJson);
 const map = generateCity(1234, params);
+
+/**
+ * The tiles of every SMALL body of water: the ornamental ponds `fillBlock`
+ * carves inside a park, as against the sea and the river that the coastline
+ * itself is made of. A flood fill and a size cut-off, because after the bake
+ * they are the same tile type and only their extent tells them apart.
+ */
+function pondTiles(m: typeof map): Set<number> {
+  const seen = new Uint8Array(m.tiles.length);
+  const out = new Set<number>();
+  for (let start = 0; start < m.tiles.length; start++) {
+    if (m.tiles[start] !== T_WATER || seen[start] === 1) continue;
+    const bag: number[] = [start];
+    seen[start] = 1;
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % m.widthTiles;
+      const y = (i - x) / m.widthTiles;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= m.widthTiles || ny >= m.heightTiles) continue;
+        const j = ny * m.widthTiles + nx;
+        if (seen[j] === 1 || m.tiles[j] !== T_WATER) continue;
+        seen[j] = 1;
+        bag.push(j);
+      }
+    }
+    if (bag.length <= 64) for (const i of bag) out.add(i);
+  }
+  return out;
+}
 
 function countTiles(m: typeof map, tile: number): number {
   let n = 0;
@@ -96,7 +135,7 @@ describe('the river', () => {
       for (let s = 1; wet(m, tx - dx * s, ty - dy * s); s++) n++;
       return n;
     };
-    const max = params.water.maxBridgeSpan;
+    const max = plan.maxBridgeSpan;
     for (const seed of [1, 7, 42, 1234, 90210]) {
       const m = generateCity(seed, params);
       for (let ty = 0; ty < m.heightTiles; ty++) {
@@ -119,12 +158,14 @@ describe('the river', () => {
     // so the only things allowed to touch the river are the bank, a bridge,
     // and the stub of a road that drowned. Buildings, sidewalks, yards and
     // parks may not sit flush against open water. Park ponds are exempt:
-    // they are carved decoration, not field waterways.
-    const fields = makeFields(1234, params);
+    // they are carved decoration inside a block, not sea or river, and the
+    // way to tell them apart is size — a pond is a handful of tiles inside a
+    // park, the harbour is a quarter of the map.
+    const pond = pondTiles(map);
     for (let ty = 1; ty < map.heightTiles - 1; ty++) {
       for (let tx = 1; tx < map.widthTiles - 1; tx++) {
         if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) continue;
-        if (!fields.water(params.windowX + tx, params.windowY + ty)) continue; // pond
+        if (pond.has(ty * map.widthTiles + tx)) continue;
         for (const [dx, dy] of [
           [1, 0],
           [-1, 0],

@@ -27,7 +27,6 @@ import { initLocalTuning, localCatalog, localEconomyParams, localWorldgenParams 
 export interface LocalHostOptions {
   seed: number;
   pedCount: number;
-  roam: boolean;
   interestRadius: number;
   provingGround: boolean;
   difficulty: string;
@@ -69,7 +68,6 @@ function boot(opts: LocalHostOptions): void {
   const session = new Session(opts.seed, worldgen, null, {
     weaponsLostOnDeath: true,
     pedCount: opts.pedCount,
-    roam: opts.roam,
   });
   // MemoryStore for the spike: the wallet lives as long as the tab. The real
   // item is an IndexedDB PersistenceStore, which is one implementation of an

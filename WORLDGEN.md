@@ -865,3 +865,181 @@ worldgen tests.
 Done in this order, the world stops being a window with walls at
 step 6 — and every step before that ships something visible or proves
 something the next step needs.
+
+---
+
+## 12. The city, drawn — DELIVERED
+
+Everything above this line describes a **generator**. The generator is gone.
+This section says what replaced it, why, and how to change the city now.
+
+### 12.1 What was actually wrong
+
+The layer stack of §9 was well built and the unbounded world of §10 was a real
+achievement, and neither of them made a good city. Open
+`evidence/city-old-generator.png` — seed 42, the shipped configuration:
+
+- **The water did not know what it was for.** Waterways were a noise contour
+  band. At one seed it was a river with a bridge over it; at the next it was a
+  lagoon that swallowed a district, cut the road network into four pieces and
+  left islands of street with no crossing to them. Nothing in the pipeline
+  could tell the difference, because "is this crossing worth a bridge" was a
+  span measurement and not a decision anybody made.
+- **The districts had no shape.** Land use was thresholds on a radial density
+  field plus noise, so a borough was wherever the noise happened to cross 0.52
+  — ragged, unnamed, and the same shape in every direction. There was no
+  downtown you could point at, because downtown was a contour.
+- **The grid went on until it stopped.** Recursive subdivision inside a
+  jittered arterial lattice gives blocks of the right size and a city of
+  uniform texture: no high street, no waterfront, no reason for any junction
+  to be more interesting than any other.
+- **Nothing could be navigated by.** Landmarks were rolled per lattice cell,
+  so which ones a session got, and where, was luck. A city with two towers and
+  no stadium is not a landmark system, it is a dice roll with names on it.
+- **The edges were a lie.** With `ROAM` on, the window walked and the session
+  dragged the whole ambient world with it — a rebase command, a despawn of
+  everything not bolted down, and a metered reseed. It worked. It also meant
+  every pass in worldgen had to be a pure function of global coordinates,
+  every quota had to be phrased as a density, and no part of the map could
+  ever be looked at as a whole and judged.
+
+That last point is the one that decides everything else. **A procedural map
+cannot be reviewed.** You can review a generator, and you can review a sample,
+but you cannot review the thing the player gets, because it does not exist
+until they get it. Every quality problem above was therefore fixed by tuning a
+constant and hoping, and every fix moved every other seed.
+
+### 12.2 What the genre actually did
+
+The obvious research, done properly, because the answer is not subtle.
+
+- **GTA (1997)** shipped three hand-built cities — Liberty City, San Andreas,
+  Vice City — as fixed 256×256 tile maps. **GTA 2 (1999)** shipped *Anywhere
+  City* as three connected districts: Downtown, Residential and Industrial,
+  each with its own architecture, its own gangs and its own missions, all on
+  one traversable map. The `.gmp` format is a compressed column table over a
+  256×256 grid: a **baked asset**, authored in an editor, not generated.
+- **GTA III (2001)** cut Liberty City into three islands — Portland, Staunton,
+  Shoreside Vale — each joined to the next by a bridge, and used those bridges
+  as the progression gate. The islands were a technical necessity (streaming)
+  that turned into the best structural idea in the series: a bridge is a
+  landmark, a chokepoint, a chase venue and a mental map all at once.
+- **Vice City (2002)** is two big islands and a handful of small ones, and its
+  reputation rests on density of *identity* rather than size — Ocean Beach
+  reads nothing like Little Havana reads nothing like the Downtown skyline.
+
+Three lessons, and we took all three:
+
+1. **One city, authored.** Not a generator with good defaults.
+2. **Boroughs with names, joined by bridges.** Water as structure, not as
+   noise: it is what makes a map legible from the air and memorable on the
+   ground.
+3. **The sea is the edge.** An island city needs no invisible walls and no
+   infinite plane. Where the map stops, there is water, and that is an answer
+   a player accepts without being told.
+
+### 12.3 The design
+
+**Anywhere City** — the name is GTA 2's, and the debt is acknowledged; the
+city is our own. 384×384 tiles, 6144×6144 px, about 2.6× the area of the old
+window. Three boroughs:
+
+| Borough | Character | Holds |
+| --- | --- | --- |
+| **Port Vasco** (NW island) | Docks and heavy industry: 26-tile block pitch, big lots, a harbour cut into the east shore | Kessler Power, Greyhill Quarry, Harbour Precinct, Riverside Infirmary |
+| **Ravenhill** (NE island) | Downtown: 17×13 pitch, long north–south avenues, short east–west streets, a park in the middle | Vantage Tower, 1st Precinct, Mercy General, Ravenhill Park |
+| **Sunridge** (S mainland) | Waterfront commercial, suburbs behind it, open country and beach below | Ironside Stadium, St. Brannoch, Kelvin Road Station, Marsh End Airfield, Pinewatch Camp, Hollis Farm, Old Point Light |
+
+Four bridges: two east–west across the channel between the islands (Harbour
+Road and Vasco Avenue), two north–south to the mainland (Ironside Way and
+Fifth Avenue).
+
+### 12.4 The pipeline
+
+```
+shared/data/city-plan.json     the drawing            (authored, reviewed, diffed)
+        │  parseCityPlan               plan.ts
+        ▼
+    buildLayout                 ground                 layout.ts
+        │   coast → boroughs → avenues → streets → blocks → shores → quays → prune
+        ▼
+    bakeCity                    the finished city      bake.ts
+        │   landmarks → aprons → block fill → driveways → shopfronts
+        ▼
+shared/src/world/city.data.ts   frozen, committed      (RLE + base64, ~118 kB)
+        │  decodeBakedCity + the amenity passes        generate.ts
+        ▼
+    CityMap                     what a session plays
+```
+
+The plan is four things, all of them editable by a person:
+
+1. **The coast**, as a 48×48 picture at one character per eight tiles: `~` sea,
+   `#` land. The rasteriser rounds convex corners, fills concave ones and wears
+   each straight run back by nought to two tiles from a hash of its own chunk —
+   so the shore is ragged and identical every time, and an edit to one island
+   cannot move the shore of another.
+2. **The boroughs**, as rectangles carrying a district type and a street pitch.
+   Different pitches per borough is most of what makes them read differently;
+   where two pitches meet you get the T-junctions a real city has where one
+   grid was laid out against another.
+3. **The avenues**, as named lines with a width. An avenue crossing water
+   becomes a bridge where the far bank is within `maxBridgeSpan`, and simply
+   stops at the quay where it is not — the same rule as before, but now it is
+   applied to lines somebody drew.
+4. **The landmarks**, each at a chosen rectangle, with a per-kind recipe for
+   the ground it stands on and the apron that fills the rest of its block.
+
+Three things the bake does that the generator could not:
+
+- **It validates.** One road network, every borough reachable, every landmark
+  with a road within six tiles, every shopfront with a pavement outside it and
+  a walkable room behind it, no carriageway ending in open water. A plan that
+  fails is not committed. This is affordable precisely because it runs once.
+- **It repairs what it can.** A landmark with no road to it gets a two-tile
+  driveway cut to the nearest street by breadth-first search. Carriageway that
+  is not part of the main network — the scraps the quay pass leaves behind —
+  goes back to being ground rather than stranding an ambient car on it forever.
+- **It refuses what it cannot.** A landmark drawn over the sea or across a
+  street throws, naming the landmark and the tile. Both were authoring slips
+  we made, and both would have baked silently into a pier nobody meant and a
+  severed road network.
+
+### 12.5 What a seed still does
+
+A session seed no longer touches the ground. It moves the furniture: which
+kerbs are parked up and with what, where the crates and the hidden packages
+are, which gang holds which cell of turf, where the stunt ramps are cut into
+the industrial lots, and which of the sixteen spawn points a player gets. That
+is worth keeping — two sessions in the same city should not be the same
+evening — and it costs nothing, because none of it is geometry.
+
+### 12.6 What went
+
+| Gone | Why |
+| --- | --- |
+| `world/fields.ts` (the L0 field stack) | Reduced to its hash and value-noise primitives. Nothing decides where a city is any more. |
+| `world/districts.ts` | Land use is drawn, not scored. |
+| `world/roads.ts` | The arterial lattice and the recursive subdivision under it. |
+| `world/store.ts` (§11.2 B1) | A cell-keyed store over an unbounded world, for a world that is now 384 tiles across and fits in memory forty times over. |
+| `rebase` (SimCommand + server message) | The window does not walk, so nothing has to be told that it did. |
+| `ROAM`, `?roam=` | Same. |
+| `windowX/Y`, `widthTiles/heightTiles`, `arterialSpacing`, `blockSize`, `fields`, `water`, `countryside` in `worldgen.json` | None of them can move a street now. What is left in that file is what a session varies. |
+
+The §11.4 questions — turf across many cities, respawn across regions, a soft
+world bound — are answered by not having many cities. Turf is a partition of
+one map. You wake up at the nearest hospital, and every hospital is a place
+you have been. The world bound is the coastline.
+
+### 12.7 Changing the city
+
+```bash
+$EDITOR shared/data/city-plan.json
+pnpm citybake          # draws it, checks it, writes shared/src/world/city.data.ts
+pnpm mapgen            # look at it
+pnpm test              # shared/test/city.test.ts holds the asset to the plan
+```
+
+Commit the plan and the baked data together. The test that compares them is
+the only thing standing between "the map in the repository" and "the map the
+plan describes", and they are different files.

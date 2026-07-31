@@ -13,7 +13,50 @@ import { TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.j
  * their target behind it. The failures look like combat bugs and are not.
  *
  * Use these instead of hard-coded offsets.
+ *
+ * They all search from the FIRST PLAYER SPAWN outwards rather than from the
+ * top-left corner of the map. That mattered the moment the city stopped being
+ * a uniform grid: the corner of a drawn map is sea, and the first land under
+ * it is a dock road with no crowd, no traffic and no kerbside parking — so a
+ * pursuit test staged there was really testing what happens on the quietest
+ * street in the world. Player spawns are picked to be in built-up parts of
+ * town (`amenities.placePlayerSpawns`), so "near a spawn" is the closest
+ * thing the map has to "somewhere a player would be".
  */
+
+/**
+ * Tiles in rings outward from the first player spawn: every tile of the map
+ * exactly once, nearest first, deterministically.
+ */
+function* fromSpawn(map: CityMap, margin: number): Generator<readonly [number, number]> {
+  const sx = Math.floor((map.playerSpawns[0]?.x ?? map.widthPx / 2) / TILE_SIZE);
+  const sy = Math.floor((map.playerSpawns[0]?.y ?? map.heightPx / 2) / TILE_SIZE);
+  const reach = Math.max(map.widthTiles, map.heightTiles);
+  for (let r = 0; r <= reach; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      const edgeRow = dy === -r || dy === r;
+      for (let dx = -r; dx <= r; dx += edgeRow ? 1 : 2 * r) {
+        const tx = sx + dx;
+        const ty = sy + dy;
+        if (tx < margin || ty < margin) continue;
+        if (tx >= map.widthTiles - margin || ty >= map.heightTiles - margin) continue;
+        yield [tx, ty] as const;
+        if (r === 0) break;
+      }
+    }
+  }
+}
+
+/** How far a point is from the first player spawn, in px. */
+export function fromSpawnPx(map: CityMap, x: number, y: number): number {
+  const s = map.playerSpawns[0] ?? { x: map.widthPx / 2, y: map.heightPx / 2 };
+  return Math.hypot(x - s.x, y - s.y);
+}
+
+/** Tiles nearest the first player spawn first. Exported for bespoke scans. */
+export function tilesFromSpawn(map: CityMap, margin = 4): Array<readonly [number, number]> {
+  return [...fromSpawn(map, margin)];
+}
 
 /** An axis direction from `from` with at least `need` px of clear line. */
 export function clearAim(map: CityMap, from: { x: number; y: number }, need = 60): number {
@@ -22,6 +65,53 @@ export function clearAim(map: CityMap, from: { x: number; y: number }, need = 60
     if (d >= need) return angle;
   }
   throw new Error('no clear direction from that point — pick another seed');
+}
+
+/**
+ * Somewhere to stand with a wall in front of you: an open tile with a
+ * building between `near` and `far` px away along one axis, and the angle to
+ * it. For tests about what happens when a shot ARRIVES.
+ */
+export function spotFacingWall(
+  map: CityMap,
+  near = 60,
+  far = 300,
+): { x: number; y: number; angle: number } {
+  for (const [tx, ty] of fromSpawn(map, 4)) {
+    const x = (tx + 0.5) * TILE_SIZE;
+    const y = (ty + 0.5) * TILE_SIZE;
+    if (isSolidAtWorld(map, x, y)) continue;
+    for (const angle of [0, Math.PI, Math.PI / 2, -Math.PI / 2]) {
+      const d = rayWallDistance(map, x, y, Math.cos(angle), Math.sin(angle), far);
+      if (d >= near && d < far) return { x, y, angle };
+    }
+  }
+  throw new Error('nowhere on this map has a wall in front of it');
+}
+
+/**
+ * A point roughly `dist` px away with open ground under it — no line of sight
+ * required.
+ *
+ * `clearSpot` needs an unbroken straight line, which on a drawn city is asking
+ * for an avenue: half a kilometre of clear axis simply does not exist in a
+ * residential block. Where the test only needs a bystander well out of the
+ * blast, this is the honest question to ask.
+ */
+export function farOpenSpot(
+  map: CityMap,
+  from: { x: number; y: number },
+  dist: number,
+): { x: number; y: number } {
+  for (const [tx, ty] of fromSpawn(map, 2)) {
+    const x = (tx + 0.5) * TILE_SIZE;
+    const y = (ty + 0.5) * TILE_SIZE;
+    const d = Math.hypot(x - from.x, y - from.y);
+    if (d < dist || d > dist * 1.6) continue;
+    if (isSolidAtWorld(map, x, y)) continue;
+    return { x, y };
+  }
+  throw new Error('nowhere open at that range');
 }
 
 /** A point `dist` px along a clear direction from `from`. */
@@ -60,7 +150,10 @@ export function roadLane(
   most = Infinity,
 ): VehicleSpawn {
   const probe = Number.isFinite(most) ? most + 20 : need + 20;
-  for (const s of map.vehicleSpawns) {
+  const near = [...map.vehicleSpawns].sort(
+    (a, b) => fromSpawnPx(map, a.x, a.y) - fromSpawnPx(map, b.x, b.y),
+  );
+  for (const s of near) {
     if (
       s.x < marginPx ||
       s.y < marginPx ||
@@ -92,16 +185,14 @@ export function straightEastLane(
   runTiles = 14,
   widthTiles = 3,
 ): { x: number; y: number } {
-  for (let ty = 6; ty < map.heightTiles - 6; ty++) {
-    for (let tx = 6; tx < map.widthTiles - 6; tx++) {
-      let ok = true;
-      for (let i = 0; i < runTiles && ok; i++) {
-        for (let r = 0; r < widthTiles && ok; r++) ok = drivableTile(map, tx + i, ty + r);
-        if (ok) ok = !drivableTile(map, tx + i, ty - 1) && !drivableTile(map, tx + i, ty + widthTiles);
-      }
-      // Right-hand traffic: eastbound keeps to the southern row.
-      if (ok) return { x: (tx + 0.5) * TILE_SIZE, y: (ty + widthTiles - 0.5) * TILE_SIZE };
+  for (const [tx, ty] of fromSpawn(map, 6 + runTiles)) {
+    let ok = true;
+    for (let i = 0; i < runTiles && ok; i++) {
+      for (let r = 0; r < widthTiles && ok; r++) ok = drivableTile(map, tx + i, ty + r);
+      if (ok) ok = !drivableTile(map, tx + i, ty - 1) && !drivableTile(map, tx + i, ty + widthTiles);
     }
+    // Right-hand traffic: eastbound keeps to the southern row.
+    if (ok) return { x: (tx + 0.5) * TILE_SIZE, y: (ty + widthTiles - 0.5) * TILE_SIZE };
   }
   throw new Error('no straight junction-free street on this map');
 }
@@ -113,21 +204,48 @@ export function straightEastLane(
  * up-and-right" stopped being true the day the map stopped being a grid.
  */
 export function openSquare(map: CityMap, size = 12): { x: number; y: number } {
-  for (let ty = 2; ty < map.heightTiles - size - 2; ty++) {
-    for (let tx = 2; tx < map.widthTiles - size - 2; tx++) {
-      let open = true;
-      for (let dy = 0; dy < size && open; dy++) {
-        for (let dx = 0; dx < size; dx++) {
-          if (isSolidAtWorld(map, (tx + dx + 0.5) * TILE_SIZE, (ty + dy + 0.5) * TILE_SIZE)) {
-            open = false;
-            break;
-          }
+  for (const [tx, ty] of fromSpawn(map, size + 2)) {
+    let open = true;
+    for (let dy = 0; dy < size && open; dy++) {
+      for (let dx = 0; dx < size; dx++) {
+        if (isSolidAtWorld(map, (tx + dx + 0.5) * TILE_SIZE, (ty + dy + 0.5) * TILE_SIZE)) {
+          open = false;
+          break;
         }
       }
-      if (open) return { x: (tx + size / 2) * TILE_SIZE, y: (ty + size / 2) * TILE_SIZE };
     }
+    if (open) return { x: (tx + size / 2) * TILE_SIZE, y: (ty + size / 2) * TILE_SIZE };
   }
   throw new Error('no open square on this map');
+}
+
+/**
+ * The kerb with the most other kerbs around it, in the ring police turn out
+ * from (`police.json`'s spawnMinDist..spawnMaxDist).
+ *
+ * For tests about how big a FORCE arrives, rather than about pursuit: the
+ * spawner draws officers from kerbside parking inside that ring, so on a
+ * quiet lane a six-star wave is two officers and a test about wave
+ * composition is really a test about the street it was staged on. This picks
+ * the busiest corner of the city and says so, instead of taking whatever the
+ * first kerb in scan order happens to be.
+ */
+export function busyKerb(map: CityMap, near = 260, far = 640): VehicleSpawn {
+  let best = map.vehicleSpawns[0];
+  let bestCount = -1;
+  for (const s of map.vehicleSpawns) {
+    let n = 0;
+    for (const o of map.vehicleSpawns) {
+      const d = Math.hypot(o.x - s.x, o.y - s.y);
+      if (d >= near && d <= far) n++;
+    }
+    if (n > bestCount) {
+      bestCount = n;
+      best = s;
+    }
+  }
+  if (!best) throw new Error('no kerbside parking on this map');
+  return best;
 }
 
 /**
@@ -139,7 +257,10 @@ export function openSquare(map: CityMap, size = 12): { x: number; y: number } {
  * a navigation test into a test of how fast a boat hits a wall.
  */
 export function openWater(map: CityMap, need = 60, marginPx = 64): VehicleSpawn {
-  for (const s of map.boatSpawns) {
+  const near = [...map.boatSpawns].sort(
+    (a, b) => fromSpawnPx(map, a.x, a.y) - fromSpawnPx(map, b.x, b.y),
+  );
+  for (const s of near) {
     if (
       s.x < marginPx ||
       s.y < marginPx ||

@@ -52,22 +52,6 @@ export class GameHost {
   onTick(): void {
     this.session.expireDisconnected(Date.now(), RESUME_GRACE_MS);
     const snap = this.session.tick();
-    // The window moved this tick: tell every client BEFORE its snapshot, so
-    // the map swap and the new-frame positions arrive in order. Region-bound
-    // work does not survive the region.
-    if (this.session.lastRebase) {
-      const rb = this.session.lastRebase;
-      const msg = {
-        type: 'rebase' as const,
-        tick: snap.tick,
-        windowX: rb.windowX,
-        windowY: rb.windowY,
-      };
-      for (const [playerId, conn] of this.byPlayer) {
-        this.missions.abandon(playerId);
-        conn.send(msg);
-      }
-    }
     const withHash = snap.tick % SNAPSHOT_HASH_INTERVAL === 0;
     for (const [playerId, conn] of this.byPlayer) {
       const slot = this.session.slots.get(playerId);

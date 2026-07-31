@@ -114,14 +114,11 @@ function hash2(x: number, y: number): number {
  */
 export function markGangCars(map: CityMap, params: WorldgenParams): void {
   for (const spot of map.parkingSpots) {
-    // Every seventh KERB, not every seventh entry in this list. The index was
-    // window-relative, so moving the window rewrote which cars belonged to a
-    // gang — the same repaint-the-street problem `placeParking` has, on the
-    // one car whose colour means something. The GLOBAL tile is stable wherever
-    // the window sits; the turf it stands on is not (see `assignTurf`), and a
-    // car on ground that changed hands legitimately changes with it.
-    const tx = params.windowX + Math.floor(spot.x / TILE_SIZE);
-    const ty = params.windowY + Math.floor(spot.y / TILE_SIZE);
+    // Every seventh KERB, not every seventh entry in this list: hashed off
+    // the tile the car stands on, so which cars fly gang colours is a fact
+    // about the street rather than about the order the list came out in.
+    const tx = Math.floor(spot.x / TILE_SIZE);
+    const ty = Math.floor(spot.y / TILE_SIZE);
     if ((Math.imul(tx, 73856093) ^ Math.imul(ty, 19349663)) % 7 !== 0) continue;
     const gang = gangAt(map, spot.x, spot.y);
     if (gang === 0) continue;

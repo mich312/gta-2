@@ -96,7 +96,6 @@ function localParams(): LocalHostOptions | null {
     // across a reload or the city changes under them.
     seed: int('seed', 1),
     pedCount: int('peds', 200),
-    roam: q.get('roam') !== '0',
     interestRadius: int('interest', 600),
     provingGround: q.get('proving') === '1',
     difficulty: q.get('difficulty') ?? 'normal',
@@ -640,17 +639,6 @@ function handleServerMessage(msg: ServerMessage): void {
         sync.applyServerMessage(msg);
         stats.onSnapshot();
         onStateUpdated(null);
-        break;
-      case 'rebase':
-        // The session window moved (ROAM=1). Regenerate at the new origin;
-        // the snapshot right behind this message is already in the new
-        // frame, so prediction reconciles into it on arrival. One visible
-        // snap at the boundary is the accepted cost.
-        if (lastWorldgen !== null) {
-          lastWorldgen = { ...lastWorldgen, windowX: msg.windowX, windowY: msg.windowY };
-          adoptMap(generateCity(lastSeed, lastWorldgen));
-          hud.notice('leaving the region — the world continues');
-        }
         break;
       case 'snapshot':
         sync.applyServerMessage(msg);
@@ -1198,11 +1186,11 @@ function frameBody(now: number): void {
     // sub-tick smoothing doing its job.
     renderPos: smoothPlayer,
     cam: { x: cam.x, y: cam.y },
-    // Which window onto the world this is. It MOVES — a rebase regenerates
-    // the map at a new origin — and without it a test looking at the screen
-    // has no way to say which city it is looking at, which is exactly the
-    // question when the terrain and the radar disagree.
-    region: lastWorldgen ? { x: lastWorldgen.windowX, y: lastWorldgen.windowY } : null,
+    // The city, by name and size. There is one and it never moves — this
+    // used to report which WINDOW onto an unbounded world was in force, back
+    // when a session dragged one around — but a test looking at the screen
+    // still wants to be able to say which map it is looking at.
+    city: map ? { name: map.name, w: map.widthTiles, h: map.heightTiles } : null,
     tick: sync.latest?.tick ?? -1,
     // Live particles and decals. Both renderers present the same pools, so a
     // count that moves in one and not the other is a presentation bug and a

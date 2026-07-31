@@ -34,7 +34,6 @@ export function probeHashes(
   const session = new Session(seed, worldgen, null, {
     weaponsLostOnDeath: true,
     pedCount: 200,
-    roam: true,
   });
   const samples: Array<{ tick: number; hash: number }> = [];
   for (let i = 0; i < ticks; i++) {

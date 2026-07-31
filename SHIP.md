@@ -420,29 +420,38 @@ spent than anything else on this list.
 
 # Wave U — a city, not a generator
 
-## U1 — The generator becomes a tool (M, medium risk)
+## U1 — The generator becomes a tool — DELIVERED, and then some
 
-The pivot in §4 constraint 2, made concrete.
+The pivot in §4 constraint 2, made concrete — and taken further than this
+section proposed. The plan here was to keep generating and let humans edit the
+output. What shipped instead is that **the generator is gone**: there is one
+city, `shared/data/city-plan.json`, drawn by hand, and `pnpm citybake` expands
+and validates it into `shared/src/world/city.data.ts`, which is what the game
+loads. See `WORLDGEN.md` §12.
 
-Today `generateCity()` is the source of truth and the world is a pure function
-of a seed. Change it so that generation *bakes* — a seed produces a map
-artefact on disk, that artefact is what ships, and humans edit it.
+Three of the four bullets below were delivered as written:
 
-- **Bake.** `pnpm mapgen` already renders a city to PNG without the game; teach
-  it to emit the full map structure instead.
-- **Edit.** Hand-place buildings, move roads, name districts and streets, place
-  mission markers, landmarks and interiors.
-- **Merge, not overwrite.** Regenerating with a new seed must preserve edits
-  where it can and report conflicts where it cannot. Getting this wrong loses
-  a district's worth of authoring, which is why it is called out as an
-  invariant rather than a nice-to-have.
-- **Keep the infinite world.** `ROAM=1` and the sliding window stay, for the
-  sandbox beyond the authored city's edges. The campaign happens in the
-  authored part; the generated countryside is what is past the ring road.
+- **Bake.** `pnpm citybake` emits the full map structure — tiles, districts,
+  blocks, buildings, landmarks and shopfronts — RLE'd and committed.
+- **Edit.** The coastline is a picture, the boroughs are rectangles, the
+  avenues are named lines and every landmark is at a chosen coordinate. All of
+  it in one JSON file, diffable and reviewable.
+- **Keep the infinite world** — **reversed, deliberately.** The sliding window
+  and `ROAM=1` are gone. An infinite generated countryside past the ring road
+  sounds like more game and plays like less: it cannot be authored, cannot be
+  reviewed, and every quality problem in it is a constant somebody tuned and
+  hoped about. Anywhere City has a coast instead, which is an edge a player
+  accepts without being told. If a second city is ever wanted it is a second
+  plan file, not a noise field.
+- **Merge, not overwrite** — moot, and that is the point. There is nothing to
+  merge because nothing regenerates: the plan IS the source, and the bake is a
+  build step. The invariant this bullet was protecting — "getting this wrong
+  loses a district's worth of authoring" — cannot be violated by a pipeline
+  that only ever runs forwards.
 
 Everything downstream — collision, the road grid, traffic routing, amenities,
-turf, vehicle homes — reads the map through existing interfaces and does not
-care where it came from. That is why this is medium and not large.
+turf, vehicle homes — reads the map through existing interfaces and did not
+change.
 
 ## U2 — Heights, and true extrusion (M, medium risk)
 

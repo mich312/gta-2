@@ -17,7 +17,7 @@ import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { takeSnapshot } from '../src/net/snapshot.js';
 import { binaryCodec } from '../src/net/binary.js';
-import { clearSpot, roadLane } from './helpers.js';
+import { clearSpot, roadLane, spotFacingWall } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -99,9 +99,13 @@ describe('projectiles (F3a)', () => {
   });
 
   it('a rocket bursts on the wall it hits rather than passing through', () => {
-    const { state, angle } = armed('rocket');
-    // Fire into the nearest building instead of down the lane.
-    const s = fireOnce(state, angle + Math.PI / 2, []);
+    const { state } = armed('rocket');
+    // Stand somewhere with a wall in front, rather than assuming that at
+    // right angles to a kerb there is one: across the street from a kerb in a
+    // drawn city can be a park, a dock or the harbour.
+    const facing = spotFacingWall(map);
+    state.players.byId[1]!.pos = { x: facing.x, y: facing.y };
+    const s = fireOnce(state, facing.angle, []);
     let cur = s;
     const events: SimEvent[] = [];
     for (let i = 0; i < 120 && cur.projectiles.ids.length > 0; i++) {

@@ -129,27 +129,6 @@ export class Bot {
       onWelcome();
       return;
     }
-    if (msg.type === 'rebase') {
-      // The window moved: regenerate the map at the new origin and carry
-      // the predicted state into the new frame by the same whole-tile
-      // delta the server applied — so the next reconcile measures real
-      // prediction error, not the coordinate change.
-      if (this.worldgen) {
-        const dxPx = (this.worldgen.windowX - msg.windowX) * 16;
-        const dyPx = (this.worldgen.windowY - msg.windowY) * 16;
-        this.worldgen = { ...this.worldgen, windowX: msg.windowX, windowY: msg.windowY };
-        this.map = generateCity(this.seed, this.worldgen);
-        if (this.predictor.predicted) {
-          this.predictor.predicted.pos.x += dxPx;
-          this.predictor.predicted.pos.y += dyPx;
-        }
-        if (this.predictor.predictedVehicle) {
-          this.predictor.predictedVehicle.pos.x += dxPx;
-          this.predictor.predictedVehicle.pos.y += dyPx;
-        }
-      }
-      return;
-    }
     if (msg.type === 'event') {
       if (msg.event.type === 'kill') this.killEventsSeen++;
       return;

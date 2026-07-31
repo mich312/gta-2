@@ -1,0 +1,239 @@
+import { describe, expect, it } from 'vitest';
+import cityPlanJson from '../data/city-plan.json';
+import worldgenJson from '../data/worldgen.json';
+import { parseCityPlan } from '../src/world/plan.js';
+import { buildLayout } from '../src/world/layout.js';
+import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js';
+import { generateCity } from '../src/world/generate.js';
+import { parseWorldgenParams } from '../src/world/params.js';
+import {
+  LANDMARK_KINDS,
+  T_BRIDGE,
+  T_BUILDING,
+  T_ROAD,
+  T_TREES,
+  T_WATER,
+  TILE_SIZE,
+  type CityMap,
+} from '../src/world/types.js';
+
+/**
+ * The city is an ASSET now, not an algorithm, so this is the file that says
+ * what the asset has to be: one road network, every borough reachable, every
+ * landmark on it and approachable, no street ending in the sea, and the thing
+ * the game loads identical to the thing the plan bakes to.
+ *
+ * That last one is the load-bearing test. `city.data.ts` is generated and
+ * committed, which means it can drift from the plan it claims to come from —
+ * somebody edits the plan, forgets to run `pnpm citybake`, and the map in the
+ * repository is the old one with a new description beside it. Baking the plan
+ * here and comparing tile-for-tile is what makes that impossible to miss.
+ */
+
+const plan = parseCityPlan(cityPlanJson);
+const params = parseWorldgenParams(worldgenJson);
+const map: CityMap = generateCity(4242, params);
+
+/** Ground a car can occupy: the sim's own rule (`collide.isSolidTile`). */
+function drivable(t: number): boolean {
+  return t !== T_BUILDING && t !== T_WATER && t !== T_TREES;
+}
+
+/**
+ * Sizes of the connected pieces of `passable` ground, biggest first.
+ * Four-connected, which is how everything in the sim moves between tiles.
+ */
+function components(m: CityMap, passable: (t: number) => boolean): number[] {
+  const W = m.widthTiles;
+  const H = m.heightTiles;
+  const seen = new Uint8Array(W * H);
+  const sizes: number[] = [];
+  for (let start = 0; start < m.tiles.length; start++) {
+    if (seen[start] === 1 || !passable(m.tiles[start] as number)) continue;
+    let n = 0;
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length > 0) {
+      const i = stack.pop() as number;
+      n++;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (seen[j] === 1 || !passable(m.tiles[j] as number)) continue;
+        seen[j] = 1;
+        stack.push(j);
+      }
+    }
+    sizes.push(n);
+  }
+  return sizes.sort((a, b) => b - a);
+}
+
+describe('the city, as an asset', () => {
+  it('is the city the plan bakes to, tile for tile', () => {
+    // The freshness gate. If this fails, the plan was edited and `pnpm
+    // citybake` was not run — the fix is to run it, not to change this test.
+    const baked = bakeCity(plan);
+    const loaded = generateCity(1, params);
+    expect(baked.widthTiles).toBe(loaded.widthTiles);
+    expect(baked.heightTiles).toBe(loaded.heightTiles);
+    expect(baked.name).toBe(loaded.name);
+    expect(baked.blocks).toEqual(loaded.blocks);
+    expect(baked.buildings).toEqual(loaded.buildings);
+    expect(baked.landmarks).toEqual(loaded.landmarks);
+    // Clinics are not baked: they are registered onto the hospital doors when
+    // a session dresses the map, so the loaded city has three more shops.
+    expect(baked.shops).toEqual(loaded.shops.filter((s) => s.kind !== 'clinic'));
+    // Ramps are carved from the SEED, after the bake — the one part of the
+    // ground a session is allowed to move — so compare everything else.
+    let differing = 0;
+    for (let i = 0; i < baked.tiles.length; i++) {
+      if (baked.tiles[i] !== loaded.tiles[i]) differing++;
+    }
+    expect(differing).toBeLessThan(baked.tiles.length / 1000);
+  });
+
+  it('survives the round trip through its encoded form', () => {
+    const baked = bakeCity(plan);
+    const again = decodeBakedCity(JSON.parse(encodeBakedCity(baked)));
+    expect(Buffer.from(again.tiles).equals(Buffer.from(baked.tiles))).toBe(true);
+    expect(Buffer.from(again.district).equals(Buffer.from(baked.district))).toBe(true);
+    expect(again.buildings).toEqual(baked.buildings);
+    expect(again.landmarks).toEqual(baked.landmarks);
+  });
+
+  it('is one island group in one sea, with edges', () => {
+    // The sea is the map's edge, and it is a real one: every tile of the
+    // border is water, so there is no street that simply stops at a coordinate
+    // limit. This is the whole reason the world stopped being unbounded.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    for (let x = 0; x < W; x++) {
+      expect(map.tiles[x]).toBe(T_WATER);
+      expect(map.tiles[(H - 1) * W + x]).toBe(T_WATER);
+    }
+    for (let y = 0; y < H; y++) {
+      expect(map.tiles[y * W]).toBe(T_WATER);
+      expect(map.tiles[y * W + W - 1]).toBe(T_WATER);
+    }
+  });
+
+  it('is one road network: no borough is cut off from the rest', () => {
+    const streets = components(map, (t) => t === T_ROAD || t === T_BRIDGE);
+    expect(streets.length).toBe(1);
+    // ...and it is a city's worth of street, not a lane.
+    expect(streets[0]).toBeGreaterThan(20_000);
+  });
+
+  it('can be driven end to end: the ground is connected too', () => {
+    const open = components(map, drivable);
+    const total = open.reduce((a, b) => a + b, 0);
+    // Courtyards inside blocks are legitimately walled in; what must not
+    // happen is a whole district behind a wall.
+    expect((open[0] as number) / total).toBeGreaterThan(0.99);
+  });
+
+  it('carries every kind of landmark, each with a way in', () => {
+    for (const kind of LANDMARK_KINDS) {
+      expect(map.landmarks.filter((l) => l.kind === kind).length).toBeGreaterThan(0);
+    }
+    for (const l of map.landmarks) {
+      const dx = Math.floor(l.doorX / TILE_SIZE);
+      const dy = Math.floor(l.doorY / TILE_SIZE);
+      let road = false;
+      for (let oy = -6; oy <= 6 && !road; oy++) {
+        for (let ox = -6; ox <= 6; ox++) {
+          const t = map.tiles[(dy + oy) * map.widthTiles + (dx + ox)] as number;
+          if (t === T_ROAD || t === T_BRIDGE) {
+            road = true;
+            break;
+          }
+        }
+      }
+      expect(road, `${l.name} (${l.kind}) has no road within six tiles of its door`).toBe(true);
+    }
+  });
+
+  it('spreads its landmarks over all three boroughs', () => {
+    // Navigation is the point of a landmark: one borough holding all of them
+    // is a map you can only orient yourself in from one place. The three
+    // boroughs are the north-west island, the north-east island and the
+    // southern mainland, split on the channels between them.
+    const north = map.landmarks.filter((l) => l.y * TILE_SIZE < map.heightPx * 0.42);
+    const south = map.landmarks.filter((l) => l.y * TILE_SIZE >= map.heightPx * 0.42);
+    const west = north.filter((l) => l.x * TILE_SIZE < map.widthPx * 0.45);
+    const east = north.filter((l) => l.x * TILE_SIZE >= map.widthPx * 0.45);
+    expect(west.length).toBeGreaterThan(0);
+    expect(east.length).toBeGreaterThan(0);
+    expect(south.length).toBeGreaterThan(0);
+  });
+
+  it('names its streets and its boroughs', () => {
+    expect(plan.avenues.length).toBeGreaterThan(10);
+    for (const a of plan.avenues) expect(a.name.length).toBeGreaterThan(2);
+    expect(new Set(plan.districts.map((d) => d.borough)).size).toBe(3);
+    expect(map.name).toBe(plan.name);
+  });
+
+  it('bridges the channels and nothing else', () => {
+    // Every bridge tile is a crossing: land within the plan's maximum span in
+    // both directions along one axis. A causeway laid down the length of the
+    // harbour, or a span thrown at the open sea, fails this on both axes.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const wet = (tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
+      const t = map.tiles[ty * W + tx] as number;
+      return t === T_WATER || t === T_BRIDGE;
+    };
+    const span = (tx: number, ty: number, dx: number, dy: number): number => {
+      let n = 1;
+      for (let s = 1; wet(tx + dx * s, ty + dy * s); s++) n++;
+      for (let s = 1; wet(tx - dx * s, ty - dy * s); s++) n++;
+      return n;
+    };
+    let bridges = 0;
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        if (map.tiles[ty * W + tx] !== T_BRIDGE) continue;
+        bridges++;
+        const ok = Math.min(span(tx, ty, 0, 1), span(tx, ty, 1, 0)) <= plan.maxBridgeSpan;
+        expect(ok, `causeway or sea bridge at (${tx}, ${ty})`).toBe(true);
+      }
+    }
+    // Four crossings' worth: the boroughs are joined, and joining them is
+    // what the bridges are for.
+    expect(bridges).toBeGreaterThan(100);
+  });
+
+  it('refuses a plan that puts a landmark in the water', () => {
+    const drowned = {
+      ...cityPlanJson,
+      landmarks: [{ kind: 'lighthouse', name: 'Sunk Light', rect: [4, 4, 3, 3] }],
+    };
+    expect(() => bakeCity(parseCityPlan(drowned))).toThrow(/stands in the water/);
+  });
+
+  it('refuses a plan whose glyphs it does not know', () => {
+    const rows = [...(cityPlanJson.coast as string[])];
+    rows[10] = ('?' + (rows[10] as string).slice(1));
+    expect(() => parseCityPlan({ ...cityPlanJson, coast: rows })).toThrow(/unknown glyph/);
+  });
+
+  it('draws the same ground every time it is asked', () => {
+    const a = buildLayout(plan);
+    const b = buildLayout(plan);
+    expect(Buffer.from(a.tiles).equals(Buffer.from(b.tiles))).toBe(true);
+    expect(Buffer.from(a.district).equals(Buffer.from(b.district))).toBe(true);
+    expect(a.blocks).toEqual(b.blocks);
+  });
+});

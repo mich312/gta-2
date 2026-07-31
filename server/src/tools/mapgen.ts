@@ -20,8 +20,12 @@ import { loadWorldgenParams } from '../tuning.js';
 import { encodePng, hexToRgb } from './png.js';
 
 /**
- * pnpm mapgen --seed=N [--out=path.png] — render a generated city to PNG
- * (2px per tile) so generation quality is judged without launching the game.
+ * pnpm mapgen [--seed=N] [--out=path.png] — render the city to PNG (2px per
+ * tile) so it can be looked at without launching the game.
+ *
+ * The ground is the same picture whatever the seed: it comes out of the bake
+ * (`pnpm citybake`). What the seed moves is the furniture the render marks —
+ * shops, spawns — which is exactly the part a session is allowed to vary.
  */
 
 interface PaletteFile {
@@ -46,28 +50,15 @@ interface PaletteFile {
 function main(): void {
   let seed = 1;
   let out = '';
-  let wx: number | null = null;
-  let wy: number | null = null;
-  let size: number | null = null;
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)=(.+)$/.exec(a);
     if (m && m[1] === 'seed') seed = Number.parseInt(m[2] as string, 10);
     if (m && m[1] === 'out') out = m[2] as string;
-    if (m && m[1] === 'wx') wx = Number.parseInt(m[2] as string, 10);
-    if (m && m[1] === 'wy') wy = Number.parseInt(m[2] as string, 10);
-    if (m && m[1] === 'size') size = Number.parseInt(m[2] as string, 10);
   }
   if (!out) out = `mapgen-seed${seed}.png`;
 
+  // The city is the same every time; the seed only moves the furniture.
   const params = loadWorldgenParams();
-  // The world is unbounded; --wx/--wy open the window somewhere else in it,
-  // and --size opens a bigger one (quotas scale with it by design).
-  if (wx !== null) params.windowX = wx;
-  if (wy !== null) params.windowY = wy;
-  if (size !== null) {
-    params.widthTiles = size;
-    params.heightTiles = size;
-  }
   const palette = JSON.parse(
     readFileSync(new URL(import.meta.resolve('shared/data/palette.json')), 'utf8'),
   ) as PaletteFile;

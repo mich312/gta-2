@@ -18,7 +18,7 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimCommand } from '../src/sim/commands.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
-import { clearSpot, roadLane } from './helpers.js';
+import { clearSpot, farOpenSpot, roadLane } from './helpers.js';
 
 initTuning({
   player: playerTuning,
@@ -256,8 +256,10 @@ describe('arson is a crime (K1)', () => {
     let state = shooterAndCar(11);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'bystander' }], map);
     // Well clear of the blast: this player must end the run exactly as clean
-    // as they started, or heat is landing on the wrong person.
-    const far = clearSpot(map, state.players.byId[1]!.pos, 600);
+    // as they started, or heat is landing on the wrong person. Open ground at
+    // range rather than a clear LINE at range — six hundred pixels of
+    // unbroken axis is an avenue, and the bystander only has to be far away.
+    const far = farOpenSpot(map, state.players.byId[1]!.pos, 600);
     state.players.byId[2]!.pos = { x: far.x, y: far.y };
 
     // Heat decays every tick and each round that hits the car lands a little

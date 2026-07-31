@@ -1,0 +1,245 @@
+{
+    "name": "Anywhere City",
+    "note": "The authored source of the one city. Hand-written; expanded by shared/src/world/layout.ts and frozen into shared/data/city.json by `pnpm citybake`. See WORLDGEN.md section 12.",
+    "chunkTiles": 8,
+    "maxBridgeSpan": 32,
+    "coast": [
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~#################~~~~~",
+        "~~~###############~~~~~~#####################~~~",
+        "~~#################~~~~#######################~~",
+        "~##################~~~########################~~",
+        "~##################~~~#########################~",
+        "~##################~~~#########################~",
+        "~##################~~~#########################~",
+        "~##################~~~#########################~",
+        "~##################~~~#########################~",
+        "~##################~~~#########################~",
+        "~##################~~~#########################~",
+        "~##############~~~~~~~#########################~",
+        "~#############~~~~~~~~#########################~",
+        "~#############~~~~~~~~########################~~",
+        "~~#############~~~~~~~#######################~~~",
+        "~~~##############~~~~~~####################~~~~~",
+        "~~~~~#############~~~~~~#################~~~~~~~",
+        "~~~~~~~~#########~~~~~~~~~############~~~~~~~~~~",
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+        "~~~~~~~~~~#####~~~~####################~~~~~~~~~",
+        "~~~~~~#########~~~~#######################~~~~~~",
+        "~~~~########################################~~~~",
+        "~~############################################~~",
+        "~###########################~~~~###############~",
+        "~###########################~~~~###############~",
+        "~###########################~~~~###############~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~##############################################~",
+        "~#############################################~~",
+        "~~###########################################~~~",
+        "~~~#########################################~~~~",
+        "~~~~~#####################################~~~~~~",
+        "~~~~~~~~##############################~~~~~~~~~~",
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    ],
+    "boroughs": [
+        {
+            "name": "Port Vasco",
+            "note": "North-west island: the working waterfront. Huge lots, few streets, the harbour biting into its east shore."
+        },
+        {
+            "name": "Ravenhill",
+            "note": "North-east island: the tight downtown grid, long avenues north-south, short streets east-west, a park in the middle of it."
+        },
+        {
+            "name": "Sunridge",
+            "note": "The southern mainland: waterfront commercial, suburbs behind it, open country and the beach at the bottom of the map."
+        }
+    ],
+    "districts": [
+        {
+            "name": "Vasco Heights",
+            "borough": "Port Vasco",
+            "district": "residential",
+            "rect": [8, 24, 64, 40],
+            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
+        },
+        {
+            "name": "North Yards",
+            "borough": "Port Vasco",
+            "district": "industrial",
+            "rect": [72, 24, 80, 40],
+            "street": { "pitchX": 26, "pitchY": 22, "width": 3 }
+        },
+        {
+            "name": "The Docks",
+            "borough": "Port Vasco",
+            "district": "industrial",
+            "rect": [8, 64, 144, 96],
+            "street": { "pitchX": 26, "pitchY": 22, "width": 3 }
+        },
+
+        {
+            "name": "Ravenhill North",
+            "borough": "Ravenhill",
+            "district": "commercial",
+            "rect": [176, 16, 200, 32],
+            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
+        },
+        {
+            "name": "West Ravenhill",
+            "borough": "Ravenhill",
+            "district": "downtown",
+            "rect": [176, 48, 56, 80],
+            "street": { "pitchX": 17, "pitchY": 13, "width": 3 }
+        },
+        {
+            "name": "Ravenhill Park",
+            "borough": "Ravenhill",
+            "district": "park",
+            "rect": [232, 48, 48, 48],
+            "street": { "pitchX": 0, "pitchY": 0, "width": 3 }
+        },
+        {
+            "name": "East Ravenhill",
+            "borough": "Ravenhill",
+            "district": "downtown",
+            "rect": [280, 48, 48, 80],
+            "street": { "pitchX": 17, "pitchY": 13, "width": 3 }
+        },
+        {
+            "name": "Kelvin Row",
+            "borough": "Ravenhill",
+            "district": "commercial",
+            "rect": [328, 48, 48, 80],
+            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
+        },
+        {
+            "name": "South Ravenhill",
+            "borough": "Ravenhill",
+            "district": "downtown",
+            "rect": [232, 96, 48, 32],
+            "street": { "pitchX": 17, "pitchY": 13, "width": 3 }
+        },
+        {
+            "name": "Harbour Parade",
+            "borough": "Ravenhill",
+            "district": "commercial",
+            "rect": [176, 128, 200, 32],
+            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
+        },
+
+        {
+            "name": "Sunridge Front",
+            "borough": "Sunridge",
+            "district": "commercial",
+            "rect": [8, 176, 368, 32],
+            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
+        },
+        {
+            "name": "West Sunridge",
+            "borough": "Sunridge",
+            "district": "residential",
+            "rect": [8, 208, 152, 56],
+            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
+        },
+        {
+            "name": "Sunridge Park",
+            "borough": "Sunridge",
+            "district": "park",
+            "rect": [160, 208, 64, 56],
+            "street": { "pitchX": 0, "pitchY": 0, "width": 3 }
+        },
+        {
+            "name": "Lagoon Side",
+            "borough": "Sunridge",
+            "district": "residential",
+            "rect": [224, 208, 152, 56],
+            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
+        },
+        {
+            "name": "South Sunridge",
+            "borough": "Sunridge",
+            "district": "residential",
+            "rect": [8, 264, 192, 56],
+            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
+        },
+        {
+            "name": "Marsh End",
+            "borough": "Sunridge",
+            "district": "park",
+            "rural": true,
+            "rect": [200, 264, 176, 56],
+            "street": { "pitchX": 40, "pitchY": 34, "width": 2 }
+        },
+        {
+            "name": "Hollis Country",
+            "borough": "Sunridge",
+            "district": "park",
+            "rural": true,
+            "rect": [8, 320, 168, 48],
+            "street": { "pitchX": 40, "pitchY": 34, "width": 2 }
+        },
+        {
+            "name": "The Coast Road",
+            "borough": "Sunridge",
+            "district": "park",
+            "rural": true,
+            "rect": [176, 320, 200, 48],
+            "street": { "pitchX": 40, "pitchY": 34, "width": 2 }
+        }
+    ],
+    "avenues": [
+        { "name": "Harbour Road", "axis": "h", "pos": 40, "from": 8, "to": 376, "width": 4 },
+        { "name": "Vasco Avenue", "axis": "h", "pos": 88, "from": 8, "to": 376, "width": 4 },
+        { "name": "Dockside", "axis": "h", "pos": 128, "from": 8, "to": 120, "width": 4 },
+        { "name": "Foundry Road", "axis": "v", "pos": 40, "from": 24, "to": 160, "width": 4 },
+        { "name": "Ironside Way", "axis": "v", "pos": 104, "from": 24, "to": 340, "width": 4 },
+
+        { "name": "Ravenhill Street", "axis": "h", "pos": 64, "from": 176, "to": 376, "width": 4 },
+        { "name": "Kelvin Street", "axis": "h", "pos": 112, "from": 176, "to": 376, "width": 4 },
+        { "name": "Parade Street", "axis": "h", "pos": 144, "from": 184, "to": 360, "width": 4 },
+        { "name": "First Avenue", "axis": "v", "pos": 200, "from": 24, "to": 160, "width": 4 },
+        { "name": "Third Avenue", "axis": "v", "pos": 248, "from": 24, "to": 160, "width": 4 },
+        { "name": "Fifth Avenue", "axis": "v", "pos": 296, "from": 24, "to": 344, "width": 4 },
+        { "name": "Seventh Avenue", "axis": "v", "pos": 344, "from": 24, "to": 160, "width": 4 },
+
+        { "name": "Sunridge Boulevard", "axis": "h", "pos": 200, "from": 8, "to": 376, "width": 4 },
+        { "name": "Longacre Road", "axis": "h", "pos": 264, "from": 8, "to": 376, "width": 4 },
+        { "name": "Coast Road", "axis": "h", "pos": 328, "from": 8, "to": 376, "width": 4 },
+        { "name": "Bayview Road", "axis": "v", "pos": 56, "from": 184, "to": 352, "width": 4 },
+        { "name": "Marsh Lane", "axis": "v", "pos": 184, "from": 176, "to": 352, "width": 4 },
+        { "name": "Airfield Road", "axis": "v", "pos": 328, "from": 184, "to": 352, "width": 4 }
+    ],
+    "landmarks": [
+        { "kind": "tower", "name": "Vantage Tower", "rect": [216, 78, 8, 8] },
+        { "kind": "police", "name": "1st Precinct", "rect": [287, 66, 6, 6] },
+        { "kind": "hospital", "name": "Mercy General", "rect": [316, 22, 8, 6] },
+
+        { "kind": "power", "name": "Kessler Power", "rect": [24, 96, 11, 10] },
+        { "kind": "hospital", "name": "Riverside Infirmary", "rect": [19, 53, 8, 6] },
+        { "kind": "police", "name": "Harbour Precinct", "rect": [116, 96, 6, 6] },
+        { "kind": "quarry", "name": "Greyhill Quarry", "rect": [64, 136, 11, 8] },
+
+        { "kind": "stadium", "name": "Ironside Stadium", "rect": [70, 214, 13, 11] },
+        { "kind": "hospital", "name": "St. Brannoch", "rect": [91, 182, 8, 6] },
+        { "kind": "police", "name": "Kelvin Road Station", "rect": [263, 238, 6, 6] },
+        { "kind": "campground", "name": "Pinewatch Camp", "rect": [232, 288, 7, 6] },
+        { "kind": "airstrip", "name": "Marsh End Airfield", "rect": [248, 307, 26, 6] },
+        { "kind": "farm", "name": "Hollis Farm", "rect": [64, 334, 9, 7] },
+        { "kind": "lighthouse", "name": "Old Point Light", "rect": [344, 340, 4, 4] }
+    ],
+    "shopQuota": { "gun": 6, "clothing": 6, "spray": 8 },
+    "shopSpacingTiles": 26
+}

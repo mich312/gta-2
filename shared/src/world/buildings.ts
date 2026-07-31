@@ -1,11 +1,13 @@
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import {
   T_BANK,
+  T_BRIDGE,
   T_BUILDING,
   T_FIELD,
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_RUNWAY,
   T_SAND,
   T_SIDEWALK,
   T_TREES,
@@ -14,41 +16,53 @@ import {
   type Building,
 } from './types.js';
 
-interface Ctx {
+export interface Ctx {
   tiles: Uint8Array;
   W: number;
   H: number;
   buildings: Building[];
 }
 
+/**
+ * Ground no block interior may be laid over: the waterfront, and the roads.
+ *
+ * The waterfront guard is the old one — offices out of the bay and off the
+ * shore. Roads joined it when blocks stopped being the output of a recursive
+ * carve and became the rectangles BETWEEN authored streets: an avenue drawn
+ * straight through a borough now crosses block rectangles rather than
+ * defining their edges, and without this a warehouse would be built over
+ * four lanes of Vasco Avenue.
+ */
+function blocked(ctx: Ctx, tx: number, ty: number): boolean {
+  if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) return false;
+  const t = ctx.tiles[ty * ctx.W + tx];
+  return (
+    t === T_WATER || t === T_BANK || t === T_SAND || t === T_ROAD || t === T_BRIDGE || t === T_RUNWAY
+  );
+}
+
 function fill(ctx: Ctx, x: number, y: number, w: number, h: number, t: number): void {
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
-      // Never build on the river, nor the quay that lines it, nor the
-      // beach. Blocks are carved between roads and can straddle water, so
-      // this guard is what keeps offices out of the bay and off the shore.
-      const here = ctx.tiles[ty * ctx.W + tx];
-      if (here === T_WATER || here === T_BANK || here === T_SAND) continue;
+      if (blocked(ctx, tx, ty)) continue;
       ctx.tiles[ty * ctx.W + tx] = t;
     }
   }
 }
 
 /**
- * True if any tile of this footprint is river — or the quay lining it.
+ * True if any tile of this footprint is ground a building may not stand on.
  *
- * `fill` already refuses to paint over either, but the Building RECORD is
- * what shop doorways are derived from — so a footprint straddling the
- * waterfront would paint correctly and still put a gun shop door in the
- * water. Footprints that touch the river or its bank are not placed at all.
+ * `fill` already refuses to paint over it, but the Building RECORD is what
+ * shop doorways and collision are derived from — so a footprint straddling
+ * the waterfront would paint correctly and still put a gun shop door in the
+ * water. Footprints that touch it are not placed at all.
  */
 function rectHasWater(ctx: Ctx, x: number, y: number, w: number, h: number): boolean {
   for (let ty = y; ty < y + h; ty++) {
     for (let tx = x; tx < x + w; tx++) {
-      if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
-      const t = ctx.tiles[ty * ctx.W + tx];
-      if (t === T_WATER || t === T_BANK || t === T_SAND) return true;
+      if (blocked(ctx, tx, ty)) return true;
     }
   }
   return false;
@@ -59,18 +73,24 @@ function isRoad(ctx: Ctx, tx: number, ty: number): boolean {
   return ctx.tiles[ty * ctx.W + tx] === T_ROAD;
 }
 
-/** Sidewalk: block-perimeter tiles that touch a road (or map edge blocks' road side). */
-function laySidewalk(ctx: Ctx, b: BlockRect): void {
+/**
+ * Sidewalk: every tile of the block that touches a road.
+ *
+ * It used to be the block's PERIMETER tiles that touch a road, which was the
+ * same set back when a block was, by construction, a rectangle with roads on
+ * all four sides and none through it. Authored avenues cross blocks, so the
+ * kerb has to follow the road wherever it runs — otherwise the pavement stops
+ * dead where an avenue enters a block, and with it the crowd, the props, the
+ * payphones and the kerbside parking, all of which filter on sidewalk.
+ */
+export function laySidewalk(ctx: Ctx, b: BlockRect): void {
   for (let ty = b.y; ty < b.y + b.h; ty++) {
     for (let tx = b.x; tx < b.x + b.w; tx++) {
-      // Blocks can overhang the window (the world continues past it); a
-      // negative tx would otherwise index into the previous row.
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
-      const perimeter = tx === b.x || ty === b.y || tx === b.x + b.w - 1 || ty === b.y + b.h - 1;
-      if (!perimeter) continue;
       const here = ctx.tiles[ty * ctx.W + tx];
-      // No kerb on a river; the quay stays a quay and the beach a beach.
-      if (here === T_WATER || here === T_BANK || here === T_SAND) continue;
+      // Only bare ground becomes kerb: no pavement over a river, a quay, a
+      // beach, or the carriageway itself.
+      if (here !== T_FIELD) continue;
       if (
         isRoad(ctx, tx - 1, ty) ||
         isRoad(ctx, tx + 1, ty) ||
@@ -81,6 +101,16 @@ function laySidewalk(ctx: Ctx, b: BlockRect): void {
       }
     }
   }
+}
+
+/** The context `laySidewalk` and `fillBlock` share; exported for the baker. */
+export function blockCtx(
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+  buildings: Building[],
+): Ctx {
+  return { tiles, W, H, buildings };
 }
 
 /** Recursively split a rect into building-sized chunks (downtown/commercial). */
