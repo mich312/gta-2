@@ -4,6 +4,7 @@ import palette from 'shared/data/palette.json';
 import { GRADE_DAY, GRADE_NIGHT } from '../render/config.js';
 import { buildCity, disposeCity } from './cityGeometry.js';
 import { collectFacadeNight, setFacadeNight } from './facade.js';
+import { PostChain } from './post.js';
 
 /**
  * The renderer, the camera and the lights — the frame the city is drawn in.
@@ -33,6 +34,8 @@ export interface CityViewOptions {
   pitch: number;
   /** How many world px the view is high. */
   viewHeight: number;
+  /** Full-screen passes. Off leaves the renderer drawing straight to canvas. */
+  post?: boolean;
 }
 
 function hex(s: string): number {
@@ -224,6 +227,15 @@ export class CityView {
     // requested world span fill the frame, so `viewHeight` still means what
     // it meant under ortho.
     this.camera = new THREE.PerspectiveCamera(FOV_Y, 1, 8, 6000);
+    if (opts.post !== false) {
+      this.post = new PostChain(
+        this.renderer,
+        this.scene,
+        this.camera,
+        opts.canvas.width,
+        opts.canvas.height,
+      );
+    }
     this.resize(opts.canvas.width, opts.canvas.height);
 
     this.buildLights();
@@ -333,6 +345,8 @@ export class CityView {
   private hemi!: THREE.HemisphereLight;
   private instanceCount = 0;
   private night = 0;
+  /** The grade, the bloom and the vignette. Null when `?post=off`. */
+  private post: PostChain | null = null;
   /** Facade night uniforms, refreshed when the city is rebuilt. */
   private facadeNight: ReturnType<typeof collectFacadeNight> = [];
 
@@ -374,11 +388,13 @@ export class CityView {
     // Windows light up as it gets dark — the one cue that turns a block of
     // flats at night from a silhouette into somewhere people live.
     setFacadeNight(this.facadeNight, t);
+    this.post?.setNight(t);
     this.night = t;
   }
 
   resize(width: number, height: number): void {
     this.renderer.setSize(width, height, false);
+    this.post?.setSize(width, height);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
@@ -427,7 +443,8 @@ export class CityView {
   }
 
   render(): void {
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
   }
 
   /**
@@ -439,6 +456,8 @@ export class CityView {
    * before it starts taking the oldest ones away.
    */
   dispose(): void {
+    this.post?.dispose();
+    this.post = null;
     if (this.city) disposeCity(this.city);
     this.city = null;
     this.sun.shadow.map?.dispose();

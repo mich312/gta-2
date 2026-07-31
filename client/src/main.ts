@@ -810,6 +810,10 @@ function drawWorld3d(scene: Scene | null): void {
       map,
       pitch: GAME_PITCH,
       viewHeight: viewport.h,
+      // `?post=off` drops the grade, bloom and vignette and draws straight to
+      // the canvas — the escape hatch for a machine that cannot spare three
+      // full-screen passes, and the way to see what they are doing.
+      post: new URLSearchParams(location.search).get('post') !== 'off',
     });
     watchContextLoss(worldCanvas);
     world3d = {

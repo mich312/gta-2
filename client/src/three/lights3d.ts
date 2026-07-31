@@ -328,7 +328,7 @@ export class Lights3dLayer {
         rv.vehicle.kind,
         rv.vehicle.id,
         scene.nowMs,
-        lit,
+        night,
       );
     }
     const lv = scene.localVehicle;
@@ -342,7 +342,7 @@ export class Lights3dLayer {
         lv.kind,
         scene.local?.vehicleId ?? 0,
         scene.nowMs,
-        lit,
+        night,
       );
     }
 
@@ -389,7 +389,8 @@ export class Lights3dLayer {
     kind: string,
     id: number,
     nowMs: number,
-    lit: number,
+    /** 0 midday, 1 midnight. NOT the lamp curve — see `beam` below. */
+    night: number,
   ): void {
     const cos = Math.cos(heading);
     const sin = Math.sin(heading);
@@ -403,12 +404,16 @@ export class Lights3dLayer {
     // headlight tells you what has happened to it.
     // Dipped by day, full beam at night.
     //
-    // `lit` is the day/night factor every other emitter here is scaled by, and
-    // it was being discarded. A headlight is a real light in 3D rather than an
+    // The hour was being discarded outright. A headlight is a real light in 3D rather than an
     // additive smear over a bright frame as it is in 2D, so an ungated one is
     // as bright as the midday sun: every occupied car dragged a white pool
     // down the road at noon, and the four spot slots were spent before dusk.
-    const beam = 0.18 + 0.82 * lit;
+    // Off `night` rather than `lit`, and with a much smaller floor than the
+    // lamps have. `lit` never drops below 0.15 because a street lamp keeps a
+    // little presence by day; a headlight should not. That floor was invisible
+    // until the bloom pass arrived and turned "slightly on" into a glowing
+    // halo on the tarmac at midday.
+    const beam = 0.06 + 0.94 * night;
     if (headL || headR) {
       const both = headL && headR;
       this.wants.push({
@@ -450,7 +455,7 @@ export class Lights3dLayer {
         kind: phase ? 'red' : 'blue',
         // A strobe is meant to be seen in daylight, so it keeps most of its
         // punch — but not all of it, or a squad car outshines the sun.
-        alpha: 0.85 * (0.45 + 0.55 * lit),
+        alpha: 0.85 * (0.45 + 0.55 * night),
         rank: RANK.strobe,
       });
     }
