@@ -279,7 +279,16 @@ export class Session {
       ),
     }));
     ranked.sort((a, b) => a.key - b.key);
-    return ranked.slice(0, Math.round(VEHICLES_PER_CITY * areaScale(this.map))).map((r) => r.spot);
+    return (
+      ranked
+        .slice(0, Math.round(VEHICLES_PER_CITY * areaScale(this.map)))
+        .map((r) => r.spot)
+        // AFTER the slice, so a crosswise kerb leaves a gap rather than
+        // promoting a different spot into the fleet: filtering first moved
+        // every parked car in the city, and half the seed-locked tests with
+        // it. See `VehicleSpawn.crosswise`.
+        .filter((spot) => spot.crosswise !== true)
+    );
   }
 
   /**

@@ -60,6 +60,8 @@ export interface LocalBodies {
     heading: number;
     /** 0 undamaged, 1 about to burn. Darkens the paint, as the dents do in 2D. */
     wear: number;
+    /** 'ok' | 'burning' | 'wreck', so a burnt-out shell reads as one. */
+    condition?: string;
     /** Factory colour off the sim, or -1 to fall back to the id. */
     paint?: number;
     /** Whose car it is, for a gang livery. */
@@ -212,6 +214,22 @@ const MOUNTED: Body = { size: [6, 6, 6], color: 0xffffff, outline: 1.2 };
 function wearShade(wear: number): number {
   const w = wear < 0 ? 0 : wear > 1 ? 1 : wear;
   return 1 - 0.45 * w;
+}
+
+/**
+ * The shade of a burnt-out shell.
+ *
+ * The 2D renderer draws a wreck at 0.85 alpha under a 72% black wash, which
+ * lands around a quarter of the original paint. The 3D view never read
+ * `condition` at all, so an exploded car kept driving-school paint at worst
+ * 45% darker — parked out of the sun rather than blown up. Same floor as the
+ * 2D wash: charred, but still recognisably the colour of car it was.
+ */
+const WRECK_SHADE = 0.24;
+
+/** Paint shade for a vehicle's condition and wear, both views' rules agreeing. */
+export function vehicleShade(condition: string | undefined, wear: number): number {
+  return condition === 'wreck' ? WRECK_SHADE : wearShade(wear);
 }
 
 /** Wear of a streamed vehicle, 0..1, from the two numbers a snapshot carries. */
@@ -514,7 +532,7 @@ export class EntityLayer {
       // fix. `gangId` is the other half: a gang car wears its gang's colours,
       // which is how you tell whose turf you are parked on.
       const pool = this.vehiclePool(kind, v.vehicle.id, v.vehicle.paint, v.vehicle.gangId);
-      const shade = wearShade(wearOf(v.vehicle));
+      const shade = vehicleShade(v.vehicle.condition, wearOf(v.vehicle));
       // Vehicle boxes carry their own geometry size, so the instance is
       // placed unscaled: composing with a unit scale keeps the outline hull's
       // thickness even instead of stretching it along the longer axis.
@@ -559,7 +577,7 @@ export class EntityLayer {
     if (local?.vehicle) {
       const v = local.vehicle;
       const pool = this.vehiclePool(v.kind, v.id, v.paint ?? -1, v.gangId ?? 0);
-      const shade = wearShade(v.wear);
+      const shade = vehicleShade(v.condition, v.wear);
       this.m.compose(
         this.pos.set(v.x, v.y, v.z),
         this.q.setFromAxisAngle(UP, v.heading),

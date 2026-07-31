@@ -387,6 +387,126 @@ Worth recording, so the next pass does not re-tread it:
 
 ---
 
+## §7 The diagonal-road hunt (second pass)
+
+A second hunt, after the drawn island city landed. Its curved arterials
+rasterise to stair-stepped DIAGONAL bands of road tile, and five separate
+subsystems turned out to still assume every street is axis-aligned. One
+family of bugs, five symptoms.
+
+### 7.1 The ring road was striped with phantom crossings — FIXED
+
+`evidence/bug-ring-markings.png` → `evidence/fixed-ring-markings.png`
+
+The 3D renderer's junction test was axis-only (`runs > 6` both ways), so
+every stair step of the band read as a junction and got zebra stripes, and
+the centre-line rule marked whichever axis measured longer — fragments of
+dashed line strewn all over the curve. Three repairs in
+`client/src/three/cityGeometry.ts`, mirrored in the 2D painter where it had
+the same weakness at the band's mouths:
+
+- Junctions and markings use the 2D painter's own `RUN_ROAD` threshold
+  (imported, not approximated): long BOTH ways is a junction, short both
+  ways is a stair step, and both stay bare.
+- A centre line only goes on a cross-run no wider than `MAX_CARRIAGEWAY` —
+  nothing the plan can draw is wider, so wider means the band.
+- A zebra only goes where the street RESUMES on the far side of the
+  junction. Where a street merges into the band the tarmac widens into a
+  pocket that passes the junction test, but there is no crossing street and
+  now no crossing painted into it.
+
+### 7.2 Parked cars sat crosswise in the carriageway — FIXED
+
+`placeVehicleSpawns` inferred the street direction from which side the kerb
+was on — true on a grid, false on a stair step, where a tile has kerb west
+AND north and the guess parked 50-odd cars at right angles to the traffic in
+the middle of the ring road (34 on diagonal-only tarmac, 20 on plazas, 21
+pointed straight at a wall, measured on seed 1). `axisCarriageway` in
+`amenities.ts` now checks the inference: the street must actually run three
+tiles each way in the claimed direction and stay carriageway-narrow across.
+Spots that fail are MARKED (`VehicleSpawn.crosswise`) rather than removed —
+the police stage their waves from this list and the parked fleet is the N
+best-ranked spots, so removing entries thinned the police response and moved
+every parked car in the city. The session skips marked spots after the
+ranking slice (`session.parkedSpots`), so the only visible change is that
+the crosswise cars are gone. Test: `world.test.ts` "parks cars along
+straight streets".
+
+### 7.3 Ambient traffic scribbled and orbited on the band — IMPROVED
+
+`evidence/bug-ring-traffic.png` → `evidence/fixed-ring-traffic.png`
+(trajectories of every AI car near the ring over 70 sim-seconds)
+
+The lane model is cardinal: on the band `laneOptions` correctly refuses to
+answer, `junctionExit` finds no exit, and a driver held its cardinal heading
+until it ran off the band's edge — then wedged, recovered, and repeated.
+The plots showed it: dense scribbles on the band, spiral orbits where a
+recovery target ended up inside the car's turning circle. Two repairs in
+`traffic.ts`:
+
+- Where the lane model and the junction walk both fail — which is exactly
+  the diagonal band — the driver now follows the tarmac itself: a fan of
+  probes around its own heading, out to a right angle each side, taking the
+  bearing that stays on drivable ground longest. Deterministic (fixed probe
+  order, first-wins ties, the sim's own pinned trig).
+- A pursuit target that demands more than a radian of heading change halves
+  the corner-speed ask. Turn radius grows with speed, so a target closer
+  than the radius at `turnSpeed` could never be reached — the car orbited it
+  at full lock for ever. Slower is tighter; the turn now completes.
+
+Cars now sweep the band's curve. Some still turn round on it rather than
+following it end to end — the lane model itself is the remaining assumption,
+and generalising it to eight directions is the real item (see §7.6).
+
+### 7.4 An exploded car did not look exploded — FIXED
+
+The 3D renderer never read `VehicleState.condition`: a wreck kept its paint
+at worst 45% darker (`wearShade` bottoms out at 0.55), which reads as a car
+parked out of the sun. The 2D renderer draws the same wreck under a 72%
+black wash. `vehicleShade` in `entities.ts` now chars a wreck to 0.24 —
+matching the 2D wash, still recognisably the colour of car it was — for
+remote vehicles and the predicted local one alike. Test:
+`client/test/wreckShade.test.ts`.
+
+### 7.5 "The tank can't shoot" — NOT REPRODUCED, verified end to end
+
+Driven through the full server pipeline headless (`GameHost.receive` with
+the binary codec, real map, real input sanitising): buy the tank at the
+proving ground, enter it, send `fitting` — the shot event is emitted, ammo
+decrements, `rayWallDistance` hits what it should. The client binds F to
+`fitting`, encodes it (bit 64), and draws the tracer + muzzle flash through
+the same event path the pistol uses (verified live in the browser). The
+cannon fires on the driver's AIM, with F — the mouse button fires the
+sidearm out of the window instead, which is easy to read as "the tank can't
+shoot" if F goes undiscovered. If there is a real fault here it needs a
+repro with more detail than the report carried.
+
+### 7.6 What is left
+
+- **Buildings are missing along the ring.** 110 blocks crossed by the
+  curved arterials have NO buildings: the frontage fill writes a whole unit
+  off at every brush with carved road, so blocks that are half road come out
+  all lot. A one-line repair (slide one tile past blocked ground instead of
+  skipping unit-plus-gap) fills ~30 of them and adds ~100 buildings — but it
+  changes the bake, and two police tests are locked to the current bake's
+  geometry tightly enough that an honest rebake means reworking how they
+  stage (`a cruiser facing the wrong way…`, `an officer keeps the
+  uniform…`). Both need the same treatment `sparseInput` and the pickups
+  run-over test got in this pass: stage on found, guaranteed-suitable
+  ground instead of on what the current bake happens to put near a helper's
+  first answer.
+- **The traffic lane model is still cardinal** (§7.3). The fan fallback
+  makes the band drivable, not disciplined: no lanes, no right-hand rule on
+  the diagonal. Eight-direction `laneOptions`/`RIGHT_STEP` is the real fix.
+- **Police wave staging can still start from a lonely kerb** — the anchor
+  is a hash, and a hash can land on the one kerb of a quiet stretch with
+  nothing else in `waveSpreadPx`. `maybeSpawnCop` now walks on past kerbs
+  that cannot field the whole wave (falling back to the old answer only if
+  none can), which closes the silent no-show; whether the wave SIZE should
+  also adapt to what the street can hold is untouched.
+
+---
+
 ## Reproducing
 
 ```bash

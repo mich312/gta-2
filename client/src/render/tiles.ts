@@ -103,8 +103,15 @@ const CHUNK_DEVICE = CHUNK_WORLD * RENDER_SCALE;
 /** Device pixels per tile. */
 const TD = TILE_SIZE * RENDER_SCALE;
 
-/** A road is a road, not a junction, once its cross-run is this long. */
-const RUN_ROAD = 8;
+/**
+ * A road is a road, not a junction, once its cross-run is this long.
+ *
+ * Exported for the 3D renderer, which must call the same tiles junctions,
+ * plazas and diagonals that this painter does — the two disagreeing is how
+ * the ring road came to be striped with phantom crossings in one view and
+ * bare in the other.
+ */
+export const RUN_ROAD = 8;
 /** Carriageway width at which a street counts as a main road. */
 /**
  * Carriageway width, in tiles, at which a street is a main road.
@@ -907,6 +914,13 @@ export class TileLayer {
   ): void {
     const t = RENDER_SCALE; // 1 world px
 
+    // Nothing the plan can draw is wider than a carriageway
+    // (`MAX_CARRIAGEWAY` = ARTERIAL_WIDTH), so a wider cross-run means this
+    // "street" is really a shallow stretch of a curved arterial's diagonal
+    // band. Lane furniture there is noise: fragments of centre line and edge
+    // line strewn along the stair steps.
+    if (width > ARTERIAL_WIDTH) return;
+
     // Centre line: dashes along the direction of travel, down the true middle
     // of the carriageway. See `laneCentreInTile`.
     const centreInTile = laneCentreInTile(width, index);
@@ -943,6 +957,12 @@ export class TileLayer {
     const ahead = vertical ? this.junctionAt(tx, ty + 1) || this.junctionAt(tx, ty - 1) : this.junctionAt(tx + 1, ty) || this.junctionAt(tx - 1, ty);
     if (!ahead || width < ARTERIAL_WIDTH) return;
     const forward = vertical ? this.junctionAt(tx, ty + 1) : this.junctionAt(tx + 1, ty);
+    // ...and only at a real crossroads: the same street resuming on the far
+    // side of the junction. Where a street merges into a curved arterial's
+    // diagonal band the tarmac widens into a pocket that passes the junction
+    // test, and a zebra painted into the mouth of the ring road at every
+    // stair step was a good part of why it read as broken.
+    if (!this.streetResumesBeyond(tx, ty, vertical, forward ? 1 : -1)) return;
 
     // A stop line holds the traffic going INTO the junction, so it covers that
     // half of the carriageway and stops at the centre line. Painted across the
@@ -972,6 +992,30 @@ export class TileLayer {
       if (vertical) ctx.fillRect(x + off, forward ? y + TD - 9 * t : y + 4 * t, bar, 5 * t);
       else ctx.fillRect(forward ? x + TD - 9 * t : x + 4 * t, y + off, 5 * t, bar);
     }
+  }
+
+  /**
+   * Does this street continue on the far side of the junction it runs into?
+   *
+   * Walks across the junction tiles (up to 8) and asks whether what is beyond
+   * them is a carriageway of the same orientation. True at a crossroads;
+   * false where the "junction" is really the mouth of a diagonal band, which
+   * has no crossing street and deserves no zebra.
+   */
+  private streetResumesBeyond(tx: number, ty: number, vertical: boolean, side: number): boolean {
+    const map = this.map as CityMap;
+    let x = tx + (vertical ? 0 : side);
+    let y = ty + (vertical ? side : 0);
+    for (let step = 0; step < 8 && this.junctionAt(x, y); step++) {
+      x += vertical ? 0 : side;
+      y += vertical ? side : 0;
+    }
+    if (x < 0 || y < 0 || x >= map.widthTiles || y >= map.heightTiles) return false;
+    const i = y * map.widthTiles + x;
+    if (map.tiles[i] !== T_ROAD || this.junctionAt(x, y)) return false;
+    const hLen = this.runH[i] as number;
+    const vLen = this.runV[i] as number;
+    return vertical ? vLen >= RUN_ROAD && hLen < RUN_ROAD : hLen >= RUN_ROAD && vLen < RUN_ROAD;
   }
 
   private junctionAt(tx: number, ty: number): boolean {

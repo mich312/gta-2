@@ -185,3 +185,16 @@ was and which of them are still open.
 | `fixed-pavement-kerb.png` | The same street after. Bodies stand on the paving, the halo is gone, and the bushes have continuous outlines rather than the fan of black spikes the per-face hull normals gave them. |
 | `bug-bridge-hole.png` | The gap under a bridge parapet, with the scene background set to magenta to prove it is a hole rather than a shading artifact — the stripe changes colour with the background. The deck was drawn as a 6 px slab stopping at -6 while the water beside it topped out at -8. |
 | `city-3d-lit-night.png` | Night with the light rig repaired: a gradient map on the city's own materials, key above fill, shadow bias, and lamps that make pools instead of a wash. |
+
+## The diagonal-road hunt
+
+Findings from the second play-test, written up in `BUGS.md` §7. The curved
+arterials rasterise to stair-stepped diagonal bands, and everything that
+still assumed axis-aligned streets broke on them at once.
+
+| file | what it shows |
+|---|---|
+| `bug-ring-markings.png` | **BUGS.md §7.1.** The ring road from above: phantom zebra crossings stamped at every stair step of the diagonal band, and fragments of centre line strewn along whichever axis happened to measure longer. The renderer's junction and marking rules were axis-only. |
+| `fixed-ring-markings.png` | The same stretch after. The band is bare tarmac, as the 2D painter always drew it; crossings survive only where a street genuinely resumes on the far side of a junction. |
+| `bug-ring-traffic.png` | **BUGS.md §7.3.** Trajectories of every AI car near the ring over 70 sim-seconds, drawn on the map: dense scribbles on the band where the cardinal lane model had no answer, and spiral orbits where a recovery target sat inside the car's turning circle. |
+| `fixed-ring-traffic.png` | The same measurement after the fan-of-probes fallback and the tight-turn slowdown: cars sweep the band's curve, the orbits are gone. Grid streets are untouched — straight lines then, straight lines now. |
