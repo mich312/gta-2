@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { T_PARK, T_TREES, TILE_SIZE, TREE_Z, type CityMap } from 'shared';
 import type { PropState } from 'shared';
+import { Z_SCALE } from '../render/config.js';
 import { hash2 } from '../render/noise.js';
 import { addOutline, toonMaterial } from './toon.js';
 import { spriteGeometry } from './spriteMesh.js';
@@ -162,12 +163,16 @@ export class SceneryLayer {
         const tile = map.tiles[ty * W + tx] as number;
         // Park and woodland only — the same two the 2D layer treats as lush.
         if (tile !== T_PARK && tile !== T_TREES) continue;
-        // Woodland stands 36 px proud: `volume.ts` makes canopy solid to
-        // anything on the ground, and `cityGeometry` draws that volume. A tree
-        // planted at 0 on top of it was buried inside its own wood — 2350
-        // woodland tiles in seed 7 and not one visible tree, which is what
-        // made a forest read as a raised lawn.
-        const z = tile === T_TREES ? TREE_Z : 0;
+        // Woodland stands proud: `volume.ts` makes canopy solid to anything on
+        // the ground, and `cityGeometry` draws that volume. A tree planted at 0
+        // on top of it was buried inside its own wood — 2350 woodland tiles in
+        // seed 7 and not one visible tree, which is what made a forest read as
+        // a raised lawn.
+        //
+        // At `Z_SCALE`, because that is what the canopy underneath is drawn at.
+        // These two numbers are the same number: the day one of them is scaled
+        // and the other is not, every tree in the city is planted in mid-air.
+        const z = tile === T_TREES ? TREE_Z * Z_SCALE : 0;
         const roll = hash2(tx, ty, 71);
         if (roll > 0.92) {
           this.m.compose(

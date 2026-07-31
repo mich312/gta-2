@@ -198,3 +198,17 @@ still assumed axis-aligned streets broke on them at once.
 | `fixed-ring-markings.png` | The same stretch after. The band is bare tarmac, as the 2D painter always drew it; crossings survive only where a street genuinely resumes on the far side of a junction. |
 | `bug-ring-traffic.png` | **BUGS.md §7.3.** Trajectories of every AI car near the ring over 70 sim-seconds, drawn on the map: dense scribbles on the band where the cardinal lane model had no answer, and spiral orbits where a recovery target sat inside the car's turning circle. |
 | `fixed-ring-traffic.png` | The same measurement after the fan-of-probes fallback and the tight-turn slowdown: cars sweep the band's curve, the orbits are gone. Grid streets are untouched — straight lines then, straight lines now. |
+
+## The building lean (REVIEW-3D.md part four)
+
+Reported from play as "the map generation is completely broken". It was not
+worldgen — it was the drawn height of a building against the height of the
+camera. All three are the same seed, the same corner (7736, 2968) and the same
+tick, with the camera straight down so the ground plane maps linearly to the
+screen and the two renderers can be compared pixel for pixel.
+
+| file | what it shows |
+|---|---|
+| `bug-building-lean.png` | `Z_PER_STOREY` 24 drawn literally. A 9-storey block whose footprint is tiles 473–478 is drawn over 467.8–477.5 — magnified 1.58× by being 216 world px nearer the lens than the ground, and pushed 4.4 tiles further from the screen centre. It covers the four-lane carriageway and the pavement; the cars on that street are behind it. The near-black ground beside every block is the same 216 px throwing eleven tiles of shadow. |
+| `fixed-building-lean.png` | The same frame at `Z_SCALE` 0.25. Blocks sit on their plots, the carriageway and its centre line are visible, the pavement has its paving joints back, and the lots are olive rather than black. |
+| `building-lean-tilegrid.png` | The three-way, zoomed, with the world tile grid drawn over all of it in red: 2D on top, the bug in the middle, the fix at the bottom. The grid is what makes it arguable rather than a matter of taste — the fixed frame and the 2D frame put the same tiles in the same places. |
