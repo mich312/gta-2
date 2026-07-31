@@ -9,7 +9,7 @@ import {
 } from 'shared';
 import worldgenJson from 'shared/data/worldgen.json';
 import { buildCity } from '../src/three/cityGeometry.js';
-import { cameraPose } from '../src/three/cityView.js';
+import { WORLD_TO_SCENE, cameraPose } from '../src/three/cityView.js';
 
 /**
  * Does the city reject the parts of itself nobody is looking at?
@@ -48,10 +48,22 @@ function gameFrustum(map: CityMap, viewHeight: number): THREE.Frustum {
   );
 }
 
-/** Instances inside the frustum, and instances in the city, by chunk sphere. */
-function submitted(group: THREE.Group, frustum: THREE.Frustum): { drawn: number; total: number } {
+/**
+ * Instances inside the frustum, and instances in the city, by chunk sphere.
+ *
+ * The group is hung under a parent carrying `WORLD_TO_SCENE`, exactly as
+ * `CityView` hangs it under `view.world`. Without that the geometry sits at
+ * +y and the camera — which `cameraPose` puts on the far side of the flip —
+ * looks at −y, so the frustum contains none of the city and the measurement
+ * is of an empty room. It still reported a plausible-looking ratio, because
+ * the meshes whose bounding sphere covered the whole map intersected anyway.
+ */
+function submitted(city: THREE.Group, frustum: THREE.Frustum): { drawn: number; total: number } {
   let drawn = 0;
   let total = 0;
+  const group = new THREE.Group();
+  group.scale.set(WORLD_TO_SCENE.x, WORLD_TO_SCENE.y, WORLD_TO_SCENE.z);
+  group.add(city);
   group.updateMatrixWorld(true);
   group.traverse((o) => {
     const mesh = o as THREE.InstancedMesh;
@@ -78,7 +90,37 @@ describe('the 3D city, culled', () => {
     // The whole point. Unchunked this ratio is 1.0 by construction — every
     // mesh's bounding sphere covers the city, so every mesh intersects every
     // frustum — and no profile that counts draw calls would show it.
-    expect(drawn / total).toBeLessThan(0.35);
+    //
+    // Measured at 0.091 on seed 7. It was 0.184 while the parapets and the
+    // rooftop clutter still went in as two city-wide batches.
+    expect(drawn / total).toBeLessThan(0.13);
+  });
+
+  it('gives nothing but the skirt a bounding sphere bigger than a chunk', () => {
+    // The invariant the ratio above is only a symptom of, and the one that
+    // actually breaks: a single batch spanning the map is invisible in a
+    // draw-call count — it is one draw — and is submitted in full from every
+    // camera in the game. Two of them, holding the roof detail, were doing
+    // exactly that and were *all* of the geometry surviving the frustum test.
+    const map = cityOf(240);
+    const { group } = buildCity(map);
+    group.updateMatrixWorld(true);
+    const wide: string[] = [];
+    group.traverse((o) => {
+      const mesh = o as THREE.InstancedMesh;
+      if (!mesh.isInstancedMesh) return;
+      if ((mesh.material as THREE.Material).type === 'ShaderMaterial') return;
+      if (!mesh.boundingSphere) mesh.computeBoundingSphere();
+      const r = mesh.boundingSphere!.radius;
+      // A chunk is 8 tiles across and a tower is tall, so a legitimate chunk
+      // sphere runs to a few hundred px. A quarter of the map is 960.
+      if (r > 960) wide.push(`${mesh.count} instances, r=${r | 0}`);
+    });
+    // The edge skirt is the one honest exception: four slabs of countryside
+    // reaching 4096 px past the map on every side, so that the world does not
+    // end in sky. It is four instances and it is always on screen anyway.
+    expect(wide).toHaveLength(1);
+    expect(wide[0]).toMatch(/^4 instances/);
   });
 
   it('keeps one material per surface however many chunks there are', () => {

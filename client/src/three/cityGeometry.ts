@@ -612,8 +612,8 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
   const isBuilding = (tx: number, ty: number): boolean =>
     tx >= 0 && ty >= 0 && tx < W && ty < H && map.tiles[ty * W + tx] === T_BUILDING;
 
-  const parapets: THREE.Matrix4[] = [];
-  const clutter: THREE.Matrix4[] = [];
+  const parapets = new Map<number, THREE.Matrix4[]>();
+  const clutter = new Map<number, THREE.Matrix4[]>();
   const m = new THREE.Matrix4();
   const LIP_H = 3.2;
   const LIP_W = 2.4;
@@ -635,7 +635,7 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
       const lip = (x: number, y: number, w: number, d: number): void => {
         m.makeScale(w, d, LIP_H);
         m.setPosition(x, y, top + LIP_H / 2);
-        parapets.push(m.clone());
+        intoChunk(parapets, tx, ty, m);
       };
       if (openN) lip(cx, cy - T / 2 + LIP_W / 2, T, LIP_W);
       if (openS) lip(cx, cy + T / 2 - LIP_W / 2, T, LIP_W);
@@ -648,22 +648,22 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
       if (roll > 0.86) {
         m.makeScale(T * 0.5, T * 0.38, 6);
         m.setPosition(cx, cy, top + 3);
-        clutter.push(m.clone());
+        intoChunk(clutter, tx, ty, m);
       } else if (roll > 0.74) {
         m.makeScale(T * 0.25, T * 0.25, 4);
         m.setPosition(cx, cy, top + 2);
-        clutter.push(m.clone());
+        intoChunk(clutter, tx, ty, m);
       } else if (roll > 0.68) {
         m.makeScale(T * 0.36, T * 0.3, 2);
         m.setPosition(cx, cy, top + 1);
-        clutter.push(m.clone());
+        intoChunk(clutter, tx, ty, m);
       }
     }
   }
 
   let instances = 0;
-  instances += addBoxes(group, parapets, col('roofEdgeLight', 0x8f97a6), 0.4);
-  instances += addBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
+  instances += addChunkedBoxes(group, parapets, col('roofEdgeLight', 0x8f97a6), 0.4);
+  instances += addChunkedBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
   return instances;
 }
 
@@ -690,7 +690,7 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
   const at = (tx: number, ty: number): number =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
 
-  const rails: THREE.Matrix4[] = [];
+  const rails = new Map<number, THREE.Matrix4[]>();
   const m = new THREE.Matrix4();
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
@@ -700,7 +700,7 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
       const rail = (x: number, y: number, w: number, d: number): void => {
         m.makeScale(w, d, RAIL_H);
         m.setPosition(x, y, RAIL_H / 2);
-        rails.push(m.clone());
+        intoChunk(rails, tx, ty, m);
       };
       if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, T, RAIL_W);
       if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, T, RAIL_W);
@@ -708,7 +708,7 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
       if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, T);
     }
   }
-  return addBoxes(group, rails, col('kerb', 0x787d86), 0.4);
+  return addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);
 }
 
 /**
@@ -751,22 +751,69 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
   return slabs.length;
 }
 
-/** One instanced batch of boxes, outlined. */
-function addBoxes(
+/**
+ * Which chunk a tile belongs to, as a key.
+ *
+ * The same split the main walk uses, so a detail box lands in a bucket whose
+ * bounding sphere is the size of a chunk rather than the size of the city.
+ */
+function chunkKey(tx: number, ty: number): number {
+  return Math.floor(ty / CHUNK_TILES) * 4096 + Math.floor(tx / CHUNK_TILES);
+}
+
+/** File a matrix under the chunk the tile that produced it sits in. */
+function intoChunk(
+  byChunk: Map<number, THREE.Matrix4[]>,
+  tx: number,
+  ty: number,
+  m: THREE.Matrix4,
+): void {
+  const key = chunkKey(tx, ty);
+  let list = byChunk.get(key);
+  if (!list) byChunk.set(key, (list = []));
+  list.push(m.clone());
+}
+
+/**
+ * Instanced boxes, one batch per chunk, outlined — all sharing one material.
+ *
+ * Chunked for the reason the main walk is: three.js culls an `InstancedMesh`
+ * against the bounding sphere of all its instances, so one mesh spanning the
+ * map has a sphere covering the map, intersects every frustum, and is
+ * submitted whole from every camera.
+ *
+ * This was measurable and large. The parapets and rooftop clutter went in as
+ * two city-wide batches, and on a 240×240 city that is 6,125 instances — plus
+ * their outline twins — submitted every frame from every camera. Everything
+ * else in the city culled to nothing at the game's own camera, so those two
+ * meshes were *all* of the geometry surviving the frustum test: 6,129 of 6,129
+ * instances. Nothing in a draw-call count would ever have shown it, because it
+ * is two draws.
+ */
+function addChunkedBoxes(
   group: THREE.Group,
-  mats: THREE.Matrix4[],
+  byChunk: Map<number, THREE.Matrix4[]>,
   color: number,
   outline: number,
 ): number {
-  if (mats.length === 0) return 0;
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), toonMaterial(color), mats.length);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
-  mesh.instanceMatrix.needsUpdate = true;
-  group.add(mesh);
-  addOutline(mesh, group, outline);
-  return mats.length;
+  let total = 0;
+  // One geometry, one material and one outline material for every chunk of
+  // this kind. Chunking multiplies meshes; it must not multiply either.
+  const box = new THREE.BoxGeometry(1, 1, 1);
+  const material = toonMaterial(color);
+  const shared = outlineMaterial(outline);
+  for (const mats of byChunk.values()) {
+    if (mats.length === 0) continue;
+    const mesh = new THREE.InstancedMesh(box, material, mats.length);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
+    mesh.instanceMatrix.needsUpdate = true;
+    group.add(mesh);
+    addOutline(mesh, group, outline, shared);
+    total += mats.length;
+  }
+  return total;
 }
 
 /**
