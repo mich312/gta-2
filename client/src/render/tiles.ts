@@ -39,6 +39,14 @@ import { ExtrudeLayer } from './extrude.js';
 /** The proving ground's colour: deliberately unlike any shop's. */
 const DEPOT_ACCENT = '#5aa84e';
 
+/** The four tile neighbours, north first. */
+const DIRS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1],
+  [0, 1],
+  [-1, 0],
+  [1, 0],
+];
+
 /** What `groundChunk` hands the 3D ground layer. */
 export interface GroundChunk {
   /** The painting: one device pixel per texture pixel, water left clear. */
@@ -998,8 +1006,38 @@ export class TileLayer {
     ctx.fillRect(x + half, y, 1, TD);
     this.speckle(ctx, tx, ty, x, y, shade(tint, 0.14), 4, 1, 7);
 
-    // Kerb on every edge that meets the road.
+    // Grime along the wall. A pavement gets swept in the middle and never at
+    // the edges, so the foot of a building is always the dirtiest strip of it.
+    //
+    // Cheap, and it does a job out of proportion to its cost in 3D: the wall
+    // meets the ground on a perfectly clean line there, which is one of the
+    // things that reads as a model rather than a street. A gradient of dirt
+    // running up to it puts the two surfaces in the same world.
     const t = RENDER_SCALE;
+    const grime = shade(tint, 0.22);
+    const band = 3 * t;
+    for (const [dx, dy] of DIRS) {
+      if (this.tileAt(tx + dx, ty + dy) !== T_BUILDING) continue;
+      ctx.globalAlpha = 0.55;
+      ctx.fillStyle = grime;
+      if (dy !== 0) ctx.fillRect(x, dy < 0 ? y : y + TD - band, TD, band);
+      else ctx.fillRect(dx < 0 ? x : x + TD - band, y, band, TD);
+      ctx.globalAlpha = 1;
+    }
+
+    // A service cover, now and then. The carriageway has had manholes all
+    // along; the footway they actually run under had nothing.
+    if (hash2(tx, ty, 83) > 0.955) {
+      const s = 4 * t;
+      const ox = x + Math.round(TD / 2 - s / 2);
+      const oy = y + Math.round(TD / 2 - s / 2);
+      ctx.fillStyle = palette.manhole;
+      ctx.fillRect(ox, oy, s, s);
+      ctx.fillStyle = shade(palette.manhole, 0.3, '#ffffff');
+      ctx.fillRect(ox, oy, s, t);
+    }
+
+    // Kerb on every edge that meets the road.
     const edges: Array<[number, number, number, number, number, number]> = [
       [0, -1, x, y, TD, 2 * t],
       [0, 1, x, y + TD - 2 * t, TD, 2 * t],
@@ -1013,6 +1051,31 @@ export class TileLayer {
       ctx.fillStyle = palette.kerbShade;
       if (dy !== 0) ctx.fillRect(rx, dy < 0 ? ry : ry + rh - t, rw, t);
       else ctx.fillRect(dx < 0 ? rx : rx + rw - t, ry, t, rh);
+
+      // A gully every so often, set into the footway against the kerb — which
+      // is where one goes. Drawn ON the kerb instead, as the first cut did, it
+      // reads as the kerb being broken into dashes rather than as a drain.
+      //
+      // Salted per edge so a corner tile does not get two at once by chance.
+      if (hash2(tx * 2 + dx, ty * 2 + dy, 89) <= 0.86) continue;
+      const len = 6 * t;
+      const deep = 2 * t;
+      // Step in off the kerb, on whichever side of the tile this edge is.
+      const gx = dy !== 0 ? x + Math.round(TD / 2 - len / 2) : dx < 0 ? rx + rw : rx - deep;
+      const gy = dy !== 0 ? (dy < 0 ? ry + rh : ry - deep) : y + Math.round(TD / 2 - len / 2);
+      const gw = dy !== 0 ? len : deep;
+      const gh = dy !== 0 ? deep : len;
+      ctx.fillStyle = palette.manhole;
+      ctx.fillRect(gx, gy, gw, gh);
+      // Bars across it, so it reads as a grating rather than a smudge. Lighter
+      // than the casting, because the metal catches the light and the gaps
+      // between the bars do not — a grating that is dark bars on a light field
+      // is a hole with a ladder over it.
+      ctx.fillStyle = shade(palette.kerb, 0.25);
+      for (let s = 1; s < 3; s++) {
+        if (dy !== 0) ctx.fillRect(gx + Math.round((s * len) / 3), gy, t, gh);
+        else ctx.fillRect(gx, gy + Math.round((s * len) / 3), gw, t);
+      }
     }
   }
 
