@@ -345,13 +345,32 @@ function maybeSpawnCop(state: GameState, map: CityMap): void {
     // it does not hold: the spawn list is row-major over the whole window, so
     // two consecutive VALID points can be on opposite sides of the ring when
     // the scan crosses a district. A five-unit wave measured 1126 px across.
+    //
+    // ...and the staging point has to have COMPANY. The anchor is a hash, and
+    // a hash can land on the one lonely kerb of a quiet stretch — a spot with
+    // nothing else within `waveSpreadPx`, where the wave's first unit has
+    // nowhere to park and every later unit is filtered out below. The whole
+    // wave then silently fails to turn out, every tick, for the whole wave
+    // period: a six-star response of nobody. So the scan walks on past kerbs
+    // that cannot field the wave, and only if NO kerb in the ring can does it
+    // fall back to the old first-in-band answer rather than give up.
     let staging: { x: number; y: number } | null = null;
+    let fallback: { x: number; y: number } | null = null;
     for (let i = 0; i < spawns.length && !staging; i++) {
       const c = spawns[(anchor + i) % spawns.length];
       if (!c) continue;
       const d = dist(c.x, c.y, p.pos.x, p.pos.y);
-      if (d >= t.spawnMinDist && d <= t.spawnMaxDist) staging = c;
+      if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
+      if (!fallback) fallback = c;
+      let company = 0;
+      for (const o of spawns) {
+        const od = dist(o.x, o.y, p.pos.x, p.pos.y);
+        if (od < t.spawnMinDist || od > t.spawnMaxDist) continue;
+        if (dist(o.x, o.y, c.x, c.y) <= t.waveSpreadPx) company++;
+      }
+      if (company >= units.length) staging = c;
     }
+    if (!staging) staging = fallback;
     if (!staging) return;
 
     let found = 0;

@@ -1,5 +1,5 @@
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
-import { clamp, q8 } from '../math/vec.js';
+import { clamp, q8, q256 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTrafficTuning, getTuning, getVehicleTuning, type TrafficTuning } from '../tuning.js';
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
@@ -541,6 +541,43 @@ function laneControl(
     if (exit) {
       targetX = exit.x;
       targetY = exit.y;
+    } else {
+      // No lane model AND no cardinal exit: the middle of a DIAGONAL band —
+      // the ring road, a curved avenue — where every cardinal probe runs off
+      // the tarmac in a few tiles. The lane model is cardinal and cannot
+      // answer here; holding the cardinal heading drove every car off the
+      // band's edge, and the wedge/recover cycle that followed is what the
+      // trajectory plots showed as scribbles and loops all over the ring.
+      //
+      // So follow the tarmac itself: probe a fan of bearings around the
+      // car's own heading and take the one that stays on drivable ground
+      // longest. Fixed probe order and first-wins ties keep it deterministic;
+      // dCos/dSin are the sim's own pinned tables. The fan is what lets the
+      // heading drift smoothly round the curve instead of snapping between
+      // cardinals.
+      // Out to a right angle either side: a car that ends up pointing OFF the
+      // band — shunted, or arriving from a cardinal street — has to be able
+      // to find the band's direction in the fan, or every probe fails alike
+      // and it sails off the edge into the wedge/recover cycle.
+      const FAN = [0, -0.393, 0.393, -0.785, 0.785, -1.178, 1.178, -1.571, 1.571] as const;
+      let bestD = -1;
+      let bestA = v.heading;
+      for (const off of FAN) {
+        const a = q256(wrapAngle(v.heading + off));
+        const ax = dCos(a);
+        const ay = dSin(a);
+        let d = 0;
+        for (let s = 1; s <= 6; s++) {
+          if (!drivableAt(map, v.pos.x + ax * s * TILE_SIZE, v.pos.y + ay * s * TILE_SIZE)) break;
+          d = s;
+        }
+        if (d > bestD) {
+          bestD = d;
+          bestA = a;
+        }
+      }
+      targetX = v.pos.x + dCos(bestA) * t.lookAhead * 2;
+      targetY = v.pos.y + dSin(bestA) * t.lookAhead * 2;
     }
   } else {
     // Take the first lane that is actually free, in preference order. A parked
@@ -588,7 +625,20 @@ function laneControl(
   const scale = kindSpeedScale(v.kind, t);
   const straight =
     driver.panic > 0 || driver.mission === 'goto' ? t.panicSpeed : t.cruiseSpeed;
-  const desired = (Math.abs(err) > TURN_ERROR ? t.turnSpeed : straight) * scale;
+  // A target nearly BEHIND the car needs more than corner speed. Turn radius
+  // grows with speed (`turnRate` is rad/s, so radius = v / turnRate), and a
+  // pursuit point closer than the radius at `turnSpeed` can never be reached:
+  // the car orbits it at full lock for ever, which the trajectory plots
+  // showed as neat little circles wherever a recovery target or a junction
+  // exit ended up beside the car. Halving the ask when the error passes a
+  // right angle shrinks the circle inside the target distance, so the turn
+  // completes instead of orbiting.
+  const cornering = Math.abs(err) > TURN_ERROR;
+  // 1.0 rad rather than a right angle: a stable orbit sits with the target
+  // abeam, which is an error of about HALF_PI exactly — the threshold has to
+  // bite before the orbit settles, not at it.
+  const tight = Math.abs(err) > 1.0;
+  const desired = (cornering ? (tight ? t.turnSpeed * 0.5 : t.turnSpeed) : straight) * scale;
 
   // How hard to press which pedal, from one continuous model of what is in
   // front. Requested as an ACCELERATION and converted to a pedal position at

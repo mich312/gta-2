@@ -26,7 +26,7 @@ import {
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
-import { ARTERIAL_WIDTH } from '../render/tiles.js';
+import { ARTERIAL_WIDTH, RUN_ROAD } from '../render/tiles.js';
 import { addOutline, outlineMaterial, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 
@@ -378,11 +378,17 @@ export function buildCity(map: CityMap): CityBuild {
     while (isRoad(tx + right + 1, ty) && right < 12) right++;
     return [up + down + 1, left + right + 1];
   };
-  /** Wide both ways: where two streets actually meet. */
+  /**
+   * Wide both ways: where two streets actually meet.
+   *
+   * `RUN_ROAD` is the 2D painter's own threshold, imported rather than
+   * approximated. The two renderers using different numbers here is how the
+   * 3D city grew crossings the 2D one never painted.
+   */
   const isJunction = (tx: number, ty: number): boolean => {
     if (!isRoad(tx, ty)) return false;
     const [runV, runH] = runs(tx, ty);
-    return runV > 6 && runH > 6;
+    return runV >= RUN_ROAD && runH >= RUN_ROAD;
   };
   /**
    * Crossings, on the road tiles that approach a junction.
@@ -407,12 +413,41 @@ export function buildCity(map: CityMap): CityBuild {
     // The width that matters is the one ACROSS the direction of travel: for a
     // crossing whose junction lies east or west the street runs horizontally,
     // so its carriageway width is the vertical run.
+    //
+    // A crossing belongs on an AXIS carriageway only — long one way, narrow
+    // the other, the same `RUN_ROAD` test the 2D painter uses. The city's
+    // curved arterials rasterise to stair-stepped diagonal bands whose tiles
+    // are moderately wide both ways; each stair corner passed the old
+    // junction test and stamped a zebra, so the whole ring road came out
+    // striped with phantom crossings at every step of the stairs.
+    // ...and only where the street CONTINUES on the far side. Where a street
+    // merges into the ring road's diagonal band, the tarmac widens into a
+    // pocket that passes the junction test, but there is no crossing street —
+    // walking on across the pocket finds more band, not the same street
+    // resuming. A zebra belongs at a crossroads, and a crossroads is a
+    // junction with your own street on both sides of it.
+    const continues = (sx: number, sy: number, horiz: boolean): boolean => {
+      let x = tx + sx;
+      let y = ty + sy;
+      for (let step = 0; step < 8 && isJunction(x, y); step++) {
+        x += sx;
+        y += sy;
+      }
+      if (!isRoad(x, y) || isJunction(x, y)) return false;
+      const [rv, rh] = runs(x, y);
+      return horiz ? rh >= RUN_ROAD && rv < RUN_ROAD : rv >= RUN_ROAD && rh < RUN_ROAD;
+    };
     const [runV, runH] = runs(tx, ty);
-    if (isJunction(tx - 1, ty) || isJunction(tx + 1, ty)) {
-      return runV >= ARTERIAL_WIDTH ? 1 : 0;
+    const horizontal = runH >= RUN_ROAD;
+    const vertical = runV >= RUN_ROAD;
+    if (horizontal === vertical) return 0; // junction interior, or a diagonal band
+    if (horizontal && (isJunction(tx - 1, ty) || isJunction(tx + 1, ty))) {
+      const side = isJunction(tx + 1, ty) ? 1 : -1;
+      return runV >= ARTERIAL_WIDTH && continues(side, 0, true) ? 1 : 0;
     }
-    if (isJunction(tx, ty - 1) || isJunction(tx, ty + 1)) {
-      return runH >= ARTERIAL_WIDTH ? 2 : 0;
+    if (vertical && (isJunction(tx, ty - 1) || isJunction(tx, ty + 1))) {
+      const side = isJunction(tx, ty + 1) ? 1 : -1;
+      return runH >= ARTERIAL_WIDTH && continues(0, side, false) ? 2 : 0;
     }
     return 0;
   };
@@ -429,13 +464,26 @@ export function buildCity(map: CityMap): CityBuild {
     while (isRoad(tx + right + 1, ty) && right < 12) right++;
     const runV = up + down + 1;
     const runH = left + right + 1;
-    // A junction is wide both ways; leave it unmarked rather than crossing two
-    // centre lines through it.
-    if (runV > 6 && runH > 6) return 0;
-    if (runH >= runV) {
-      // Horizontal street: centre line where the vertical run's midpoint is.
+    // Marked only when the tile is part of an axis carriageway: long one way
+    // and narrow the other, by the 2D painter's own `RUN_ROAD` rule. Long
+    // both ways is a junction; short both ways is a stair step of a diagonal
+    // arterial. Both stay bare — the 2D painter already leaves them bare, and
+    // marking the stairs by whichever axis happened to measure longer strewed
+    // fragments of centre line all over the ring road.
+    const horizontal = runH >= RUN_ROAD;
+    const vertical = runV >= RUN_ROAD;
+    if (horizontal === vertical) return 0;
+    if (horizontal) {
+      // Horizontal street: centre line where the vertical run's midpoint is —
+      // and only on a true carriageway. Nothing the plan can draw is wider
+      // than `MAX_CARRIAGEWAY` (= ARTERIAL_WIDTH), so a wider cross-run means
+      // this "street" is really a shallow stretch of the diagonal band, whose
+      // scattered fragments of centre line were most of what made the ring
+      // road read as broken.
+      if (runV > ARTERIAL_WIDTH) return 0;
       return up === Math.floor((runV - 1) / 2) ? 1 : 0;
     }
+    if (runH > ARTERIAL_WIDTH) return 0;
     return left === Math.floor((runH - 1) / 2) ? 2 : 0;
   };
   /**

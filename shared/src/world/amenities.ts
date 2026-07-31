@@ -15,6 +15,7 @@ import {
   T_PARK,
   T_RAMP,
   T_ROAD,
+  T_BRIDGE,
   T_RUNWAY,
   T_WATER,
   T_SIDEWALK,
@@ -302,6 +303,36 @@ export function placeShopsFixed(
   return shops;
 }
 
+/**
+ * Is this road tile part of a straight carriageway running along `alongY`?
+ *
+ * Kerbside parking assumes the kerb says which way the street runs: sidewalk
+ * to the west means a north-south street, sidewalk to the north an east-west
+ * one. On the grid that inference is sound. On the city's curved arterials it
+ * is not: a diagonal band rasterises to stair steps, every step has kerb on
+ * its west AND its north, and a car parked by either guess sits at right
+ * angles to the traffic in the middle of the carriageway. So the inference is
+ * checked rather than trusted — the street must actually run a few tiles in
+ * the claimed direction and stay narrow across it, which every straight
+ * street passes and every stair step fails.
+ */
+function axisCarriageway(map: CityMap, tx: number, ty: number, alongY: boolean): boolean {
+  const road = (x: number, y: number): boolean => {
+    const tile = t(map, x, y);
+    return tile === T_ROAD || tile === T_BRIDGE;
+  };
+  const along = (i: number): boolean => (alongY ? road(tx, ty + i) : road(tx + i, ty));
+  const across = (i: number): boolean => (alongY ? road(tx + i, ty) : road(tx, ty + i));
+  // Runs at least 3 tiles each way along the street...
+  for (let i = 1; i <= 3; i++) if (!along(i) || !along(-i)) return false;
+  // ...and is no wider across it than a carriageway. Wider means a plaza or
+  // the middle of a diagonal band, and a parked car there is in the road.
+  let width = 1;
+  for (let i = 1; i <= 5 && across(i); i++) width++;
+  for (let i = 1; i <= 5 && across(-i); i++) width++;
+  return width <= 4;
+}
+
 /** Parked-car spawn points along road edges (consumed by phase 3). */
 export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: number): number {
   const spawns: VehicleSpawn[] = [];
@@ -382,6 +413,15 @@ export function placeParking(map: CityMap, params: WorldgenParams): void {
     const kerbWest = t(map, tx - 1, ty) === T_SIDEWALK;
     const kerbNorth = t(map, tx, ty - 1) === T_SIDEWALK;
     if (!kerbWest && !kerbNorth) continue;
+    // Marked, not removed, where the kerb's guess about the street direction
+    // cannot be trusted — the stair steps of the ring road and other curved
+    // arterials, where a car parked by that guess sat crosswise in the
+    // middle of the carriageway. Removing the spot instead moved every OTHER
+    // parked car in the city (the fleet is the N best-ranked spots, so the
+    // pool shrinking promotes new ones everywhere) and thinned the police
+    // waves, which stage from the same kerbs. The mark keeps the lists and
+    // their order intact; the session just never stands a car on it.
+    const crosswise = !axisCarriageway(map, tx, ty, kerbWest);
 
     // How much carriageway there is, counting away from the kerb.
     let width = 1;
@@ -423,6 +463,7 @@ export function placeParking(map: CityMap, params: WorldgenParams): void {
         placeHash(whatSeed, tx, ty) % PARKED_CYCLE.length
       ] as string,
       paint: placeHash(paintSeed, tx, ty) % PAINT_VARIANTS,
+      ...(crosswise ? { crosswise: true } : {}),
       // Filled in by assignTurf, which runs later: turf does not exist yet
       // at this point in generation, and reading it here would mark every
       // car as nobody's.

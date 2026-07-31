@@ -188,6 +188,15 @@ export interface VehicleSpawn {
    * `amenities.placeParking`.
    */
   paint?: number;
+  /**
+   * The kerb's guess about the street direction cannot be trusted here — a
+   * stair step of a curved arterial, where a car parked by that guess sits
+   * crosswise in the middle of the carriageway. The spot stays in the list
+   * so that everything keyed to spot COUNT and ORDER (the parked-fleet
+   * ranking, the police wave staging) is undisturbed; the session simply
+   * does not stand a car on it. See `amenities.axisCarriageway`.
+   */
+  crosswise?: boolean;
 }
 
 /**

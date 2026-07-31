@@ -883,6 +883,7 @@ function drawWorld3d(scene: Scene | null): void {
             z: scene.localVehicle.z,
             heading: scene.localVehicle.heading,
             wear: scene.localVehicle.wear,
+            condition: scene.localVehicle.condition,
             paint: predictor.predictedVehicle.paint,
             gangId: predictor.predictedVehicle.gangId,
             // Your own turret comes off your own smoothed aim, not off the

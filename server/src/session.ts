@@ -279,7 +279,16 @@ export class Session {
       ),
     }));
     ranked.sort((a, b) => a.key - b.key);
-    return ranked.slice(0, Math.round(VEHICLES_PER_CITY * areaScale(this.map))).map((r) => r.spot);
+    return (
+      ranked
+        .slice(0, Math.round(VEHICLES_PER_CITY * areaScale(this.map)))
+        .map((r) => r.spot)
+        // AFTER the slice, so a crosswise kerb leaves a gap rather than
+        // promoting a different spot into the fleet: filtering first moved
+        // every parked car in the city, and half the seed-locked tests with
+        // it. See `VehicleSpawn.crosswise`.
+        .filter((spot) => spot.crosswise !== true)
+    );
   }
 
   /**
@@ -297,7 +306,17 @@ export class Session {
     // Parked cars, spread across the whole city, not the first N of a
     // row-major list: that put every parked car in the map's top-left
     // corner, where they jammed the streets solid, and left the rest bare.
-    const spawns = this.parkedSpots();
+    const spawns = this.parkedSpots().filter(
+      // "On top of" was occasionally literal: a home vehicle and a sampled
+      // kerb spot can land on the same paving, and the two cars then spawn
+      // interpenetrating. The HOME wins — it is the one somebody goes
+      // looking for — and the ordinary parked car yields the kerb. Chebyshev
+      // 48 px covers the longest hull in the roster against a parked saloon.
+      (s) =>
+        !this.map.vehicleHomes.some(
+          (h) => Math.abs(h.x - s.x) < 48 && Math.abs(h.y - s.y) < 48,
+        ),
+    );
     // Homes are spawned in FULL, on top of the sampled parking. They are the
     // answer to "where do I find a fire engine", so a stride that keeps one
     // spot in six would make them a lottery again — which is exactly what

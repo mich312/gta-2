@@ -224,7 +224,21 @@ describe('fists', () => {
       car.condition = 'ok';
       car.fuseAtTick = null;
       car.speed = 300;
-      car.pos = { x: state.players.byId[1]!.pos.x, y: state.players.byId[1]!.pos.y };
+      // ...hold the VICTIM on the lane, and stage the car a step BEHIND them
+      // so it drives INTO them this tick. Both matter, and both are about
+      // staging rather than the corpse rule under test. The victim drifts:
+      // the first knockback shoves them off the carriageway, and on some
+      // bakes the pocket they land in stands the car against a wall with no
+      // speed left to hurt anyone. And a car placed exactly ON the victim
+      // never registers at all — the body separation resolves the overlap
+      // before the impact pass looks, so only a car that RE-penetrates by
+      // moving lands a hit. That is also why this is a fair staging: it is
+      // exactly what a real run-over is.
+      state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
+      car.pos = {
+        x: lane.x - Math.cos(lane.heading) * 20,
+        y: lane.y - Math.sin(lane.heading) * 20,
+      };
       state = step(state, {}, [], map);
     }
     expect(state.players.byId[1]!.mode).toBe('dead');

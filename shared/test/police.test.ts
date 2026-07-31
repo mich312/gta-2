@@ -1531,10 +1531,21 @@ describe('escalation by kind (I1)', () => {
     // Straight to the top of the ladder. A rise in the wanted level restarts
     // the wave clock, so the bigger force turns out at once rather than
     // waiting out the lull the two-star wave was in.
+    //
+    // HELD on the busy street `forceAt` chose, rather than walked off it:
+    // two hundred ticks of two-star fleeing already carried the suspect a
+    // few hundred pixels east, and on some bakes the street there is quiet
+    // enough that the six-star wave has no kerbs in range to stage from —
+    // no reinforcements at all, which reads as escalation failing and is
+    // really the walk having left the measured street. The velocity still
+    // says "fleeing"; the position keeps the question about the ladder.
+    const kerb = busyKerb(map);
+    const heldAt = { x: kerb.x, y: kerb.y };
     for (let i = 0; i < 60; i++) {
       const p = state.players.byId[1]!;
       p.heat = 610;
       p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      p.pos = { ...heldAt };
       state = step(state, {}, [], map);
     }
 

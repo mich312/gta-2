@@ -33,6 +33,37 @@ function holdRight(seq: number, tick: number): InputIntent {
   return { ...NULL_INPUT, seq, tick, right: true };
 }
 
+/**
+ * How far a player walking east SHOULD get, measured on open ground.
+ *
+ * The spawn the seed hands out is a fact about the baked city, and the city
+ * gets rebaked: this test once walked whoever spawned, and a rebake that put
+ * a wall a step east of that spawn turned a test about input cadence into a
+ * test about the neighbourhood. The player is stood in the middle of the
+ * map's widest road instead — the measurement is about held input, and it
+ * needs ground under it, not a particular address.
+ */
+function openStart(session: Session): { x: number; y: number } {
+  const map = session.map;
+  // The longest horizontal run of road on the spawn row scan: any straight
+  // stretch a car could drive is a stretch a walker can walk.
+  let best = { x: 0, y: 0, len: 0 };
+  for (let ty = 0; ty < map.heightTiles; ty++) {
+    let run = 0;
+    for (let tx = 0; tx <= map.widthTiles; tx++) {
+      const road =
+        tx < map.widthTiles && map.tiles[ty * map.widthTiles + tx] === 1; /* T_ROAD */
+      if (road) {
+        run++;
+        continue;
+      }
+      if (run > best.len) best = { x: tx - run, y: ty, len: run };
+      run = 0;
+    }
+  }
+  return { x: (best.x + 2.5) * 16, y: (best.y + 0.5) * 16 };
+}
+
 /** Walk east for `ticks`, sending an intent only every `every` ticks. */
 function distanceEast(every: number, ticks: number): number {
   const session = new Session(4242, worldgen);
@@ -40,7 +71,10 @@ function distanceEast(every: number, ticks: number): number {
   // A player joins on the first tick, so there is nothing to measure until one
   // has run.
   session.tick();
-  const start = session.state.players.byId[slot.playerId]!.pos.x;
+  const at = openStart(session);
+  session.state.players.byId[slot.playerId]!.pos.x = at.x;
+  session.state.players.byId[slot.playerId]!.pos.y = at.y;
+  const start = at.x;
   let seq = 1;
   for (let t = 2; t <= ticks + 1; t++) {
     if ((t - 2) % every === 0) session.queueInput(slot.playerId, t - 1, [holdRight(seq++, t)]);
@@ -75,7 +109,10 @@ describe('a client that renders slowly still plays at full speed', () => {
     const session = new Session(4242, worldgen);
     const slot = session.addPlayer('gone', 'tok-gone');
     session.tick();
-    const start = session.state.players.byId[slot.playerId]!.pos.x;
+    const at = openStart(session);
+    session.state.players.byId[slot.playerId]!.pos.x = at.x;
+    session.state.players.byId[slot.playerId]!.pos.y = at.y;
+    const start = at.x;
     session.queueInput(slot.playerId, 1, [holdRight(1, 2)]);
     for (let t = 2; t <= 121; t++) session.tick();
     const coasted = session.state.players.byId[slot.playerId]!.pos.x - start;

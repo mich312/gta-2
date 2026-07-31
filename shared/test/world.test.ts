@@ -201,6 +201,50 @@ describe('world generation', () => {
     expect(wide).toBeGreaterThan(0);
   });
 
+  it('parks cars along straight streets, never crosswise on the ring road', () => {
+    // The kerb used to say which way the street ran — sidewalk west means a
+    // north-south street — which is true on the grid and false on the stair
+    // steps of a curved arterial, where a car parked by that guess sat at
+    // right angles to the traffic in the middle of the carriageway. Every
+    // spot must sit on tarmac that genuinely runs a few tiles in the parked
+    // heading and stays carriageway-narrow across it.
+    const map = generateCity(101, params);
+    expect(map.parkingSpots.length).toBeGreaterThan(20);
+    const road = (tx: number, ty: number): boolean =>
+      tx >= 0 &&
+      ty >= 0 &&
+      tx < map.widthTiles &&
+      ty < map.heightTiles &&
+      map.tiles[ty * map.widthTiles + tx] === T_ROAD;
+    let crosswise = 0;
+    for (const s of map.parkingSpots) {
+      // A spot the kerb inference cannot be trusted on carries the mark that
+      // stops the session standing a car on it — and stays in the list so
+      // the fleet ranking and the police staging kerbs are undisturbed.
+      if (s.crosswise === true) {
+        crosswise++;
+        continue;
+      }
+      const tx = Math.floor(s.x / TILE_SIZE);
+      const ty = Math.floor(s.y / TILE_SIZE);
+      const alongY = Math.abs(Math.sin(s.heading)) > 0.5;
+      // The street really runs the way the car is pointed...
+      for (let i = 1; i <= 3; i++) {
+        expect(road(tx + (alongY ? 0 : i), ty + (alongY ? i : 0))).toBe(true);
+        expect(road(tx - (alongY ? 0 : i), ty - (alongY ? i : 0))).toBe(true);
+      }
+      // ...and is no wider across than a carriageway: not a plaza, not the
+      // middle of the ring road's diagonal band.
+      let width = 1;
+      for (let i = 1; i <= 5 && road(tx + (alongY ? i : 0), ty + (alongY ? 0 : i)); i++) width++;
+      for (let i = 1; i <= 5 && road(tx - (alongY ? i : 0), ty - (alongY ? 0 : i)); i++) width++;
+      expect(width).toBeLessThanOrEqual(4);
+    }
+    // The mark exists to catch the ring road's stair steps: some, not many.
+    expect(crosswise).toBeGreaterThan(0);
+    expect(crosswise).toBeLessThan(map.parkingSpots.length / 10);
+  });
+
   it('player spawns are walkable, inside the map, and spread apart', () => {
     const map = generateCity(555, params);
     expect(map.playerSpawns.length).toBeGreaterThanOrEqual(8);
