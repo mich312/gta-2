@@ -26,6 +26,7 @@ import {
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
+import { Z_SCALE } from '../render/config.js';
 import { ARTERIAL_WIDTH, RUN_ROAD } from '../render/tiles.js';
 import { addOutline, outlineMaterial, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
@@ -49,9 +50,6 @@ import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
  * spans; as individual meshes that is a five-figure draw count and a dead
  * frame. As a handful of `InstancedMesh`es it is single digits.
  */
-
-/** Vertical exaggeration, so a 3-storey street reads at a shallow angle. */
-const Z_SCALE = 1;
 
 /**
  * How much wider than its tile each box is drawn, in world px.
@@ -618,8 +616,15 @@ export function buildCity(map: CityMap): CityBuild {
         // storeys said, because a building span also starts at EARTH — a
         // twelve-storey tower drew exactly as tall as a bungalow, which is
         // the whole point of having heights at all.
+        //
+        // `Z_SCALE` applies to the part that STANDS UP and to nothing else.
+        // Scaling the whole span would lift the river bed from -8 to -2 and
+        // the earth slab from -16 to -4, which is not a shorter city, it is a
+        // shallower one — the shoreline, the bridge underside and the map
+        // border all read off those. Only a top above street level moves.
         const bottom = Math.max(span.bottom, -16);
-        const h = Math.max(1, (span.top - bottom) * Z_SCALE);
+        const top = span.top > 0 ? span.top * Z_SCALE : span.top;
+        const h = Math.max(1, top - bottom);
         // A hair wider than the tile so neighbours overlap rather than meet.
         // Boxes that share an edge exactly leave the rasteriser to break the
         // tie, and it breaks it in favour of the darker side wall — scoring
@@ -632,9 +637,9 @@ export function buildCity(map: CityMap): CityBuild {
           h,
           (tx + 0.5) * TILE_SIZE,
           (ty + 0.5) * TILE_SIZE,
-          span.top * Z_SCALE - h / 2,
+          top - h / 2,
         );
-        if (tile === T_BUILDING) heightAt[idx] = span.top * Z_SCALE;
+        if (tile === T_BUILDING) heightAt[idx] = top;
       }
     }
   }

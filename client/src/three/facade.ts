@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { Z_PER_STOREY } from 'shared';
 import palette from 'shared/data/palette.json';
+import { Z_SCALE } from '../render/config.js';
 import { toonGradient } from './toon.js';
 
 /**
@@ -69,7 +70,12 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
     uGlass: { value: glass },
     uLit: { value: lit },
     uNight: { value: opts.night ?? 0 },
-    uStorey: { value: Z_PER_STOREY },
+    // The DRAWN storey, not the modelled one. `cityGeometry` builds the mass
+    // at `Z_SCALE` of its collision height, and this shader spaces its floor
+    // slabs and shopfront off world z — so left at the raw `Z_PER_STOREY` a
+    // nine-storey block would wear two storeys of windows and be one
+    // continuous shopfront from the pavement to the roof.
+    uStorey: { value: Z_PER_STOREY * Z_SCALE },
   };
 
   mat.onBeforeCompile = (shader) => {

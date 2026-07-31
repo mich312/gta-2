@@ -470,3 +470,63 @@ noted.
 - **A wrecked car keeps lit tail lamps and blue glazing.** The paint darkens
   through a per-instance tint that multiplies every vertex colour equally, so
   there is no way to single out the lights without a wreck sprite.
+
+# Part four: the lean, closed
+
+The open list above carried this three times, each time filed as "a constants
+decision rather than a bug":
+
+> **Buildings lean 5.3× more in 3D than 2D** (`PARALLAX_PX_PER_STOREY` 3.0
+> against `Z_PER_STOREY` 24). The largest remaining 2D/3D divergence.
+
+Filed too gently. It is not only a lean, and it was reported from play as
+"the map generation is completely broken — cars dive through houses, roads are
+generated between houses."
+
+## What it actually was
+
+Worldgen was not involved. Measured on the shipped city: every `T_BUILDING`
+tile is covered by exactly one `Building` record and no record touches a road
+tile; all 1,208 vehicle spawns, 1,208 parking spots, 7,208 ped spawns and 1,600
+props stand on legal ground; 2,000 ticks of `step()` with ambient traffic gave
+6,714 vehicle samples and **zero** inside a solid tile. Road/pavement/building
+shares of land are within 0.2% of the pre-drawn-city generator.
+
+It was the drawing. A roof at height `h` is a plane `h` nearer the lens than
+the ground it stands on, so it is **magnified by `H / (H − h)`** as well as
+displaced by `h / (H − h)` of its distance from the screen centre. With the
+camera at `viewHeight / 2 / tan(FOV_Y / 2)` = 589 world px and a 12-storey
+block at `12 × Z_PER_STOREY` = 288 px, that is 1.96× and 0.96×.
+
+Worked through for one real building — `{x: 473, y: 184, w: 6, h: 2}`,
+downtown, 9 storeys, 216 px:
+
+| | predicted | measured off the frame |
+| --- | --- | --- |
+| roof magnification | 1.58× → 6 tiles draws as 9.5 | 9.7 tiles |
+| radial displacement | 0.58 × 120 px = 4.4 tiles | 4.4 tiles |
+
+Its footprint is tiles 473–478. Its mass was drawn over 467.8–477.5 — across
+the whole four-lane carriageway at 468–471 **and** the pavement at 472. The
+street was not visible at all, and the cars driving down it were behind a
+building. The near-black ground beside every block was the same number again:
+216 px of building throws 180 px of shadow, eleven tiles of it.
+
+## What changed
+
+`Z_SCALE` moves from a `= 1` local in `cityGeometry.ts` to `render/config.ts`
+at **0.25**, beside the `PARALLAX_PX_PER_STOREY` it is calibrated against, and
+is applied to spans that rise above street level and to nothing below it — the
+river bed, the earth slab and the ramp trench keep their depths. Two things
+have to follow it or they detach: `facade.ts`'s `uStorey`, which spaces floor
+slabs off world z, and `scenery.ts`'s tree base, which stands on the canopy
+volume `cityGeometry` draws.
+
+A 12-storey block now stands 72 px, magnifies 1.14×, overhangs its own kerb by
+0.42 of a tile — inside the one-tile pavement — and leans up to ~50 px at the
+frame corner against the 2D renderer's 36. Verified at pitch 0 with the world
+tile grid overlaid: the 3D frame and the 2D frame put the same tiles in the
+same places.
+
+The collision numbers in `volume.ts` are untouched. They were never wrong;
+they were never drawable.

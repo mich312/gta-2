@@ -199,6 +199,38 @@ export const BLOOM_ALPHA = 0.36;
 export const PARALLAX_PX_PER_STOREY = 3.0;
 
 /**
+ * How much of its modelled height a standing thing is DRAWN at, in 3D.
+ *
+ * `volume.ts` sizes the world for the collision that will one day resolve
+ * against it: `Z_PER_STOREY` is 24 world px, so a 12-storey downtown block is
+ * 288 px of solid matter. Those are honest collision numbers and they stay.
+ * They are not drawable numbers, and drawing them literally is what made the
+ * 3D city unreadable.
+ *
+ * The camera sits at `viewHeight / 2 / tan(FOV_Y / 2)` — 589 world px at a
+ * 640×360 view. A roof at height `h` is a plane `h` nearer the lens than the
+ * ground, so it is **magnified by `H / (H - h)`** and pushed radially outward
+ * from the screen centre by `h / (H - h)` of its distance from it. At h = 288
+ * that is 1.96× and 0.96×: a six-tile frontage drew as twelve tiles, shifted
+ * four tiles sideways, sitting squarely on the four-lane street it was
+ * supposed to face. Traffic drove underneath its own neighbourhood, and the
+ * ground you could see between two blocks was the ground from a block away.
+ *
+ * The number is set against the 2D renderer, which has always had to answer
+ * the same question and answered it at `PARALLAX_PX_PER_STOREY` above: 3 px
+ * per storey at the screen edge, 36 px for the tallest thing in the city. At
+ * 0.25 a 12-storey block stands 72 px, magnifies 1.14× — a six-tile frontage
+ * overhangs 0.42 of a tile, comfortably inside the one-tile pavement — and
+ * leans up to about 50 px at the frame corner. Near enough that switching
+ * renderers no longer moves the city, which is the whole test.
+ *
+ * It scales EVERYTHING above street level and nothing below it: buildings and
+ * woodland, not the river bed, the earth slab or the ramp trench. One knob for
+ * the height of the world, because two would drift.
+ */
+export const Z_SCALE = 0.25;
+
+/**
  * Baked building roofs kept resident for the parallax pass. A screenful is a
  * few dozen; this holds several screenfuls either side of the camera so
  * driving back down a street you just left does not re-bake it.
