@@ -221,6 +221,48 @@
           80,
           198
         ]
+      ],
+      [
+        [
+          70,
+          606
+        ],
+        [
+          106,
+          598
+        ],
+        [
+          142,
+          608
+        ],
+        [
+          166,
+          634
+        ],
+        [
+          172,
+          664
+        ],
+        [
+          154,
+          692
+        ],
+        [
+          118,
+          702
+        ],
+        [
+          84,
+          696
+        ],
+        [
+          56,
+          674
+        ],
+        [
+          50,
+          640
+        ]
       ]
     ],
     "bays": [
@@ -479,6 +521,12 @@
         ],
         "radius": 9
       }
+    ],
+    "cliffIslands": [
+      [
+        110,
+        650
+      ]
     ]
   },
   "boroughs": [
@@ -501,6 +549,10 @@
     {
       "name": "Port Vasco",
       "note": "The island across the sound. Docks, foundry and the housing that serves them."
+    },
+    {
+      "name": "Gannet Rock",
+      "note": "The plateau in the western approaches. Cliff the whole way round, so there is nowhere to bring a boat alongside \u2014 the strip on top is the only way in and the only way out."
     }
   ],
   "districts": [
@@ -965,6 +1017,61 @@
         "pitchX": 24,
         "pitchY": 20,
         "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "Gannet Rock",
+      "borough": "Gannet Rock",
+      "district": "park",
+      "rural": true,
+      "density": 0.2,
+      "area": [
+        [
+          70,
+          606
+        ],
+        [
+          106,
+          598
+        ],
+        [
+          142,
+          608
+        ],
+        [
+          166,
+          634
+        ],
+        [
+          172,
+          664
+        ],
+        [
+          154,
+          692
+        ],
+        [
+          118,
+          702
+        ],
+        [
+          84,
+          696
+        ],
+        [
+          56,
+          674
+        ],
+        [
+          50,
+          640
+        ]
+      ],
+      "street": {
+        "pitchX": 60,
+        "pitchY": 60,
+        "width": 2,
         "alleyOver": 0
       }
     }
@@ -1641,6 +1748,28 @@
         4,
         4
       ]
+    },
+    {
+      "kind": "airstrip",
+      "name": "Gannet Rock Strip",
+      "rect": [
+        76,
+        640,
+        30,
+        7
+      ],
+      "byAir": true
+    },
+    {
+      "kind": "campground",
+      "name": "The Eyrie",
+      "rect": [
+        124,
+        656,
+        8,
+        7
+      ],
+      "byAir": true
     }
   ],
   "shopQuota": {

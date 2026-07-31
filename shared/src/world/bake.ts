@@ -340,15 +340,51 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // the road network over ground a track could be cut through, laid two tiles
   // wide. Nothing is cut through a building or across water, so a landmark
   // walled in by both simply keeps no drive and the checker says so.
-  for (const l of landmarks) driveway(tiles, W, H, Math.floor(l.doorX / TILE_SIZE), Math.floor(l.doorY / TILE_SIZE));
+  for (const [li, l] of landmarks.entries()) {
+    // ...except the ones you fly to. Cutting a track to an island reachable
+    // only from the air would be the bake quietly undoing the plan.
+    if ((plan.landmarks[li] as PlanLandmark).byAir) continue;
+    driveway(tiles, W, H, Math.floor(l.doorX / TILE_SIZE), Math.floor(l.doorY / TILE_SIZE));
+  }
 
-  // Woodland keeps its distance from the places you are meant to drive to.
+  // Woodland keeps its distance from the places you are meant to drive to —
+  // except at the waterline, where it is not woodland but the cliff the shore
+  // pass put there, and clearing it would open a landing.
+  const atWater = (tx: number, ty: number): boolean =>
+    tx >= 0 && ty >= 0 && tx < W && ty < H && tiles[ty * W + tx] === T_WATER;
   for (const l of plan.landmarks) {
     const [x, y, w, h] = l.rect;
     for (let ty = Math.max(0, y - 3); ty < Math.min(H, y + h + 3); ty++) {
       for (let tx = Math.max(0, x - 3); tx < Math.min(W, x + w + 3); tx++) {
-        if (tiles[ty * W + tx] === T_TREES) tiles[ty * W + tx] = T_FIELD;
+        if (tiles[ty * W + tx] !== T_TREES) continue;
+        if (atWater(tx - 1, ty) || atWater(tx + 1, ty) || atWater(tx, ty - 1) || atWater(tx, ty + 1)) {
+          continue;
+        }
+        tiles[ty * W + tx] = T_FIELD;
       }
+    }
+  }
+
+  // The cliff, sealed last.
+  //
+  // Every pass between the shore and here can open one by accident — a
+  // runway apron painted a tile too far, a lane cleared through the scrub, a
+  // landmark's ground overwriting the rock it stands on — and a single
+  // walkable tile at the waterline is the difference between an island you
+  // fly to and an island you moor at. Stated once, at the end, as the
+  // invariant it is.
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const i = ty * W + tx;
+      if (layout.sheer[i] !== 1) continue;
+      const t = tiles[i] as number;
+      if (t === T_BUILDING || t === T_TREES || t === T_WATER) continue;
+      const wet =
+        (tx + 1 < W && tiles[i + 1] === T_WATER) ||
+        (tx > 0 && tiles[i - 1] === T_WATER) ||
+        (ty + 1 < H && tiles[i + W] === T_WATER) ||
+        (ty > 0 && tiles[i - W] === T_WATER);
+      if (wet) tiles[i] = T_TREES;
     }
   }
 

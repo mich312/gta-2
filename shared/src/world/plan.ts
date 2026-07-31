@@ -66,6 +66,23 @@ export interface PlanGeography {
   /** Rocks, stacks and barrier islands. */
   islets: PlanIslet[];
   /**
+   * Landmasses that are cliff-bound: rock and scrub straight down to the
+   * water, with no quay and no beach anywhere on them. Given as a point on
+   * each one — the whole landmass containing it is sheer.
+   *
+   * A point rather than an outline because the coastline is warped after it
+   * is drawn (§12.7) and an outline drawn round the intended shore is forty
+   * tiles adrift of the real one by the time the bake is finished. "The
+   * island under this point" survives the warp exactly.
+   *
+   * Geographically it is the windward half of the story the swell already
+   * tells: headlands take the weather and get rock, bays are where the sand
+   * collects. Mechanically it is a wall. A cliff tile is solid to anything on
+   * land, so it cannot be stepped onto from a boat — and an island that is
+   * cliff the whole way round is one you can only arrive at by air.
+   */
+  cliffIslands: PlanPoint[];
+  /**
    * Where the swell comes from, as a unit vector. Shore facing into it is
    * planed straight and gets rock; shore in its lee keeps its inlets and gets
    * sand. One number's worth of asymmetry does more for believability than
@@ -145,6 +162,13 @@ export interface PlanLandmark {
   kind: LandmarkKind;
   name: string;
   rect: [number, number, number, number];
+  /**
+   * Reached by air, and only by air. The bake will not cut it a driveway and
+   * the checker will not ask for a road to it — but it does ask for tarmac
+   * you can leave the ground from, because an airfield you can land at and
+   * not take off from is a trap rather than a destination.
+   */
+  byAir: boolean;
 }
 
 export interface CityPlan {
@@ -226,6 +250,7 @@ function parseGeography(raw: unknown): PlanGeography {
     lagoons: list('lagoons').map((p, i) => poly(p, `geography.lagoons[${i}]`)),
     spits: list('spits').map((s, i) => stroke(s, `geography.spits[${i}]`)),
     rivers: list('rivers').map((s, i) => stroke(s, `geography.rivers[${i}]`)),
+    cliffIslands: list('cliffIslands').map((p, i) => point(p, `geography.cliffIslands[${i}]`)),
     islets: list('islets').map((v, i) => {
       const o = (v ?? {}) as Record<string, unknown>;
       return {
@@ -307,6 +332,7 @@ export function parseCityPlan(raw: unknown): CityPlan {
         kind,
         name: str(o['name'], `landmarks[${i}].name`),
         rect: rr as [number, number, number, number],
+        byAir: o['byAir'] === true,
       };
     },
   );

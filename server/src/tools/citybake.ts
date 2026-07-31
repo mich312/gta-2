@@ -12,6 +12,7 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_RUNWAY,
   T_SAND,
   T_SIDEWALK,
   T_TREES,
@@ -51,7 +52,7 @@ interface Problem {
   message: string;
 }
 
-function check(city: BakedCity): Problem[] {
+function check(city: BakedCity, plan: ReturnType<typeof parseCityPlan>): Problem[] {
   const problems: Problem[] = [];
   const W = city.widthTiles;
   const H = city.heightTiles;
@@ -99,13 +100,47 @@ function check(city: BakedCity): Problem[] {
   const reached = sizes[main] ?? 0;
   const seen = new Uint8Array(W * H);
   for (let i = 0; i < label.length; i++) if (label[i] === main) seen[i] = 1;
-  if (reached < total) {
-    const orphan = total - reached;
+
+  // A piece of ground with a runway on it is not orphaned, it is an airfield.
+  // The plane-only island is the whole point of `byAir`, and counting its
+  // ground as unreachable would make the checker complain about the feature.
+  const airfield = new Set<number>();
+  for (let i = 0; i < city.tiles.length; i++) {
+    if (city.tiles[i] === T_RUNWAY && (label[i] as number) >= 0) airfield.add(label[i] as number);
+  }
+  // Nor is ground you can moor at. A barrier island, a spit or a beach with
+  // no road on it is reached by boat, which is a way of getting somewhere.
+  // What the check is actually for is ground with NO way in at all.
+  const shored = new Set<number>();
+  for (let i = 0; i < city.tiles.length; i++) {
+    const id = label[i] as number;
+    if (id < 0 || shored.has(id)) continue;
+    const x = i % W;
+    const y = (i - x) / W;
+    if (
+      at(x + 1, y) === T_WATER ||
+      at(x - 1, y) === T_WATER ||
+      at(x, y + 1) === T_WATER ||
+      at(x, y - 1) === T_WATER
+    ) {
+      shored.add(id);
+    }
+  }
+  let flown = 0;
+  for (const id of airfield) if (id !== main) flown += sizes[id] as number;
+  let sailed = 0;
+  for (const id of shored) {
+    if (id === main || airfield.has(id)) continue;
+    sailed += sizes[id] as number;
+  }
+  const orphan = total - reached - flown - sailed;
+  if (orphan > 0) {
     problems.push({
       severity: orphan > total * 0.02 ? 'error' : 'warning',
       message:
-        `${orphan} of ${total} drivable tiles sit outside the main road network ` +
-        `(${sizes.length} separate pieces)`,
+        `${orphan} of ${total} tiles of open ground have no way in at all — ` +
+        `no road, no runway, no shore (${sizes.length} pieces in total, ` +
+        `${airfield.size - 1} airfields, ${sailed} tiles reachable only by boat)`,
     });
   }
 
@@ -161,9 +196,50 @@ function check(city: BakedCity): Problem[] {
       problems.push({ severity: 'error', message: `no ${kind} in the city` });
     }
   }
+  // Matched by NAME, not by index: the bake stamps the country landmarks
+  // before the ones that claim a city block, so the two lists are in
+  // different orders and pairing them off by position quietly checks the
+  // wrong building.
+  const byAirNames = new Set(plan.landmarks.filter((l) => l.byAir).map((l) => l.name));
   for (const l of city.landmarks) {
     const dx = Math.floor(l.doorX / 16);
     const dy = Math.floor(l.doorY / 16);
+    if (byAirNames.has(l.name)) {
+      // Reached by air. What it needs is not a road but a runway on the same
+      // piece of ground — you have to be able to leave again — and a shore
+      // nobody can step onto, or it is merely a remote island.
+      const piece = label[dy * W + dx] as number;
+      const strip = piece >= 0 && airfield.has(piece);
+      if (!strip) {
+        problems.push({
+          severity: 'error',
+          message: `${l.name} is marked byAir but has no runway on its own ground`,
+        });
+      }
+      let landable = 0;
+      for (let i = 0; i < city.tiles.length; i++) {
+        if ((label[i] as number) !== piece) continue;
+        const x = i % W;
+        const y = (i - x) / W;
+        if (
+          at(x + 1, y) === T_WATER ||
+          at(x - 1, y) === T_WATER ||
+          at(x, y + 1) === T_WATER ||
+          at(x, y - 1) === T_WATER
+        ) {
+          landable++;
+        }
+      }
+      if (landable > 0) {
+        problems.push({
+          severity: 'error',
+          message:
+            `${l.name} is marked byAir but ${landable} tiles of its shore can be ` +
+            `stepped onto from a boat — the coast wants a cliff round it`,
+        });
+      }
+      continue;
+    }
     let near = false;
     for (let r = 0; r <= 6 && !near; r++) {
       for (let oy = -r; oy <= r && !near; oy++) {
@@ -299,7 +375,7 @@ function main(): void {
       `${city.landmarks.length} landmarks, ${city.shops.length} shops`,
   );
 
-  const problems = check(city);
+  const problems = check(city, plan);
   for (const p of problems) console.log(`  ${p.severity === 'error' ? 'ERROR' : 'warn '}  ${p.message}`);
   const errors = problems.filter((p) => p.severity === 'error').length;
 

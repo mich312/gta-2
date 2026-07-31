@@ -11,6 +11,7 @@ import {
   T_BRIDGE,
   T_BUILDING,
   T_ROAD,
+  T_RUNWAY,
   T_TREES,
   T_WATER,
   TILE_SIZE,
@@ -147,7 +148,11 @@ describe('the city, as an asset', () => {
     for (const kind of LANDMARK_KINDS) {
       expect(map.landmarks.filter((l) => l.kind === kind).length).toBeGreaterThan(0);
     }
+    // Except the ones you fly to, whose whole point is that there is no road.
+    // They have their own test below.
+    const byAir = new Set(plan.landmarks.filter((l) => l.byAir).map((l) => l.name));
     for (const l of map.landmarks) {
+      if (byAir.has(l.name)) continue;
       const dx = Math.floor(l.doorX / TILE_SIZE);
       const dy = Math.floor(l.doorY / TILE_SIZE);
       let road = false;
@@ -195,6 +200,80 @@ describe('the city, as an asset', () => {
     // The main island, the second island, and the rocks — but the two big
     // ones are joined by bridges, so drivable ground is checked elsewhere.
     expect(land.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('has an island you can only reach by air', () => {
+    // Gannet Rock. The claim is exact and worth pinning tile by tile, because
+    // every way of getting somewhere in this game is a different question:
+    // a car needs road, a boat needs somewhere to step ashore, and an
+    // aircraft needs somewhere to put down and somewhere to take off from.
+    const flown = plan.landmarks.filter((l) => l.byAir);
+    expect(flown.length).toBeGreaterThan(0);
+
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    // The piece of ground the strip is on, walked over everything a person or
+    // a car can occupy.
+    const seed = plan.landmarks.find((l) => l.kind === 'airstrip' && l.byAir);
+    expect(seed).toBeDefined();
+    // The middle of the strip, not its corner: the corner is the hangar.
+    const start =
+      (seed!.rect[1] + Math.floor(seed!.rect[3] / 2)) * W +
+      seed!.rect[0] +
+      Math.floor(seed!.rect[2] / 2);
+    const bag = [start];
+    const seen = new Set([start]);
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (seen.has(j) || !drivable(map.tiles[j] as number)) continue;
+        seen.add(j);
+        bag.push(j);
+      }
+    }
+    // Big enough to be an island, not a courtyard.
+    expect(seen.size).toBeGreaterThan(500);
+
+    let road = 0;
+    let steppable = 0;
+    let runway = 0;
+    for (const i of seen) {
+      const t = map.tiles[i] as number;
+      if (t === T_ROAD || t === T_BRIDGE) road++;
+      if (t === T_RUNWAY) runway++;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (map.tiles[ny * W + nx] === T_WATER) steppable++;
+      }
+    }
+    // No road on to it and no road off it: nothing drives there.
+    expect(road).toBe(0);
+    // Nowhere on it to step ashore from a boat: it is cliff the whole way
+    // round, and cliff is solid.
+    expect(steppable).toBe(0);
+    // And tarmac to land on — and, just as important, to leave from. An
+    // airfield you can only arrive at is a trap, not a destination.
+    expect(runway).toBeGreaterThan(100);
   });
 
   it('gives the city alleys to run down', () => {

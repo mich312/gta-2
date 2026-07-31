@@ -17,6 +17,7 @@ import {
   T_FIELD,
   T_ROAD,
   T_SAND,
+  T_TREES,
   T_WATER,
   type BlockRect,
   type DistrictType,
@@ -50,6 +51,8 @@ export interface CityLayout {
   water: Uint8Array;
   /** Which district entry owns each tile; -1 outside every borough. */
   owner: Int16Array;
+  /** 1 on landmasses the plan says are cliff-bound. See PlanGeography. */
+  sheer: Uint8Array;
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -613,6 +616,43 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
+  // Which landmasses are cliff-bound. Flood-filled over the finished water
+  // mask from the plan's seed points, so it is the island the author pointed
+  // at however far the warp moved its shore.
+  const sheerLand = new Uint8Array(W * H);
+  if (plan.geography.cliffIslands.length > 0) {
+    const seen = new Uint8Array(W * H);
+    for (const [sx, sy] of plan.geography.cliffIslands) {
+      const start = Math.round(sy) * W + Math.round(sx);
+      if (water[start] === 1 || seen[start] === 1) continue;
+      const bag = [start];
+      seen[start] = 1;
+      sheerLand[start] = 1;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (seen[j] === 1 || water[j] === 1) continue;
+          seen[j] = 1;
+          sheerLand[j] = 1;
+          bag.push(j);
+        }
+      }
+    }
+  }
+  const sheer = (tx: number, ty: number): boolean =>
+    tx >= 0 && ty >= 0 && tx < W && ty < H && sheerLand[ty * W + tx] === 1;
+
   /* ---- shores ------------------------------------------------------ */
 
   const wetAt = (tx: number, ty: number): boolean =>
@@ -635,7 +675,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // gets rock, which here is the same quay tile — solid to hulls, open
       // to feet.
       const sandy = d === 'park' && (exposure[i] as number) < -0.15;
-      if (wetAt(tx + 1, ty) || wetAt(tx - 1, ty) || wetAt(tx, ty + 1) || wetAt(tx, ty - 1)) {
+      const touching = wetAt(tx + 1, ty) || wetAt(tx - 1, ty) || wetAt(tx, ty + 1) || wetAt(tx, ty - 1);
+      if (sheer(tx, ty)) {
+        // Cliff: rock and scrub straight down to the water. Solid, so there
+        // is no stepping ashore here from a boat.
+        if (touching || wetNear(tx, ty, 2)) tiles[i] = T_TREES;
+      } else if (touching) {
         tiles[i] = sandy ? T_SAND : T_BANK;
       } else if (sandy && wetNear(tx, ty, 2)) {
         tiles[i] = T_SAND;
@@ -655,7 +700,9 @@ export function buildLayout(plan: CityPlan): CityLayout {
         tiles[i - 1] === T_BRIDGE ||
         (ty + 1 < H && tiles[i + W] === T_BRIDGE) ||
         (ty > 0 && tiles[i - W] === T_BRIDGE);
-      if (!onBridge) tiles[i] = T_BANK;
+      // A quay is a place to step ashore. On a cliff coast there isn't one:
+      // the lane stops at the rock.
+      if (!onBridge) tiles[i] = sheer(tx, ty) ? T_TREES : T_BANK;
     }
   }
 
@@ -718,10 +765,14 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const i = ty * W + tx;
       if (tiles[i] !== T_FIELD) continue;
       if (!(wetAt(tx + 1, ty) || wetAt(tx - 1, ty) || wetAt(tx, ty + 1) || wetAt(tx, ty - 1))) continue;
+      if (sheer(tx, ty)) {
+        tiles[i] = T_TREES;
+        continue;
+      }
       const d = DISTRICT_TYPES[district[i] as number] as DistrictType;
       tiles[i] = d === 'park' && (exposure[i] as number) < -0.15 ? T_SAND : T_BANK;
     }
   }
 
-  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner };
+  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand };
 }

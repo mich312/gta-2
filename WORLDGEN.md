@@ -1132,7 +1132,47 @@ them, left unlabelled. And exactly one signal head is kept per junction per
 cardinal, rather than trusting a local kerb test that only ever gave one per
 arm on a grid.
 
-### 12.9 Changing the city
+### 12.9 Gannet Rock: the island you can only fly to
+
+Out in the western approaches, a plateau with a strip on top and cliff the
+whole way round. There is no bridge to it and nowhere to bring a boat
+alongside; the only way on is to land, and the only way off is to take off
+again.
+
+It exists because the map had three ways of getting somewhere — road, water,
+air — and only ever asked about the first. A place that refuses two of them
+makes the third mean something, and it makes the aeroplane a vehicle you seek
+out rather than one you find at the airfield and crash for fun.
+
+Three plan primitives carry it, and each is general rather than a special
+case:
+
+- **`geography.cliffIslands`** — a point on a landmass, not an outline round
+  it. The shore is warped after it is drawn, so an outline traced round the
+  intended coast is tens of tiles adrift by the time the bake finishes; "the
+  island under this point" survives the warp exactly. Every shore tile on a
+  marked landmass becomes rock rather than quay or beach, and rock is solid.
+- **`landmarks[].byAir`** — the bake will not cut it a driveway and the
+  checker will not ask for a road to it. What the checker asks instead is
+  that there is a runway on the same piece of ground (an airfield you can
+  land at and not leave is a trap, not a destination) and that not one tile
+  of its shore can be stepped onto from a boat.
+- **A final seal, stated once.** Every pass between the shore and the finished
+  map can open a cliff by accident — a runway apron painted a tile too far, a
+  lane cleared through the scrub, a landmark's ground overwriting the rock it
+  stands on. Three of them did. Rather than patch each, `bake.ts` re-asserts
+  the invariant last: on a cliff-bound landmass, nothing walkable touches
+  water. One walkable tile at the waterline is the difference between an
+  island you fly to and an island you moor at.
+
+The checker learned two things along the way that are worth more than the
+island is. Ground with a runway on it is not "cut off from the road network",
+it is an airfield; and ground with a shore you can step onto is reached by
+boat, which is a way of getting somewhere. What is left after those two —
+445 tiles, down from five thousand — is genuinely enclosed courtyards inside
+blocks, which is a thing the city is supposed to have.
+
+### 12.10 Changing the city
 
 ```bash
 $EDITOR shared/data/city-plan.json

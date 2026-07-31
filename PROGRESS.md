@@ -52,6 +52,18 @@ plans once. Every ambient budget was a flat count — 48 cars, 200 pedestrians,
 400 props, 100 packages — which on four times the ground is an emptier city,
 not a bigger one; they are rates per nominal 384² city now, scaled by area.
 
+**Gannet Rock.** A plateau in the western approaches with an airstrip on top
+and cliff the whole way round: no bridge, and nowhere to bring a boat
+alongside. Three general primitives carry it — `cliffIslands` (a point on a
+landmass, not an outline, because the shore is warped after it is drawn),
+`landmarks[].byAir` (no driveway cut, no road demanded, but a runway required
+on the same ground and a shore nobody can step onto), and a final seal in the
+bake that re-asserts "nothing walkable touches water here" after every pass
+that could have opened it — three of which did. The checker also learned that
+ground with a runway is an airfield rather than an orphan, and ground with a
+walkable shore is reached by boat; what is left flagged after those two is
+445 tiles of genuinely enclosed courtyard, down from five thousand.
+
 **Deferred, and said out loud:** grade separation (road over road) is the
 biggest missing chase primitive and needs a new tile type through collision,
 the volume grid and both renderers. One-way systems need direction in the

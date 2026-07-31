@@ -18,7 +18,7 @@ import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import { isSolidTile, boxInSolid } from '../src/world/collide.js';
-import { T_BANK, T_BRIDGE, T_BUILDING, T_SAND, T_WATER, TILE_SIZE } from '../src/world/types.js';
+import { T_BANK, T_BRIDGE, T_BUILDING, T_SAND, T_TREES, T_WATER, TILE_SIZE } from '../src/world/types.js';
 import { hashState } from '../src/net/hash.js';
 
 initTuning({
@@ -190,6 +190,10 @@ describe('the river', () => {
             n === T_BRIDGE ||
             n === T_BANK ||
             n === T_SAND ||
+            // Cliff. On a coast the plan marks sheer there is no quay and no
+            // beach — the rock goes straight down, which is what makes an
+            // island you cannot moor at. See PlanGeography.cliffIslands.
+            n === T_TREES ||
             n === 1; /* T_ROAD */
           expect(allowed, `tile ${n} flush against water at (${tx + dx}, ${ty + dy})`).toBe(true);
         }

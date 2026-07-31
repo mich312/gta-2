@@ -79,6 +79,11 @@ function rectHasWater(ctx: Ctx, x: number, y: number, w: number, h: number): boo
   return false;
 }
 
+function isWater(ctx: Ctx, tx: number, ty: number): boolean {
+  if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) return false;
+  return ctx.tiles[ty * ctx.W + tx] === T_WATER;
+}
+
 function isRoad(ctx: Ctx, tx: number, ty: number): boolean {
   if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) return false;
   return ctx.tiles[ty * ctx.W + tx] === T_ROAD;
@@ -196,6 +201,15 @@ export function fillBlock(
     for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
       for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
         if (tiles[ty * W + tx] !== T_TREES) continue;
+        // Woodland at the waterline is not woodland, it is the cliff the
+        // shore pass put there. Clearing it for a lane would open a landing
+        // on a coast the plan says has none.
+        const onShore =
+          isWater(ctx, tx - 1, ty) ||
+          isWater(ctx, tx + 1, ty) ||
+          isWater(ctx, tx, ty - 1) ||
+          isWater(ctx, tx, ty + 1);
+        if (onShore) continue;
         const nearRoad =
           isRoad(ctx, tx - 1, ty) ||
           isRoad(ctx, tx + 1, ty) ||
