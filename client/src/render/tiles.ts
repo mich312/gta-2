@@ -39,6 +39,57 @@ import { ExtrudeLayer } from './extrude.js';
 /** The proving ground's colour: deliberately unlike any shop's. */
 const DEPOT_ACCENT = '#5aa84e';
 
+/** What `groundChunk` hands the 3D ground layer. */
+export interface GroundChunk {
+  /** The painting: one device pixel per texture pixel, water left clear. */
+  canvas: HTMLCanvasElement;
+  /** Whether any of it is clear, so the layer knows to alpha-test. */
+  holes: boolean;
+  /** One texel per tile, red channel = `SHEEN`. */
+  surface: HTMLCanvasElement;
+}
+
+/**
+ * How much of a sheen each terrain takes when it is wet, 0 to 1.
+ *
+ * Rain does not land on a city evenly — it lands evenly and then the city
+ * decides what to do with it. Tarmac and concrete are sealed, so the water
+ * stays on top as a film and the surface turns into a mirror. A lawn drinks
+ * it; sand drinks it faster; a wood floor under a canopy barely gets any. The
+ * gloss is the whole effect, so this table is the whole difference between a
+ * rained-on city and a rained-on flat plane.
+ *
+ * Anything absent is 0 — water, and the inside of a building, neither of
+ * which has a wet state worth drawing.
+ */
+const SHEEN: Record<number, number> = {
+  [T_ROAD]: 1,
+  [T_BRIDGE]: 1,
+  [T_RUNWAY]: 1,
+  [T_LOT]: 0.9,
+  [T_SIDEWALK]: 0.85,
+  [T_RAMP]: 0.85,
+  [T_BANK]: 0.55,
+  // Under a roof for most of its area, and boards rather than concrete.
+  [T_FLOOR]: 0.4,
+  [T_SAND]: 0.14,
+  [T_FIELD]: 0.12,
+  [T_PARK]: 0.12,
+  // A canopy. Almost none of the rain reaches the ground and none of it sits.
+  [T_TREES]: 0.05,
+};
+
+/**
+ * How much of a sheen a terrain takes when it is wet — see `SHEEN`.
+ *
+ * Exported so the table can be held to its own contract without a canvas: it
+ * is one number per terrain and every one of them is an art decision that a
+ * new tile type will silently default out of.
+ */
+export function sheenOf(tile: number): number {
+  return SHEEN[tile] ?? 0;
+}
+
 const CHUNK_WORLD = CHUNK_TILES * TILE_SIZE;
 const CHUNK_DEVICE = CHUNK_WORLD * RENDER_SCALE;
 /** Device pixels per tile. */
@@ -399,13 +450,26 @@ export class TileLayer {
    * That distinction is worth the extra flag it returns: a chunk with no water
    * in it needs no alpha at all, and most chunks have none. `holes` says which
    * ones do, so the ground layer can draw the rest opaque and keep early-z.
+   *
+   * It also returns `surface`, one texel per tile saying what that tile is
+   * *made of* — see `SHEEN`. The painted canvas cannot answer that: tarmac
+   * and a shop floor are both dark grey in it, and a shader deciding where
+   * rain pools has to know which is which.
    */
-  groundChunk(cx: number, cy: number): { canvas: HTMLCanvasElement; holes: boolean } {
+  groundChunk(cx: number, cy: number): GroundChunk {
     const canvas = document.createElement('canvas');
     canvas.width = CHUNK_DEVICE;
     canvas.height = CHUNK_DEVICE;
     const ctx = canvas.getContext('2d') as CanvasRenderingContext2D;
     ctx.imageSmoothingEnabled = false;
+
+    // One texel per tile. The surface a tile is made of does not vary inside
+    // it, so anything finer would be storing the same byte sixteen times.
+    const surface = document.createElement('canvas');
+    surface.width = CHUNK_TILES;
+    surface.height = CHUNK_TILES;
+    const sctx = surface.getContext('2d') as CanvasRenderingContext2D;
+    const mask = sctx.createImageData(CHUNK_TILES, CHUNK_TILES);
 
     const tx0 = cx * CHUNK_TILES;
     const ty0 = cy * CHUNK_TILES;
@@ -415,6 +479,9 @@ export class TileLayer {
         const tile = this.tileAt(tx, ty);
         const x = (tx - tx0) * TD;
         const y = (ty - ty0) * TD;
+        const m = ((ty - ty0) * CHUNK_TILES + (tx - tx0)) * 4;
+        mask.data[m] = Math.round(255 * sheenOf(tile));
+        mask.data[m + 3] = 255;
         if (tile === T_WATER) {
           holes = true;
           continue;
@@ -429,7 +496,8 @@ export class TileLayer {
         this.paintGround(ctx, tx, ty, x, y, tile);
       }
     }
-    return { canvas, holes };
+    sctx.putImageData(mask, 0, 0);
+    return { canvas, holes, surface };
   }
 
   private buildChunk(cx: number, cy: number): HTMLCanvasElement {

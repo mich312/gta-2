@@ -37,6 +37,7 @@ import {
   playerPose as poseOf,
   render,
   sceneNight,
+  sceneWet,
   type Scene,
 } from './render/renderer.js';
 import { SpriteSheet } from './render/sprites.js';
@@ -155,6 +156,21 @@ function nightOverride(): number | null {
 }
 
 const forcedNight = nightOverride();
+
+/**
+ * Debug override for the weather, `?wet=1`.
+ *
+ * Same reason as `?night=`: the streets are dry most of the time, and waiting
+ * for a front to come over is not a way to look at what one does.
+ */
+function wetOverride(): number | null {
+  const raw = new URLSearchParams(location.search).get('wet');
+  if (raw === null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : null;
+}
+
+const forcedWet = wetOverride();
 
 function playerName(): string {
   let name = sessionStorage.getItem('playerName');
@@ -903,6 +919,7 @@ function drawWorld3d(scene: Scene | null): void {
   }
   // Paint the ground around wherever the camera is looking. Budgeted inside,
   // so this is a couple of chunks a frame at most.
+  ground.setWeather(forcedWet ?? sceneWet(map, scene), lights.nightAmount);
   ground.update(cam, { w: viewport.w, h: viewport.h });
   view.lookAt(focus.x, focus.y);
   view.render();

@@ -8,6 +8,7 @@ import {
   type WeaponTuning,
   nightAmount,
   timeOfDay,
+  wetness,
   CARDINALS,
   getTrafficTuning,
   PART_BONNET,
@@ -853,6 +854,17 @@ export function sceneNight(map: CityMap, scene: Scene): number {
 
 function dayLengthSec(map: CityMap): number {
   return map.dayLengthSec > 0 ? map.dayLengthSec : 1440;
+}
+
+/**
+ * How wet the streets are, on the same terms as `sceneNight`.
+ *
+ * Only the 3D ground layer draws it. The 2D renderer paints its ground from a
+ * chunk cache that is built once and blitted thereafter, so weather there
+ * would mean repainting the city every time the number moved.
+ */
+export function sceneWet(map: CityMap, scene: Scene): number {
+  return wetness(scene.tick, dayLengthSec(map));
 }
 
 /**

@@ -36,6 +36,57 @@ export function nightAmount(tod: number): number {
 }
 
 /**
+ * How wet the streets are, 0 (bone dry) to 1 (just stopped raining).
+ *
+ * A pure function of the tick, for exactly the reason `timeOfDay` is: the
+ * weather is a thing two players standing on the same corner have to agree
+ * about, and the tick is already in every snapshot. A server-pushed forecast
+ * would cost a message and could skew.
+ *
+ * There is no rainfall — no particles, no sound, nothing in the sim. This is
+ * only the state the street is left in afterwards, which is the half of rain
+ * that a top-down camera can actually see: the road goes dark, the puddles
+ * hold the lamps, and it dries out again over the next few minutes.
+ *
+ * **Shape.** Two fronts of different lengths, overlaid, so the pattern does
+ * not repeat on any interval short enough to notice. Each one soaks the city
+ * quickly and dries slowly, because that is the asymmetry water has. The
+ * periods are fractions of a day rather than seconds so that a server running
+ * a long day gets long weather: the sky and the street stay on one clock.
+ *
+ * On the stock 24-minute day that works out at a wet street about two fifths
+ * of the time, in spells of four to seven minutes. Deliberately generous — a
+ * weather state nobody ever sees is not worth the shader — but the majority
+ * of the time the city is still dry, so arriving in the rain still registers
+ * as something having changed.
+ */
+export function wetness(tick: number, dayLengthSec: number): number {
+  const days = tick / Math.max(1, dayLengthSec * TICK_RATE);
+  return Math.min(1, Math.max(front(days, 0.62, 0, 1), front(days, 0.94, 0.63, 0.55)));
+}
+
+/** How much of a front's cycle it spends soaking the city. */
+const RISE = 0.04;
+/** And how much of it drying out again. Rain arrives faster than it leaves. */
+const FALL = 0.26;
+
+/** One weather front, peaking once per `period` days. */
+function front(days: number, period: number, phase: number, peak: number): number {
+  const p = (((days / period + phase) % 1) + 1) % 1;
+  if (p < RISE) {
+    const x = p / RISE;
+    return peak * x * x * (3 - 2 * x);
+  }
+  if (p < RISE + FALL) {
+    // Squared rather than linear: the last of the water goes off a road far
+    // more slowly than the first of it, and a linear ramp reads as a fade.
+    const x = 1 - (p - RISE) / FALL;
+    return peak * x * x;
+  }
+  return 0;
+}
+
+/**
  * Population multiplier for the hour.
  *
  * This is the one part of the clock the SIM reads, and it is deliberately

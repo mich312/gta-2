@@ -64,9 +64,86 @@ const BUILDS_PER_FRAME = 2;
 interface Tile {
   mesh: THREE.Mesh;
   texture: THREE.Texture;
+  surface: THREE.Texture;
   /** Frame counter when this was last inside the view, for eviction. */
   seen: number;
 }
+
+/**
+ * Rain, after the fact.
+ *
+ * `wetness()` in the shared clock says how much water is on the street; this
+ * is what the street does about it. Three things, in the order they read:
+ *
+ * 1. **It goes dark.** A water film traps most of the light that would have
+ *    scattered back out of the tarmac, and the drop is large — a wet road is
+ *    close to half the albedo of a dry one. This is the part that carries at
+ *    any distance and in any light.
+ * 2. **It picks up the sky.** A flat wet surface is a weak mirror pointed
+ *    straight up, and a top-down camera is looking down the reflected ray, so
+ *    the sky lands square in the middle of the frame. That is what stops the
+ *    darkening reading as a dirty road.
+ * 3. **It holds the lamps.** The reflection that sells rain is a sodium lamp
+ *    smeared across the carriageway. This does the cheap version of it —
+ *    where a light already lands, it lands much harder and keeps its colour.
+ *
+ * Where the water sits is a noise field rather than the drainage the map does
+ * not model, so puddles are patches rather than gutters. Between them the
+ * surface is damp, which is a third of the effect at full strength.
+ *
+ * The layer this runs on is the only one that gets it. The road boxes
+ * underneath stay dry, and are only visible off the edge of the painted
+ * chunks — that is, off screen. Cars and people stay dry too, which is a
+ * bigger omission and a much bigger job.
+ */
+
+/** How much of its albedo a fully wet surface keeps. */
+const WET_ALBEDO = 0.54;
+/** How much of a full puddle's surface is sky rather than what is under it. */
+const WET_SKY = 0.3;
+/**
+ * The sky, as a wet road reflects it — and note how dark these are.
+ *
+ * This is mixed into the **albedo**, so it is a reflectance and not a
+ * radiance: the fraction of what lands on a puddle that comes straight back
+ * up. For water at the near-normal incidence a top-down camera works at, that
+ * is about three per cent, and the first pass of this had it at ten times
+ * more. Tarmac's own albedo is only four per cent, so an overcast-grey sky
+ * mixed in at face value made a wet road *brighter* than a dry one, which is
+ * the opposite of the one thing everybody knows about wet roads.
+ *
+ * The point of it is the hue, not the level. A puddle is a hole in the road
+ * with the sky at the bottom, and going cold is how that reads.
+ */
+const SKY_DAY = new THREE.Color(0.030, 0.037, 0.052);
+const SKY_NIGHT = new THREE.Color(0.005, 0.007, 0.013);
+/**
+ * The irradiance a light has to beat before it flares — and it moves.
+ *
+ * The bar has to sit above the sun, or the sun itself glints and the whole
+ * street turns to chrome at midday. But the sun is not a fixed number: it runs
+ * 2.95 down to 0.21 between noon and midnight, which is 0.94 down to 0.05 once
+ * the toon term's `1/π` is taken out. A single bar tall enough for noon is
+ * twenty times higher than anything at midnight can reach, and the first cut
+ * of this had exactly that — a wet road at night with no reflections on it at
+ * all, which is the one time of day the effect is for.
+ *
+ * So it tracks the sun down. At noon only a source bright enough to beat
+ * daylight registers; after dark, a street lamp comfortably clears it.
+ */
+const KNEE_DAY = 1.15;
+const KNEE_NIGHT = 0.3;
+/** How wide the ramp from "no reflection" to "full reflection" is. */
+const KNEE_RAMP = 0.5;
+/**
+ * What fraction of the light it catches a wet surface throws back.
+ *
+ * Small, and much smaller by day. This adds to a pool that is already near the
+ * top of the range, so the useful setting is the one that roughly doubles the
+ * brightest part of a lamp's pool and does nothing at its edge.
+ */
+const GLOSS_DAY = 0.06;
+const GLOSS_NIGHT = 0.45;
 
 export class GroundLayer {
   private readonly group = new THREE.Group();
@@ -74,6 +151,20 @@ export class GroundLayer {
   private readonly geometry: THREE.PlaneGeometry;
   private map: CityMap | null = null;
   private frame = 0;
+
+  /**
+   * Shared by every chunk material, by reference.
+   *
+   * `onBeforeCompile` copies the uniform *objects* into each shader, so
+   * setting `.value` here reaches all of them at once and the weather never
+   * arrives on one chunk a frame behind another.
+   */
+  private readonly weather = {
+    uWet: { value: 0 },
+    uGloss: { value: GLOSS_DAY },
+    uKnee: { value: KNEE_DAY },
+    uSky: { value: SKY_DAY.clone() },
+  };
 
   constructor(
     scene: THREE.Object3D,
@@ -129,7 +220,7 @@ export class GroundLayer {
   }
 
   private build(cx: number, cy: number): Tile {
-    const { canvas, holes } = this.painter.groundChunk(cx, cy);
+    const { canvas, holes, surface: surfaceCanvas } = this.painter.groundChunk(cx, cy);
     const texture = new THREE.CanvasTexture(canvas);
     // The canvas is authored in sRGB; without this it is treated as linear and
     // every painted surface comes out washed out against the boxes beneath.
@@ -137,21 +228,110 @@ export class GroundLayer {
     texture.anisotropy = 4;
     texture.needsUpdate = true;
 
+    // One texel per tile, and a number rather than a colour: no filtering, no
+    // colour space. A blurred edge here would put a wet fringe on the grass.
+    const surface = new THREE.CanvasTexture(surfaceCanvas);
+    surface.magFilter = THREE.NearestFilter;
+    surface.minFilter = THREE.NearestFilter;
+    surface.generateMipmaps = false;
+    surface.needsUpdate = true;
+
     const material = new THREE.MeshToonMaterial({
       map: texture,
       gradientMap: toonGradient(),
       // Only chunks with water in them carry a hole, and most do not. An
-      // alpha-tested draw gives up early-z for every pixel of the frame's
-      // largest surface, so it is worth asking rather than assuming.
-      transparent: holes,
+      // alpha test costs early-z for every pixel of the frame's largest
+      // surface, so it is worth asking rather than assuming.
+      //
+      // A cutout, not a blend: the river wants the depth its own geometry has,
+      // and leaving `transparent` off keeps these quads in the opaque pass
+      // where they can occlude rather than queue up behind it.
       alphaTest: holes ? 0.5 : 0,
     });
+    this.makeWet(material, surface);
 
     const mesh = new THREE.Mesh(this.geometry, material);
     mesh.receiveShadow = true;
     mesh.position.set((cx + 0.5) * CHUNK_WORLD, (cy + 0.5) * CHUNK_WORLD, LIFT);
     this.group.add(mesh);
-    return { mesh, texture, seen: this.frame };
+    return { mesh, texture, surface, seen: this.frame };
+  }
+
+  /** Hang the rain onto a chunk's material. See the note above `WET_ALBEDO`. */
+  private makeWet(material: THREE.MeshToonMaterial, surface: THREE.Texture): void {
+    const own = { uSurface: { value: surface } };
+    material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, own, this.weather);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', `#include <common>\n varying vec3 vWetW;`)
+        .replace(
+          '#include <worldpos_vertex>',
+          `#include <worldpos_vertex>
+           vWetW = (modelMatrix * vec4(transformed, 1.0)).xyz;`,
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec3 vWetW;
+           uniform sampler2D uSurface;
+           uniform float uWet;
+           uniform float uGloss;
+           uniform float uKnee;
+           uniform vec3 uSky;
+           float wet_hash(vec2 p) { return fract(sin(dot(p, vec2(73.1, 41.7))) * 19733.13); }
+           float wet_noise(vec2 p) {
+             vec2 i = floor(p);
+             vec2 f = fract(p);
+             f = f * f * (3.0 - 2.0 * f);
+             return mix(mix(wet_hash(i), wet_hash(i + vec2(1.0, 0.0)), f.x),
+                        mix(wet_hash(i + vec2(0.0, 1.0)), wet_hash(i + vec2(1.0, 1.0)), f.x),
+                        f.y);
+           }`,
+        )
+        .replace(
+          '#include <color_fragment>',
+          `#include <color_fragment>
+           // Water sits where the surface lets it and where the ground dips.
+           // The map has no drainage, so the second half is noise: broad
+           // patches with a finer edge, near enough to how a road holds rain.
+           float wetSheen = texture2D(uSurface, vMapUv).r;
+           float wetShape = wet_noise(vWetW.xy / 34.0) * 0.68
+                          + wet_noise(vWetW.xy / 11.0) * 0.32;
+           float wetPool = smoothstep(0.42, 0.72, wetShape);
+           float wetFilm = uWet * wetSheen;
+           float wetSheet = wetFilm * (0.34 + 0.66 * wetPool);
+           diffuseColor.rgb *= mix(1.0, ${WET_ALBEDO.toFixed(3)}, wetSheet);
+           diffuseColor.rgb = mix(diffuseColor.rgb, uSky, wetSheet * wetPool * ${WET_SKY.toFixed(3)});`,
+        )
+        .replace(
+          '#include <opaque_fragment>',
+          `// The lamps, reflected. Divide the albedo back out of the toon term
+           // to recover what actually arrived, so darkening a wet road does
+           // not also dim the light it is supposed to be mirroring.
+           vec3 wetIrr = reflectedLight.directDiffuse / max(diffuseColor.rgb, vec3(0.03));
+           float wetLit = max(max(wetIrr.r, wetIrr.g), wetIrr.b);
+           float wetFlare = smoothstep(uKnee, uKnee + ${KNEE_RAMP.toFixed(2)}, wetLit);
+           outgoingLight += wetIrr * wetFlare * wetFlare * wetSheet * uGloss;
+           #include <opaque_fragment>`,
+        );
+    };
+    // Every chunk compiles to the same program; only the maps differ.
+    material.customProgramCacheKey = () => 'ground-wet';
+  }
+
+  /**
+   * How wet the streets are and how dark it is, both 0 to 1.
+   *
+   * Night is not a second weather channel — it only decides what the water is
+   * reflecting: a pale sky by day, the street lamps after dark.
+   */
+  setWeather(wet: number, night: number): void {
+    const t = Math.min(1, Math.max(0, night));
+    this.weather.uWet.value = Math.min(1, Math.max(0, wet));
+    this.weather.uGloss.value = GLOSS_DAY + (GLOSS_NIGHT - GLOSS_DAY) * t;
+    this.weather.uKnee.value = KNEE_DAY + (KNEE_NIGHT - KNEE_DAY) * t;
+    this.weather.uSky.value.copy(SKY_DAY).lerp(SKY_NIGHT, t);
   }
 
   /** Drop the least recently seen chunks back to the cap. */
@@ -167,6 +347,7 @@ export class GroundLayer {
   private dispose(tile: Tile): void {
     this.group.remove(tile.mesh);
     tile.texture.dispose();
+    tile.surface.dispose();
     (tile.mesh.material as THREE.Material).dispose();
   }
 
