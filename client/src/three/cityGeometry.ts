@@ -26,6 +26,7 @@ import {
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
+import { ARTERIAL_WIDTH } from '../render/tiles.js';
 import { addOutline, outlineMaterial, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 
@@ -168,6 +169,8 @@ function hex(s: string | undefined, fallback: number): number {
 
 const PAL = palette as unknown as Record<string, string | undefined>;
 const col = (name: string, fallback: number): number => hex(PAL[name], fallback);
+/** Five per-district pavement colours the 2D painter has always used. */
+const PAL_TINT = (palette as unknown as { sidewalkTint?: Record<string, string> }).sidewalkTint ?? {};
 
 /**
  * How a terrain type is surfaced.
@@ -323,8 +326,26 @@ export function buildCity(map: CityMap): CityBuild {
    */
   const crossing = (tx: number, ty: number): number => {
     if (!isRoad(tx, ty) || isJunction(tx, ty)) return 0;
-    if (isJunction(tx - 1, ty) || isJunction(tx + 1, ty)) return 1;
-    if (isJunction(tx, ty - 1) || isJunction(tx, ty + 1)) return 2;
+    // Only where a MAIN road meets the junction.
+    //
+    // Marking every arm was the default, and at this city's block density it
+    // covered the place — 2,239 of 15,249 road tiles carried a crossing, so on
+    // a short block the striping ran from one junction straight into the next
+    // and the streets read as painted rather than paved. The 2D painter came
+    // to the same conclusion and gates on `ARTERIAL_WIDTH`; this did not, so
+    // the loudest texture in the 3D frame was a divergence rather than a
+    // decision.
+    //
+    // The width that matters is the one ACROSS the direction of travel: for a
+    // crossing whose junction lies east or west the street runs horizontally,
+    // so its carriageway width is the vertical run.
+    const [runV, runH] = runs(tx, ty);
+    if (isJunction(tx - 1, ty) || isJunction(tx + 1, ty)) {
+      return runV >= ARTERIAL_WIDTH ? 1 : 0;
+    }
+    if (isJunction(tx, ty - 1) || isJunction(tx, ty + 1)) {
+      return runH >= ARTERIAL_WIDTH ? 2 : 0;
+    }
     return 0;
   };
   /** 0 plain, 1 centre line along x, 2 centre line along y. */
@@ -441,6 +462,15 @@ export function buildCity(map: CityMap): CityBuild {
         const bi = (buildingOf[idx] as number) - 1;
         const color = roofColor(map, tx, ty, bi);
         surface = { key: `b${color.toString(16)}`, color, solid: true };
+      } else if (tile === T_SIDEWALK) {
+        // Pavement takes its district's tint, which `palette.sidewalkTint`
+        // has carried all along and only the 2D painter ever read. Every
+        // pavement in the 3D city was one neutral grey — and pavement is the
+        // largest bright mass in the frame, so a single flat value across all
+        // of it is a good part of why the city reads as a model.
+        const district = districtAt(map, tx, ty) as string;
+        const tint = (PAL_TINT[district] ?? PAL.sidewalk) as string;
+        surface = { key: `pavement:${district}`, color: hex(tint, 0x5f646c), grain: 0.09, edge: 0.1 };
       } else {
         surface = SURFACES[tile] ?? DEFAULT_SURFACE;
         if (surface.road) {

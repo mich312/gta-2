@@ -479,8 +479,35 @@ export function placePackages(map: CityMap, params: WorldgenParams): void {
     }
   }
   scored.sort((a, b) => b.enclosure - a.enclosure || a.y - b.y || a.x - b.x);
-  const stride = Math.max(1, Math.floor(scored.length / want));
-  map.packages = scored.filter((_, i) => i % stride === 0).slice(0, want);
+  map.packages = spread(scored, want);
+}
+
+/**
+ * Take `count` items spread evenly across a list, rather than the first
+ * `count` of it.
+ *
+ * The idiom this replaces was `list.filter((_, i) => i % stride === 0)
+ * .slice(0, count)` with `stride = floor(list.length / count)`. That is a
+ * no-op whenever the list is shorter than twice the cap, because the stride
+ * comes out as 1 and the filter keeps everything — so the slice quietly takes
+ * the FIRST `count` entries of a row-major sweep, which is exactly the
+ * clustering the stride was added to prevent.
+ *
+ * It was not a small effect. On seed 7 it put 358 of 381 street props in the
+ * northern half of the city and 23 in the southern; seed 11 skewed the other
+ * way; seed 42 had nothing at all below y = 2632 of 3840. A whole half of
+ * every generated city had no lamp posts, no bins and no street lighting.
+ *
+ * Indexing by `floor(i * length / count)` cannot degenerate: it always walks
+ * the full list, never repeats an index, and is a pure function of the two
+ * lengths, so every host still generates the same city.
+ */
+function spread<T>(list: readonly T[], count: number): T[] {
+  const n = Math.min(count, list.length);
+  if (n <= 0) return [];
+  const out: T[] = [];
+  for (let i = 0; i < n; i++) out.push(list[Math.floor((i * list.length) / n)] as T);
+  return out;
 }
 
 /** Every 5th sidewalk tile, row-major: plenty of deterministic ped spots. */
@@ -593,14 +620,9 @@ export function placeProps(map: CityMap): void {
   // blocks and left the other 80% of the map with no street furniture and no
   // street lighting at all.
   const furnitureCap = MAX_PROPS - BARREL_BUDGET;
-  const stride = Math.max(1, Math.floor(props.length / furnitureCap));
-  const kept = props.filter((_, i) => i % stride === 0).slice(0, furnitureCap);
-  // Barrels get their own reserved slice, strided the same way so they are
-  // spread across the industrial districts rather than piled in the first.
-  const bStride = Math.max(1, Math.floor(barrels.length / BARREL_BUDGET));
-  map.propSpawns = kept.concat(
-    barrels.filter((_, i) => i % bStride === 0).slice(0, BARREL_BUDGET),
-  );
+  // Barrels get their own reserved slice, spread the same way so they are
+  // across the industrial districts rather than piled in the first.
+  map.propSpawns = spread(props, furnitureCap).concat(spread(barrels, BARREL_BUDGET));
 }
 
 export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: number): number {

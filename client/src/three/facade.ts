@@ -119,8 +119,27 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
         '#include <color_fragment>',
         `#include <color_fragment>
          {
-           // Vertical faces only. A roof keeps the mass colour.
            float side = 1.0 - min(1.0, abs(vWorldNormal.z) * 4.0);
+
+           // A roof is not the same material as the wall under it.
+           //
+           // It used to keep the mass colour, so a pastel block was pastel on
+           // top as well — and seen from almost overhead the roof is most of
+           // what a building IS on screen. Real roofs are tar, felt and gravel:
+           // dark, desaturated, and much closer to each other than the facades
+           // they cap. Pulling them down onto a common slate keeps enough of
+           // the building's own hue to tell blocks apart while taking the
+           // brightest large mass in the frame out of the picture.
+           if (side <= 0.0) {
+             // Pushed well below what looks right as an albedo, because a roof
+             // faces the sun square on and collects more irradiance than any
+             // other surface in the city — a slate that reads correctly in
+             // isolation comes out mid-grey once it is lit.
+             vec3 slate = vec3(0.15, 0.16, 0.18);
+             float grit = (win_hash(floor(vWorld.xy * 1.7)) - 0.5) * 0.03;
+             diffuseColor.rgb = mix(diffuseColor.rgb, slate, 0.72) * 0.46 + grit;
+           }
+
            if (side > 0.0) {
              // Which way the wall faces decides whether windows run along
              // world X or world Y.

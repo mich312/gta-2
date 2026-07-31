@@ -294,6 +294,15 @@ export class CityView {
     // flat faces this city is made of; the constant bias mops up the rest.
     sun.shadow.normalBias = 1.5;
     sun.shadow.bias = -0.0005;
+    // Penumbra width, in shadow-map texels.
+    //
+    // `PCFShadowMap` samples a Vogel disk whose spread is this radius, and it
+    // has been sitting at the default 1 — a hard edge, which on a city of
+    // boxes reads as cut paper. Note that switching the map type to
+    // `PCFSoftShadowMap` would make it *harder*, not softer: in three r185
+    // that type has no shader define of its own and falls through to the
+    // single-tap basic path. The softness is this number.
+    sun.shadow.radius = 3.5;
     // In the world group, so the sun is rigged in world coordinates like
     // everything else: `SUN_OFFSET` is the direction `SUN_X`/`SUN_Y` throw the
     // 2D renderer's walls and drop shadows, and the two views now agree on

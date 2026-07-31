@@ -18,7 +18,7 @@ import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { roadLane } from './helpers.js';
 import { damageProp, rayWallDistance } from '../src/sim/weapons.js';
-import { districtAt, TILE_SIZE } from '../src/world/types.js';
+import { districtAt, T_SIDEWALK, TILE_SIZE } from '../src/world/types.js';
 import { clearSpot } from './helpers.js';
 
 /** A player with a barrel and an ordinary bin planted in clear ground. */
@@ -413,5 +413,59 @@ describe('explosive barrels (K2)', () => {
       return hashState(s);
     };
     expect(run()).toBe(run());
+  });
+});
+
+describe('street furniture reaches the whole city', () => {
+  /**
+   * The cap has to sample the candidate list, not truncate it.
+   *
+   * `placeProps` sweeps the map row-major and then cuts the list down to
+   * `MAX_PROPS`. The cut used to be `filter((_, i) => i % stride === 0)
+   * .slice(0, cap)` with `stride = floor(length / cap)` — which is 1 whenever
+   * there are fewer than twice the cap of candidates, so the filter kept
+   * everything and the slice took the first `cap` of a row-major sweep. Every
+   * lamp, bin and fence ended up in whichever half the sweep reached first.
+   *
+   * Measured before the fix: seed 7 put 358 of 381 props in the northern half
+   * against 23 in the southern, while the pavement they stand on was split
+   * 50/50. Seed 42 had nothing below y = 2632 of 3840.
+   *
+   * The assertion is deliberately about *proportion to what is there* rather
+   * than an even split: a city whose pavement genuinely lies mostly south
+   * should have its furniture mostly south too.
+   */
+  it('places props in proportion to the pavement, not to sweep order', () => {
+    for (const seed of [7, 11, 42]) {
+      const m = generateCity(seed, parseWorldgenParams(worldgenJson));
+      const W = m.widthTiles;
+      const H = m.heightTiles;
+      let padSouth = 0;
+      let padTotal = 0;
+      for (let ty = 0; ty < H; ty++) {
+        for (let tx = 0; tx < W; tx++) {
+          if (m.tiles[ty * W + tx] !== T_SIDEWALK) continue;
+          padTotal++;
+          if (ty >= H / 2) padSouth++;
+        }
+      }
+      const props = m.propSpawns;
+      const south = props.filter((p) => p.y >= (H * TILE_SIZE) / 2).length;
+      const keptFrac = south / props.length;
+      const candFrac = padSouth / padTotal;
+
+      expect(props.length).toBeGreaterThan(200);
+      // Within a wide band of the candidate density. Wide because the sweep is
+      // row-major and the kit is not uniform across districts; narrow enough
+      // that truncation — which drove seed 7 to 0.06 against 0.50 — fails it.
+      expect(Math.abs(keptFrac - candFrac)).toBeLessThan(0.2);
+    }
+  });
+
+  it('reaches the far edge of the map', () => {
+    const m = generateCity(42, parseWorldgenParams(worldgenJson));
+    const far = Math.max(...m.propSpawns.map((p) => p.y));
+    // Truncation left seed 42 with nothing below y = 2632 of 3840.
+    expect(far).toBeGreaterThan(m.heightTiles * TILE_SIZE * 0.8);
   });
 });

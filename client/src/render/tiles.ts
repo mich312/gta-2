@@ -47,7 +47,14 @@ const TD = TILE_SIZE * RENDER_SCALE;
 /** A road is a road, not a junction, once its cross-run is this long. */
 const RUN_ROAD = 8;
 /** Carriageway width at which a street counts as a main road. */
-const ARTERIAL_WIDTH = 4;
+/**
+ * Carriageway width, in tiles, at which a street is a main road.
+ *
+ * Exported because the 3D renderer needs the same threshold: it was marking
+ * every arm of every junction, which is the default this constant exists to
+ * replace.
+ */
+export const ARTERIAL_WIDTH = 4;
 
 /**
  * Where the centre line falls inside one carriageway tile, as a fraction of
