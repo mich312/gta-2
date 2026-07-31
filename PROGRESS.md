@@ -1,5 +1,45 @@
 # PROGRESS
 
+## The join, measured rather than estimated
+
+The entry below left the join sequence flagged as "the first thing that will
+hurt on a slow machine" and did not say by how much. It has now been measured
+in a real browser against a production build, and the estimate it was carrying
+— 2.5–4 s of frozen tab — was wrong in an instructive way.
+
+**What the join actually costs, as JS:** ~1.15 s on this box. `generateCity`
+350 ms (loading the baked planes and dressing the session), `buildCity` 520 ms
+of which `buildVolumeGrid` is 80 ms, minimap bake 240 ms, everything else under
+30 ms. Time to a playable frame with `?render=2d` — the arm with no WebGL in it
+at all — was 1.15 s, and the longest single blocking task 400 ms.
+
+**Why the first number looked like 7 s.** The 3D arm reported 7.2 s to playable
+and ~2 s frames afterwards, which reads as a catastrophe and is an artefact of
+the box: this container has no GPU, so ANGLE falls back to SwiftShader and
+rasterises 639,193 instances in software. Shrinking the viewport sixteenfold
+moved the frame time by a quarter — vertex-bound, not fill-bound, which is the
+signature of a software rasteriser and not of anything the client is doing
+wrong. Worth writing down because the number is real, reproducible here, and
+means nothing about a machine with a graphics card.
+
+**Two of the engine reviewer's items, done.** `Minimap.bake` painted the city
+one `fillRect` per tile: fine at 240 tiles, 589,824 canvas calls at 768, and
+240–300 ms of frozen tab on the first frame after joining. One `putImageData`
+over a `Uint32Array`: **242 ms → 8 ms**, and the third blocking task of the
+join disappears entirely. And `buildCity` collected its transforms as
+`THREE.Matrix4[]` — 639,193 JS objects each wrapping a 16-element array,
+allocated and dropped inside the one synchronous task that joins a session.
+Every box in the city is a scale and a translation, so six floats in a growable
+`Float32Array` say the same thing and expand straight into `instanceMatrix`:
+**peak heap 164 MB → 143 MB**, build 720 ms → 520 ms, instance count and
+rendered frame identical to the pixel.
+
+**Still deferred:** the volume grid's `Span[][]` intermediate, chunked
+`SceneryLayer`, moving the join off-thread, `filterSnapshot` grid bucketing.
+None of them is now the largest term, and the largest term left — `generateCity`
+at 350 ms — is a one-off on a background-coloured canvas rather than a stutter
+during play.
+
 ## The drawn city, reviewed and redrawn: an island four times the size
 
 The first drawn city (below) replaced the generator and was still, visibly, a

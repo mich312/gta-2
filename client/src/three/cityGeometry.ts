@@ -163,6 +163,70 @@ export interface CityBuild {
   instances: number;
 }
 
+/**
+ * A growable list of box transforms, six floats each.
+ *
+ * Every box in the city is a scale and a translation — no rotation anywhere,
+ * because a tile is axis-aligned and so is what stands on it. So the transform
+ * needs six numbers, not a matrix, and the ten zeroes in between do not need
+ * to be stored while the city is being collected.
+ *
+ * This used to be a `THREE.Matrix4[]` per bucket, which reads better and cost
+ * far too much. Each `Matrix4` is a JS object wrapping its own 16-element
+ * array; on the 240×240 city that was ~60,000 of them and unremarkable, but
+ * this city is 768×768 and comes to 639,193 instances — around 128 MB of
+ * short-lived objects, allocated and then thrown away inside the single
+ * synchronous task that joins a session. The measured heap peak was 164 MB,
+ * which is a tab a phone kills. Six floats in a `Float32Array` is 15 MB, and
+ * it goes straight into `instanceMatrix` without a `clone()` per span.
+ */
+class Boxes {
+  /** sx, sy, sz, x, y, z per instance. */
+  private data = new Float32Array(6 * 256);
+  /** How many instances are in it. */
+  count = 0;
+
+  push(sx: number, sy: number, sz: number, x: number, y: number, z: number): void {
+    if ((this.count + 1) * 6 > this.data.length) {
+      const grown = new Float32Array(this.data.length * 2);
+      grown.set(this.data);
+      this.data = grown;
+    }
+    const o = this.count++ * 6;
+    const d = this.data;
+    d[o] = sx;
+    d[o + 1] = sy;
+    d[o + 2] = sz;
+    d[o + 3] = x;
+    d[o + 4] = y;
+    d[o + 5] = z;
+  }
+
+  /**
+   * Expand into an `InstancedMesh`'s transform buffer.
+   *
+   * Column-major, and only the seven cells a scale-plus-translation touches:
+   * three.js hands out a zero-filled `Float32Array` and everything else in an
+   * affine transform of this shape is a zero.
+   */
+  writeTo(mesh: THREE.InstancedMesh): void {
+    const a = mesh.instanceMatrix.array as Float32Array;
+    const d = this.data;
+    for (let i = 0; i < this.count; i++) {
+      const o = i * 6;
+      const m = i * 16;
+      a[m] = d[o] as number;
+      a[m + 5] = d[o + 1] as number;
+      a[m + 10] = d[o + 2] as number;
+      a[m + 12] = d[o + 3] as number;
+      a[m + 13] = d[o + 4] as number;
+      a[m + 14] = d[o + 5] as number;
+      a[m + 15] = 1;
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
 function hex(s: string | undefined, fallback: number): number {
   return s === undefined ? fallback : parseInt(s.replace('#', ''), 16);
 }
@@ -277,7 +341,11 @@ function roofColor(map: CityMap, tx: number, ty: number, index: number): number 
  */
 export function buildCity(map: CityMap): CityBuild {
   const group = new THREE.Group();
+  const __v0 = performance.now();
   const vg = buildVolumeGrid(map);
+  (globalThis as never as { __jt: string[] }).__jt?.push(
+    `  buildVolumeGrid ${Math.round(performance.now() - __v0)}`,
+  );
   const W = map.widthTiles;
   const H = map.heightTiles;
   let instances = 0;
@@ -435,14 +503,14 @@ export function buildCity(map: CityMap): CityBuild {
   // of them with one sphere test each. `TileLayer` makes the same trade with
   // `CHUNK_TILES`.
   const chunksX = Math.ceil(W / CHUNK_TILES);
-  const buckets = new Map<string, THREE.Matrix4[]>();
+  const buckets = new Map<string, Boxes>();
   const surfaceOf = new Map<string, Surface>();
-  const bucket = (tx: number, ty: number, surface: Surface): THREE.Matrix4[] => {
+  const bucket = (tx: number, ty: number, surface: Surface): Boxes => {
     const chunk = Math.floor(ty / CHUNK_TILES) * chunksX + Math.floor(tx / CHUNK_TILES);
     const key = `${chunk}|${surface.key}`;
     let list = buckets.get(key);
     if (!list) {
-      list = [];
+      list = new Boxes();
       buckets.set(key, list);
       surfaceOf.set(key, surface);
     }
@@ -452,7 +520,6 @@ export function buildCity(map: CityMap): CityBuild {
   /** Roof height per tile, filled as the grid is walked. */
   const heightAt = new Float64Array(W * H);
 
-  const m = new THREE.Matrix4();
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
@@ -511,13 +578,14 @@ export function buildCity(map: CityMap): CityBuild {
         // every roof, road and stretch of water with a dark 1 px line on a
         // 16 px grid. That regular scratching is the first thing in the frame
         // that reads as an engine artefact rather than as art.
-        m.makeScale(TILE_SIZE + SEAM_OVERLAP, TILE_SIZE + SEAM_OVERLAP, h);
-        m.setPosition(
+        list.push(
+          TILE_SIZE + SEAM_OVERLAP,
+          TILE_SIZE + SEAM_OVERLAP,
+          h,
           (tx + 0.5) * TILE_SIZE,
           (ty + 0.5) * TILE_SIZE,
-          (span.top * Z_SCALE) - h / 2,
+          span.top * Z_SCALE - h / 2,
         );
-        list.push(m.clone());
         if (tile === T_BUILDING) heightAt[idx] = span.top * Z_SCALE;
       }
     }
@@ -570,15 +638,14 @@ export function buildCity(map: CityMap): CityBuild {
   // And one outline material for the whole city, for the same reason.
   const cityOutline = outlineMaterial(BUILDING_OUTLINE);
 
-  for (const [key, mats] of buckets) {
-    if (mats.length === 0) continue;
+  for (const [key, boxes] of buckets) {
+    if (boxes.count === 0) continue;
     const surface = surfaceOf.get(key) ?? DEFAULT_SURFACE;
-    const mesh = new THREE.InstancedMesh(box, materialFor(surface), mats.length);
+    const mesh = new THREE.InstancedMesh(box, materialFor(surface), boxes.count);
     mesh.castShadow = surface.solid === true;
     mesh.receiveShadow = true;
-    instances += mats.length;
-    mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
-    mesh.instanceMatrix.needsUpdate = true;
+    instances += boxes.count;
+    boxes.writeTo(mesh);
     group.add(mesh);
     // Outline the things that stand up. Outlining every ground tile would
     // draw a black grid over the whole city — the streets read as one
@@ -587,6 +654,7 @@ export function buildCity(map: CityMap): CityBuild {
     if (surface.solid) addOutline(mesh, group, BUILDING_OUTLINE, cityOutline);
   }
 
+  (globalThis as never as { __jt: string[] }).__jt?.push(`  instances ${instances}`);
   return { group, instances };
 }
 
@@ -612,9 +680,8 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
   const isBuilding = (tx: number, ty: number): boolean =>
     tx >= 0 && ty >= 0 && tx < W && ty < H && map.tiles[ty * W + tx] === T_BUILDING;
 
-  const parapets = new Map<number, THREE.Matrix4[]>();
-  const clutter = new Map<number, THREE.Matrix4[]>();
-  const m = new THREE.Matrix4();
+  const parapets = new Map<number, Boxes>();
+  const clutter = new Map<number, Boxes>();
   const LIP_H = 3.2;
   const LIP_W = 2.4;
 
@@ -633,9 +700,7 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
       const openE = !isBuilding(tx + 1, ty);
 
       const lip = (x: number, y: number, w: number, d: number): void => {
-        m.makeScale(w, d, LIP_H);
-        m.setPosition(x, y, top + LIP_H / 2);
-        intoChunk(parapets, tx, ty, m);
+        intoChunk(parapets, tx, ty, w, d, LIP_H, x, y, top + LIP_H / 2);
       };
       if (openN) lip(cx, cy - T / 2 + LIP_W / 2, T, LIP_W);
       if (openS) lip(cx, cy + T / 2 - LIP_W / 2, T, LIP_W);
@@ -646,17 +711,11 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
       if (openN || openS || openE || openW) continue;
       const roll = hash2(tx, ty, 61);
       if (roll > 0.86) {
-        m.makeScale(T * 0.5, T * 0.38, 6);
-        m.setPosition(cx, cy, top + 3);
-        intoChunk(clutter, tx, ty, m);
+        intoChunk(clutter, tx, ty, T * 0.5, T * 0.38, 6, cx, cy, top + 3);
       } else if (roll > 0.74) {
-        m.makeScale(T * 0.25, T * 0.25, 4);
-        m.setPosition(cx, cy, top + 2);
-        intoChunk(clutter, tx, ty, m);
+        intoChunk(clutter, tx, ty, T * 0.25, T * 0.25, 4, cx, cy, top + 2);
       } else if (roll > 0.68) {
-        m.makeScale(T * 0.36, T * 0.3, 2);
-        m.setPosition(cx, cy, top + 1);
-        intoChunk(clutter, tx, ty, m);
+        intoChunk(clutter, tx, ty, T * 0.36, T * 0.3, 2, cx, cy, top + 1);
       }
     }
   }
@@ -690,17 +749,14 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
   const at = (tx: number, ty: number): number =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
 
-  const rails = new Map<number, THREE.Matrix4[]>();
-  const m = new THREE.Matrix4();
+  const rails = new Map<number, Boxes>();
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       if (at(tx, ty) !== T_BRIDGE) continue;
       const cx = (tx + 0.5) * T;
       const cy = (ty + 0.5) * T;
       const rail = (x: number, y: number, w: number, d: number): void => {
-        m.makeScale(w, d, RAIL_H);
-        m.setPosition(x, y, RAIL_H / 2);
-        intoChunk(rails, tx, ty, m);
+        intoChunk(rails, tx, ty, w, d, RAIL_H, x, y, RAIL_H / 2);
       };
       if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, T, RAIL_W);
       if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, T, RAIL_W);
@@ -728,12 +784,9 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
   const w = map.widthTiles * TILE_SIZE;
   const h = map.heightTiles * TILE_SIZE;
   const OUT = 4096;
-  const m = new THREE.Matrix4();
-  const slabs: THREE.Matrix4[] = [];
+  const slabs = new Boxes();
   const slab = (x: number, y: number, sx: number, sy: number): void => {
-    m.makeScale(sx, sy, 8);
-    m.setPosition(x, y, -4);
-    slabs.push(m.clone());
+    slabs.push(sx, sy, 8, x, y, -4);
   };
   slab(w / 2, -OUT / 2, w + OUT * 2, OUT);
   slab(w / 2, h + OUT / 2, w + OUT * 2, OUT);
@@ -742,13 +795,12 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
   const mesh = new THREE.InstancedMesh(
     new THREE.BoxGeometry(1, 1, 1),
     groundMaterial(col('field', 0x2b3630), 0.2),
-    slabs.length,
+    slabs.count,
   );
   mesh.receiveShadow = true;
-  slabs.forEach((mm, i) => mesh.setMatrixAt(i, mm));
-  mesh.instanceMatrix.needsUpdate = true;
+  slabs.writeTo(mesh);
   group.add(mesh);
-  return slabs.length;
+  return slabs.count;
 }
 
 /**
@@ -761,17 +813,22 @@ function chunkKey(tx: number, ty: number): number {
   return Math.floor(ty / CHUNK_TILES) * 4096 + Math.floor(tx / CHUNK_TILES);
 }
 
-/** File a matrix under the chunk the tile that produced it sits in. */
+/** File a box under the chunk the tile that produced it sits in. */
 function intoChunk(
-  byChunk: Map<number, THREE.Matrix4[]>,
+  byChunk: Map<number, Boxes>,
   tx: number,
   ty: number,
-  m: THREE.Matrix4,
+  sx: number,
+  sy: number,
+  sz: number,
+  x: number,
+  y: number,
+  z: number,
 ): void {
   const key = chunkKey(tx, ty);
   let list = byChunk.get(key);
-  if (!list) byChunk.set(key, (list = []));
-  list.push(m.clone());
+  if (!list) byChunk.set(key, (list = new Boxes()));
+  list.push(sx, sy, sz, x, y, z);
 }
 
 /**
@@ -792,7 +849,7 @@ function intoChunk(
  */
 function addChunkedBoxes(
   group: THREE.Group,
-  byChunk: Map<number, THREE.Matrix4[]>,
+  byChunk: Map<number, Boxes>,
   color: number,
   outline: number,
 ): number {
@@ -802,16 +859,15 @@ function addChunkedBoxes(
   const box = new THREE.BoxGeometry(1, 1, 1);
   const material = toonMaterial(color);
   const shared = outlineMaterial(outline);
-  for (const mats of byChunk.values()) {
-    if (mats.length === 0) continue;
-    const mesh = new THREE.InstancedMesh(box, material, mats.length);
+  for (const boxes of byChunk.values()) {
+    if (boxes.count === 0) continue;
+    const mesh = new THREE.InstancedMesh(box, material, boxes.count);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mats.forEach((mm, i) => mesh.setMatrixAt(i, mm));
-    mesh.instanceMatrix.needsUpdate = true;
+    boxes.writeTo(mesh);
     group.add(mesh);
     addOutline(mesh, group, outline, shared);
-    total += mats.length;
+    total += boxes.count;
   }
   return total;
 }
