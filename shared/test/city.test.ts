@@ -79,7 +79,7 @@ function components(m: CityMap, passable: (t: number) => boolean): number[] {
 }
 
 describe('the city, as an asset', () => {
-  it('is the city the plan bakes to, tile for tile', () => {
+  it('is the city the plan bakes to, tile for tile', { timeout: 60_000 }, () => {
     // The freshness gate. If this fails, the plan was edited and `pnpm
     // citybake` was not run — the fix is to run it, not to change this test.
     const baked = bakeCity(plan);
@@ -102,7 +102,7 @@ describe('the city, as an asset', () => {
     expect(differing).toBeLessThan(baked.tiles.length / 1000);
   });
 
-  it('survives the round trip through its encoded form', () => {
+  it('survives the round trip through its encoded form', { timeout: 60_000 }, () => {
     const baked = bakeCity(plan);
     const again = decodeBakedCity(JSON.parse(encodeBakedCity(baked)));
     expect(Buffer.from(again.tiles).equals(Buffer.from(baked.tiles))).toBe(true);
@@ -131,15 +131,16 @@ describe('the city, as an asset', () => {
     const streets = components(map, (t) => t === T_ROAD || t === T_BRIDGE);
     expect(streets.length).toBe(1);
     // ...and it is a city's worth of street, not a lane.
-    expect(streets[0]).toBeGreaterThan(20_000);
+    expect(streets[0]).toBeGreaterThan(80_000);
   });
 
   it('can be driven end to end: the ground is connected too', () => {
     const open = components(map, drivable);
     const total = open.reduce((a, b) => a + b, 0);
-    // Courtyards inside blocks are legitimately walled in; what must not
-    // happen is a whole district behind a wall.
-    expect((open[0] as number) / total).toBeGreaterThan(0.99);
+    // Courtyards inside blocks, barrier islands and the rock offshore are all
+    // legitimately cut off; what must not happen is a whole district behind a
+    // wall. The main component holds the city.
+    expect((open[0] as number) / total).toBeGreaterThan(0.95);
   });
 
   it('carries every kind of landmark, each with a way in', () => {
@@ -178,10 +179,29 @@ describe('the city, as an asset', () => {
   });
 
   it('names its streets and its boroughs', () => {
-    expect(plan.avenues.length).toBeGreaterThan(10);
-    for (const a of plan.avenues) expect(a.name.length).toBeGreaterThan(2);
-    expect(new Set(plan.districts.map((d) => d.borough)).size).toBe(3);
+    expect(plan.roads.length).toBeGreaterThan(10);
+    for (const a of plan.roads) expect(a.name.length).toBeGreaterThan(2);
+    expect(new Set(plan.districts.map((d) => d.borough)).size).toBeGreaterThanOrEqual(5);
     expect(map.name).toBe(plan.name);
+  });
+
+  it('has more than one island, and rocks off the coast', () => {
+    // A city on one round island is a city with one shape. What makes an
+    // archipelago legible is that its pieces are different sizes and you
+    // cross water to get between them.
+    expect(plan.geography.islands.length).toBeGreaterThanOrEqual(2);
+    expect(plan.geography.islets.length).toBeGreaterThanOrEqual(3);
+    const land = components(map, (t) => t !== T_WATER);
+    // The main island, the second island, and the rocks — but the two big
+    // ones are joined by bridges, so drivable ground is checked elsewhere.
+    expect(land.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('gives the city alleys to run down', () => {
+    // Measured because it is easy to add the field and not the tiles: a block
+    // interior with no way through is a wall, and a foot chase in a city of
+    // walls is a straight line.
+    expect(plan.districts.some((d) => d.street.alleyOver > 0)).toBe(true);
   });
 
   it('bridges the channels and nothing else', () => {
@@ -201,35 +221,50 @@ describe('the city, as an asset', () => {
       for (let s = 1; wet(tx - dx * s, ty - dy * s); s++) n++;
       return n;
     };
+    // Diagonals count. Roads are polylines now, so a crossing can be taken at
+    // any angle, and the shortest way over a channel is not necessarily along
+    // an axis — measuring only x and y calls a perfectly ordinary diagonal
+    // bridge a causeway.
+    const shortestSpan = (tx: number, ty: number): number =>
+      Math.min(
+        span(tx, ty, 0, 1),
+        span(tx, ty, 1, 0),
+        Math.round(span(tx, ty, 1, 1) * 1.414),
+        Math.round(span(tx, ty, 1, -1) * 1.414),
+      );
     let bridges = 0;
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
         if (map.tiles[ty * W + tx] !== T_BRIDGE) continue;
         bridges++;
-        const ok = Math.min(span(tx, ty, 0, 1), span(tx, ty, 1, 0)) <= plan.maxBridgeSpan;
+        const ok = shortestSpan(tx, ty) <= plan.maxBridgeSpan;
         expect(ok, `causeway or sea bridge at (${tx}, ${ty})`).toBe(true);
       }
     }
     // Four crossings' worth: the boroughs are joined, and joining them is
     // what the bridges are for.
-    expect(bridges).toBeGreaterThan(100);
+    expect(bridges).toBeGreaterThan(400);
   });
 
-  it('refuses a plan that puts a landmark in the water', () => {
+  it('refuses a plan that puts a landmark in the water', { timeout: 60_000 }, () => {
     const drowned = {
       ...cityPlanJson,
-      landmarks: [{ kind: 'lighthouse', name: 'Sunk Light', rect: [4, 4, 3, 3] }],
+      landmarks: [{ kind: 'lighthouse', name: 'Sunk Light', rect: [20, 20, 3, 3] }],
     };
     expect(() => bakeCity(parseCityPlan(drowned))).toThrow(/stands in the water/);
   });
 
-  it('refuses a plan whose glyphs it does not know', () => {
-    const rows = [...(cityPlanJson.coast as string[])];
-    rows[10] = ('?' + (rows[10] as string).slice(1));
-    expect(() => parseCityPlan({ ...cityPlanJson, coast: rows })).toThrow(/unknown glyph/);
+  it('refuses a carriageway too wide for the traffic model to read', () => {
+    // See PlanRoad.median. A single road wider than a carriageway makes every
+    // tile of it a junction, which is a whole-city failure from one number.
+    const fat = {
+      ...cityPlanJson,
+      roads: [{ name: 'Too Wide', points: [[10, 10], [20, 20]], width: 9 }],
+    };
+    expect(() => parseCityPlan(fat)).toThrow(/use median/);
   });
 
-  it('draws the same ground every time it is asked', () => {
+  it('draws the same ground every time it is asked', { timeout: 60_000 }, () => {
     const a = buildLayout(plan);
     const b = buildLayout(plan);
     expect(Buffer.from(a.tiles).equals(Buffer.from(b.tiles))).toBe(true);

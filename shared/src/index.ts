@@ -37,6 +37,7 @@ export * from './world/heights.js';
 export * from './world/volume.js';
 export * from './world/collide3.js';
 export * from './world/params.js';
+export * from './world/amenities.js';
 export * from './world/generate.js';
 export * from './world/plan.js';
 export * from './world/layout.js';

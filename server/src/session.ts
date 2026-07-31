@@ -14,6 +14,7 @@ import {
   TILE_SIZE,
   createGameState,
   crowdScale,
+  areaScale,
   generateCity,
   step,
   takeSnapshot,
@@ -21,8 +22,17 @@ import {
 } from 'shared';
 
 const INPUT_QUEUE_MAX = 60;
-/** How many parked cars a session starts with. */
-const MAX_VEHICLES = 48;
+/**
+ * How many parked cars a session starts with, and how many pedestrians are
+ * out, per NOMINAL 384x384 city. Both scale with the map's area.
+ *
+ * They were flat counts, which was fine while there was one map size. On a
+ * city four times the area, forty-eight parked cars is one every three
+ * hundred metres and two hundred pedestrians is a ghost town — the same city,
+ * spread thinner, which is the opposite of what a bigger map is for.
+ */
+const VEHICLES_PER_CITY = 48;
+const PEDS_PER_CITY = 200;
 
 /**
  * Spawn commands a reseed may issue on one tick.
@@ -269,7 +279,7 @@ export class Session {
       ),
     }));
     ranked.sort((a, b) => a.key - b.key);
-    return ranked.slice(0, MAX_VEHICLES).map((r) => r.spot);
+    return ranked.slice(0, Math.round(VEHICLES_PER_CITY * areaScale(this.map))).map((r) => r.spot);
   }
 
   /**
@@ -347,7 +357,7 @@ export class Session {
 
     // The crowds. Evenly sampled from the dense sidewalk spawn list.
     const pedSpawns = this.map.pedSpawns;
-    const count = Math.min(this.options.pedCount, pedSpawns.length);
+    const count = Math.min(Math.round(this.options.pedCount * areaScale(this.map)), pedSpawns.length);
     const stride = count > 0 ? Math.max(1, Math.floor(pedSpawns.length / count)) : 1;
     for (let i = 0; i < count; i++) {
       const spot = pedSpawns[(i * stride) % pedSpawns.length];
@@ -469,7 +479,7 @@ export class Session {
       this.worldgen.nightCrowdScale,
     );
     const target = Math.min(
-      Math.round(this.options.pedCount * scale),
+      Math.round(this.options.pedCount * areaScale(this.map) * scale),
       this.map.pedSpawns.length,
     );
     // Spawns already queued have not reached the sim yet, so they must count

@@ -26,7 +26,7 @@ import { assignGoto, isAiDriver, stepTrafficPanic } from '../src/sim/traffic.js'
 import { CARDINALS, nearestCardinal, planRoute } from '../src/sim/roadgrid.js';
 import { junctionAt, signalColour, stopLineGap } from '../src/sim/signals.js';
 import { gangAt } from '../src/world/turf.js';
-import { straightEastLane } from './helpers.js';
+import { fromSpawnPx, straightEastLane } from './helpers.js';
 import { hashState } from '../src/net/hash.js';
 import { HALF_PI, wrapAngle } from '../src/math/trig.js';
 import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE } from '../src/world/types.js';
@@ -634,11 +634,20 @@ describe('carjacking', () => {
 describe('errand driving (goto)', () => {
   /** Two kerbside points a real journey apart, from the map's own spawn list. */
   function journey(minDist = 800, maxDist = 1600): { from: { x: number; y: number }; to: { x: number; y: number } } {
-    const spawns = map.vehicleSpawns;
+    // Both ends near where players start, and both on the same piece of the
+    // road network. The city is an archipelago: the first two kerbs a
+    // journey apart in scan order can be on opposite sides of a sound with
+    // no crossing between them, and "the errand never arrived" is then a
+    // fact about the map rather than about errand driving.
+    const spawns = [...map.vehicleSpawns].sort(
+      (a, b) => fromSpawnPx(map, a.x, a.y) - fromSpawnPx(map, b.x, b.y),
+    );
     for (const a of spawns) {
       for (const b of spawns) {
         const d = Math.hypot(b.x - a.x, b.y - a.y);
-        if (d >= minDist && d <= maxDist) return { from: a, to: b };
+        if (d < minDist || d > maxDist) continue;
+        if (!planRoute(map, a.x, a.y, b.x, b.y)) continue;
+        return { from: a, to: b };
       }
     }
     throw new Error('no spawn pair a journey apart on this map');

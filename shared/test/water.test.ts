@@ -135,6 +135,18 @@ describe('the river', () => {
       for (let s = 1; wet(m, tx - dx * s, ty - dy * s); s++) n++;
       return n;
     };
+    // Measured along the diagonals as well as the axes. Roads are polylines
+    // now, so a crossing is taken at whatever angle the road happens to be
+    // travelling, and the shortest way over the water is not necessarily
+    // along an axis — an axis-only test calls an ordinary diagonal bridge a
+    // causeway.
+    const shortest = (m: typeof map, tx: number, ty: number): number =>
+      Math.min(
+        span(m, tx, ty, 0, 1),
+        span(m, tx, ty, 1, 0),
+        Math.round(span(m, tx, ty, 1, 1) * 1.414),
+        Math.round(span(m, tx, ty, 1, -1) * 1.414),
+      );
     const max = plan.maxBridgeSpan;
     for (const seed of [1, 7, 42, 1234, 90210]) {
       const m = generateCity(seed, params);
@@ -145,7 +157,7 @@ describe('the river', () => {
           // the edge, which reads as "short" — skip the ambiguity.
           if (tx < max || ty < max || tx >= m.widthTiles - max || ty >= m.heightTiles - max)
             continue;
-          const ok = Math.min(span(m, tx, ty, 0, 1), span(m, tx, ty, 1, 0)) <= max;
+          const ok = shortest(m, tx, ty) <= max;
           expect(ok, `seed ${seed}: causeway/sea bridge at (${tx}, ${ty})`).toBe(true);
         }
       }

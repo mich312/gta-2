@@ -11,6 +11,7 @@ import economyJson from '../../shared/data/economy.json';
 import {
   type GameState,
   createGameState,
+  areaScale,
   generateCity,
   initTuning,
   parseWorldgenParams,
@@ -48,7 +49,9 @@ describe('hidden packages (L2)', () => {
     // A package you cannot reach is worse than no package at all — this is
     // the assertion that was expected to fail during development, and the
     // reason placement prefers enclosed tiles rather than solid ones.
-    expect(map.packages.length).toBe(worldgenJson.packageCount);
+    // `packageCount` is per nominal city; the count scales with the map's
+    // area like every other ambient budget.
+    expect(map.packages.length).toBe(Math.round(worldgenJson.packageCount * areaScale(map)));
     for (const at of map.packages) {
       expect(boxInSolid(map, at, 5), `${at.x},${at.y}`).toBe(false);
     }

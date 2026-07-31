@@ -1,5 +1,78 @@
 # PROGRESS
 
+## The drawn city, reviewed and redrawn: an island four times the size
+
+The first drawn city (below) replaced the generator and was still, visibly, a
+drawing. Three reviewers — a level designer, an urban geographer and an engine
+engineer — were pointed at it, and between them said the same thing three
+ways. `WORLDGEN.md` §12.7 records what each found; this is what it cost.
+
+**The map.** 384×384 → **768×768 tiles** (12288 px, four times the area, about
+a minute corner to corner at top speed). Not a rectangle of land any more: one
+long island split by a tidal strait, a second island across a sound, a spit
+round a lagoon, barrier islands, a rock stack. Five boroughs, eight crossings.
+
+**Coastline.** The killer observation was that a coast drawn on an eight-tile
+grid has power at exactly two scales and a real one has power at every scale.
+The plan holds OUTLINES now; the rasteriser builds a signed distance field and
+displaces the *sample point* by a four-octave vector warp (wavelengths
+256/128/64/32, amplitudes 40/20/10/5 — amplitude/wavelength ≈ 0.15 is the whole
+trick). Plus one asymmetry worth more than another octave: the swell comes from
+one direction, so the shore facing it is planed straight and the lee keeps its
+inlets, and the same number decides where sand collects.
+
+**Density.** Measured on the first draft: 31% of dry land was carriageway and
+9% was building; downtown itself was 13% built against 28% bare dirt. A block
+was a kerb ring with detached three-tile sheds scattered inside. Blocks are
+built as street FRONTAGE now — shoulder-to-shoulder units four to six deep with
+a yard behind, and a per-borough density deciding how often the ring breaks.
+Building share of dry land 9% → 15.5%. Alleys exist, per borough.
+
+**Two real bugs, both found by drawing curved roads.** `signals.isJunctionTile`
+calls tarmac that is over-wide across both axes a junction; a four-tile road at
+45° measures nearly six across both, so every diagonal road was a junction and
+the ring carried 333 signal heads. The span test measures four directions now —
+two axes and two diagonals — and asks whether the tile is narrow in *any* of
+them. Second: a bridge was judged by the water span along whatever heading the
+road had when it left the bank, and a curved road crossing a harbour has a
+segment somewhere pointing along the water — it laid a hundred-tile causeway
+out to sea. Bridges are checked after the fact, over four directions.
+
+Two rules came with them: a connected junction over twenty tiles is a plaza,
+not a signalled junction (many ways in, no phase that governs them), and
+exactly one head is kept per junction per cardinal rather than trusting a local
+kerb test that only ever gave one per arm on a grid.
+
+**Scaling.** `planRoute` allocated 5 MB per call and cleared two of the three
+arrays before looking at a tile, five to fifteen times a second; it reuses one
+working set with a generation stamp and has an expansion cap, because a route
+to somewhere unreachable used to exhaust the whole network mid-tick. Ambulance
+dispatch planned a route per improving candidate; it sorts by distance and
+plans once. Every ambient budget was a flat count — 48 cars, 200 pedestrians,
+400 props, 100 packages — which on four times the ground is an emptier city,
+not a bigger one; they are rates per nominal 384² city now, scaled by area.
+
+**Deferred, and said out loud:** grade separation (road over road) is the
+biggest missing chase primitive and needs a new tile type through collision,
+the volume grid and both renderers. One-way systems need direction in the
+traffic model. The engine reviewer's client-side list — instance matrices as
+`Float32Array` rather than `THREE.Matrix4[]`, the volume grid's span
+intermediate, chunked scenery, an off-thread join — is real and unaddressed;
+the join sequence is the first thing that will hurt on a slow machine.
+
+**Test fallout: 49 of 789.** Most were fixtures pinned to a map that no longer
+exists — hard-coded coordinates that are now open sea, scans that assumed an
+axis-aligned grid, counts that assumed a flat ambient budget. Two were real
+regressions in my own new code and are worth naming: the reused A* scratch is
+never cleared, so reconstructing a path by walking `cameFrom` until -1 walked
+into a previous search; and boroughs are polygons that abut, so their lattices
+produce overlapping blocks, and one block's park pond was being carved through
+the terrace the block next door had already built — leaving a Building record
+whose tiles were open water.
+
+789 tests green; six bots, twenty-five seconds, zero desyncs.
+
+
 ## The map generator is replaced by one drawn city
 
 `WORLDGEN.md` §12 is the design; this is what it cost and what it fixed.

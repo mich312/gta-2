@@ -2,8 +2,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   bakeCity,
+  buildLayout,
   encodeBakedCity,
   parseCityPlan,
+  T_BANK,
   T_BRIDGE,
   T_BUILDING,
   T_FLOOR,
@@ -219,8 +221,62 @@ function check(city: BakedCity): Problem[] {
   return problems;
 }
 
+/**
+ * `--fit`: for every landmark the plan puts somewhere it will not go, name the
+ * nearest block that would hold it.
+ *
+ * Placing two dozen buildings on a 768-tile island by eye means missing, and
+ * the bake is right to refuse a hospital built across a street. This turns
+ * that refusal into an edit you can paste back into the plan, which is the
+ * difference between a strict validator and a usable one.
+ */
+function fit(plan: ReturnType<typeof parseCityPlan>): void {
+  const layout = buildLayout(plan);
+  const W = layout.widthTiles;
+  const clear = (x: number, y: number, w: number, h: number): boolean => {
+    for (let ty = y; ty < y + h; ty++) {
+      for (let tx = x; tx < x + w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= layout.heightTiles) return false;
+        const t = layout.tiles[ty * W + tx] as number;
+        if (t === T_ROAD || t === T_BRIDGE || t === T_WATER || t === T_BANK || t === T_SAND) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  let bad = 0;
+  for (const l of plan.landmarks) {
+    const [lx, ly, lw, lh] = l.rect;
+    if (clear(lx, ly, lw, lh)) continue;
+    bad++;
+    let best: [number, number] | null = null;
+    let bestD = Infinity;
+    for (const b of layout.blocks) {
+      if (b.w - 2 < lw || b.h - 2 < lh) continue;
+      const x = b.x + 1 + Math.floor((b.w - 2 - lw) / 2);
+      const y = b.y + 1 + Math.floor((b.h - 2 - lh) / 2);
+      if (!clear(x, y, lw, lh)) continue;
+      const d = Math.abs(x - lx) + Math.abs(y - ly);
+      if (d < bestD) {
+        bestD = d;
+        best = [x, y];
+      }
+    }
+    console.log(
+      `  MOVE  ${l.name.padEnd(22)} [${lx}, ${ly}, ${lw}, ${lh}] -> ` +
+        (best ? `[${best[0]}, ${best[1]}, ${lw}, ${lh}]  (${bestD} tiles)` : 'NO BLOCK FITS IT'),
+    );
+  }
+  console.log(`  ${plan.landmarks.length - bad} of ${plan.landmarks.length} landmarks already fit`);
+}
+
 function main(): void {
   const plan = parseCityPlan(JSON.parse(readFileSync(PLAN, 'utf8')));
+  if (process.argv.includes('--fit')) {
+    fit(plan);
+    return;
+  }
   const t0 = performance.now();
   const city = bakeCity(plan);
   const ms = performance.now() - t0;
@@ -230,7 +286,10 @@ function main(): void {
   const pct = (t: number): string =>
     `${(((counts.get(t) ?? 0) / city.tiles.length) * 100).toFixed(1)}%`;
 
+  const land = city.tiles.length - (counts.get(T_WATER) ?? 0);
+  const ofLand = (t: number): string => `${(((counts.get(t) ?? 0) / land) * 100).toFixed(1)}%`;
   console.log(`${city.name}: ${city.widthTiles}x${city.heightTiles} tiles, baked in ${ms.toFixed(0)}ms`);
+  console.log(`  of dry land: road ${ofLand(T_ROAD)}  building ${ofLand(T_BUILDING)}  bare ${ofLand(0)}`);
   console.log(
     `  road ${pct(T_ROAD)}  pavement ${pct(T_SIDEWALK)}  building ${pct(T_BUILDING)}  ` +
       `lot ${pct(T_LOT)}  park ${pct(T_PARK)}  water ${pct(T_WATER)}  sand ${pct(T_SAND)}`,

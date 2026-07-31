@@ -133,6 +133,9 @@ pnpm citybake                               # draw the city from city-plan.json,
                                             #   check it, and freeze it into
                                             #   shared/src/world/city.data.ts
 pnpm citybake --check                       # check it without writing (CI)
+pnpm citybake --fit                         # for every landmark the plan puts
+                                            #   somewhere it will not go, name
+                                            #   the nearest block that fits
 pnpm mapgen                                 # render the city to PNG, no game
 pnpm chase                                  # the chase bench: escape rate + survival time
                                             #   per star level, over several seeds

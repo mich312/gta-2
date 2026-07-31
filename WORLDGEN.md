@@ -941,18 +941,27 @@ Three lessons, and we took all three:
 ### 12.3 The design
 
 **Anywhere City** — the name is GTA 2's, and the debt is acknowledged; the
-city is our own. 384×384 tiles, 6144×6144 px, about 2.6× the area of the old
-window. Three boroughs:
+city is our own. **768×768 tiles, 12288×12288 px**: four times the area of the
+first draft and about ten times the old generated window. Roughly a minute
+corner to corner at a fast car's top speed.
+
+An archipelago, not a rectangle. One long island on a NNE–SSW axis, split
+across its middle by a tidal strait open to the sea at both ends; a second
+island across a narrow sound to the west; a spit hooking round a lagoon in the
+south-east; barrier islands off the south shore and a rock stack off the west.
 
 | Borough | Character | Holds |
 | --- | --- | --- |
-| **Port Vasco** (NW island) | Docks and heavy industry: 26-tile block pitch, big lots, a harbour cut into the east shore | Kessler Power, Greyhill Quarry, Harbour Precinct, Riverside Infirmary |
-| **Ravenhill** (NE island) | Downtown: 17×13 pitch, long north–south avenues, short east–west streets, a park in the middle | Vantage Tower, 1st Precinct, Mercy General, Ravenhill Park |
-| **Sunridge** (S mainland) | Waterfront commercial, suburbs behind it, open country and beach below | Ironside Stadium, St. Brannoch, Kelvin Road Station, Marsh End Airfield, Pinewatch Camp, Hollis Farm, Old Point Light |
+| **Kelvin** (north bank, east) | The old quarter round the harbour — 11×9 pitch, alleys, the tightest streets in the city — and the financial spine behind it | Vantage Tower, The Spire, Halloran Building, 1st Precinct, Mercy General |
+| **Ravenhill** (north bank, west) | Nineteenth-century commercial grid, the park, terraces climbing from the water | Ravenhill Park, St. Brannoch, Ironside Stadium |
+| **Sunridge** (south bank) | Seafront, then suburbs loosening as they go inland: 16×13 at the front, 23×18 at the edge | The Bowl, Seaview Infirmary, Kelvin Road Station, Sunridge Park |
+| **Marsh End** (south-east) | Flats and coast road, the airfield, the country destinations | Marsh End Airfield, Hollis Farm, Pinewatch Camp, Old Point Light |
+| **Port Vasco** (west island) | Docks and foundry across the sound, with the housing that serves them | Kessler Power, Greyhill Quarry, Harbour Precinct, Riverside Infirmary |
 
-Four bridges: two east–west across the channel between the islands (Harbour
-Road and Vasco Avenue), two north–south to the mainland (Ironside Way and
-Fifth Avenue).
+Crossings, and there are eight of them, because on an archipelago the question
+"which bridge" is the interesting one: three over the strait (Kelvin Bridge,
+Old Bridge, Marsh Causeway), two over the sound to Port Vasco, and the ring
+road's own two crossings.
 
 ### 12.4 The pipeline
 
@@ -974,21 +983,25 @@ shared/src/world/city.data.ts   frozen, committed      (RLE + base64, ~118 kB)
 
 The plan is four things, all of them editable by a person:
 
-1. **The coast**, as a 48×48 picture at one character per eight tiles: `~` sea,
-   `#` land. The rasteriser rounds convex corners, fills concave ones and wears
-   each straight run back by nought to two tiles from a hash of its own chunk —
-   so the shore is ragged and identical every time, and an edit to one island
-   cannot move the shore of another.
-2. **The boroughs**, as rectangles carrying a district type and a street pitch.
-   Different pitches per borough is most of what makes them read differently;
-   where two pitches meet you get the T-junctions a real city has where one
-   grid was laid out against another.
-3. **The avenues**, as named lines with a width. An avenue crossing water
-   becomes a bridge where the far bank is within `maxBridgeSpan`, and simply
-   stops at the quay where it is not — the same rule as before, but now it is
-   applied to lines somebody drew.
+1. **The geography**: islands and bays as OUTLINES, rivers and spits as
+   courses that are meandered before they are cut, lagoons, islets, and the
+   swell direction. Nothing in it is drawn at tile resolution — the outline is
+   the intent and the warp supplies the detail (§12.7).
+2. **The boroughs**, as polygons carrying a district type, a street pitch, a
+   built density and an alley threshold. Polygons rather than rectangles so a
+   borough can follow a shoreline; different pitches so they read differently;
+   a density so a downtown wall and a loose suburb come out of one filler.
+3. **The roads**, as named polylines with a width, optionally smoothed into
+   curves and optionally dual-carriageway. A road crossing water becomes a
+   bridge where the far bank is within `maxBridgeSpan` — measured afterwards,
+   over four directions, because a curved road has a segment somewhere that
+   points along the water instead of over it and will happily lay a
+   hundred-tile causeway out to sea if you let it.
 4. **The landmarks**, each at a chosen rectangle, with a per-kind recipe for
-   the ground it stands on and the apron that fills the rest of its block.
+   the ground it stands on and the apron round it. `pnpm citybake --fit` names
+   the nearest block that would hold one the plan has put somewhere it will
+   not go, which is how two dozen buildings get placed on a 768-tile island
+   without doing it by eye twenty-three times.
 
 Three things the bake does that the generator could not:
 
@@ -1031,7 +1044,95 @@ world bound — are answered by not having many cities. Turf is a partition of
 one map. You wake up at the nearest hospital, and every hospital is a place
 you have been. The world bound is the coastline.
 
-### 12.7 Changing the city
+### 12.7 The review, and the second draft
+
+The first drawn city was reviewed by three people wearing different hats — a
+level designer, an urban geographer and an engine engineer. Between them they
+said one thing three ways: **it was better than the generator and it was still
+a drawing.** What follows is what each of them found and what was done, because
+the findings are the design rationale.
+
+**The geographer: "convex blobs with chamfered corners."** The coast picture
+had power at exactly two scales — the eight-tile grid it was drawn on, and a
+two-tile hashed erosion — and a real coast has power at every scale, which is
+the whole content of the how-long-is-a-coastline result. Nothing on it was
+re-entrant: no bay, no headland, no spit, no island. Both water bodies were
+constant-width straight channels. The fix, and it is exactly what they
+prescribed: the shape is authored as an OUTLINE, rasterised to a signed
+distance field, and the SAMPLE POINT is displaced by a four-octave vector warp
+— wavelengths 256/128/64/32 tiles, amplitudes 40/20/10/5. The ratio
+amplitude/wavelength ≈ 0.15 is the whole trick; below 0.08 the island stays a
+blob and above 0.3 it frays into confetti. Warping the sample point rather
+than the threshold is what keeps the authored silhouette while making its edge
+sinuous all the way down.
+
+Their second point earned its keep more than another octave would have: make
+it **directional**. The swell comes from one place, so the shore facing it is
+planed straight and the shore in its lee keeps its inlets. `geography.swell`
+is one vector and the warp is damped by the shore normal's dot product with
+it; the same number decides where sand collects, because sand is a low-energy
+deposit and an exposed headland gets rock.
+
+**The level designer: "a road network with confetti on it, not a city."** They
+measured it: 31% of dry land was carriageway and only 9% was building, and
+downtown — the densest district on the map — was 13% built against 28% bare
+dirt. A city block had been a sidewalk ring with detached three-tile sheds
+scattered inside it. Blocks are built as FRONTAGE now: shoulder-to-shoulder
+units four to six deep facing the street, with a yard behind reached through a
+gap, and how often the ring breaks is per-borough (`density`). Building share
+of dry land went 9% → 15.5%, and downtown reads as a wall from a car.
+
+They also counted **fifty dead-end road tiles in thirty-two thousand**, no
+alleys at all, and one road width for the entire map. Alleys are a borough
+setting now (`street.alleyOver`) and every dense borough has them. Road
+hierarchy is three levels: a dual-carriageway ring, four-lane arterials,
+three-lane streets, two-lane alleys.
+
+**The engine engineer: numbers, mostly about the join.** `planRoute` allocated
+three typed arrays per call — five megabytes at this size — and cleared two of
+them before looking at a single tile, at five to fifteen calls a second. It
+reuses one working set with a generation stamp now, and has an expansion cap,
+because a route to somewhere the roads do not reach used to exhaust the entire
+network mid-tick. Ambulance dispatch planned a route for every candidate that
+beat the best distance so far; it sorts first and plans once. And every ambient
+budget in the game was a flat count — 48 parked cars, 200 pedestrians, 400
+props, 100 packages — which on four times the ground is not a bigger city but
+an emptier one. They are rates per nominal 384² city now, scaled by area.
+
+**What was deferred, and honestly.** Grade separation — road over road, tunnels
+and flyovers — is the single biggest missing chase primitive and it needs a new
+tile type through collision, the volume grid and both renderers. One-way
+systems need the traffic model to carry direction. Neither is in this pass. The
+client-side items on the engineer's list (instance matrices built as
+`Float32Array` rather than `THREE.Matrix4[]`, the volume grid's span
+intermediate, chunked scenery, an off-thread join) are real and unaddressed:
+the join sequence is the first thing that will hurt on a slow machine.
+
+### 12.8 Why the roads are the width they are
+
+`sim/signals.ts` calls tarmac that is over-wide across every direction a
+junction — which is right, because a plaza IS a junction — and the threshold is
+four tiles. Two consequences fell out of drawing roads as polylines:
+
+1. **No single carriageway may exceed four tiles.** An eight-lane road makes
+   every tile of itself a junction; the first attempt gave the ring road one
+   junction with 333 signal heads on it. A motorway is therefore built the way
+   a motorway is actually built: two carriageways with a reservation between
+   them (`PlanRoad.median`), which the traffic model reads as two roads and the
+   eye reads as a motorway. `parseCityPlan` refuses anything wider.
+2. **The junction test had to stop being axis-aligned.** A four-tile road at
+   forty-five degrees measures nearly six tiles across both axes, so the old
+   test called every diagonal road a junction. It measures the narrowest span
+   over four directions — two axes and two diagonals — and asks whether the
+   tile is narrow in ANY of them.
+
+Two smaller rules came with them. A connected patch of junction over twenty
+tiles is a plaza, not a signalled junction: many ways in, no phase that governs
+them, left unlabelled. And exactly one signal head is kept per junction per
+cardinal, rather than trusting a local kerb test that only ever gave one per
+arm on a grid.
+
+### 12.9 Changing the city
 
 ```bash
 $EDITOR shared/data/city-plan.json

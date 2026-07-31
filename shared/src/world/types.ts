@@ -84,10 +84,16 @@ export interface BlockRect {
   h: number;
   district: DistrictType;
   /**
-   * Open country between cities: lane-scale subdivision, no sidewalk ring,
-   * meadow-and-forest fill instead of an urban block interior.
+   * Open country: lane-scale subdivision, no sidewalk ring, meadow-and-forest
+   * fill instead of an urban block interior.
    */
   rural?: boolean;
+  /**
+   * How solidly this block's borough is built up, 0..1. Drives how often the
+   * street frontage is allowed to break — a downtown wall barely does, a
+   * suburb is mostly gaps.
+   */
+  density?: number;
 }
 
 /** Crate kinds worldgen scatters. Frenzies are placed by their own pass. */

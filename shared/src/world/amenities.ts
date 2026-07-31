@@ -61,8 +61,27 @@ function placeHash(streamSeed: number, a: number, b: number): number {
   return Math.floor(latticeHash(streamSeed, a, b) * 0x1000000);
 }
 
-/** Street furniture the wire can afford, across the whole city. */
-const MAX_PROPS = 400;
+/**
+ * The nominal city these budgets were tuned against, in tiles. Everything
+ * below scales with the map's area against it.
+ *
+ * Written as a rate rather than a count because the map grew four-fold and
+ * every one of these was a constant: the same two hundred pedestrians, the
+ * same four hundred props and the same forty-eight parked cars spread over
+ * four times the ground is not a bigger city, it is an emptier one.
+ */
+const NOMINAL_TILES = 384 * 384;
+
+/** Scale a budget tuned for the nominal city to this map's area. */
+export function areaScale(map: { widthTiles: number; heightTiles: number }): number {
+  return (map.widthTiles * map.heightTiles) / NOMINAL_TILES;
+}
+
+/** Street furniture the wire can afford, per nominal city. */
+const PROPS_PER_CITY = 400;
+/** Moorings and crates: both are spawned in full, so both are capped. */
+const BOATS_PER_CITY = 230;
+const PICKUPS_PER_CITY = 305;
 
 const SHOP_DISTRICTS: Record<ShopKind, DistrictType[]> = {
   gun: ['industrial', 'commercial', 'downtown'],
@@ -424,7 +443,7 @@ export function placeParking(map: CityMap, params: WorldgenParams): void {
  * reach is worse than no package at all — there is a test.
  */
 export function placePackages(map: CityMap, params: WorldgenParams): void {
-  const want = params.packageCount;
+  const want = Math.round(params.packageCount * areaScale(map));
   if (want <= 0) return;
   const open = (tx: number, ty: number): boolean => {
     const tile = t(map, tx, ty);
@@ -498,8 +517,8 @@ export function placePedSpawns(map: CityMap): void {
  * Street furniture (phase 8): lamps on kerbside sidewalk tiles, bins against
  * building walls, fences along park edges. Deterministic row-major sampling.
  */
-/** How many explosive barrels a city gets, whatever else it is full of. */
-const BARREL_BUDGET = 60;
+/** How many explosive barrels a city gets, per nominal city. */
+const BARRELS_PER_CITY = 60;
 
 export function placeProps(map: CityMap): void {
   const props: CityMap['propSpawns'] = [];
@@ -589,10 +608,12 @@ export function placeProps(map: CityMap): void {
   // that put every lamp post, bin and fence in the city into its top few
   // blocks and left the other 80% of the map with no street furniture and no
   // street lighting at all.
-  const furnitureCap = MAX_PROPS - BARREL_BUDGET;
+  const scale = areaScale(map);
+  const barrels_ = Math.round(BARRELS_PER_CITY * scale);
+  const furnitureCap = Math.round(PROPS_PER_CITY * scale) - barrels_;
   // Barrels get their own reserved slice, spread the same way so they are
   // across the industrial districts rather than piled in the first.
-  map.propSpawns = spread(props, furnitureCap).concat(spread(barrels, BARREL_BUDGET));
+  map.propSpawns = spread(props, furnitureCap).concat(spread(barrels, barrels_));
 }
 
 /** Roughly how much street there is around a tile, in a seven-square box. */
@@ -890,7 +911,9 @@ export function placePickups(map: CityMap): void {
       });
     }
   }
-  map.pickupSpawns = spawns;
+  // Capped for the same reason the moorings are: every crate is a live sim
+  // entity from the first tick.
+  map.pickupSpawns = spread(spawns, Math.round(PICKUPS_PER_CITY * Math.sqrt(areaScale(map))));
 }
 
 
@@ -949,7 +972,11 @@ export function placeBoatSpawns(map: CityMap): void {
       });
     }
   }
-  map.boatSpawns = spawns;
+  // Bounded, unlike the point lists that only feed other passes: the session
+  // spawns every one of these as a live entity, and the snapshot ring clones
+  // every live entity thirty times a second. Density still rises with the
+  // map — just not linearly, and never past what a tick can carry.
+  map.boatSpawns = spread(spawns, Math.round(BOATS_PER_CITY * Math.sqrt(areaScale(map))));
 }
 
 /**

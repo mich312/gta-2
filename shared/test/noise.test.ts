@@ -96,9 +96,13 @@ describe('weapon noise (M2)', () => {
         [0, 1],
         [0, -1],
       ] as const) {
-        for (let s = 2; s <= 10; s++) {
+        for (let s = 2; s <= 16; s++) {
           if (map.tiles[(ty0 + dy * s) * map.widthTiles + (tx0 + dx * s)] !== T_BUILDING) continue;
-          for (let s2 = s + 1; s2 <= s + 6 && s2 <= 13; s2++) {
+          // Twelve tiles of wall to look through, not six: a city block is a
+          // ring of frontage five or six deep now, so an officer standing
+          // behind the building opposite is further behind it than they used
+          // to be.
+          for (let s2 = s + 1; s2 <= s + 12 && s2 <= 22; s2++) {
             const tx = tx0 + dx * s2;
             const ty = ty0 + dy * s2;
             const tile = map.tiles[ty * map.widthTiles + tx];

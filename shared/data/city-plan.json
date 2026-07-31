@@ -1,245 +1,1652 @@
 {
-    "name": "Anywhere City",
-    "note": "The authored source of the one city. Hand-written; expanded by shared/src/world/layout.ts and frozen into shared/data/city.json by `pnpm citybake`. See WORLDGEN.md section 12.",
-    "chunkTiles": 8,
-    "maxBridgeSpan": 32,
-    "coast": [
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~#################~~~~~",
-        "~~~###############~~~~~~#####################~~~",
-        "~~#################~~~~#######################~~",
-        "~##################~~~########################~~",
-        "~##################~~~#########################~",
-        "~##################~~~#########################~",
-        "~##################~~~#########################~",
-        "~##################~~~#########################~",
-        "~##################~~~#########################~",
-        "~##################~~~#########################~",
-        "~##################~~~#########################~",
-        "~##############~~~~~~~#########################~",
-        "~#############~~~~~~~~#########################~",
-        "~#############~~~~~~~~########################~~",
-        "~~#############~~~~~~~#######################~~~",
-        "~~~##############~~~~~~####################~~~~~",
-        "~~~~~#############~~~~~~#################~~~~~~~",
-        "~~~~~~~~#########~~~~~~~~~############~~~~~~~~~~",
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
-        "~~~~~~~~~~#####~~~~####################~~~~~~~~~",
-        "~~~~~~#########~~~~#######################~~~~~~",
-        "~~~~########################################~~~~",
-        "~~############################################~~",
-        "~###########################~~~~###############~",
-        "~###########################~~~~###############~",
-        "~###########################~~~~###############~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~##############################################~",
-        "~#############################################~~",
-        "~~###########################################~~~",
-        "~~~#########################################~~~~",
-        "~~~~~#####################################~~~~~~",
-        "~~~~~~~~##############################~~~~~~~~~~",
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
-        "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+  "name": "Anywhere City",
+  "note": "The authored source of the one city. Outlines and courses, not a picture of tiles: shared/src/world/layout.ts turns them into ground, `pnpm citybake` freezes the result into shared/src/world/city.data.ts. See WORLDGEN.md section 12.",
+  "widthTiles": 768,
+  "heightTiles": 768,
+  "maxBridgeSpan": 72,
+  "geography": {
+    "note": "One long island split by a tidal strait, a second island across a narrow sound to the west, and the rocks and barrier islands you would expect off a coast this shape. The swell comes from the west-south-west: that side is planed straight and takes the weather, the lee keeps its inlets.",
+    "swell": [
+      -0.92,
+      0.39
     ],
-    "boroughs": [
-        {
-            "name": "Port Vasco",
-            "note": "North-west island: the working waterfront. Huge lots, few streets, the harbour biting into its east shore."
-        },
-        {
-            "name": "Ravenhill",
-            "note": "North-east island: the tight downtown grid, long avenues north-south, short streets east-west, a park in the middle of it."
-        },
-        {
-            "name": "Sunridge",
-            "note": "The southern mainland: waterfront commercial, suburbs behind it, open country and the beach at the bottom of the map."
-        }
+    "warp": 40,
+    "wave": 256,
+    "margin": 8,
+    "islands": [
+      [
+        [
+          380,
+          48
+        ],
+        [
+          452,
+          56
+        ],
+        [
+          512,
+          44
+        ],
+        [
+          568,
+          74
+        ],
+        [
+          604,
+          62
+        ],
+        [
+          646,
+          100
+        ],
+        [
+          668,
+          156
+        ],
+        [
+          702,
+          200
+        ],
+        [
+          714,
+          258
+        ],
+        [
+          692,
+          302
+        ],
+        [
+          716,
+          344
+        ],
+        [
+          702,
+          400
+        ],
+        [
+          662,
+          432
+        ],
+        [
+          690,
+          472
+        ],
+        [
+          708,
+          522
+        ],
+        [
+          674,
+          568
+        ],
+        [
+          692,
+          612
+        ],
+        [
+          652,
+          654
+        ],
+        [
+          602,
+          678
+        ],
+        [
+          542,
+          702
+        ],
+        [
+          472,
+          714
+        ],
+        [
+          402,
+          702
+        ],
+        [
+          338,
+          716
+        ],
+        [
+          282,
+          692
+        ],
+        [
+          242,
+          652
+        ],
+        [
+          208,
+          602
+        ],
+        [
+          226,
+          554
+        ],
+        [
+          198,
+          502
+        ],
+        [
+          212,
+          442
+        ],
+        [
+          190,
+          394
+        ],
+        [
+          202,
+          332
+        ],
+        [
+          180,
+          284
+        ],
+        [
+          202,
+          228
+        ],
+        [
+          234,
+          178
+        ],
+        [
+          264,
+          122
+        ],
+        [
+          320,
+          76
+        ]
+      ],
+      [
+        [
+          110,
+          182
+        ],
+        [
+          152,
+          198
+        ],
+        [
+          168,
+          242
+        ],
+        [
+          158,
+          302
+        ],
+        [
+          170,
+          352
+        ],
+        [
+          152,
+          412
+        ],
+        [
+          160,
+          472
+        ],
+        [
+          132,
+          518
+        ],
+        [
+          86,
+          530
+        ],
+        [
+          48,
+          488
+        ],
+        [
+          40,
+          422
+        ],
+        [
+          56,
+          362
+        ],
+        [
+          38,
+          302
+        ],
+        [
+          52,
+          242
+        ],
+        [
+          80,
+          198
+        ]
+      ]
     ],
-    "districts": [
-        {
-            "name": "Vasco Heights",
-            "borough": "Port Vasco",
-            "district": "residential",
-            "rect": [8, 24, 64, 40],
-            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
-        },
-        {
-            "name": "North Yards",
-            "borough": "Port Vasco",
-            "district": "industrial",
-            "rect": [72, 24, 80, 40],
-            "street": { "pitchX": 26, "pitchY": 22, "width": 3 }
-        },
-        {
-            "name": "The Docks",
-            "borough": "Port Vasco",
-            "district": "industrial",
-            "rect": [8, 64, 144, 96],
-            "street": { "pitchX": 26, "pitchY": 22, "width": 3 }
-        },
-
-        {
-            "name": "Ravenhill North",
-            "borough": "Ravenhill",
-            "district": "commercial",
-            "rect": [176, 16, 200, 32],
-            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
-        },
-        {
-            "name": "West Ravenhill",
-            "borough": "Ravenhill",
-            "district": "downtown",
-            "rect": [176, 48, 56, 80],
-            "street": { "pitchX": 17, "pitchY": 13, "width": 3 }
-        },
-        {
-            "name": "Ravenhill Park",
-            "borough": "Ravenhill",
-            "district": "park",
-            "rect": [232, 48, 48, 48],
-            "street": { "pitchX": 0, "pitchY": 0, "width": 3 }
-        },
-        {
-            "name": "East Ravenhill",
-            "borough": "Ravenhill",
-            "district": "downtown",
-            "rect": [280, 48, 48, 80],
-            "street": { "pitchX": 17, "pitchY": 13, "width": 3 }
-        },
-        {
-            "name": "Kelvin Row",
-            "borough": "Ravenhill",
-            "district": "commercial",
-            "rect": [328, 48, 48, 80],
-            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
-        },
-        {
-            "name": "South Ravenhill",
-            "borough": "Ravenhill",
-            "district": "downtown",
-            "rect": [232, 96, 48, 32],
-            "street": { "pitchX": 17, "pitchY": 13, "width": 3 }
-        },
-        {
-            "name": "Harbour Parade",
-            "borough": "Ravenhill",
-            "district": "commercial",
-            "rect": [176, 128, 200, 32],
-            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
-        },
-
-        {
-            "name": "Sunridge Front",
-            "borough": "Sunridge",
-            "district": "commercial",
-            "rect": [8, 176, 368, 32],
-            "street": { "pitchX": 19, "pitchY": 15, "width": 3 }
-        },
-        {
-            "name": "West Sunridge",
-            "borough": "Sunridge",
-            "district": "residential",
-            "rect": [8, 208, 152, 56],
-            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
-        },
-        {
-            "name": "Sunridge Park",
-            "borough": "Sunridge",
-            "district": "park",
-            "rect": [160, 208, 64, 56],
-            "street": { "pitchX": 0, "pitchY": 0, "width": 3 }
-        },
-        {
-            "name": "Lagoon Side",
-            "borough": "Sunridge",
-            "district": "residential",
-            "rect": [224, 208, 152, 56],
-            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
-        },
-        {
-            "name": "South Sunridge",
-            "borough": "Sunridge",
-            "district": "residential",
-            "rect": [8, 264, 192, 56],
-            "street": { "pitchX": 27, "pitchY": 21, "width": 3 }
-        },
-        {
-            "name": "Marsh End",
-            "borough": "Sunridge",
-            "district": "park",
-            "rural": true,
-            "rect": [200, 264, 176, 56],
-            "street": { "pitchX": 40, "pitchY": 34, "width": 2 }
-        },
-        {
-            "name": "Hollis Country",
-            "borough": "Sunridge",
-            "district": "park",
-            "rural": true,
-            "rect": [8, 320, 168, 48],
-            "street": { "pitchX": 40, "pitchY": 34, "width": 2 }
-        },
-        {
-            "name": "The Coast Road",
-            "borough": "Sunridge",
-            "district": "park",
-            "rural": true,
-            "rect": [176, 320, 200, 48],
-            "street": { "pitchX": 40, "pitchY": 34, "width": 2 }
-        }
+    "bays": [
+      [
+        [
+          726,
+          296
+        ],
+        [
+          662,
+          286
+        ],
+        [
+          602,
+          302
+        ],
+        [
+          568,
+          332
+        ],
+        [
+          592,
+          372
+        ],
+        [
+          658,
+          366
+        ],
+        [
+          726,
+          384
+        ]
+      ],
+      [
+        [
+          602,
+          302
+        ],
+        [
+          568,
+          262
+        ],
+        [
+          530,
+          270
+        ],
+        [
+          522,
+          308
+        ],
+        [
+          558,
+          334
+        ]
+      ],
+      [
+        [
+          198,
+          252
+        ],
+        [
+          250,
+          264
+        ],
+        [
+          270,
+          302
+        ],
+        [
+          242,
+          338
+        ],
+        [
+          196,
+          332
+        ],
+        [
+          174,
+          292
+        ]
+      ],
+      [
+        [
+          208,
+          562
+        ],
+        [
+          258,
+          574
+        ],
+        [
+          274,
+          612
+        ],
+        [
+          246,
+          646
+        ],
+        [
+          202,
+          642
+        ],
+        [
+          182,
+          602
+        ]
+      ]
     ],
-    "avenues": [
-        { "name": "Harbour Road", "axis": "h", "pos": 40, "from": 8, "to": 376, "width": 4 },
-        { "name": "Vasco Avenue", "axis": "h", "pos": 88, "from": 8, "to": 376, "width": 4 },
-        { "name": "Dockside", "axis": "h", "pos": 128, "from": 8, "to": 120, "width": 4 },
-        { "name": "Foundry Road", "axis": "v", "pos": 40, "from": 24, "to": 160, "width": 4 },
-        { "name": "Ironside Way", "axis": "v", "pos": 104, "from": 24, "to": 340, "width": 4 },
-
-        { "name": "Ravenhill Street", "axis": "h", "pos": 64, "from": 176, "to": 376, "width": 4 },
-        { "name": "Kelvin Street", "axis": "h", "pos": 112, "from": 176, "to": 376, "width": 4 },
-        { "name": "Parade Street", "axis": "h", "pos": 144, "from": 184, "to": 360, "width": 4 },
-        { "name": "First Avenue", "axis": "v", "pos": 200, "from": 24, "to": 160, "width": 4 },
-        { "name": "Third Avenue", "axis": "v", "pos": 248, "from": 24, "to": 160, "width": 4 },
-        { "name": "Fifth Avenue", "axis": "v", "pos": 296, "from": 24, "to": 344, "width": 4 },
-        { "name": "Seventh Avenue", "axis": "v", "pos": 344, "from": 24, "to": 160, "width": 4 },
-
-        { "name": "Sunridge Boulevard", "axis": "h", "pos": 200, "from": 8, "to": 376, "width": 4 },
-        { "name": "Longacre Road", "axis": "h", "pos": 264, "from": 8, "to": 376, "width": 4 },
-        { "name": "Coast Road", "axis": "h", "pos": 328, "from": 8, "to": 376, "width": 4 },
-        { "name": "Bayview Road", "axis": "v", "pos": 56, "from": 184, "to": 352, "width": 4 },
-        { "name": "Marsh Lane", "axis": "v", "pos": 184, "from": 176, "to": 352, "width": 4 },
-        { "name": "Airfield Road", "axis": "v", "pos": 328, "from": 184, "to": 352, "width": 4 }
+    "lagoons": [
+      [
+        [
+          624,
+          600
+        ],
+        [
+          672,
+          606
+        ],
+        [
+          688,
+          634
+        ],
+        [
+          656,
+          656
+        ],
+        [
+          618,
+          646
+        ]
+      ]
     ],
-    "landmarks": [
-        { "kind": "tower", "name": "Vantage Tower", "rect": [216, 78, 8, 8] },
-        { "kind": "police", "name": "1st Precinct", "rect": [287, 66, 6, 6] },
-        { "kind": "hospital", "name": "Mercy General", "rect": [316, 22, 8, 6] },
-
-        { "kind": "power", "name": "Kessler Power", "rect": [24, 96, 11, 10] },
-        { "kind": "hospital", "name": "Riverside Infirmary", "rect": [19, 53, 8, 6] },
-        { "kind": "police", "name": "Harbour Precinct", "rect": [116, 96, 6, 6] },
-        { "kind": "quarry", "name": "Greyhill Quarry", "rect": [64, 136, 11, 8] },
-
-        { "kind": "stadium", "name": "Ironside Stadium", "rect": [70, 214, 13, 11] },
-        { "kind": "hospital", "name": "St. Brannoch", "rect": [91, 182, 8, 6] },
-        { "kind": "police", "name": "Kelvin Road Station", "rect": [263, 238, 6, 6] },
-        { "kind": "campground", "name": "Pinewatch Camp", "rect": [232, 288, 7, 6] },
-        { "kind": "airstrip", "name": "Marsh End Airfield", "rect": [248, 307, 26, 6] },
-        { "kind": "farm", "name": "Hollis Farm", "rect": [64, 334, 9, 7] },
-        { "kind": "lighthouse", "name": "Old Point Light", "rect": [344, 340, 4, 4] }
+    "spits": [
+      {
+        "name": "Gannet Spit",
+        "points": [
+          [
+            618,
+            650
+          ],
+          [
+            668,
+            662
+          ],
+          [
+            698,
+            634
+          ],
+          [
+            706,
+            592
+          ]
+        ],
+        "w0": 15,
+        "w1": 6,
+        "meander": 10
+      }
     ],
-    "shopQuota": { "gun": 6, "clothing": 6, "spray": 8 },
-    "shopSpacingTiles": 26
+    "rivers": [
+      {
+        "name": "The Kelvin",
+        "note": "A tidal strait rather than a river: open to the sea at both ends, which is why the city grew on both banks and why every crossing of it matters.",
+        "points": [
+          [
+            192,
+            306
+          ],
+          [
+            268,
+            352
+          ],
+          [
+            356,
+            320
+          ],
+          [
+            452,
+            378
+          ],
+          [
+            548,
+            342
+          ],
+          [
+            614,
+            320
+          ]
+        ],
+        "w0": 34,
+        "w1": 30,
+        "meander": 44
+      },
+      {
+        "name": "Hollis Creek",
+        "points": [
+          [
+            398,
+            356
+          ],
+          [
+            386,
+            440
+          ],
+          [
+            346,
+            516
+          ],
+          [
+            318,
+            596
+          ]
+        ],
+        "w0": 9,
+        "w1": 4,
+        "meander": 26
+      }
+    ],
+    "islets": [
+      {
+        "name": "Fort Gannet",
+        "at": [
+          730,
+          432
+        ],
+        "radius": 20
+      },
+      {
+        "name": "Longsand",
+        "at": [
+          340,
+          742
+        ],
+        "radius": 18
+      },
+      {
+        "name": "Midsand",
+        "at": [
+          412,
+          750
+        ],
+        "radius": 16
+      },
+      {
+        "name": "Eastsand",
+        "at": [
+          478,
+          742
+        ],
+        "radius": 15
+      },
+      {
+        "name": "The Stack",
+        "at": [
+          24,
+          560
+        ],
+        "radius": 9
+      }
+    ]
+  },
+  "boroughs": [
+    {
+      "name": "Kelvin",
+      "note": "North bank of the strait, east end: the old quarter round the harbour and the financial spine behind it. Tightest streets in the city, and the only ones with alleys worth running down."
+    },
+    {
+      "name": "Ravenhill",
+      "note": "North bank, west end: nineteenth-century commercial grid, the park, and the terraces climbing away from the water."
+    },
+    {
+      "name": "Sunridge",
+      "note": "South bank: the seafront, the suburbs behind it, and the ground they were built on."
+    },
+    {
+      "name": "Marsh End",
+      "note": "The south-east: flats, the airfield and the coast road out to the spit."
+    },
+    {
+      "name": "Port Vasco",
+      "note": "The island across the sound. Docks, foundry and the housing that serves them."
+    }
+  ],
+  "districts": [
+    {
+      "name": "Ravenhill",
+      "borough": "Ravenhill",
+      "district": "commercial",
+      "density": 0.84,
+      "area": [
+        [
+          168,
+          36
+        ],
+        [
+          432,
+          36
+        ],
+        [
+          424,
+          312
+        ],
+        [
+          236,
+          312
+        ],
+        [
+          168,
+          224
+        ]
+      ],
+      "street": {
+        "pitchX": 17,
+        "pitchY": 14,
+        "width": 3,
+        "alleyOver": 20
+      }
+    },
+    {
+      "name": "The Spine",
+      "borough": "Kelvin",
+      "district": "downtown",
+      "density": 0.92,
+      "area": [
+        [
+          428,
+          120
+        ],
+        [
+          558,
+          128
+        ],
+        [
+          554,
+          312
+        ],
+        [
+          424,
+          312
+        ]
+      ],
+      "street": {
+        "pitchX": 15,
+        "pitchY": 12,
+        "width": 3,
+        "alleyOver": 18
+      }
+    },
+    {
+      "name": "North Point",
+      "borough": "Kelvin",
+      "district": "commercial",
+      "density": 0.82,
+      "area": [
+        [
+          556,
+          36
+        ],
+        [
+          704,
+          92
+        ],
+        [
+          720,
+          182
+        ],
+        [
+          556,
+          152
+        ]
+      ],
+      "street": {
+        "pitchX": 17,
+        "pitchY": 14,
+        "width": 3,
+        "alleyOver": 20
+      }
+    },
+    {
+      "name": "Old Quarter",
+      "borough": "Kelvin",
+      "district": "downtown",
+      "density": 0.95,
+      "area": [
+        [
+          552,
+          150
+        ],
+        [
+          720,
+          182
+        ],
+        [
+          744,
+          312
+        ],
+        [
+          548,
+          312
+        ]
+      ],
+      "street": {
+        "pitchX": 11,
+        "pitchY": 9,
+        "width": 3,
+        "alleyOver": 13
+      }
+    },
+    {
+      "name": "Ravenhill Park",
+      "borough": "Ravenhill",
+      "district": "park",
+      "density": 0.3,
+      "area": [
+        [
+          430,
+          40
+        ],
+        [
+          560,
+          52
+        ],
+        [
+          556,
+          128
+        ],
+        [
+          428,
+          122
+        ]
+      ],
+      "street": {
+        "pitchX": 0,
+        "pitchY": 0,
+        "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "The Terraces",
+      "borough": "Sunridge",
+      "district": "residential",
+      "density": 0.8,
+      "area": [
+        [
+          176,
+          376
+        ],
+        [
+          404,
+          376
+        ],
+        [
+          408,
+          512
+        ],
+        [
+          188,
+          524
+        ]
+      ],
+      "street": {
+        "pitchX": 17,
+        "pitchY": 13,
+        "width": 3,
+        "alleyOver": 20
+      }
+    },
+    {
+      "name": "Beachfront",
+      "borough": "Sunridge",
+      "district": "commercial",
+      "density": 0.86,
+      "area": [
+        [
+          404,
+          366
+        ],
+        [
+          624,
+          364
+        ],
+        [
+          644,
+          482
+        ],
+        [
+          408,
+          492
+        ]
+      ],
+      "street": {
+        "pitchX": 16,
+        "pitchY": 13,
+        "width": 3,
+        "alleyOver": 19
+      }
+    },
+    {
+      "name": "Old Suburbs",
+      "borough": "Sunridge",
+      "district": "residential",
+      "density": 0.62,
+      "area": [
+        [
+          188,
+          516
+        ],
+        [
+          406,
+          506
+        ],
+        [
+          412,
+          624
+        ],
+        [
+          196,
+          636
+        ]
+      ],
+      "street": {
+        "pitchX": 19,
+        "pitchY": 15,
+        "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "New Suburbs",
+      "borough": "Sunridge",
+      "district": "residential",
+      "density": 0.5,
+      "area": [
+        [
+          412,
+          486
+        ],
+        [
+          664,
+          470
+        ],
+        [
+          688,
+          604
+        ],
+        [
+          418,
+          618
+        ]
+      ],
+      "street": {
+        "pitchX": 23,
+        "pitchY": 18,
+        "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "Sunridge Park",
+      "borough": "Sunridge",
+      "district": "park",
+      "density": 0.3,
+      "area": [
+        [
+          262,
+          622
+        ],
+        [
+          412,
+          612
+        ],
+        [
+          418,
+          684
+        ],
+        [
+          274,
+          694
+        ]
+      ],
+      "street": {
+        "pitchX": 0,
+        "pitchY": 0,
+        "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "Sunridge Shore",
+      "borough": "Sunridge",
+      "district": "park",
+      "density": 0.2,
+      "area": [
+        [
+          168,
+          600
+        ],
+        [
+          268,
+          624
+        ],
+        [
+          276,
+          700
+        ],
+        [
+          170,
+          690
+        ]
+      ],
+      "street": {
+        "pitchX": 36,
+        "pitchY": 30,
+        "width": 2,
+        "alleyOver": 0
+      },
+      "rural": true
+    },
+    {
+      "name": "Marsh End",
+      "borough": "Marsh End",
+      "district": "park",
+      "density": 0.2,
+      "area": [
+        [
+          416,
+          606
+        ],
+        [
+          700,
+          584
+        ],
+        [
+          716,
+          724
+        ],
+        [
+          300,
+          740
+        ],
+        [
+          276,
+          690
+        ],
+        [
+          416,
+          682
+        ]
+      ],
+      "street": {
+        "pitchX": 44,
+        "pitchY": 36,
+        "width": 2,
+        "alleyOver": 0
+      },
+      "rural": true
+    },
+    {
+      "name": "Vasco Heights",
+      "borough": "Port Vasco",
+      "district": "residential",
+      "density": 0.72,
+      "area": [
+        [
+          26,
+          166
+        ],
+        [
+          182,
+          190
+        ],
+        [
+          186,
+          252
+        ],
+        [
+          28,
+          244
+        ]
+      ],
+      "street": {
+        "pitchX": 17,
+        "pitchY": 14,
+        "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "The Docks",
+      "borough": "Port Vasco",
+      "district": "industrial",
+      "density": 0.55,
+      "area": [
+        [
+          28,
+          248
+        ],
+        [
+          186,
+          254
+        ],
+        [
+          190,
+          412
+        ],
+        [
+          32,
+          422
+        ]
+      ],
+      "street": {
+        "pitchX": 28,
+        "pitchY": 24,
+        "width": 3,
+        "alleyOver": 0
+      }
+    },
+    {
+      "name": "The Foundry",
+      "borough": "Port Vasco",
+      "district": "industrial",
+      "density": 0.6,
+      "area": [
+        [
+          32,
+          416
+        ],
+        [
+          190,
+          406
+        ],
+        [
+          178,
+          536
+        ],
+        [
+          38,
+          540
+        ]
+      ],
+      "street": {
+        "pitchX": 24,
+        "pitchY": 20,
+        "width": 3,
+        "alleyOver": 0
+      }
+    }
+  ],
+  "roads": [
+    {
+      "name": "The Ring",
+      "note": "Two four-lane carriageways with a reservation between them, all the way round the main island and over the water twice. The fast layer: it is what makes a map this size crossable, and it is the layer the police own.",
+      "width": 4,
+      "curve": true,
+      "bridges": true,
+      "points": [
+        [
+          400,
+          112
+        ],
+        [
+          520,
+          112
+        ],
+        [
+          602,
+          152
+        ],
+        [
+          646,
+          212
+        ],
+        [
+          652,
+          272
+        ],
+        [
+          640,
+          332
+        ],
+        [
+          652,
+          402
+        ],
+        [
+          648,
+          472
+        ],
+        [
+          630,
+          542
+        ],
+        [
+          590,
+          612
+        ],
+        [
+          510,
+          652
+        ],
+        [
+          420,
+          662
+        ],
+        [
+          330,
+          650
+        ],
+        [
+          286,
+          600
+        ],
+        [
+          268,
+          530
+        ],
+        [
+          286,
+          462
+        ],
+        [
+          268,
+          392
+        ],
+        [
+          286,
+          322
+        ],
+        [
+          266,
+          250
+        ],
+        [
+          300,
+          172
+        ],
+        [
+          350,
+          122
+        ],
+        [
+          400,
+          112
+        ]
+      ],
+      "median": 4
+    },
+    {
+      "name": "The Parade",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          214,
+          236
+        ],
+        [
+          340,
+          212
+        ],
+        [
+          460,
+          190
+        ],
+        [
+          600,
+          178
+        ],
+        [
+          648,
+          190
+        ]
+      ]
+    },
+    {
+      "name": "Kelvin Street",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          262,
+          152
+        ],
+        [
+          400,
+          132
+        ],
+        [
+          540,
+          122
+        ],
+        [
+          632,
+          146
+        ]
+      ]
+    },
+    {
+      "name": "Vantage Row",
+      "width": 4,
+      "curve": false,
+      "bridges": false,
+      "points": [
+        [
+          470,
+          130
+        ],
+        [
+          470,
+          292
+        ]
+      ]
+    },
+    {
+      "name": "Harbour Approach",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          540,
+          176
+        ],
+        [
+          592,
+          214
+        ],
+        [
+          630,
+          268
+        ],
+        [
+          636,
+          300
+        ]
+      ]
+    },
+    {
+      "name": "Kelvin Bridge",
+      "note": "The signature span. Six lanes from the Spine to the seafront, and the shortest way between the two halves of the city.",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          452,
+          288
+        ],
+        [
+          452,
+          400
+        ]
+      ]
+    },
+    {
+      "name": "Old Bridge",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          334,
+          288
+        ],
+        [
+          340,
+          408
+        ]
+      ]
+    },
+    {
+      "name": "Marsh Causeway",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          566,
+          292
+        ],
+        [
+          572,
+          396
+        ]
+      ]
+    },
+    {
+      "name": "North Sound Bridge",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          132,
+          240
+        ],
+        [
+          222,
+          224
+        ]
+      ]
+    },
+    {
+      "name": "South Sound Bridge",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          140,
+          466
+        ],
+        [
+          214,
+          486
+        ]
+      ]
+    },
+    {
+      "name": "Vasco Avenue",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          86,
+          208
+        ],
+        [
+          102,
+          300
+        ],
+        [
+          96,
+          400
+        ],
+        [
+          116,
+          502
+        ]
+      ]
+    },
+    {
+      "name": "Dockside",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          150,
+          232
+        ],
+        [
+          162,
+          320
+        ],
+        [
+          154,
+          420
+        ],
+        [
+          136,
+          500
+        ]
+      ]
+    },
+    {
+      "name": "The Esplanade",
+      "note": "The seafront road, following the shore rather than the grid \u2014 which is what leaves the triangular blocks behind it.",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          228,
+          470
+        ],
+        [
+          300,
+          448
+        ],
+        [
+          400,
+          424
+        ],
+        [
+          500,
+          408
+        ],
+        [
+          590,
+          404
+        ],
+        [
+          634,
+          428
+        ]
+      ]
+    },
+    {
+      "name": "Coast Road",
+      "width": 4,
+      "curve": true,
+      "bridges": true,
+      "points": [
+        [
+          248,
+          626
+        ],
+        [
+          330,
+          682
+        ],
+        [
+          430,
+          696
+        ],
+        [
+          520,
+          684
+        ],
+        [
+          604,
+          654
+        ],
+        [
+          660,
+          618
+        ],
+        [
+          694,
+          596
+        ]
+      ]
+    },
+    {
+      "name": "Longacre Road",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          256,
+          542
+        ],
+        [
+          360,
+          528
+        ],
+        [
+          470,
+          520
+        ],
+        [
+          580,
+          522
+        ],
+        [
+          648,
+          540
+        ]
+      ]
+    },
+    {
+      "name": "Airfield Road",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          470,
+          606
+        ],
+        [
+          520,
+          640
+        ],
+        [
+          580,
+          648
+        ],
+        [
+          630,
+          634
+        ]
+      ]
+    }
+  ],
+  "landmarks": [
+    {
+      "kind": "tower",
+      "name": "Vantage Tower",
+      "rect": [
+        488,
+        90,
+        10,
+        10
+      ]
+    },
+    {
+      "kind": "tower",
+      "name": "The Spire",
+      "rect": [
+        412,
+        292,
+        8,
+        8
+      ]
+    },
+    {
+      "kind": "tower",
+      "name": "Halloran Building",
+      "rect": [
+        395,
+        152,
+        8,
+        8
+      ]
+    },
+    {
+      "kind": "police",
+      "name": "1st Precinct",
+      "rect": [
+        534,
+        196,
+        7,
+        7
+      ]
+    },
+    {
+      "kind": "police",
+      "name": "Central Station",
+      "rect": [
+        429,
+        232,
+        7,
+        7
+      ]
+    },
+    {
+      "kind": "hospital",
+      "name": "Mercy General",
+      "rect": [
+        595,
+        113,
+        9,
+        7
+      ]
+    },
+    {
+      "kind": "hospital",
+      "name": "St. Brannoch",
+      "rect": [
+        326,
+        167,
+        9,
+        7
+      ]
+    },
+    {
+      "kind": "stadium",
+      "name": "Ironside Stadium",
+      "rect": [
+        120,
+        255,
+        15,
+        12
+      ]
+    },
+    {
+      "kind": "police",
+      "name": "Harbour Precinct",
+      "rect": [
+        68,
+        306,
+        7,
+        7
+      ]
+    },
+    {
+      "kind": "hospital",
+      "name": "Riverside Infirmary",
+      "rect": [
+        99,
+        213,
+        9,
+        7
+      ]
+    },
+    {
+      "kind": "power",
+      "name": "Kessler Power",
+      "rect": [
+        121,
+        352,
+        13,
+        11
+      ]
+    },
+    {
+      "kind": "quarry",
+      "name": "Greyhill Quarry",
+      "rect": [
+        87,
+        452,
+        13,
+        10
+      ]
+    },
+    {
+      "kind": "police",
+      "name": "Kelvin Road Station",
+      "rect": [
+        474,
+        446,
+        7,
+        7
+      ]
+    },
+    {
+      "kind": "police",
+      "name": "Sunridge Station",
+      "rect": [
+        301,
+        458,
+        7,
+        7
+      ]
+    },
+    {
+      "kind": "police",
+      "name": "Marsh Post",
+      "rect": [
+        536,
+        549,
+        7,
+        7
+      ]
+    },
+    {
+      "kind": "hospital",
+      "name": "Central Clinic",
+      "rect": [
+        289,
+        541,
+        9,
+        7
+      ]
+    },
+    {
+      "kind": "hospital",
+      "name": "Seaview Infirmary",
+      "rect": [
+        553,
+        433,
+        9,
+        7
+      ]
+    },
+    {
+      "kind": "stadium",
+      "name": "The Bowl",
+      "rect": [
+        463,
+        564,
+        15,
+        12
+      ]
+    },
+    {
+      "kind": "airstrip",
+      "name": "Marsh End Airfield",
+      "rect": [
+        504,
+        599,
+        30,
+        7
+      ]
+    },
+    {
+      "kind": "campground",
+      "name": "Pinewatch Camp",
+      "rect": [
+        563,
+        598,
+        8,
+        7
+      ]
+    },
+    {
+      "kind": "farm",
+      "name": "Hollis Farm",
+      "rect": [
+        626,
+        584,
+        11,
+        8
+      ]
+    },
+    {
+      "kind": "lighthouse",
+      "name": "Old Point Light",
+      "rect": [
+        653,
+        586,
+        4,
+        4
+      ]
+    },
+    {
+      "kind": "lighthouse",
+      "name": "Gannet Light",
+      "rect": [
+        653,
+        586,
+        4,
+        4
+      ]
+    }
+  ],
+  "shopQuota": {
+    "gun": 20,
+    "clothing": 20,
+    "spray": 26
+  },
+  "shopSpacingTiles": 34
 }

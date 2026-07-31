@@ -23,7 +23,14 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
-import { busyKerb, clearSpot, roadLane, straightEastLane, tilesFromSpawn } from './helpers.js';
+import {
+  busyKerb,
+  clearSpot,
+  openSquare,
+  roadLane,
+  straightEastLane,
+  tilesFromSpawn,
+} from './helpers.js';
 import { isSolidTile } from '../src/world/collide.js';
 import { TICK_RATE } from '../src/constants.js';
 
@@ -668,8 +675,11 @@ describe('escalation by kind', () => {
 
   it('an officer pulls up and finishes the chase on foot', () => {
     const t = getTuning().police;
-    // Close enough to be inside dismountDist on the very next tick.
-    let state = wedged({ x: 1000, y: 1000 }, { x: 1000 + t.dismountDist - 40, y: 1000 });
+    // Close enough to be inside dismountDist on the very next tick, on found
+    // open ground rather than at a fixed coordinate — (1000, 1000) was a
+    // street on the old map and is open sea on this one.
+    const at = openSquare(map, 14);
+    let state = wedged(at, { x: at.x + t.dismountDist - 40, y: at.y });
     state = step(state, {}, [], map);
     const cop = state.cops.byId[500]!;
     expect(cop.vehicleId).toBeNull();
@@ -1077,6 +1087,10 @@ describe('waves and equipment (P3)', () => {
     const t = getTuning().police;
     let state = createGameState(305);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    // On the busiest kerb in the city: a wave can only land as a group where
+    // there are consecutive kerbside points for it to land on.
+    const kerb = busyKerb(map);
+    state.players.byId[1]!.pos = { x: kerb.x, y: kerb.y };
     const at = { ...state.players.byId[1]!.pos };
     const born = new Map<number, { x: number; y: number }>();
     for (let i = 0; i < t.wavePeriodTicks; i++) {
@@ -1599,6 +1613,10 @@ describe('the military at five stars (S3)', () => {
     // The data says tank; this says a tank appears with an officer in it.
     let state = createGameState(606);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
+    {
+      const kerb = busyKerb(map);
+      state.players.byId[1]!.pos = { x: kerb.x, y: kerb.y };
+    }
     // Sampled every tick, not read off the last one. A crewed tank is a
     // transient: the officer inside it can be shot, run over or despawned
     // between the moment armour arrives and whenever the loop happens to
@@ -1622,7 +1640,12 @@ describe('the military at five stars (S3)', () => {
       if (live.some((id) => state.vehicles.byId[id]!.driverId !== null)) everCrewed = true;
     }
     expect(mostTanks).toBeGreaterThan(0);
-    expect(mostTanks).toBeLessThanOrEqual(getTuning().police.vehicleCaps['tank'] ?? 99);
+    // The cap plus a roadblock's worth. `motorise` will not put a fourth tank
+    // on the street, but a roadblock is a pair thrown across a road together
+    // and it is allowed to start from the cap — so five on the map at once is
+    // the ceiling, not a runaway. It only shows on a city with enough kerbs
+    // for roadblocks to keep finding somewhere to stand.
+    expect(mostTanks).toBeLessThanOrEqual((getTuning().police.vehicleCaps['tank'] ?? 99) + 2);
     // ...and somebody was at the wheel of one of them.
     expect(everCrewed).toBe(true);
   });

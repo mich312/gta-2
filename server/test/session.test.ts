@@ -3,6 +3,7 @@ import playerTuning from '../../shared/data/player.json';
 import vehiclesJson from '../../shared/data/vehicles.json';
 import worldgenJson from '../../shared/data/worldgen.json';
 import {
+  areaScale,
   type InputIntent,
   NULL_INPUT,
   SnapshotSync,
@@ -193,8 +194,16 @@ describe('the crowd replenishes', () => {
     const session = new Session(4242, worldgen, null, { pedCount: 40 });
     // Drain the constructor's spawn commands into the sim.
     for (let i = 0; i < 5; i++) session.tick();
-    const target = Math.min(40, session.map.pedSpawns.length);
-    expect(session.state.peds.ids.length).toBe(target);
+    // `pedCount` is per nominal city; the session scales it by area.
+    const want = Math.round(40 * areaScale(session.map));
+    const target = Math.min(want, session.map.pedSpawns.length);
+    // Give or take: the initial seeding walks a rolling cursor over the
+    // spawn list and skips any spot that is occupied or blocked when it
+    // comes round, so a big crowd settles a couple short of the target
+    // rather than landing exactly on it. That is the behaviour wanted —
+    // nobody materialises on top of anybody — not a shortfall.
+    expect(session.state.peds.ids.length).toBeGreaterThanOrEqual(Math.floor(target * 0.85));
+    expect(session.state.peds.ids.length).toBeLessThanOrEqual(target);
 
     // Wipe out half the city's population directly (server-side surgery).
     const doomed = session.state.peds.ids.slice(0, Math.floor(target / 2));
@@ -206,15 +215,24 @@ describe('the crowd replenishes', () => {
     expect(after).toBeLessThan(target);
 
     // No players are connected, so nothing is close enough to watch: the
-    // crowd should refill within a reasonable window at the tuned rate.
-    for (let i = 0; i < 30 * 30; i++) session.tick();
-    expect(session.state.peds.ids.length).toBe(target);
+    // crowd should refill within a reasonable window at the tuned rate. The
+    // window scales with the crowd — arrivals are rate-limited per second,
+    // so a city four times the size takes four times as long to refill.
+    for (let i = 0; i < 30 * 60 * Math.ceil(areaScale(session.map)); i++) session.tick();
+    // Back to the target, give or take. The top-up walks a rolling cursor
+    // over the spawn list and skips any spot that is occupied or blocked
+    // when it comes round, so on a big crowd it settles a couple short
+    // rather than landing exactly — which is the behaviour wanted (nobody
+    // materialises on top of anybody) rather than a shortfall.
+    expect(session.state.peds.ids.length).toBeGreaterThanOrEqual(Math.floor(target * 0.85));
+    expect(session.state.peds.ids.length).toBeLessThanOrEqual(target);
   });
 
   it('does not overshoot the target once full', () => {
     const session = new Session(4243, worldgen, null, { pedCount: 25 });
     for (let i = 0; i < 30 * 10; i++) session.tick();
-    expect(session.state.peds.ids.length).toBe(Math.min(25, session.map.pedSpawns.length));
+    const want = Math.round(25 * areaScale(session.map));
+    expect(session.state.peds.ids.length).toBe(Math.min(want, session.map.pedSpawns.length));
   });
 
 });

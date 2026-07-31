@@ -1,6 +1,6 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { blockCtx, fillBlock, laySidewalk } from './buildings.js';
+import { fillBlock } from './buildings.js';
 import { fbm } from './fields.js';
 import { buildLayout } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
@@ -134,6 +134,16 @@ function cuttable(t: number): boolean {
  * the track is the shortest one that exists rather than a guess at a
  * direction.
  */
+/**
+ * Breadth-first scratch for `driveway`, allocated once for the whole bake
+ * rather than per landmark — two and a half megabytes a time, two dozen
+ * times, plus a full fill each. `era` is what makes reuse safe without
+ * clearing: a cell belongs to this call only if its era matches.
+ */
+let drivewayFrom: Int32Array | null = null;
+let drivewayEra: Int32Array | null = null;
+let drivewayCall = 0;
+
 function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: number): void {
   const near = (x: number, y: number): boolean => {
     for (let oy = -2; oy <= 2; oy++) {
@@ -148,9 +158,16 @@ function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: numbe
   };
   if (dx < 0 || dy < 0 || dx >= W || dy >= H || near(dx, dy)) return;
 
-  const from = new Int32Array(W * H).fill(-1);
+  if (drivewayFrom === null || drivewayFrom.length < W * H) {
+    drivewayFrom = new Int32Array(W * H);
+    drivewayEra = new Int32Array(W * H);
+  }
+  const from = drivewayFrom;
+  const era = drivewayEra as Int32Array;
+  const call = ++drivewayCall;
   const start = dy * W + dx;
   from[start] = start;
+  era[start] = call;
   const queue = [start];
   let head = 0;
   let hit = -1;
@@ -168,15 +185,17 @@ function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: numbe
       const ny = y + oy;
       if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
       const j = ny * W + nx;
-      if ((from[j] as number) >= 0) continue;
+      if (era[j] === call) continue;
       const t = tiles[j] as number;
       if (onNetwork(t)) {
         from[j] = i;
+        era[j] = call;
         hit = j;
         break;
       }
       if (!cuttable(t)) continue;
       from[j] = i;
+      era[j] = call;
       queue.push(j);
     }
   }
@@ -217,7 +236,6 @@ export function bakeCity(plan: CityPlan): BakedCity {
   const tiles = layout.tiles;
   const buildings: Building[] = [];
   const landmarks: Landmark[] = [];
-  const ctx = blockCtx(tiles, W, H, buildings);
 
   const ground = (x: number, y: number, w: number, h: number, tile: number): void => {
     for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
@@ -267,22 +285,52 @@ export function bakeCity(plan: CityPlan): BakedCity {
   const claimed = new Set(layout.blocks.filter((b) => b.landmark >= 0).map((b) => b.landmark));
   for (const [li, l] of plan.landmarks.entries()) if (!claimed.has(li)) stamp(l);
 
-  // Aprons: a claimed block is kerbed and surfaced, but not built on.
-  for (const b of layout.blocks) {
-    if (b.landmark < 0) continue;
-    laySidewalk(ctx, b);
-    const recipe = RECIPES[(plan.landmarks[b.landmark] as PlanLandmark).kind];
-    ground(b.x + 1, b.y + 1, b.w - 2, b.h - 2, recipe.apron);
-  }
-
+  // Every block is built, including the ones a landmark stands in.
+  //
+  // Claimed blocks used to be kerbed, surfaced and then left alone, which is
+  // fine for a police station in a twelve-tile block and ruinous for a tower
+  // standing in a hundred-tile park: the first drawn island came out with
+  // eight thousand tiles of bare ground where its biggest park should have
+  // been, because one landmark had claimed the block. The block is filled
+  // like any other, and the landmark is cleared out of it afterwards.
   const wildAt = (tx: number, ty: number): boolean => fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52;
   for (const b of layout.blocks) {
-    if (b.landmark >= 0) continue;
     const rng = seedRng(deriveSeed(BAKE_SEED, `block.${b.x}.${b.y}`));
     fillBlock(tiles, W, H, buildings, b, rng, wildAt);
   }
 
-  for (const [li, l] of plan.landmarks.entries()) if (claimed.has(li)) stamp(l);
+  // Then the landmark takes its plot back: anything built inside its footprint
+  // or its apron is demolished, the ground surfaced, and a kerb laid round it
+  // so the doorway pass has a pavement to find.
+  const APRON = 4;
+  for (const [li, l] of plan.landmarks.entries()) {
+    if (!claimed.has(li)) continue;
+    const [lx, ly, lw, lh] = l.rect;
+    const x0 = lx - APRON;
+    const y0 = ly - APRON;
+    const x1 = lx + lw + APRON;
+    const y1 = ly + lh + APRON;
+    for (let bi = buildings.length - 1; bi >= 0; bi--) {
+      const bd = buildings[bi] as Building;
+      if (bd.x >= x1 || bd.x + bd.w <= x0 || bd.y >= y1 || bd.y + bd.h <= y0) continue;
+      for (let ty = bd.y; ty < bd.y + bd.h; ty++) {
+        for (let tx = bd.x; tx < bd.x + bd.w; tx++) {
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+          if (tiles[ty * W + tx] === T_BUILDING) tiles[ty * W + tx] = T_FIELD;
+        }
+      }
+      buildings.splice(bi, 1);
+    }
+    ground(x0, y0, x1 - x0, y1 - y0, RECIPES[l.kind].apron);
+    for (let ty = ly - 1; ty <= ly + lh; ty++) {
+      for (let tx = lx - 1; tx <= lx + lw; tx++) {
+        const onRing = tx === lx - 1 || ty === ly - 1 || tx === lx + lw || ty === ly + lh;
+        if (!onRing || tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        if (paintable(tiles[ty * W + tx] as number)) tiles[ty * W + tx] = T_SIDEWALK;
+      }
+    }
+    stamp(l);
+  }
 
   // Every landmark has a way in.
   //
@@ -310,6 +358,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
     w: b.w,
     h: b.h,
     district: b.district,
+    density: b.density,
     ...(b.rural ? { rural: true } : {}),
   }));
 
