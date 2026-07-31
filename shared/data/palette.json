@@ -2,7 +2,7 @@
   "field": "#2b3630",
   "road": "#33383f",
   "roadMark": "#4c525a",
-  "sidewalk": "#5f646c",
+  "sidewalk": "#484c52",
   "park": "#2f4c33",
   "lot": "#45463f",
   "water": "#22384a",
@@ -55,11 +55,11 @@
     ]
   },
   "sidewalkTint": {
-    "downtown": "#5b6678",
-    "residential": "#6d6355",
-    "industrial": "#69614c",
-    "commercial": "#69606e",
-    "park": "#5d6b5e"
+    "downtown": "#454d5b",
+    "residential": "#524b40",
+    "industrial": "#4f4939",
+    "commercial": "#4f4853",
+    "park": "#465147"
   },
   "buildingEdge": {
     "downtown": "#465372",
@@ -76,10 +76,10 @@
   "roadCrossing": "#c2bfae",
   "roadPatch": "#3c4148",
   "manhole": "#262a30",
-  "kerb": "#787d86",
-  "kerbShade": "#3f434a",
-  "slab": "#565b63",
-  "slabLight": "#6b7079",
+  "kerb": "#5b5f65",
+  "kerbShade": "#2f3238",
+  "slab": "#41454b",
+  "slabLight": "#51555b",
   "grassDark": "#284027",
   "grassLight": "#3a5c3a",
   "treeCanopy": "#2f5230",
