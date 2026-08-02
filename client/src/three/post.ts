@@ -107,14 +107,24 @@ export class PostChain {
     // throws away the MSAA `antialias: true` gives the canvas — every edge in a
     // city of boxes goes stair-stepped the moment a composer is introduced, and
     // it looks like the post chain did it.
+    //
+    // 2×, not 4×. This is the only AA in the chain so it cannot go to zero,
+    // but the target is HalfFloat — the resolve bandwidth is double a normal
+    // target's per sample — and the world canvas now runs at full display
+    // resolution, where geometric edges are half as jagged to begin with.
     const target = new THREE.WebGLRenderTarget(width, height, {
       type: THREE.HalfFloatType,
-      samples: 4,
+      samples: 2,
     });
     this.composer = new EffectComposer(renderer, target);
     this.composer.addPass(new RenderPass(scene, camera));
+    // The bloom works at HALF resolution. `UnrealBloomPass` builds a five-level
+    // mip chain of separable blurs from whatever size it is given — sized to
+    // the frame that is ~11 near-full-screen passes in half float. Bloom is
+    // defined by having no sharp detail, so feeding the chain a half-size
+    // frame reads identically and costs a quarter of the fill.
     this.bloom = new UnrealBloomPass(
-      new THREE.Vector2(width, height),
+      new THREE.Vector2(Math.ceil(width / 2), Math.ceil(height / 2)),
       BLOOM_STRENGTH,
       BLOOM_RADIUS,
       BLOOM_THRESHOLD,
@@ -138,7 +148,9 @@ export class PostChain {
 
   setSize(width: number, height: number): void {
     this.composer.setSize(width, height);
-    this.bloom.setSize(width, height);
+    // Half resolution, like the constructor — `composer.setSize` resizes every
+    // pass to the full frame, so the bloom must be re-shrunk after it.
+    this.bloom.setSize(Math.ceil(width / 2), Math.ceil(height / 2));
     (this.grade.uniforms.uResolution as { value: THREE.Vector2 }).value.set(width, height);
   }
 

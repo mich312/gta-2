@@ -29,6 +29,7 @@ import {
   vehicleWear,
 } from 'shared';
 import { hudTransform, setupCanvas } from './render/canvas.js';
+import { RENDER_SCALE } from './render/config.js';
 import { viewport } from './render/viewport.js';
 import {
   cameraLead,
@@ -804,6 +805,32 @@ function boardable(
   return out.sort((a, b) => a.dist - b.dist);
 }
 
+/**
+ * `?res=half` keeps the 3D backing store at the 2D renderer's half resolution.
+ *
+ * The escape hatch for a GPU that cannot afford the full-resolution frame —
+ * the same job `?lights=cheap` does for the lighting pass.
+ */
+const RES_HALF = new URLSearchParams(location.search).get('res') === 'half';
+
+/**
+ * Backing-store pixels per `RENDER_SCALE` device-pixel step for the 3D world
+ * canvas — 1 is the 2D renderer's half resolution, 2 is the display's own.
+ *
+ * The half-resolution store was a deliberate economy (`cityView.ts` sets
+ * `setPixelRatio(1)` and says why), but it was being stretched over the CSS
+ * box by the compositor's BILINEAR filter — `#world` had `image-rendering:
+ * auto` where the HUD canvas over it is `pixelated` — so every edge in the
+ * city was softened twice while the HUD stayed razor sharp. Rendering at what
+ * the display actually has, capped at 2× the old store, is the fix; the cap
+ * plus the halved bloom and MSAA in `post.ts` is what keeps it affordable.
+ */
+function worldResolutionMult(): number {
+  if (RES_HALF) return 1;
+  const cssPerWorld = viewport.zoom * (window.devicePixelRatio || 1);
+  return Math.max(1, Math.min(2, Math.round(cssPerWorld / RENDER_SCALE)));
+}
+
 function drawWorld3d(scene: Scene | null): void {
   if (!map || !scene) return;
   const worldCanvas = document.getElementById('world') as HTMLCanvasElement;
@@ -842,16 +869,28 @@ function drawWorld3d(scene: Scene | null): void {
   }
   const { view, entities, scenery, fx, objects, lights: lights3d, ground } = world3d;
 
-  // Match the HUD canvas exactly, in both backing store and CSS box, so a
-  // world pixel lands on the same screen pixel in both layers.
-  if (worldCanvas.width !== viewport.deviceW || worldCanvas.height !== viewport.deviceH) {
-    view.resize(viewport.deviceW, viewport.deviceH);
+  // Match the HUD canvas's CSS box exactly, so a world pixel lands on the
+  // same screen spot in both layers; the backing store behind that box runs
+  // at `worldResolutionMult` times the HUD's half-resolution store. Compared
+  // against the same product it was set from, so a frame where nothing
+  // changed never touches `canvas.width` — writing it rebuilds the
+  // framebuffer.
+  const mult = worldResolutionMult();
+  const dw = viewport.deviceW * mult;
+  const dh = viewport.deviceH * mult;
+  if (worldCanvas.width !== dw || worldCanvas.height !== dh) {
+    view.resize(dw, dh);
     // The frame covers a different amount of world after a resize, and the HUD
     // and the radar have already moved to the new figure.
     view.setViewHeight(viewport.h);
   }
   worldCanvas.style.width = canvas.style.width;
   worldCanvas.style.height = canvas.style.height;
+  // Whole backing pixels upscale evenly; a fractional ratio through
+  // `pixelated` would shimmer, so it falls back to the smooth filter there.
+  const cssPerBacking = (viewport.zoom * (window.devicePixelRatio || 1)) / (RENDER_SCALE * mult);
+  worldCanvas.style.imageRendering =
+    Math.abs(cssPerBacking - Math.round(cssPerBacking)) < 1e-6 ? 'pixelated' : 'auto';
 
   view.setNight(lights.nightAmount);
   entities.update(scene.remotes, playerId, {
@@ -1179,78 +1218,99 @@ function frameBody(now: number): void {
   });
 
   // E2E/debug affordance: lets automated tests read the local player's
-  // state without scraping pixels. Not used by the game itself.
-  (window as unknown as Record<string, unknown>)['__debug'] = {
-    me: predictor.predicted,
-    // Where the avatar is actually drawn this frame, as opposed to the
-    // tick-quantised prediction above. The gap between the two is the
-    // sub-tick smoothing doing its job.
-    renderPos: smoothPlayer,
-    cam: { x: cam.x, y: cam.y },
-    // The city, by name and size. There is one and it never moves — this
-    // used to report which WINDOW onto an unbounded world was in force, back
-    // when a session dragged one around — but a test looking at the screen
-    // still wants to be able to say which map it is looking at.
-    city: map ? { name: map.name, w: map.widthTiles, h: map.heightTiles } : null,
-    tick: sync.latest?.tick ?? -1,
-    // Live particles and decals. Both renderers present the same pools, so a
-    // count that moves in one and not the other is a presentation bug and a
-    // count that moves in neither is a spawning one.
-    fx: effects.counts(),
-    // What the 3D light budget spent this frame, and what it was asked for.
-    lights3d: world3d?.lights.counts() ?? null,
-    cops: sync.latest?.cops.length ?? 0,
-    vehicles: sync.latest?.vehicles.length ?? 0,
-    // Ambient traffic: how many streamed vehicles have an AI at the wheel,
-    // and how many of those are actually under way.
-    aiCars: sync.latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1).length ?? 0,
-    aiMoving:
-      sync.latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1 && Math.abs(v.speed) > 20)
-        .length ?? 0,
-    peds: sync.latest?.peds.length ?? 0,
-    props: sync.latest?.props.length ?? 0,
-    // Condition of the car being driven: what the dents and the handling
-    // penalty are drawn from, and the only way a test can tell a battered car
-    // from a fresh one without reading pixels.
-    carHealth: predictor.predictedVehicle?.health ?? null,
-    carWear: predictor.predictedVehicle ? vehicleWear(predictor.predictedVehicle) : null,
-    carBroken: predictor.predictedVehicle?.broken ?? null,
-    carZones: predictor.predictedVehicle?.zones ?? null,
-    // Nearest car you could get into, and how far. A harness driving the game
-    // has to be able to find one — walking in hopeful circles pressing the
-    // action key is how the first attempt at this failed.
-    nearestVehicle: (() => {
-      const me = predictor.predicted;
-      if (!me || !sync.latest) return null;
-      return boardable(me, sync.latest)[0] ?? null;
-    })(),
-    /**
-     * The eight nearest cars you could get into, with their kinds.
-     *
-     * `nearestVehicle` alone is not enough to drive the game with: a harness
-     * told to photograph the tank has to be able to walk past the coupe parked
-     * next to it, and the proving ground hands out a row of six cars.
-     */
-    boardableVehicles: (() => {
-      const me = predictor.predicted;
-      if (!me || !sync.latest) return [];
-      return boardable(me, sync.latest).slice(0, 8);
-    })(),
-    carCondition: predictor.predictedVehicle?.condition ?? null,
-    // Altitude and the take-off latch. Same reason as `carHealth`: a harness
-    // driving the game cannot tell a helicopter in the air from one on the
-    // ground by reading pixels, and flight is the one part of driving whose
-    // whole state is a number the screen only hints at.
-    carZ: predictor.predictedVehicle?.z ?? null,
-    carClimb: predictor.predictedVehicle?.climb ?? null,
-    carKind: predictor.predictedVehicle?.kind ?? null,
-    fps: stats.fps,
-    frameMs: stats.frameMs,
-    frameMsPeak: stats.frameMsPeak,
-    renderMs: stats.renderMs,
-    buildings: tiles.lastBuildingsDrawn,
-  };
-
+  // state without scraping pixels. Not used by the game itself — which is why
+  // everything with a per-frame cost is a GETTER. This object is rebuilt
+  // sixty times a second whether or not anyone is polling it, and the eager
+  // version ran `boardable` (an allocation per vehicle plus a full distance
+  // sort) twice, four whole-table filters and two pool scans on every frame
+  // of every session. A getter costs its work only on the frame a harness
+  // actually reads the property, and reads see exactly what they always saw.
+  {
+    const predicted = predictor.predicted;
+    const predictedVehicle = predictor.predictedVehicle;
+    const latest = sync.latest;
+    // Shared by the two boardable getters, computed at most once per frame.
+    let boardableNow: ReturnType<typeof boardable> | null = null;
+    const boardableOnce = (): ReturnType<typeof boardable> => {
+      if (!boardableNow && predicted && latest) boardableNow = boardable(predicted, latest);
+      return boardableNow ?? [];
+    };
+    (window as unknown as Record<string, unknown>)['__debug'] = {
+      me: predicted,
+      // Where the avatar is actually drawn this frame, as opposed to the
+      // tick-quantised prediction above. The gap between the two is the
+      // sub-tick smoothing doing its job.
+      renderPos: smoothPlayer,
+      cam: { x: cam.x, y: cam.y },
+      // The city, by name and size. There is one and it never moves — this
+      // used to report which WINDOW onto an unbounded world was in force, back
+      // when a session dragged one around — but a test looking at the screen
+      // still wants to be able to say which map it is looking at.
+      city: map ? { name: map.name, w: map.widthTiles, h: map.heightTiles } : null,
+      tick: latest?.tick ?? -1,
+      // Live particles and decals. Both renderers present the same pools, so a
+      // count that moves in one and not the other is a presentation bug and a
+      // count that moves in neither is a spawning one.
+      get fx() {
+        return effects.counts();
+      },
+      // What the 3D light budget spent this frame, and what it was asked for.
+      get lights3d() {
+        return world3d?.lights.counts() ?? null;
+      },
+      cops: latest?.cops.length ?? 0,
+      vehicles: latest?.vehicles.length ?? 0,
+      // Ambient traffic: how many streamed vehicles have an AI at the wheel,
+      // and how many of those are actually under way.
+      get aiCars() {
+        return latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1).length ?? 0;
+      },
+      get aiMoving() {
+        return (
+          latest?.vehicles.filter((v) => (v.driverId ?? 0) < -1 && Math.abs(v.speed) > 20)
+            .length ?? 0
+        );
+      },
+      peds: latest?.peds.length ?? 0,
+      props: latest?.props.length ?? 0,
+      // Condition of the car being driven: what the dents and the handling
+      // penalty are drawn from, and the only way a test can tell a battered car
+      // from a fresh one without reading pixels.
+      carHealth: predictedVehicle?.health ?? null,
+      carWear: predictedVehicle ? vehicleWear(predictedVehicle) : null,
+      carBroken: predictedVehicle?.broken ?? null,
+      carZones: predictedVehicle?.zones ?? null,
+      // Nearest car you could get into, and how far. A harness driving the game
+      // has to be able to find one — walking in hopeful circles pressing the
+      // action key is how the first attempt at this failed.
+      get nearestVehicle() {
+        return boardableOnce()[0] ?? null;
+      },
+      /**
+       * The eight nearest cars you could get into, with their kinds.
+       *
+       * `nearestVehicle` alone is not enough to drive the game with: a harness
+       * told to photograph the tank has to be able to walk past the coupe parked
+       * next to it, and the proving ground hands out a row of six cars.
+       */
+      get boardableVehicles() {
+        return boardableOnce().slice(0, 8);
+      },
+      carCondition: predictedVehicle?.condition ?? null,
+      // Altitude and the take-off latch. Same reason as `carHealth`: a harness
+      // driving the game cannot tell a helicopter in the air from one on the
+      // ground by reading pixels, and flight is the one part of driving whose
+      // whole state is a number the screen only hints at.
+      carZ: predictedVehicle?.z ?? null,
+      carClimb: predictedVehicle?.climb ?? null,
+      carKind: predictedVehicle?.kind ?? null,
+      fps: stats.fps,
+      frameMs: stats.frameMs,
+      frameMsPeak: stats.frameMsPeak,
+      renderMs: stats.renderMs,
+      buildings: tiles.lastBuildingsDrawn,
+    };
+  }
 }
 
 /**

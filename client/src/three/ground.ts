@@ -65,6 +65,7 @@ interface Tile {
   mesh: THREE.Mesh;
   texture: THREE.Texture;
   surface: THREE.Texture;
+  cut: THREE.Texture;
   /** Frame counter when this was last inside the view, for eviction. */
   seen: number;
 }
@@ -220,12 +221,23 @@ export class GroundLayer {
   }
 
   private build(cx: number, cy: number): Tile {
-    const { canvas, holes, surface: surfaceCanvas } = this.painter.groundChunk(cx, cy);
+    const { canvas, holes, surface: surfaceCanvas, cut } = this.painter.groundChunk(cx, cy);
     const texture = new THREE.CanvasTexture(canvas);
     // The canvas is authored in sRGB; without this it is treated as linear and
     // every painted surface comes out washed out against the boxes beneath.
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = 4;
+    // Pixel art, sampled as pixel art. The default linear magnification plus a
+    // mipmap chain smeared every 1-px lane line and paving joint across two
+    // screen pixels — crawling as the camera moved — and gave each chunk its
+    // own mip pyramid whose clamped edge texels opened a faint seam grid at
+    // the chunk pitch. The surface mask below always knew to ask for nearest;
+    // the painting itself is what everyone is looking at. Minification keeps a
+    // plain linear filter (the camera can pull back a little when the window
+    // is tall), which needs no mipmaps.
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.anisotropy = 1;
     texture.needsUpdate = true;
 
     // One texel per tile, and a number rather than a colour: no filtering, no
@@ -235,6 +247,15 @@ export class GroundLayer {
     surface.minFilter = THREE.NearestFilter;
     surface.generateMipmaps = false;
     surface.needsUpdate = true;
+
+    // The water cutout — same discipline as the surface mask. See
+    // `GroundChunk.cut` for why the hole lives in its own mask rather than in
+    // the painting's alpha channel.
+    const cutTex = new THREE.CanvasTexture(cut);
+    cutTex.magFilter = THREE.NearestFilter;
+    cutTex.minFilter = THREE.NearestFilter;
+    cutTex.generateMipmaps = false;
+    cutTex.needsUpdate = true;
 
     const material = new THREE.MeshToonMaterial({
       map: texture,
@@ -246,6 +267,7 @@ export class GroundLayer {
       // A cutout, not a blend: the river wants the depth its own geometry has,
       // and leaving `transparent` off keeps these quads in the opaque pass
       // where they can occlude rather than queue up behind it.
+      alphaMap: holes ? cutTex : null,
       alphaTest: holes ? 0.5 : 0,
     });
     this.makeWet(material, surface);
@@ -254,7 +276,7 @@ export class GroundLayer {
     mesh.receiveShadow = true;
     mesh.position.set((cx + 0.5) * CHUNK_WORLD, (cy + 0.5) * CHUNK_WORLD, LIFT);
     this.group.add(mesh);
-    return { mesh, texture, surface, seen: this.frame };
+    return { mesh, texture, surface, cut: cutTex, seen: this.frame };
   }
 
   /** Hang the rain onto a chunk's material. See the note above `WET_ALBEDO`. */
@@ -348,6 +370,7 @@ export class GroundLayer {
     this.group.remove(tile.mesh);
     tile.texture.dispose();
     tile.surface.dispose();
+    tile.cut.dispose();
     (tile.mesh.material as THREE.Material).dispose();
   }
 

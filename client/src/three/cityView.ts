@@ -106,6 +106,15 @@ const HEMI_SKY_NIGHT = new THREE.Color(0x2a3a58);
 const HEMI_GROUND_DAY = new THREE.Color(0x3a3d33);
 const HEMI_GROUND_NIGHT = new THREE.Color(0x181c26);
 const MOONLIGHT = Object.freeze({ sun: 0.21, ambient: 0.4, hemi: 0.39 });
+/** The ambient grade endpoints, as colours, built once rather than per frame. */
+const AMBIENT_DAY = new THREE.Color(GRADE_DAY.r / 255, GRADE_DAY.g / 255, GRADE_DAY.b / 255);
+const AMBIENT_NIGHT = new THREE.Color(
+  GRADE_NIGHT.r / 255,
+  GRADE_NIGHT.g / 255,
+  GRADE_NIGHT.b / 255,
+);
+const SKY_DAY = new THREE.Color(0x9fc4dd);
+const SKY_NIGHT = new THREE.Color(0x0a1020);
 
 /** Where the camera sits and what it points at, both in SCENE space. */
 export interface CameraPose {
@@ -277,7 +286,8 @@ export class CityView {
     // back the hour. `main.ts` sets this every frame and would fix it anyway;
     // `city3d.html` and `live.ts` set it once and would not.
     this.facadeNight = collectFacadeNight(this.scene);
-    setFacadeNight(this.facadeNight, this.night);
+    // `night` is -1 until the first `setNight`; the facades want a real hour.
+    setFacadeNight(this.facadeNight, Math.max(0, this.night));
   }
 
   private buildLights(): void {
@@ -344,7 +354,12 @@ export class CityView {
   private ambient!: THREE.AmbientLight;
   private hemi!: THREE.HemisphereLight;
   private instanceCount = 0;
-  private night = 0;
+  /**
+   * The applied hour, `-1` until `setNight` first runs so the first call
+   * always applies — the constructor leaves the background at the field
+   * colour, and an early-out at a genuine midday 0 would keep it there.
+   */
+  private night = -1;
   /** The grade, the bloom and the vignette. Null when `?post=off`. */
   private post: PostChain | null = null;
   /** Facade night uniforms, refreshed when the city is rebuilt. */
@@ -366,6 +381,10 @@ export class CityView {
    */
   setNight(amount: number): void {
     const t = Math.max(0, Math.min(1, amount));
+    // `main.ts` calls this every frame; the hour moves once a second at most.
+    // Everything below is lerps and colour writes, so skipping the no-change
+    // case is what keeps a per-frame call from allocating per frame.
+    if (t === this.night) return;
     const lerp = (a: number, b: number): number => a + (b - a) * t;
     this.sun.intensity = lerp(DAYLIGHT.sun, MOONLIGHT.sun);
     this.ambient.intensity = lerp(DAYLIGHT.ambient, MOONLIGHT.ambient);
@@ -380,11 +399,11 @@ export class CityView {
     this.sun.color.copy(SUN_DAY).lerp(SUN_NIGHT, t);
     this.hemi.color.copy(HEMI_SKY_DAY).lerp(HEMI_SKY_NIGHT, t);
     this.hemi.groundColor.copy(HEMI_GROUND_DAY).lerp(HEMI_GROUND_NIGHT, t);
-    const grade = (c: { r: number; g: number; b: number }): THREE.Color =>
-      new THREE.Color(c.r / 255, c.g / 255, c.b / 255);
-    this.ambient.color = grade(GRADE_DAY).lerp(grade(GRADE_NIGHT), t);
-    const sky = new THREE.Color(0x9fc4dd).lerp(new THREE.Color(0x0a1020), t);
-    this.scene.background = sky;
+    this.ambient.color.copy(AMBIENT_DAY).lerp(AMBIENT_NIGHT, t);
+    // Written in place: reassigning `scene.background` hands three.js a new
+    // object reference to re-examine every frame, for a colour that has not
+    // moved. The constructor set a Color here, so it is always one.
+    (this.scene.background as THREE.Color).copy(SKY_DAY).lerp(SKY_NIGHT, t);
     // Windows light up as it gets dark — the one cue that turns a block of
     // flats at night from a silhouette into somewhere people live.
     setFacadeNight(this.facadeNight, t);

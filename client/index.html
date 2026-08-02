@@ -25,7 +25,13 @@
         left: 50%;
         top: 50%;
         transform: translate(-50%, -50%);
-        image-rendering: auto;
+        /* Pixelated like the HUD canvas above it, so the two layers cannot
+           disagree about sharpness. `main.ts` overrides this per fit — smooth
+           only where the upscale ratio is fractional and even pixels are
+           impossible. `auto` here was the single loudest softness in the
+           frame: the world store bilinearly stretched under a razor-sharp
+           HUD. */
+        image-rendering: pixelated;
       }
       /* Above the world, and — in 3D — see-through. The shared `background`
          below would otherwise paint this canvas opaque black over it. */

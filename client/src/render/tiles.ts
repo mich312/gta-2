@@ -49,12 +49,23 @@ const DIRS: ReadonlyArray<readonly [number, number]> = [
 
 /** What `groundChunk` hands the 3D ground layer. */
 export interface GroundChunk {
-  /** The painting: one device pixel per texture pixel, water left clear. */
+  /** The painting: one device pixel per texture pixel, fully opaque. */
   canvas: HTMLCanvasElement;
-  /** Whether any of it is clear, so the layer knows to alpha-test. */
+  /** Whether any tile is water, so the layer knows to alpha-test the cutout. */
   holes: boolean;
   /** One texel per tile, red channel = `SHEEN`. */
   surface: HTMLCanvasElement;
+  /**
+   * One texel per tile, green channel 255 for ground and 0 for water — the
+   * cutout, as its own nearest-filtered mask rather than the painting's alpha.
+   *
+   * A canvas cannot hold colour at zero alpha (the backing store is
+   * premultiplied), so cutting on the painting's own alpha channel meant every
+   * shoreline texel filtered towards transparent BLACK: a dark fringe on the
+   * waterline, eroded differently at every mip level. The painting is opaque
+   * water colour there instead, and this mask is what the alpha test reads.
+   */
+  cut: HTMLCanvasElement;
 }
 
 /**
@@ -141,6 +152,23 @@ export function laneCentreInTile(width: number, index: number): number | null {
   if (width < 2) return null;
   const at = width / 2 - index;
   return at > 0 && at <= 1 ? at : null;
+}
+
+/**
+ * Where the centre dash starts inside its tile, in device pixels — rounded to
+ * a whole pixel and CLAMPED to keep the whole dash inside the tile.
+ *
+ * The clamp is for even carriageway widths, where `laneCentreInTile` answers
+ * exactly 1.0: the centre is the tile boundary, and a dash drawn astride it
+ * lost its outer half to the neighbouring tile's base fill, painted a moment
+ * later — so every arterial's centre line came out half as thick as a side
+ * street's, half a pixel off centre and half a pixel fainter. A whole dash
+ * half a device pixel inside the true centre is invisible; half a dash is not.
+ *
+ * Pure, like `laneCentreInTile` above it, and for the same reason.
+ */
+export function laneDashOffset(centreInTile: number, tilePx: number, thickness: number): number {
+  return Math.min(tilePx - thickness, Math.round(centreInTile * tilePx - thickness / 2));
 }
 
 interface Chunk {
@@ -455,16 +483,18 @@ export class TileLayer {
    * `buildChunk` adds — 3D has its own geometry and its own shadow map, and
    * baking a second set under them would double every one.
    *
-   * **Water is left transparent; buildings are not.** Both are real volumes in
-   * 3D, but only one of them is a hole. A building stands well above this
-   * plane and hides its own footprint, so the footprint can be filled with
-   * anything and painting it costs nothing. Water sits *below* the plane, so
-   * painting it would lay a flat lid over a surface that is supposed to have a
-   * depth and a shoreline.
+   * **Water is cut out; buildings are not.** Both are real volumes in 3D, but
+   * only one of them is a hole. A building stands well above this plane and
+   * hides its own footprint, so the footprint can be filled with anything and
+   * painting it costs nothing. Water sits *below* the plane, so leaving it in
+   * would lay a flat lid over a surface that is supposed to have a depth and a
+   * shoreline. The hole is punched by the `cut` mask rather than by leaving
+   * the painting transparent — see `GroundChunk.cut` for why.
    *
    * That distinction is worth the extra flag it returns: a chunk with no water
-   * in it needs no alpha at all, and most chunks have none. `holes` says which
-   * ones do, so the ground layer can draw the rest opaque and keep early-z.
+   * in it needs no alpha test at all, and most chunks have none. `holes` says
+   * which ones do, so the ground layer can draw the rest opaque and keep
+   * early-z.
    *
    * It also returns `surface`, one texel per tile saying what that tile is
    * *made of* — see `SHEEN`. The painted canvas cannot answer that: tarmac
@@ -486,6 +516,13 @@ export class TileLayer {
     const sctx = surface.getContext('2d') as CanvasRenderingContext2D;
     const mask = sctx.createImageData(CHUNK_TILES, CHUNK_TILES);
 
+    // The cutout mask, one texel per tile. See `GroundChunk.cut`.
+    const cut = document.createElement('canvas');
+    cut.width = CHUNK_TILES;
+    cut.height = CHUNK_TILES;
+    const cctx = cut.getContext('2d') as CanvasRenderingContext2D;
+    const cutMask = cctx.createImageData(CHUNK_TILES, CHUNK_TILES);
+
     const tx0 = cx * CHUNK_TILES;
     const ty0 = cy * CHUNK_TILES;
     let holes = false;
@@ -497,8 +534,16 @@ export class TileLayer {
         const m = ((ty - ty0) * CHUNK_TILES + (tx - tx0)) * 4;
         mask.data[m] = Math.round(255 * sheenOf(tile));
         mask.data[m + 3] = 255;
+        cutMask.data[m + 1] = tile === T_WATER ? 0 : 255;
+        cutMask.data[m + 3] = 255;
         if (tile === T_WATER) {
           holes = true;
+          // Flat water colour, opaque. Never SHOWN — the cutout removes the
+          // whole tile — but it is what the filter blends shoreline texels
+          // towards, and blending towards water is invisible where blending
+          // towards transparent black was a dark rim around every island.
+          ctx.fillStyle = palette.water;
+          ctx.fillRect(x, y, TD, TD);
           continue;
         }
         if (tile === T_BUILDING) {
@@ -512,7 +557,8 @@ export class TileLayer {
       }
     }
     sctx.putImageData(mask, 0, 0);
-    return { canvas, holes, surface };
+    cctx.putImageData(cutMask, 0, 0);
+    return { canvas, holes, surface, cut };
   }
 
   private buildChunk(cx: number, cy: number): HTMLCanvasElement {
@@ -926,9 +972,8 @@ export class TileLayer {
     const centreInTile = laneCentreInTile(width, index);
     if (centreInTile !== null) {
       ctx.fillStyle = palette.roadLane;
-      // Rounded to a whole device pixel, so an odd width does not put the line
-      // on a half pixel and let the filter smear it across two.
-      const at = Math.round(centreInTile * TD - t / 2);
+      // Whole device pixel, kept inside this tile — see `laneDashOffset`.
+      const at = laneDashOffset(centreInTile, TD, t);
       const dashes = 2;
       const dashLen = TD / (dashes * 2);
       for (let d = 0; d < dashes; d++) {
@@ -1175,7 +1220,14 @@ export class TileLayer {
     const n = hash2(tx, ty, 0x51f7);
     if (n > 0.72) {
       ctx.fillStyle = palette.runwayLight;
-      ctx.fillRect(x + (n * 9 % 9) * RENDER_SCALE, y + (n * 13 % 11) * RENDER_SCALE, 2 * RENDER_SCALE, 2 * RENDER_SCALE);
+      // Whole world pixels. `n` is a fraction, so the old `n * 9 % 9` was a
+      // no-op that left the rect at a fractional coordinate — the one place in
+      // the painter off the pixel grid, and canvas antialiases a fractional
+      // `fillRect` whatever `imageSmoothingEnabled` says, so every grain was a
+      // smear instead of a speck.
+      const gx = Math.floor(hash2(tx, ty, 0x51f8) * 9);
+      const gy = Math.floor(hash2(tx, ty, 0x51f9) * 11);
+      ctx.fillRect(x + gx * RENDER_SCALE, y + gy * RENDER_SCALE, 2 * RENDER_SCALE, 2 * RENDER_SCALE);
     }
     // The centreline runs east-west, matching how the strip is stamped. Every
     // other tile, so it dashes.

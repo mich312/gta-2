@@ -20,10 +20,20 @@ import { viewport } from './viewport.js';
 
 /** On-screen size of the map panel, in world (HUD) pixels. */
 const SIZE = 74;
-/** World pixels covered by the panel. Smaller = more zoomed in. */
-const SPAN = 900;
-/** Device pixels per tile in the baked texture. */
-const BAKE_SCALE = 1;
+/**
+ * World pixels covered by the panel. Smaller = more zoomed in.
+ *
+ * Not a free choice: with `BAKE_SCALE` texels per tile, the panel blits
+ * `SPAN * BAKE_SCALE / TILE_SIZE` texels into `SIZE` HUD pixels, and unless
+ * that ratio is a whole number the tiles alternate widths — and because the
+ * source window follows the player continuously, WHICH tiles got the extra
+ * pixel changed every frame, so the whole radar boiled while driving. 592
+ * makes it exactly one texel per HUD pixel (two device pixels): every tile the
+ * same size, every frame.
+ */
+const SPAN = 592;
+/** Texture pixels per tile in the baked texture. */
+const BAKE_SCALE: number = 2;
 
 const TILE_COLORS: Record<number, string> = {
   [T_ROAD]: '#4a5058',
@@ -83,8 +93,9 @@ const TURF_TINT: Record<number, string> = {
  * city is 114 screenfuls of near-identical grid with six unmarked shops
  * somewhere in it.
  *
- * The whole city is baked once into an offscreen canvas at one pixel per
- * tile — the client already regenerates the identical CityMap locally, so
+ * The whole city is baked once into an offscreen canvas at `BAKE_SCALE`
+ * pixels per tile — the client already regenerates the identical CityMap
+ * locally, so
  * this costs nothing on the wire — and each frame blits a cropped window of
  * that texture. Markers are drawn on top in HUD space.
  */
@@ -102,7 +113,7 @@ export class Minimap {
   }
 
   /**
-   * The whole city into an offscreen canvas, one pixel per tile.
+   * The whole city into an offscreen canvas, `BAKE_SCALE` pixels per tile.
    *
    * Written as pixels rather than as rectangles. A `fillRect` per tile is the
    * obvious way to say this and it was fine on a 240-tile map; on a 768-tile
@@ -166,16 +177,16 @@ export class Minimap {
     ctx.clip();
 
     // Source window in texture pixels, centred on the player and clamped so
-    // the panel never shows off-map emptiness at the city edges.
+    // the panel never shows off-map emptiness at the city edges. Snapped to a
+    // whole texel: a fractional source origin re-decides which texel each
+    // destination pixel takes every frame, and the grid crawls as you move.
     const texPerWorld = BAKE_SCALE / TILE_SIZE;
     const srcSpan = SPAN * texPerWorld;
-    const sx = Math.max(
-      0,
-      Math.min(this.texture.width - srcSpan, center.x * texPerWorld - srcSpan / 2),
+    const sx = Math.round(
+      Math.max(0, Math.min(this.texture.width - srcSpan, center.x * texPerWorld - srcSpan / 2)),
     );
-    const sy = Math.max(
-      0,
-      Math.min(this.texture.height - srcSpan, center.y * texPerWorld - srcSpan / 2),
+    const sy = Math.round(
+      Math.max(0, Math.min(this.texture.height - srcSpan, center.y * texPerWorld - srcSpan / 2)),
     );
     ctx.fillStyle = '#11161c';
     ctx.fillRect(x0, y0, SIZE, SIZE);
@@ -183,17 +194,22 @@ export class Minimap {
     ctx.drawImage(this.texture, sx, sy, srcSpan, srcSpan, x0, y0, SIZE, SIZE);
 
     // World position -> panel position, using the same clamped window.
-    const px = (wx: number): number => x0 + (wx * texPerWorld - sx) * (SIZE / srcSpan);
-    const py = (wy: number): number => y0 + (wy * texPerWorld - sy) * (SIZE / srcSpan);
+    const hudPerTex = SIZE / srcSpan;
+    const px = (wx: number): number => x0 + (wx * texPerWorld - sx) * hudPerTex;
+    const py = (wy: number): number => y0 + (wy * texPerWorld - sy) * hudPerTex;
     const inPanel = (x: number, y: number): boolean =>
       x >= x0 - 1 && y >= y0 - 1 && x <= x0 + SIZE + 1 && y <= y0 + SIZE + 1;
+    // HUD units are half a device pixel here (`hudTransform` scales by
+    // `RENDER_SCALE`), so markers land on the device grid at multiples of 0.5
+    // — anything finer is drawn antialiased and reads as a smudge.
+    const snap = (v: number): number => Math.round(v * 2) / 2;
 
     const dot = (wx: number, wy: number, color: string, r: number): void => {
       const x = px(wx);
       const y = py(wy);
       if (!inPanel(x, y)) return;
       ctx.fillStyle = color;
-      ctx.fillRect(x - r, y - r, r * 2, r * 2);
+      ctx.fillRect(snap(x - r), snap(y - r), r * 2, r * 2);
     };
 
     // Turf: a faint wash under everything, so you can see whose ground you
@@ -204,18 +220,32 @@ export class Minimap {
       // streets under it stopped being readable. Territory is context, not
       // the subject of the panel.
       ctx.globalAlpha = 0.11;
-      for (let i = 0; i < map.turfCells.length; i++) {
-        const gang = map.turfCells[i] as number;
-        const tint = TURF_TINT[gang];
-        if (!tint) continue;
-        const gx = (i % map.turfCellsWide) * cellPx;
-        const gy = Math.floor(i / map.turfCellsWide) * cellPx;
-        const x = px(gx);
-        const y = py(gy);
-        const w = (cellPx / TILE_SIZE) * BAKE_SCALE * (SIZE / (SPAN * (BAKE_SCALE / TILE_SIZE)));
-        if (x + w < x0 || y + w < y0 || x > x0 + SIZE || y > y0 + SIZE) continue;
-        ctx.fillStyle = tint;
-        ctx.fillRect(x, y, w, w);
+      // Only the cells the window can show. The old loop walked all 4096
+      // cells of the city to fill a 74 px panel, and rejected each one after
+      // doing its arithmetic; the window covers about nine.
+      const wx0 = sx / texPerWorld;
+      const wy0 = sy / texPerWorld;
+      const gx0 = Math.max(0, Math.floor(wx0 / cellPx));
+      const gy0 = Math.max(0, Math.floor(wy0 / cellPx));
+      const gx1 = Math.min(map.turfCellsWide - 1, Math.floor((wx0 + SPAN) / cellPx));
+      const gy1 = Math.min(
+        Math.ceil(map.turfCells.length / map.turfCellsWide) - 1,
+        Math.floor((wy0 + SPAN) / cellPx),
+      );
+      // Snapped to the same half-HUD-pixel grid as the markers: adjacent
+      // translucent cells drawn at fractional edges double-blend where they
+      // meet, which laid a faint darker grid over the whole wash.
+      const w = cellPx * texPerWorld * hudPerTex;
+      for (let gy = gy0; gy <= gy1; gy++) {
+        for (let gx = gx0; gx <= gx1; gx++) {
+          const gang = map.turfCells[gy * map.turfCellsWide + gx] as number;
+          const tint = TURF_TINT[gang];
+          if (!tint) continue;
+          const x = snap(px(gx * cellPx));
+          const y = snap(py(gy * cellPx));
+          ctx.fillStyle = tint;
+          ctx.fillRect(x, y, snap(px(gx * cellPx) + w) - x, snap(py(gy * cellPx) + w) - y);
+        }
       }
       ctx.globalAlpha = 1;
     }
