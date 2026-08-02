@@ -373,19 +373,33 @@ function scanAhead(state: GameState, map: CityMap, v: VehicleState, horizon: num
     const along = other.speed * dCos(dh);
     consider(other.pos.x, other.pos.y, oFwd, oLat, along, false);
   }
+  // The same horizon box the vehicle loop rejects on, applied to people.
+  // These three loops had no distance pre-check at all, so every AI car ran
+  // the full projection in `consider` against all ~200 pedestrians every
+  // tick — tens of thousands of inner iterations per 33 ms — to fold in
+  // obstacles the projection was going to measure as blocks away. (A body
+  // beyond the horizon no longer shades `gap` at all, exactly as a far
+  // vehicle never did.)
   for (const id of state.peds.ids) {
     const ped = state.peds.byId[id];
     if (!ped || ped.mode === 'dead') continue; // traffic does not queue behind a body
+    if (Math.abs(ped.pos.x - v.pos.x) > horizon || Math.abs(ped.pos.y - v.pos.y) > horizon) {
+      continue;
+    }
     consider(ped.pos.x, ped.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   for (const id of state.players.ids) {
     const p = state.players.byId[id];
     if (!p || p.mode !== 'foot') continue;
+    if (Math.abs(p.pos.x - v.pos.x) > horizon || Math.abs(p.pos.y - v.pos.y) > horizon) continue;
     consider(p.pos.x, p.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   for (const id of state.cops.ids) {
     const cop = state.cops.byId[id];
     if (!cop || cop.vehicleId !== null) continue;
+    if (Math.abs(cop.pos.x - v.pos.x) > horizon || Math.abs(cop.pos.y - v.pos.y) > horizon) {
+      continue;
+    }
     consider(cop.pos.x, cop.pos.y, PLAYER_RADIUS, PLAYER_RADIUS, 0, true);
   }
   // A fresh object every time, deliberately. This used to return a shared

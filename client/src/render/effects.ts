@@ -1,6 +1,7 @@
 import palette from 'shared/data/palette.json';
 import { RENDER_SCALE } from './config.js';
 import type { LightKind, LightPass } from './lighting.js';
+import { viewport } from './viewport.js';
 
 const MAX_PARTICLES = 600;
 /**
@@ -283,15 +284,26 @@ export class Effects {
       p.x += p.vx * step;
       p.y += p.vy * step;
     }
+    // Swap-with-last rather than splice: a splice memmoves the tail per
+    // removal, and the decal pool is routinely at its 460 cap while driving.
+    // Order within the pool is not meaningful — draw order among ground
+    // stains was already arrival order, and nobody can tell two overlapping
+    // skid marks' z apart.
     for (let i = this.decals.length - 1; i >= 0; i--) {
       const d = this.decals[i] as Decal;
       d.life -= step;
-      if (d.life <= 0) this.decals.splice(i, 1);
+      if (d.life <= 0) {
+        this.decals[i] = this.decals[this.decals.length - 1] as Decal;
+        this.decals.pop();
+      }
     }
     for (let i = this.flashes.length - 1; i >= 0; i--) {
       const f = this.flashes[i] as Flash;
       f.life -= step;
-      if (f.life <= 0) this.flashes.splice(i, 1);
+      if (f.life <= 0) {
+        this.flashes[i] = this.flashes[this.flashes.length - 1] as Flash;
+        this.flashes.pop();
+      }
     }
   }
 
@@ -653,8 +665,18 @@ export class Effects {
   /** Ground marks, below everything that moves. */
   drawDecals(ctx: CanvasRenderingContext2D, originX: number, originY: number): void {
     if (this.decals.length === 0) return;
+    // Screen bounds with a margin for the largest decal, in device px. The
+    // pool is long-lived and city-wide — skid marks laid a district away were
+    // paying a translate/rotate/setTransform (and, for blood, a full ellipse
+    // path build) every frame, however far off screen.
+    const margin = 64 * RENDER_SCALE;
+    const maxX = viewport.deviceW + margin;
+    const maxY = viewport.deviceH + margin;
     ctx.save();
     for (const d of this.decals) {
+      const sx = originX + d.x * RENDER_SCALE;
+      const sy = originY + d.y * RENDER_SCALE;
+      if (sx < -margin || sy < -margin || sx > maxX || sy > maxY) continue;
       ctx.globalAlpha = decalAlpha(d);
       ctx.fillStyle = d.color;
       ctx.translate(originX + d.x * RENDER_SCALE, originY + d.y * RENDER_SCALE);

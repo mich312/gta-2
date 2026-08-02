@@ -94,16 +94,31 @@ function layRubber(
   airborne: boolean,
 ): void {
   const prev = skidState.get(id);
-  skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: prev?.nextAtMs ?? 0, seq: frameSeq });
+  // The decision below needs prev's values, so they are read out BEFORE the
+  // record is updated in place — a fresh record per vehicle per frame was
+  // steady garbage for state that never changes shape.
+  const prevHeading = prev?.heading ?? 0;
+  const prevSpeed = prev?.speed ?? 0;
+  const prevMs = prev?.ms ?? 0;
+  const prevNextAtMs = prev?.nextAtMs ?? 0;
+  const prevSeq = prev?.seq ?? 0;
+  if (prev) {
+    prev.heading = heading;
+    prev.speed = speed;
+    prev.ms = nowMs;
+    prev.seq = frameSeq;
+  } else {
+    skidState.set(id, { heading, speed, ms: nowMs, nextAtMs: 0, seq: frameSeq });
+  }
   if (!prev || airborne) return;
 
-  const dtMs = nowMs - prev.ms;
+  const dtMs = nowMs - prevMs;
   // Continuous history only: this vehicle has to have been sampled on the
   // previous frame for the heading change since then to mean anything.
-  if (dtMs <= 0 || prev.seq !== frameSeq - 1) return;
+  if (dtMs <= 0 || prevSeq !== frameSeq - 1) return;
   // Shortest signed angle between the two headings, so wrapping past ±π
   // doesn't read as a violent slide.
-  let delta = heading - prev.heading;
+  let delta = heading - prevHeading;
   while (delta > Math.PI) delta -= Math.PI * 2;
   while (delta < -Math.PI) delta += Math.PI * 2;
   const yawRate = Math.abs(delta) / (dtMs / 1000);
@@ -111,12 +126,12 @@ function layRubber(
 
   // Braking, as opposed to crashing: a wall reverses the speed outright, and a
   // rebound is not a brake mark.
-  const decel = (Math.abs(prev.speed) - Math.abs(speed)) / (dtMs / 1000);
+  const decel = (Math.abs(prevSpeed) - Math.abs(speed)) / (dtMs / 1000);
   const braking =
-    Math.abs(speed) >= SKID_MIN_BRAKE_SPEED && speed * prev.speed > 0 && decel >= SKID_MIN_DECEL;
+    Math.abs(speed) >= SKID_MIN_BRAKE_SPEED && speed * prevSpeed > 0 && decel >= SKID_MIN_DECEL;
 
   if (!sliding && !braking) return;
-  if (nowMs < prev.nextAtMs) return;
+  if (nowMs < prevNextAtMs) return;
 
   const cos = Math.cos(heading);
   const sin = Math.sin(heading);
@@ -128,13 +143,9 @@ function layRubber(
       effects.skid(wx - cos * back - sin * track * s, wy - sin * back + cos * track * s, heading);
     }
   }
-  skidState.set(id, {
-    heading,
-    speed,
-    ms: nowMs,
-    nextAtMs: nowMs + SKID_INTERVAL_MS,
-    seq: frameSeq,
-  });
+  // Rubber laid: push the next-allowed time out. The record was already
+  // updated in place above; only the throttle field moves here.
+  if (prev) prev.nextAtMs = nowMs + SKID_INTERVAL_MS;
 }
 
 /**
@@ -163,6 +174,35 @@ function bleedFrom(
 }
 
 /** One vehicle's worth of trail, smoke and rubber. */
+interface VehicleFx {
+  id: number;
+  kind: string;
+  x: number;
+  y: number;
+  heading: number;
+  speed: number;
+  z: number;
+  condition: string;
+  broken: number;
+  wear: number;
+  occupied: boolean;
+}
+
+/** Reused by the remote-vehicle loop in `spawnSceneEffects`; never stored. */
+const VEHICLE_SCRATCH: VehicleFx = {
+  id: 0,
+  kind: '',
+  x: 0,
+  y: 0,
+  heading: 0,
+  speed: 0,
+  z: 0,
+  condition: 'ok',
+  broken: 0,
+  wear: 0,
+  occupied: false,
+};
+
 function vehicleEffects(
   effects: Effects,
   o: {
@@ -211,23 +251,20 @@ export function spawnSceneEffects(effects: Effects, scene: Scene): void {
 
   for (const rv of scene.remotes.vehicles) {
     const v = rv.vehicle;
-    vehicleEffects(
-      effects,
-      {
-        id: v.id,
-        kind: v.kind,
-        x: rv.x,
-        y: rv.y,
-        heading: rv.heading,
-        speed: v.speed,
-        z: v.z ?? 0,
-        condition: v.condition,
-        broken: v.broken ?? 0,
-        wear: vehicleWear(v),
-        occupied: v.driverId !== null,
-      },
-      nowMs,
-    );
+    // One scratch descriptor, reused: `vehicleEffects` reads it and never
+    // stores it, and a fresh object per vehicle per frame was steady garbage.
+    VEHICLE_SCRATCH.id = v.id;
+    VEHICLE_SCRATCH.kind = v.kind;
+    VEHICLE_SCRATCH.x = rv.x;
+    VEHICLE_SCRATCH.y = rv.y;
+    VEHICLE_SCRATCH.heading = rv.heading;
+    VEHICLE_SCRATCH.speed = v.speed;
+    VEHICLE_SCRATCH.z = v.z ?? 0;
+    VEHICLE_SCRATCH.condition = v.condition;
+    VEHICLE_SCRATCH.broken = v.broken ?? 0;
+    VEHICLE_SCRATCH.wear = vehicleWear(v);
+    VEHICLE_SCRATCH.occupied = v.driverId !== null;
+    vehicleEffects(effects, VEHICLE_SCRATCH, nowMs);
   }
 
   // The car the local player is driving comes from PREDICTION, like the 2D

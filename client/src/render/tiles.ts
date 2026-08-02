@@ -544,7 +544,9 @@ export class TileLayer {
           ctx.fillRect(x, y, TD, TD);
           continue;
         }
-        this.paintGround(ctx, tx, ty, x, y, tile);
+        // No flat plants in the 3D ground: the scenery layer stands real
+        // meshes on the same tiles. See `paintGround`.
+        this.paintGround(ctx, tx, ty, x, y, tile, false);
       }
     }
     sctx.putImageData(mask, 0, 0);
@@ -613,6 +615,14 @@ export class TileLayer {
     x: number,
     y: number,
     tile: number,
+    /**
+     * Whether lush ground may bake its flat tree/bush sprites in. The 3D
+     * ground texture says no: `SceneryLayer` plants a real mesh on the same
+     * hash-chosen tiles, and it stands randomly yawed over a flat unrotated
+     * twin baked underneath — every plant in a park showing its own
+     * mismatched shadow-copy peeking out from under it.
+     */
+    plants = true,
   ): void {
     switch (tile) {
       case T_ROAD:
@@ -622,7 +632,7 @@ export class TileLayer {
         this.paintSidewalk(ctx, tx, ty, x, y);
         break;
       case T_PARK:
-        this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true);
+        this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
         break;
       case T_FIELD:
         this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
@@ -639,7 +649,7 @@ export class TileLayer {
       case T_TREES:
         // Canopy: the park grass painter with the forest palette does the
         // job — solid dark green with organic speckle, denser than lawn.
-        this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true);
+        this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true, plants);
         break;
       case T_SAND:
         this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
@@ -1216,12 +1226,13 @@ export class TileLayer {
     base: string,
     light: string,
     lush: boolean,
+    plants = true,
   ): void {
     ctx.fillStyle = base;
     ctx.fillRect(x, y, TD, TD);
     this.speckle(ctx, tx, ty, x, y, light, lush ? 14 : 7, 2, 11);
     this.speckle(ctx, tx, ty, x, y, shade(base, 0.25), lush ? 8 : 4, 2, 13);
-    if (!lush) return;
+    if (!lush || !plants) return;
 
     // Park planting. Bushes are low enough to walk past without reading wrong;
     // trees are kept sparse for the same reason.

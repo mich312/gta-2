@@ -142,6 +142,12 @@ export function occluderEdges(
  * Returns the new total segment count, so a caller can collect buildings and
  * bodies into one array and punch them in a single pass.
  */
+/** Box-corner signs and scratch, hoisted out of the per-occluder loop. */
+const CORNER_CX = [1, 1, -1, -1] as const;
+const CORNER_CY = [-1, 1, 1, -1] as const;
+const CORNER_PX = [0, 0, 0, 0];
+const CORNER_PY = [0, 0, 0, 0];
+
 export function entityEdges(
   occluders: readonly Occluder[],
   lx: number,
@@ -179,16 +185,16 @@ export function entityEdges(
 
     const cos = Math.cos(o.heading);
     const sin = Math.sin(o.heading);
-    const cx = [1, 1, -1, -1];
-    const cy = [-1, 1, 1, -1];
     // Corners in order around the box, so consecutive pairs are its edges.
-    const px: number[] = [];
-    const py: number[] = [];
+    // Module-level scratch: this runs per occluder per shadow light per
+    // frame, and four fresh arrays each time was steady per-frame garbage.
+    const px = CORNER_PX;
+    const py = CORNER_PY;
     for (let i = 0; i < 4; i++) {
-      const lo = (cx[i] as number) * o.halfLong;
-      const wi = (cy[i] as number) * o.halfWide;
-      px.push(o.x + cos * lo - sin * wi);
-      py.push(o.y + sin * lo + cos * wi);
+      const lo = (CORNER_CX[i] as number) * o.halfLong;
+      const wi = (CORNER_CY[i] as number) * o.halfWide;
+      px[i] = o.x + cos * lo - sin * wi;
+      py[i] = o.y + sin * lo + cos * wi;
     }
     for (let i = 0; i < 4; i++) {
       const j = (i + 1) & 3;

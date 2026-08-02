@@ -116,6 +116,27 @@ const AMBIENT_NIGHT = new THREE.Color(
 const SKY_DAY = new THREE.Color(0x9fc4dd);
 const SKY_NIGHT = new THREE.Color(0x0a1020);
 
+/**
+ * The shadow camera's own right/up axes, in SCENE space, built once.
+ *
+ * Texel snapping has to happen in this basis: the shadow map's texel grid is
+ * aligned to the light's view plane, which for this sun is rotated ~34° in
+ * plan and foreshortened ~1.25× by its tilt. Rounding the target in world XY
+ * — the previous version — snapped to a grid the shadow map does not use, so
+ * edges still crawled sub-texel while driving. The axes come from the same
+ * lookAt construction three.js uses for the shadow camera: z along
+ * position−target, x = up₀ × z, y = z × x, with the world group's y-flip
+ * folded in (a game offset (dx, dy, dz) is (dx, −dy, dz) in scene space).
+ */
+const SHADOW_BASIS = (() => {
+  const z = new THREE.Vector3(SUN_OFFSET.x, -SUN_OFFSET.y, SUN_OFFSET.z).normalize();
+  const x = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), z).normalize();
+  const y = new THREE.Vector3().crossVectors(z, x);
+  return { x, y };
+})();
+/** Scratch for the snap, so `lookAt` allocates nothing per frame. */
+const SNAP_SCRATCH = new THREE.Vector3();
+
 /** Where the camera sits and what it points at, both in SCENE space. */
 export interface CameraPose {
   position: THREE.Vector3;
@@ -448,17 +469,25 @@ export class CityView {
     // is on screen. The sun lives in the world group, so `SUN_OFFSET` is in
     // world px and means the same thing here as `SUN_X`/`SUN_Y` do in 2D.
     //
-    // Snapped to whole shadow texels. Following the camera to unquantised
-    // float coordinates slides the depth grid by a fraction of a texel every
-    // frame, and every shadow edge in the city crawls and fizzes while you
-    // drive. Moving in texel steps means the samples land on the same places
-    // frame to frame and the edges hold still.
+    // Snapped to whole shadow texels, in the LIGHT'S basis — see
+    // `SHADOW_BASIS`. Following the camera to unquantised coordinates slides
+    // the depth grid by a fraction of a texel every frame and every shadow
+    // edge crawls; snapping in world XY (the previous fix) quantised to a
+    // grid the tilted shadow camera does not sample on, which only slowed
+    // the crawl. Remove the target's fractional part along the light's own
+    // right/up and the samples land on the same texels frame to frame.
+    // Shifting target and sun by the same in-plane step leaves the light
+    // direction untouched, so it is invisible except to the texel grid.
     const texel = (2 * SHADOW_HALF_EXTENT) / this.sun.shadow.mapSize.x;
-    const sx = Math.round(x / texel) * texel;
-    const sy = Math.round(y / texel) * texel;
-    this.sun.target.position.set(sx, sy, 0);
+    const t = SNAP_SCRATCH.set(x, -y, 0); // scene space
+    const a = t.dot(SHADOW_BASIS.x);
+    const b = t.dot(SHADOW_BASIS.y);
+    t.addScaledVector(SHADOW_BASIS.x, Math.round(a / texel) * texel - a);
+    t.addScaledVector(SHADOW_BASIS.y, Math.round(b / texel) * texel - b);
+    // Back to the world group's coordinates (game y is scene −y).
+    this.sun.target.position.set(t.x, -t.y, t.z);
     this.sun.target.updateMatrixWorld();
-    this.sun.position.set(sx + SUN_OFFSET.x, sy + SUN_OFFSET.y, SUN_OFFSET.z);
+    this.sun.position.set(t.x + SUN_OFFSET.x, -t.y + SUN_OFFSET.y, t.z + SUN_OFFSET.z);
   }
 
   render(): void {

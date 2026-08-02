@@ -126,6 +126,8 @@ interface Want {
   rank: number;
   /** Spotlight only: which way it points, and how wide. */
   cone?: { angle: number; spread: number };
+  /** Contribution near the focus, filled by `spend` just before sorting. */
+  weight?: number;
 }
 
 /**
@@ -471,12 +473,15 @@ export class Lights3dLayer {
     // Rank first, then how much this light will actually contribute where the
     // player is looking — brightness and reach over distance. Sorting on
     // distance alone put a dim glow six feet away above a lamp lighting the
-    // junction you are driving into.
-    const weight = (w: Want): number =>
-      (w.alpha * w.radius * w.radius) / Math.max(1, dist2(w.x, w.y, focus.x, focus.y));
+    // junction you are driving into. Weights are computed once per light
+    // before the sort: a comparator that recomputes both operands' weights
+    // (a dist2 each) runs them O(n log n) times per frame instead of O(n).
+    for (const w of wants) {
+      w.weight = (w.alpha * w.radius * w.radius) / Math.max(1, dist2(w.x, w.y, focus.x, focus.y));
+    }
     wants.sort((a, b) => {
       if (a.rank !== b.rank) return b.rank - a.rank;
-      return weight(b) - weight(a);
+      return (b.weight as number) - (a.weight as number);
     });
 
     let pi = 0;

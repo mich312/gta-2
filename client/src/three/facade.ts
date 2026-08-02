@@ -182,14 +182,20 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              float slab = (1.0 - step(0.06, inStorey)) * fade;
              vec3 wall = diffuseColor.rgb * (1.0 - slab * 0.35);
 
-             // Salted per building, so the lit windows are that building's own
-             // pattern rather than one grid laid across the whole city. Without
-             // it every block showed the same 55% lit fraction at midnight —
-             // none dark, none full — and two walls of one tower carried an
-             // identical arrangement. The salt is the instance's own origin,
-             // which is stable frame to frame, so a lit window still stays lit.
-             vec2 origin = floor(vWorld.xy / 64.0);
-             float r = win_hash(vec2(col, storey) + origin * 17.0);
+             // Salted per WALL PLANE, so the lit windows are that facade's own
+             // pattern rather than one grid laid across the whole city. The
+             // salt is the coordinate that is constant across the face — a
+             // wall facing x lives on one x plane from end to end — where the
+             // old floor(vWorld / 64) lattice cut straight through any wall
+             // longer than four tiles: one unbroken facade changed its window
+             // pattern abruptly mid-face at every 64-px world line, and two
+             // buildings inside one cell shared an identical arrangement.
+             // (Per-instance salt is no answer here: the city is instanced
+             // per TILE, which would cut the pattern every sixteen pixels.)
+             // The plane is as stable frame to frame as the wall itself, so a
+             // lit window still stays lit.
+             float plane = abs(vWorldNormal.x) > abs(vWorldNormal.y) ? vWorld.x : vWorld.y;
+             float r = win_hash(vec2(col, storey) + floor(plane / 4.0) * 17.0);
              // More windows lit as it gets darker; never all of them.
              float on = step(1.0 - uNight * 0.55, r);
              vec3 pane = mix(uGlass, uLit, on * uNight);
