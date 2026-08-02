@@ -299,7 +299,32 @@ export function roadMaterial(color: number, mark: number, lineColor = ROAD_LANE)
            // Grain first, so the marking sits on the tarmac rather than under.
            float grain = road_hash(floor(vWorld.xy * 0.7));
            diffuseColor.rgb *= 0.95 + grain * 0.10;
-           if (uMark > 4.5) {
+           // GAME world coordinates: the world group is y-flipped into scene
+           // space, and the marks below are no longer all symmetric about the
+           // tile centre — an edge offset or a diagonal drawn in scene y
+           // lands mirrored from where the 2D painter puts it.
+           vec2 g = vec2(vWorld.x, -vWorld.y) / uTile;
+           if (uMark > 7.5) {
+             // Diagonal band centre line: 8 runs up-right, 9 down-right,
+             // through the middle of the tile the shared rule named. Cadence
+             // measured along the band in world px — the same phase the 2D
+             // painter computes, so the two renderers dash in step.
+             vec2 t = fract(g);
+             float across = uMark < 8.5 ? abs(t.x + t.y - 1.0) : abs(t.x - t.y);
+             float along = uMark < 8.5 ? (g.x - g.y) * 0.5 : (g.x + g.y) * 0.5;
+             float dash = fract(along * 2.0 - 0.25);
+             // 0.044 across the diagonal is the 1 px line width over sqrt(2).
+             float line = (1.0 - step(0.044, across)) * (1.0 - step(0.5, dash));
+             diffuseColor.rgb = mix(diffuseColor.rgb, uLine, line * 0.72);
+           } else if (uMark > 5.5) {
+             // Centre line at the tile's FAR edge: the even-width case, where
+             // the true centre is the tile boundary and the painter keeps the
+             // whole line inside the tile that owns it (laneDashOffset).
+             float across = uMark < 6.5 ? abs(fract(g.y) - 0.96875) : abs(fract(g.x) - 0.96875);
+             float along  = uMark < 6.5 ? fract(g.x * 2.0 - 0.25) : fract(g.y * 2.0 - 0.25);
+             float line = (1.0 - step(0.03125, across)) * (1.0 - step(0.5, along));
+             diffuseColor.rgb = mix(diffuseColor.rgb, uLine, line * 0.72);
+           } else if (uMark > 4.5) {
              // Stunt ramp: chevrons, so it reads as "hit this fast". The 2D
              // painter draws three of them on the lot base; in 3D the tile was
              // bare lot colour and drawnSpans flattens it to street level, so a
@@ -312,21 +337,23 @@ export function roadMaterial(color: number, mark: number, lineColor = ROAD_LANE)
              diffuseColor.rgb = mix(diffuseColor.rgb, uLine, chev * 0.75);
            } else if (uMark > 2.5) {
              // Crossing: stripes across the carriageway at a junction mouth.
-             vec2 t = vWorld.xy / uTile;
-             float bars = uMark < 3.5 ? fract(t.x * 4.0) : fract(t.y * 4.0);
-             float band = uMark < 3.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);
+             float bars = uMark < 3.5 ? fract(g.x * 4.0) : fract(g.y * 4.0);
+             float band = uMark < 3.5 ? abs(fract(g.y) - 0.5) : abs(fract(g.x) - 0.5);
              float zebra = (1.0 - step(0.5, bars)) * (1.0 - step(0.42, band));
              diffuseColor.rgb = mix(diffuseColor.rgb, uCrossing, zebra * 0.8);
            } else if (uMark > 0.5) {
-             vec2 t = vWorld.xy / uTile;
              // Across the lane: how far from the tile centre, 0 at the middle.
-             float across = uMark < 1.5 ? abs(fract(t.y) - 0.5) : abs(fract(t.x) - 0.5);
-             // Along the lane: the dash cadence.
-             float along  = uMark < 1.5 ? fract(t.x * 1.5) : fract(t.y * 1.5);
+             float across = uMark < 1.5 ? abs(fract(g.y) - 0.5) : abs(fract(g.x) - 0.5);
+             // Along the lane: the dash cadence — two dashes per tile at 50%
+             // duty starting an eighth of a tile in, which is what tiles.ts
+             // paints. The old fract(t * 1.5) was a different period AND a
+             // different duty, so the fallback dashes never lined up with the
+             // painted ground that replaced them.
+             float along  = uMark < 1.5 ? fract(g.x * 2.0 - 0.25) : fract(g.y * 2.0 - 0.25);
              // Half-width 0.031 of a 16 px tile is a 1 px line, which is what
              // tiles.ts paints. 0.075 was 2.4 px — nearly two and a half
              // times the 2D line, on every road in the city.
-             float line = (1.0 - step(0.031, across)) * (1.0 - step(0.55, along));
+             float line = (1.0 - step(0.031, across)) * (1.0 - step(0.5, along));
              diffuseColor.rgb = mix(diffuseColor.rgb, uLine, line * 0.72);
            }
          }`,

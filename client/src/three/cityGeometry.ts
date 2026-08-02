@@ -23,6 +23,8 @@ import {
   districtAt,
   buildVolumeGrid,
   spansAt,
+  diagonalMark,
+  laneCentreInTile,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
@@ -449,7 +451,18 @@ export function buildCity(map: CityMap): CityBuild {
     }
     return 0;
   };
-  /** 0 plain, 1 centre line along x, 2 centre line along y. */
+  /**
+   * 0 plain; 1 centre line along x, 2 along y (mid-tile); 6 along x, 7 along
+   * y at the tile's FAR edge; 8 diagonal up-right, 9 diagonal down-right.
+   *
+   * The which-tile and where-in-tile answers both come from the shared rule
+   * (`laneCentreInTile`, `diagonalMark`) rather than a local rewrite. The
+   * local rewrite is exactly how the two renderers came to disagree: its
+   * even-width case marked the same tile but drew mid-tile, half a lane from
+   * where the 2D painter (and the sim's `laneOptions`) put the centre — on
+   * every four-tile arterial in the city, jumping sideways whenever a painted
+   * ground chunk replaced this shader's fallback.
+   */
   const roadMark = (tx: number, ty: number): number => {
     if (!isRoad(tx, ty)) return 0;
     let up = 0;
@@ -462,27 +475,29 @@ export function buildCity(map: CityMap): CityBuild {
     while (isRoad(tx + right + 1, ty) && right < 12) right++;
     const runV = up + down + 1;
     const runH = left + right + 1;
-    // Marked only when the tile is part of an axis carriageway: long one way
-    // and narrow the other, by the 2D painter's own `RUN_ROAD` rule. Long
-    // both ways is a junction; short both ways is a stair step of a diagonal
-    // arterial. Both stay bare — the 2D painter already leaves them bare, and
-    // marking the stairs by whichever axis happened to measure longer strewed
-    // fragments of centre line all over the ring road.
     const horizontal = runH >= RUN_ROAD;
     const vertical = runV >= RUN_ROAD;
-    if (horizontal === vertical) return 0;
+    // Long both ways is a junction: bare, as the 2D painter leaves it.
+    if (horizontal && vertical) return 0;
+    // Short both ways is a stair step of a carved diagonal band — the shared
+    // direction field says which way it runs and which tiles carry the line.
+    if (!horizontal && !vertical) {
+      const dir = diagonalMark(isRoad, tx, ty);
+      return dir === 'ne' ? 8 : dir === 'se' ? 9 : 0;
+    }
     if (horizontal) {
-      // Horizontal street: centre line where the vertical run's midpoint is —
-      // and only on a true carriageway. Nothing the plan can draw is wider
-      // than `MAX_CARRIAGEWAY` (= ARTERIAL_WIDTH), so a wider cross-run means
-      // this "street" is really a shallow stretch of the diagonal band, whose
-      // scattered fragments of centre line were most of what made the ring
-      // road read as broken.
+      // Only on a true carriageway: nothing the plan draws is wider than
+      // ARTERIAL_WIDTH, so a wider cross-run is a shallow stretch of a
+      // diagonal band's stair.
       if (runV > ARTERIAL_WIDTH) return 0;
-      return up === Math.floor((runV - 1) / 2) ? 1 : 0;
+      const centre = laneCentreInTile(runV, up);
+      if (centre === null) return 0;
+      return centre === 1 ? 6 : 1;
     }
     if (runH > ARTERIAL_WIDTH) return 0;
-    return left === Math.floor((runH - 1) / 2) ? 2 : 0;
+    const centre = laneCentreInTile(runH, left);
+    if (centre === null) return 0;
+    return centre === 1 ? 7 : 2;
   };
   /**
    * Runway centreline: dashed, along the strip, on the tiles with runway both
@@ -592,7 +607,7 @@ export function buildCity(map: CityMap): CityBuild {
           if (cross) surface = { ...surface, key: cross === 1 ? 'crossX' : 'crossY' };
           else {
             const mark = roadMark(tx, ty);
-            if (mark) surface = { ...surface, key: mark === 1 ? 'roadMarkX' : 'roadMarkY' };
+            if (mark) surface = { ...surface, key: `roadMark${mark}` };
           }
         } else if (tile === T_RUNWAY && runwayMark(tx, ty)) {
           surface = { ...surface, key: 'runwayMark' };
@@ -670,21 +685,19 @@ export function buildCity(map: CityMap): CityBuild {
         ? roadMaterial(color, 5, surface.line ?? ROAD_LINE)
         : key === 'road'
           ? roadMaterial(color, 0, surface.line)
-        : key === 'roadMarkX'
-          ? roadMaterial(color, 1, surface.line)
-          : key === 'roadMarkY'
-            ? roadMaterial(color, 2, surface.line)
-            : key === 'crossX'
-              ? roadMaterial(color, 3, surface.line)
-              : key === 'crossY'
-                ? roadMaterial(color, 4, surface.line)
-                : key === 'runway'
-                  ? roadMaterial(color, 0, col('runwayLine', 0xc9c3a8))
-                  : key === 'runwayMark'
-                    ? roadMaterial(color, 1, col('runwayLine', 0xc9c3a8))
-                    : key === 'water'
-                      ? toonMaterial(color)
-                      : groundMaterial(color, surface.grain ?? 0.1, surface.edge ?? 0);
+        : key.startsWith('roadMark')
+          ? roadMaterial(color, Number(key.slice(8)), surface.line)
+          : key === 'crossX'
+            ? roadMaterial(color, 3, surface.line)
+            : key === 'crossY'
+              ? roadMaterial(color, 4, surface.line)
+              : key === 'runway'
+                ? roadMaterial(color, 0, col('runwayLine', 0xc9c3a8))
+                : key === 'runwayMark'
+                  ? roadMaterial(color, 1, col('runwayLine', 0xc9c3a8))
+                  : key === 'water'
+                    ? toonMaterial(color)
+                    : groundMaterial(color, surface.grain ?? 0.1, surface.edge ?? 0);
     materials.set(key, material);
     return material;
   };

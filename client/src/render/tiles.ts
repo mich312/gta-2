@@ -18,6 +18,9 @@ import {
   T_FLOOR,
   TILE_SIZE,
   RIGHT_SIGN,
+  type DiagonalDir,
+  diagonalMark,
+  laneCentreInTile,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
@@ -134,25 +137,13 @@ export const RUN_ROAD = 8;
 export const ARTERIAL_WIDTH = 4;
 
 /**
- * Where the centre line falls inside one carriageway tile, as a fraction of
- * the tile from its low edge — or null when the centre is not in this tile.
- *
- * The old rule was "the far edge of tile `floor(width / 2) - 1`", which is the
- * middle only when the road is an even number of tiles across. Every secondary
- * road in this city is three tiles wide, so the line landed on the boundary
- * between the first tile and the second, and the street had a lane and a half
- * on one side of it and half a lane on the other.
- *
- * The sim never agreed: `laneOptions` has always put the two lanes at the true
- * centre of the drivable span, plus and minus a quarter of its width. This is
- * the paint catching up, and it is a pure function so the arithmetic can be
- * checked without a canvas.
+ * The centre-line rule lives in `shared/world/marks.ts` now, so the 3D
+ * builder reads the SAME arithmetic instead of carrying its own (whose
+ * even-width answer was half a lane off on every arterial). Re-exported here
+ * because this painter is where the rule grew up and the tests know it by
+ * this address.
  */
-export function laneCentreInTile(width: number, index: number): number | null {
-  if (width < 2) return null;
-  const at = width / 2 - index;
-  return at > 0 && at <= 1 ? at : null;
-}
+export { laneCentreInTile };
 
 /**
  * Where the centre dash starts inside its tile, in device pixels — rounded to
@@ -941,6 +932,54 @@ export class TileLayer {
 
     if (horizontal) this.paintLaneMarks(ctx, tx, ty, x, y, vLen, this.idxV[i] as number, false);
     else if (vertical) this.paintLaneMarks(ctx, tx, ty, x, y, hLen, this.idxH[i] as number, true);
+    else {
+      // Short both ways: a stair step of a carved diagonal band — the ring
+      // road, mostly. These used to fall through bare, so every curved
+      // arterial read as unpainted tarmac beside fully-marked grid streets.
+      // The shared direction field says which way the band runs and which
+      // tiles carry its centre line; edge lines and zebras stay off here,
+      // because paint following a stair-stepped kerb reads as debris.
+      const dir = diagonalMark(this.isRoadAt, tx, ty);
+      if (dir) this.paintDiagonalCentre(ctx, tx, ty, x, y, dir);
+    }
+  }
+
+  /** `IsRoad` for the shared mark helpers, bound once so it can be passed. */
+  private readonly isRoadAt = (tx: number, ty: number): boolean => this.tileAt(tx, ty) === T_ROAD;
+
+  /**
+   * The diagonal centre line: dashes along the band's 45° direction, through
+   * the middle of the tile the shared rule named.
+   *
+   * Drawn as a run of `t`-square dots stepping one device pixel diagonally —
+   * a 45° line one world pixel wide, on the pixel grid. The dash cadence is
+   * measured along the band in WORLD coordinates (`(x ± y) / 2`), so dashes
+   * continue seamlessly from tile to tile and the 3D shader can (and does)
+   * compute the identical phase from its own world position.
+   */
+  private paintDiagonalCentre(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    dir: DiagonalDir,
+  ): void {
+    const t = RENDER_SCALE; // 1 world px
+    ctx.fillStyle = palette.roadLane;
+    const half = TILE_SIZE / 2; // dash period is half a tile, as on the grid
+    for (let i = 0; i < TD; i++) {
+      const py = dir === 'se' ? i : TD - 1 - i;
+      // Along-band coordinate in world px, from the device pixel's world pos.
+      const wx = tx * TILE_SIZE + i / RENDER_SCALE;
+      const wy = ty * TILE_SIZE + py / RENDER_SCALE;
+      const along = dir === 'se' ? (wx + wy) / 2 : (wx - wy) / 2;
+      // Same phase as the cardinal dashes: on for [0.125, 0.375) of each
+      // half-tile period, twice per tile.
+      const phase = (((along / half - 0.25) % 1) + 1) % 1;
+      if (phase >= 0.5) continue;
+      ctx.fillRect(x + i - t / 2, y + py - t / 2, t, t);
+    }
   }
 
   /**
