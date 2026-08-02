@@ -241,24 +241,61 @@ function diffTable<T extends { id: number }>(
   return { added, updated, removed };
 }
 
+/**
+ * Copy-on-write: an entity the delta does not name is carried into the new
+ * snapshot BY REFERENCE, not cloned.
+ *
+ * The old version cloned every entity of every table on every application —
+ * seven tables, thirty times a second, three to five nested allocations per
+ * entity, on the thread that draws — and then kept ~180 ticks of those full
+ * copies alive across the two history buffers, which is exactly the
+ * long-lived garbage a generational collector answers with major pauses.
+ * A delta names the few entities that moved; only those are cloned.
+ *
+ * The contract this buys is that snapshots are STRUCTURALLY SHARED and
+ * therefore read-only: a consumer that wants to write on an entity it got
+ * out of a snapshot must clone it first (they all did anyway — see
+ * `snapshot.test.ts`, which now pins the sharing itself). The tables stay
+ * id-sorted by construction: base is sorted, `delta.added` is sorted (built
+ * by an id-merge in `diffTable`), and the merge below preserves both.
+ */
 function applyTable<T extends { id: number }>(
   base: T[],
   delta: TableDelta<T>,
   cloneOne: (t: T) => T,
 ): T[] {
-  const byId = new Map<number, T>();
-  for (const e of base) byId.set(e.id, cloneOne(e));
-  for (const id of delta.removed) byId.delete(id);
-  for (const patch of delta.updated) {
-    const e = byId.get(patch.id);
-    if (!e) continue;
-    for (const [k, v] of Object.entries(patch)) {
-      if (k === 'id') continue;
-      (e as unknown as Record<string, unknown>)[k] = cloneVal(v);
+  const { added, updated, removed } = delta;
+  if (added.length === 0 && updated.length === 0 && removed.length === 0) return base;
+  const removedIds = removed.length > 0 ? new Set(removed) : null;
+  let patchById: Map<number, Patch<T>> | null = null;
+  if (updated.length > 0) {
+    patchById = new Map();
+    for (const p of updated) patchById.set(p.id, p);
+  }
+  const out: T[] = [];
+  let j = 0;
+  for (const e of base) {
+    while (j < added.length && (added[j] as T).id < e.id) out.push(cloneOne(added[j++] as T));
+    if (removedIds?.has(e.id)) continue;
+    const patch = patchById?.get(e.id);
+    if (patch) {
+      // Changed: clone, then lay the patch over the clone. The patch's own
+      // values are cloned too — the delta object lives on in the message
+      // history, and the snapshot must not share structure with it.
+      const copy = cloneOne(e);
+      for (const k in patch) {
+        if (k === 'id') continue;
+        (copy as unknown as Record<string, unknown>)[k] = cloneVal(
+          (patch as Record<string, unknown>)[k],
+        );
+      }
+      out.push(copy);
+    } else {
+      out.push(e);
     }
   }
-  for (const e of delta.added) byId.set(e.id, cloneOne(e));
-  return [...byId.values()].sort((a, b) => a.id - b.id);
+  while (j < added.length) out.push(cloneOne(added[j++] as T));
+  return out;
 }
 
 /** Delta between two snapshots. Both inputs must be id-sorted (they always are). */

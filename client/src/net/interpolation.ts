@@ -8,11 +8,17 @@ import type {
   PropState,
   VehicleState,
 } from 'shared';
-import { TICK_MS, TICK_RATE, clamp, q256 } from 'shared';
+import { TICK_MS, clamp, q256 } from 'shared';
 
 /** ~100 ms interpolation delay, in ticks (3 ticks @ 30 Hz). */
 export const INTERP_DELAY_TICKS = 3;
-const BUFFER_TICKS = TICK_RATE * 2;
+/**
+ * How many snapshots to hold. The render clock sits `INTERP_DELAY_TICKS`
+ * behind the head and the dilation never lets it drift far, so the buffer
+ * needs the delay plus headroom for one late burst — not the two full seconds
+ * (60 world copies) it used to keep resident.
+ */
+const BUFFER_TICKS = INTERP_DELAY_TICKS + 5;
 
 export interface RenderPlayer {
   player: PlayerState;
@@ -68,6 +74,39 @@ export class Interpolator {
   private snapshots: FullSnapshot[] = [];
   private renderTick = 0; // fractional server tick we're rendering
   private synced = false;
+
+  /**
+   * id -> entity for the LOWER bracketing snapshot, rebuilt only when that
+   * snapshot changes — once per tick, not once per call.
+   *
+   * `sample` runs up to three times a frame (the scene, the overlay, the
+   * collision world), and each run used to build five fresh Maps via
+   * `new Map(arr.map(...))`: an intermediate `[id, entity]` tuple array per
+   * entity per table, ninety times a second. The maps are keyed off the
+   * snapshot's identity, so a repeat call inside the same tick reuses them
+   * untouched, and the Map objects themselves live for the session.
+   */
+  private mapsFor: FullSnapshot | null = null;
+  private readonly pById = new Map<number, PlayerState>();
+  private readonly vById = new Map<number, VehicleState>();
+  private readonly cById = new Map<number, CopState>();
+  private readonly pedById = new Map<number, PedState>();
+  private readonly prById = new Map<number, ProjectileState>();
+
+  private bracketMaps(a: FullSnapshot): void {
+    if (this.mapsFor === a) return;
+    this.mapsFor = a;
+    this.pById.clear();
+    for (const p of a.players) this.pById.set(p.id, p);
+    this.vById.clear();
+    for (const v of a.vehicles) this.vById.set(v.id, v);
+    this.cById.clear();
+    for (const c of a.cops) this.cById.set(c.id, c);
+    this.pedById.clear();
+    for (const p of a.peds) this.pedById.set(p.id, p);
+    this.prById.clear();
+    for (const p of a.projectiles) this.prById.set(p.id, p);
+  }
 
   push(snap: FullSnapshot): void {
     const last = this.snapshots[this.snapshots.length - 1];
@@ -168,9 +207,10 @@ export class Interpolator {
     }
     const span = b.tick - a.tick;
     const t = span > 0 ? Math.min(1, Math.max(0, (this.renderTick - a.tick) / span)) : 1;
+    this.bracketMaps(a);
+    const { pById, vById, cById, pedById, prById } = this;
 
     const players: RenderPlayer[] = [];
-    const pById = new Map(a.players.map((p) => [p.id, p]));
     for (const pb of b.players) {
       if (pb.id === excludePlayerId || pb.mode === 'driving') continue;
       const pa = pById.get(pb.id);
@@ -183,7 +223,6 @@ export class Interpolator {
     }
 
     const vehicles: RenderVehicle[] = [];
-    const vById = new Map(a.vehicles.map((v) => [v.id, v]));
     for (const vb of b.vehicles) {
       if (vb.id === excludeVehicleId) continue;
       const va = vById.get(vb.id);
@@ -195,7 +234,6 @@ export class Interpolator {
       });
     }
     const cops: RenderCop[] = [];
-    const cById = new Map(a.cops.map((c) => [c.id, c]));
     for (const cb of b.cops) {
       const ca = cById.get(cb.id);
       cops.push({
@@ -205,7 +243,6 @@ export class Interpolator {
       });
     }
     const peds: RenderPed[] = [];
-    const pedById = new Map(a.peds.map((p) => [p.id, p]));
     for (const pb of b.peds) {
       const pa = pedById.get(pb.id);
       peds.push({
@@ -215,7 +252,6 @@ export class Interpolator {
       });
     }
     const projectiles: RenderProjectile[] = [];
-    const prById = new Map(a.projectiles.map((p) => [p.id, p]));
     for (const pb of b.projectiles) {
       const pa = prById.get(pb.id);
       projectiles.push({

@@ -45,13 +45,18 @@ describe('snapshot delta', () => {
 
     const rebuilt = applyDelta(snapA, delta, snapB.tick);
     // lastInputSeq is deliberately excluded from diffing (bandwidth): patch
-    // it over before comparing; everything else must reproduce exactly.
-    for (const p of rebuilt.players) {
-      const server = snapB.players.find((sp) => sp.id === p.id)!;
-      p.lastInputSeq = server.lastInputSeq;
-    }
-    expect(rebuilt).toEqual(snapB);
-    expect(hashSnapshot(rebuilt)).toBe(hashSnapshot(snapB));
+    // it over ON COPIES before comparing — snapshots are structurally shared
+    // now, so writing on a rebuilt entity could write on the base's — and
+    // everything else must reproduce exactly.
+    const patched = {
+      ...rebuilt,
+      players: rebuilt.players.map((p) => ({
+        ...p,
+        lastInputSeq: snapB.players.find((sp) => sp.id === p.id)!.lastInputSeq,
+      })),
+    };
+    expect(patched).toEqual(snapB);
+    expect(hashSnapshot(patched)).toBe(hashSnapshot(snapB));
   });
 
   it('a motionless player produces no player-table delta', () => {
@@ -83,7 +88,7 @@ describe('snapshot delta', () => {
     }
   });
 
-  it('delta application is not a reference share (mutating rebuilt leaves base intact)', () => {
+  it('clones an entity the delta names (mutating a changed entity leaves base intact)', () => {
     let state = createGameState(3);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
     const a = takeSnapshot(state);
@@ -93,6 +98,62 @@ describe('snapshot delta', () => {
     rebuilt.players[0]!.pos.x = -9999;
     expect(a.players[0]!.pos.x).not.toBe(-9999);
     expect(b.players[0]!.pos.x).not.toBe(-9999);
+  });
+
+  /**
+   * The other half of the copy-on-write contract: an entity the delta does
+   * NOT name rides into the new snapshot by reference.
+   *
+   * This is what took `applyDelta` off the allocation profile — the old
+   * version cloned all seven tables entity-by-entity, thirty times a second,
+   * on the render thread, and the history buffers kept the copies alive long
+   * enough to be promoted and collected as major pauses. The price is that
+   * snapshots are read-only: anything that wants to write on an entity out of
+   * one clones it first.
+   */
+  it('shares an entity the delta does not name, and the untouched table whole', () => {
+    let state = createGameState(3);
+    state = step(state, {}, [
+      { type: 'spawnPlayer', playerId: 1, name: 'a' },
+      { type: 'spawnPlayer', playerId: 2, name: 'b' },
+    ], map);
+    for (let i = 0; i < 90; i++) state = step(state, {}, [], map); // both settle to rest
+    const a = takeSnapshot(state);
+    // Only player 1 moves; player 2 stays put.
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: state.tick, up: true } }, [], map);
+    const b = takeSnapshot(state);
+    const delta = diffSnapshots(a, b);
+    expect(delta.players.updated.map((p) => p.id)).toEqual([1]);
+
+    const rebuilt = applyDelta(a, delta, b.tick);
+    const still = (snap: typeof a) => snap.players.find((p) => p.id === 2);
+    expect(still(rebuilt)).toBe(still(a));
+    expect(rebuilt.players.find((p) => p.id === 1)).not.toBe(a.players.find((p) => p.id === 1));
+    // A table with no delta at all is the same ARRAY, not merely the same
+    // entities — props never moved, so the props table is carried whole.
+    expect(delta.props.updated).toEqual([]);
+    expect(rebuilt.props).toBe(a.props);
+  });
+
+  it('keeps every table id-sorted through interleaved adds and removes', () => {
+    // The old implementation re-sorted the whole table on every application;
+    // the merge now relies on `added` being id-sorted, so an add that lands
+    // BETWEEN surviving ids has to come out in order.
+    let state = createGameState(3);
+    state = step(state, {}, [
+      { type: 'spawnPlayer', playerId: 2, name: 'b' },
+      { type: 'spawnPlayer', playerId: 9, name: 'i' },
+    ], map);
+    const a = takeSnapshot(state);
+    state = step(state, {}, [
+      { type: 'despawnPlayer', playerId: 9 },
+      { type: 'spawnPlayer', playerId: 1, name: 'a' },
+      { type: 'spawnPlayer', playerId: 5, name: 'e' },
+      { type: 'spawnPlayer', playerId: 11, name: 'k' },
+    ], map);
+    const b = takeSnapshot(state);
+    const rebuilt = applyDelta(a, diffSnapshots(a, b), b.tick);
+    expect(rebuilt.players.map((p) => p.id)).toEqual([1, 2, 5, 11]);
   });
 
   /**

@@ -261,7 +261,9 @@ const screen = setupCanvas(canvas, { alpha: render3d });
 const overlay = new DebugOverlay();
 const input = new InputSource(screen, () => overlay.toggle());
 const stats = new NetStats();
-const sync = new SnapshotSync();
+// Hash verification only while the overlay that reports it is open — see
+// the note on `SnapshotSync.verify` for what the always-on version cost.
+const sync = new SnapshotSync(() => overlay.visible);
 const predictor = new Predictor();
 const interp = new Interpolator();
 const sprites = new SpriteSheet();
