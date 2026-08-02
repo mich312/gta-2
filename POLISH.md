@@ -297,6 +297,107 @@ Ordered by return; any prefix of this list is shippable.
 - **No wire-format changes.** Everything in phase 2 is client-side
   representation; the codec and the replay format are untouched.
 
+## Part 3 — What happened (the closing pass)
+
+All five phases landed, one commit each, in plan order. The verdicts below
+use BUGS.md's own vocabulary. Every number measured in this pass came from a
+container with no GPU: WebGL runs on SwiftShader there, so only the 2D
+renderer's CPU-bound figures are quotable, and the 3D claims rest on
+construction (what no longer runs) plus the screenshots.
+
+### The lag
+
+- **L1, snapshot cloning — FIXED.** `applyTable` is copy-on-write: unchanged
+  entities ride between snapshots by reference, an untouched table is carried
+  whole, and the spread-and-sort is an in-order merge. The contract is pinned
+  from both sides in `shared/test/snapshot.test.ts` (a changed entity is
+  cloned; an unchanged one is `toBe`-identical across `applyDelta`). The
+  consumer audit found the read-only discipline already universal — the
+  predictor clones in `setWorld`/`reconcile`, renderers and bots only read —
+  and the one test that patched a snapshot in place now patches copies.
+  Buffers right-sized with it: client history 120 → 90 ticks (the server's
+  actual delta ring), interpolation buffer 60 → 8.
+- **L2, interpolator rebuilds — FIXED.** The five id-maps are keyed to the
+  bracketing snapshot and rebuilt once per tick without tuple churn, not up
+  to three times a frame through `new Map(arr.map(...))`. The per-sample
+  output records remain young, frame-local allocations by choice — the
+  promoted garbage was the problem, and that is gone with L1.
+- **L3, `__debug` — FIXED.** The expensive fields are getters; `boardable`
+  runs at most once per frame and only when a harness reads it. The CI
+  harnesses (`ci/play.mjs`, `playLocal`, `renderBench`) read properties, so
+  their contract is unchanged.
+- **L4, traffic scans — IMPROVED.** Peds, players and cops get the vehicle
+  loop's horizon reject in `scanAhead`. The boarding nest and `vehicleAt`
+  stay linear on purpose: they are cheap squared-distance tests whose
+  iteration order feeds rng-driven picks, so a spatial index buys ~0.1 ms
+  against a determinism-sensitive rewrite. Eight-direction lanes (BUGS.md
+  §7.6) still own the real future here.
+- **L5, post chain — FIXED.** Bloom mips build from a half-resolution frame
+  (bloom has no sharp detail to lose), MSAA 4× → 2× under a target that is
+  HalfFloat and now full-resolution — where geometric edges are half as
+  jagged to begin with.
+- **L6, the churn family — mostly FIXED.** Decals viewport-culled and
+  swap-removed; radar turf loop bounded to the visible cells (phase 1);
+  `setNight` allocation-free behind a no-change early-out; shadow-cutter
+  corner arrays hoisted; light sort weights precomputed; skid tracker and
+  vehicle-effects descriptors mutate reused records; snapshot hashing runs
+  only while the overlay that reports it is open (bots still verify every
+  hash). **Left alone, measured first:** bucketing the signal-head and
+  package walks — the whole city is 2,219 heads and 400 packages behind
+  4-comparison rejects, under a tenth of a millisecond a frame; and the
+  per-body sprite-key strings, young garbage a scavenge collects for free.
+
+### The smudge
+
+- **M1, half-resolution world — FIXED.** The 3D backing store runs at the
+  display's own resolution (capped at 2× the old store; `?res=half` keeps
+  the old economy), and `#world` upscales `pixelated` wherever the ratio is
+  whole — the bilinear stretch under a pixel-sharp HUD is gone. Compare
+  `evidence/baseline-spawn-3d.png` against `polish-spawn-3d.png`.
+- **M2, ground filtering — FIXED.** Nearest magnification, no mipmaps, and
+  the water cutout in its own per-tile mask (`GroundChunk.cut`), because a
+  premultiplied canvas cannot hold colour at zero alpha — the shoreline
+  fringe was filtering towards transparent black.
+- **M3, the boiling radar — FIXED.** One texel per HUD pixel
+  (`BAKE_SCALE 2`, `SPAN 592`), source origin snapped to whole texels,
+  markers and turf wash on the device grid.
+- **M4, bare diagonals and disagreeing renderers — FIXED.** One rule in
+  `shared/world/marks.ts` for both: `laneCentreInTile` moved there (the 3D
+  even-width case was half a lane off), the shader works in game
+  coordinates and matches the painter's dash cadence, and the carved bands
+  carry a centre line — direction from the principal axis of the local road
+  mass, one tile per row via the same centre arithmetic on the horizontal
+  cross-run. 205 tiles of seed 7 carry the new paint;
+  `evidence/phase3-ring-3d.png` shows it. Edge lines and zebras stay off
+  the stair-stepped kerbs on purpose. The traffic lane model is untouched,
+  as planned — but the direction field it will want now exists.
+- **M5, the small paint — FIXED**, all five: arterial dashes at full
+  thickness inside their own tile (`laneDashOffset`, tested), runway
+  speckle on whole pixels, facade window salt keyed to the wall's own plane
+  (per-instance was no answer — the city is instanced per tile), sun-shadow
+  snapping in the light's texel basis rather than world XY, and the 3D
+  ground no longer bakes flat tree twins under the scenery layer's rotated
+  meshes.
+
+### Numbers, such as a GPU-less box allows
+
+- 2D renderer, 300 frames of continuous walking, software GL:
+  p50 16.7 ms (vsync), p95 33.3 ms, p99 33.4 ms — no frame over two vsyncs.
+  (GRAPHICS.md's real-hardware baseline was p50 16.7 / p99 19.5.)
+- The 3D SwiftShader frame interval (~1.5–2.6 s) measures the software
+  rasteriser, not this codebase, and is not quoted as a result.
+- Test suite: 776 tests before this work, 804 after, all green. Runtime
+  smokes of `?local=1` in 3D, 2D and night modes: zero page errors.
+
+### Evidence
+
+| Before | After |
+| --- | --- |
+| `baseline-spawn-3d.png` (bilinear smear, bare bands, boiling radar) | `polish-spawn-3d.png`, `phase1-spawn-3d.png` |
+| `baseline-spawn-2d.png` | `polish-spawn-2d.png` |
+| `baseline-night-3d.png` | `phase4-night-3d.png` (plane-salted windows, half-res bloom) |
+| `baseline-fly-ring.png` / `-shore.png` (stair-stepped, unpainted) | `phase3-ring-3d.png` (diagonal centre lines) |
+
 ## Risk register
 
 | Risk | Phase | Mitigation |
