@@ -1184,3 +1184,264 @@ pnpm test              # shared/test/city.test.ts holds the asset to the plan
 Commit the plan and the baked data together. The test that compares them is
 the only thing standing between "the map in the repository" and "the map the
 plan describes", and they are different files.
+
+---
+
+## 13. The street fabric — the plan for making it beautiful
+
+Third wave of this research. §12 replaced the generator with a drawn city and
+fixed the geography: the archipelago is real, the coast is sinuous, the
+bridges are chokepoints, the density reads. What it did not fix is the layer
+the eye actually spends its time on. **Every street in Anywhere City is
+parallel to the screen.** The brief for this wave lifts the one restriction
+§3 was written under: curves are allowed, and the city does not have to be a
+grid. This section is the review that says precisely what is wrong, the
+research rerun without that restriction, and the sequenced plan.
+
+### 13.1 The review
+
+`pnpm mapgen` (seed 7 — but the ground is the same every seed now), whole map
+and the three crops in `evidence/city-fabric-review.png`:
+
+**What is good, and stays.** The silhouette: warped, directional coastline,
+bays and spits and barrier islands, no two edges alike. The hierarchy: the
+dual-carriageway ring reads as a motorway, the bridges are scarce and
+legible, the borough palettes separate. The frontage fill: downtown is a
+wall, not sheds on a lawn (§12.7). None of this is revisited.
+
+**Finding 1 — one grid, citywide.** Every borough's streets are carved as
+axis-aligned lattice cuts (`cuts`/`line`, `layout.ts:466`): sixteen boroughs,
+sixteen pitches, **one orientation**. Crop A shows both banks of the strait
+carrying the identical screen-aligned plaid; Kelvin and Sunridge differ only
+in colour and spacing. The plan schema's own manifesto — "the thing that
+makes a map look like a place is that nothing in it is parallel to the
+screen" (`plan.ts:17`) — was applied to the coast and the avenues and never
+to a single street. A real city's boroughs each grew around their own
+waterfront, their own high street, their own hill, and their grids meet at
+seams. Ours is one grid interrupted by water.
+
+**Finding 2 — the streets ignore the avenues.** The curved plan roads are
+carved *through* the lattices, not *woven into* them. Crop B (Old Quarter):
+Kelvin Street and Harbour Approach slice diagonally across the pitch-11 grid
+and leave triangular slivers, four-tile scrap blocks, and junctions at
+twenty degrees, and not one street turns to meet the avenue square-on or
+runs parallel to it. `doubledUp` (`layout.ts:484`) suppresses a lattice cut
+that lies *along* an avenue, which stops the worst doubling; nothing makes
+the fabric *acknowledge* the avenue. The ring road spends most of its length
+running through leftover field (crop C) — a motorway with no city on it.
+
+**Finding 3 — the waterfront is dead ground.** Between the last lattice street
+and the shore there is a ragged band of bare `T_FIELD` — every crop shows it
+as a dark fringe the whole way round every island. The lattice stops where a
+block stops being mostly dry (`layout.ts:557`), the shore pass paints quay
+and beach (`layout.ts:668`), and nobody joins the two. A city that owns a
+harbour builds a street along it first; ours builds to within six tiles of
+the sea and turns its back. This is the single largest visible defect,
+because the coast is the thing §12 made good and the fabric refuses to meet
+it.
+
+**Finding 4 — parks and the rural south are empty felt.** Ravenhill Park and
+Sunridge Park are flat green rectangles with an avenue through them; the
+rural boroughs are the same at a larger pitch (crop C, lower half). The bake
+has woodland noise (`bake.ts:296`) and the plan has meanders for rivers, and
+neither is applied to a park's interior: no path network, no pond, no
+tree-lined walk, no bandstand block.
+
+**Finding 5 — rectangles all the way down.** Blocks are rects
+(`LayoutBlock`, `layout.ts:37`), buildings are rects (`Building`,
+`types.ts:144`), so wherever an avenue curves, its frontage stairsteps in
+big increments and the wedges left over are dirt. The frontage is right; its
+granularity is wrong where the street is not straight.
+
+One sentence for all five: **§12 gave the city a shape; the fabric inside
+that shape is still the old generator's habit.** The same verdict
+`REVIEW.md:139` passed on the pre-river map — "a texture" — now applies one
+level down.
+
+### 13.2 The constraint that expired
+
+§3 rejected every organic-network technique in the literature — L-systems,
+tensor fields, growth models — mostly on **runtime determinism**: server and
+clients regenerated the map independently, so anything order-sensitive was a
+desync. §12 quietly ended that. The bake runs offline, once, from `pnpm
+citybake`, and what ships is bytes (`bake.ts:30`). An algorithm used at bake
+time can be as iterative, as float-happy, as convergence-dependent as it
+likes; if the picture is good, the picture is what ships. The vetoes of §3
+are hereby re-examined, not carried forward out of habit.
+
+What still binds, because it is about the *product* and not the process:
+
+1. **The tile substrate.** 16 px tiles feed collision, prediction, traffic
+   and both renderers. Any curve ends as tiles — which the swept-disc carver
+   (`carveCourse`, `layout.ts:422`) and the four-direction junction test
+   (§12.8) already handle. The ring road proves curvature is compatible with
+   the lane model today.
+2. **Axis-aligned `Building` records.** The 3D renderer extrudes them
+   (`extrude.ts:77`), the volume grid and doorways derive from them. Rotated
+   footprints are a renderer-and-collision project, out of scope. Curved
+   frontage must therefore be built from *finer* axis-aligned rects, not
+   rotated ones.
+3. **Legibility at 300 px/s** (§5). Curves serve the player when they follow
+   something — a shore, a hill, a spine road. Curvature for its own sake is
+   noise. Every fabric below is anchored to a feature you can see.
+4. **The review loop.** Plan edited by hand, `citybake`, `mapgen`, checker,
+   test (§12.10). Nothing below adds a runtime pass; everything below is
+   judged as a picture and validated by the checker.
+
+### 13.3 The research, rerun
+
+- **Tensor-field street networks** ([Chen et al. 2008](https://www.sci.utah.edu/~chengu/street_sig08/street_sig08.pdf),
+  and [ProbableTrain's MapGenerator](https://github.com/ProbableTrain/MapGenerator)
+  as the working open-source implementation): a field of perpendicular
+  eigenvector pairs over the plane; major roads trace streamlines of one
+  eigenvector, minor of the other; the field is composed from radial and
+  grid basis elements plus boundary alignment. This is the correct *theory*
+  of what a city fabric is, and full streamline tracing (seeding, spacing,
+  merging) is still more machinery than a 768-tile archipelago needs. The
+  reduction that keeps the value: **in this city the eigenvector field is
+  known in closed form wherever it matters** — the coast tangent along the
+  shore (we have the water distance field, `layout.ts:70`; its gradient is
+  the field), the spine tangent along an avenue (we have the polylines and
+  `offsetCourse`, `layout.ts:445`), constant vectors elsewhere. Streets are
+  then *iso-contours and gradient lines* of known fields, no tracing, no
+  seeding. **Verdict: adopt the reduction — guide fields, not streamlines.**
+- **Watabou's Medieval Fantasy City Generator**
+  ([devlog](https://watabou.itch.io/medieval-fantasy-city-generator)):
+  polygonal wards from a Voronoi partition, streets from straight skeletons
+  of ward polygons. The lesson worth taking is not the algorithm but the
+  posture: blocks are **polygons that inherit their shape from the ward
+  outline**, and the fabric near a ward edge runs parallel to that edge.
+  That is Finding 2's cure stated in one line. **Verdict: steal the
+  posture — blocks derive from carved streets, never the reverse.**
+- **Organic quad grids** (Townscaper-style: subdivide random polygons to
+  quads, relax to comfort — [andersource's
+  writeup](https://andersource.dev/2020/11/06/organic-grid.html)):
+  beautiful, uniformly irregular, and wrong here — the irregularity is
+  *everywhere at once*, which reads as wobble at driving speed, and the
+  quads defeat the rectilinear local texture the frontage fill and the lane
+  model are good at. **Verdict: reject, named so it stays rejected.**
+- **Loops and lollipops**: the postwar suburb pattern — curved collector,
+  crescent loops off it, cul-de-sac stubs off those — is the single most
+  recognisable non-grid fabric in the real world, it is *made of curves*,
+  and its dead ends are a feature (chase decisions: §4.3 wanted dead-ends
+  and never got them). **Verdict: adopt for the outer suburbs.**
+- **GTA 2's Anywhere City** ([design
+  reference](https://gta.fandom.com/wiki/Anywhere_City)): the namesake's
+  districts differ in *fabric*, not only in palette — Downtown's tight
+  right-angles, Residential's loops and greens, Industrial's vast aprons.
+  Our boroughs currently differ in pitch alone. The genre precedent for
+  per-borough fabric is the genre's own map. **Verdict: this is the bar.**
+
+### 13.4 The design: fabrics
+
+One new word in the plan schema does the work. Each borough's `street` block
+gains a `fabric`, and the street pass becomes a dispatch:
+
+| fabric | what it carves | anchored to | used by |
+|---|---|---|---|
+| `grid` | today's lattice, plus `angle` degrees of rotation | the borough's own axis | Old Quarter (aligned to its harbour), Port Vasco (to its island's long axis), the Spine (to the financial avenues) |
+| `contour` | streets along iso-distances of the water field at the borough pitch, connectors along the gradient | the shore | Beachfront, The Terraces, Sunridge Shore, the Docks |
+| `spine` | offset courses of a named plan road at pitch intervals, square connectors | an avenue | Ravenhill (off The Parade), New Suburbs' collector |
+| `crescent` | loops and lollipops: curved collectors, crescent loops, cul-de-sac bulbs | the collector | New Suburbs, Vasco Heights |
+| `rural` | today's behaviour, but lanes as meandered courses (`meanderPolyline`, `plan.ts:416`) instead of lattice cuts | the landmarks they join | Marsh End, Sunridge Shore's back country, Gannet Rock |
+
+All five carve through the same `carveCourse` swept-disc machinery that
+already exists — a rotated lattice line, a contour, an offset course and a
+crescent are all just polylines. The junction test is already
+angle-tolerant (§12.8). `doubledUp` must learn to sample along an arbitrary
+course rather than an axis; that is the one shared prerequisite.
+
+**Blocks become regions.** The lattice-arithmetic block rects
+(`layout.ts:541`) cannot survive any of this — under a rotated or curved
+fabric the ground between streets is not a rect. Blocks become **connected
+components of buildable ground** between carved streets, each carrying its
+borough's district, density and a member mask; `BlockRect` stays as the
+record (the component's bounding box) so every downstream consumer keeps
+working, and `fillBlock`/`laySidewalk` (`buildings.ts`) iterate the mask
+instead of the box. `laySidewalk` already follows roads wherever they run
+(`buildings.ts:96`); the frontage fill already marches inward from the
+street. This refactor is fabric-neutral: done first, it must reproduce
+today's city almost tile-for-tile, and the mapgen diff is the proof.
+
+**The waterfront becomes a street.** Wherever a non-rural borough meets the
+water, the contour at distance ~3 is carved as an **esplanade** — a named
+plan road auto-derived per borough, quay on its seaward side. This is
+Finding 3's fix and the highest-value single item in the plan: it turns the
+dead fringe into a harbourfront in Kelvin, a promenade in Beachfront, a
+working quay in the Docks, and it gives the contour fabric its innermost
+line. Piers follow as short gradient stubs (`PlanStroke`s of `T_BANK`) where
+the plan asks for them.
+
+**Squares and circuses.** A new plan primitive: `squares` — a point, a size,
+a shape (rect or circle) — stamped as `T_SIDEWALK` with frontage turned
+inward, plus a circus where the plan puts one on the ring. The signal pass
+already refuses to signalise a big junction patch and calls it a plaza
+(§12.8); this makes plazas *on purpose*: a market square in the Old
+Quarter, a crescent green in the suburbs, a parade ground by the stadium.
+
+**Parks get interiors.** Gates where streets touch the park; a path network
+as meandered polylines between gates (2-tile `T_PARK` paths); a pond as a
+small authored outline warped by the existing coast machinery at one octave;
+tree clumps from the woodland noise already in the bake; one landmark block
+(bandstand, boating lake) in each big park. Everything reuses machinery the
+geography already paid for.
+
+**Frontage granularity follows curvature.** Where a block edge is not
+straight, the frontage unit width caps at 2–3 tiles so the stairstep is
+fine enough to read as row houses following the bend — `Building` records
+stay axis-aligned rects (§13.2.2), there are just more and smaller of them
+on curved edges. The renderer and volume grid are untouched.
+
+### 13.5 The checker learns the fabric
+
+Per §5, every feature ships with its invariant, and two existing checks must
+*relax* precisely rather than generally:
+
+- **Slivers.** No block region under 12 tiles or narrower than 3 unless it
+  is a square. This is the regression test for Finding 2 — today's map
+  would fail it, the woven map must not.
+- **The waterfront.** Every shore tile of a non-rural borough within 5
+  tiles of carriageway. Today's map fails it wholesale; the esplanade makes
+  it pass. This is Finding 3 stated as an invariant.
+- **Dead ends by intent.** The stub prune (`layout.ts:713`) and the
+  connectivity check stay, but a `crescent` borough declares a cul-de-sac
+  budget and the checker asserts the count is *within* it — dead ends as a
+  feature, not a defect, and only where the fabric says so.
+- **Junction angles.** No junction arm meeting another under ~30 degrees
+  outside a plaza — the measurable form of "the fabric acknowledges the
+  avenue".
+- **The picture.** `mapgen` grows `--crop=x,y,w` and a stats block per
+  borough: orientation histogram of street tiles, block-size histogram,
+  shore-to-street distance p95. The evidence contact sheet
+  (`evidence/city-fabric-review.png`) is retaken per wave and diffed by eye
+  — the review tool this section was written with.
+
+### 13.6 The sequence
+
+Smallest first, each landing as plan + rebake + render + test, per §12.10;
+nothing touches the sim and nothing adds a runtime pass:
+
+1. **Review tooling** — `mapgen --crop`, per-borough stats, the contact
+   sheet. No map change.
+2. **Region blocks** — the fabric-neutral refactor. Must reproduce today's
+   city; the mapgen diff is the acceptance test.
+3. **`grid` + `angle`** — rotate Old Quarter to its harbour, Port Vasco to
+   its island axis, Sunridge to its seafront. First visible seams between
+   boroughs; cheapest fabric, validates the whole path.
+4. **The esplanade + `contour`** — the waterfront fix. The biggest visual
+   win in the plan; after it, every island wears its streets to the shore.
+5. **`spine`** — Ravenhill woven off The Parade; the ring road gains
+   frontage where it crosses the boroughs that face it.
+6. **`crescent`** — New Suburbs and Vasco Heights become loops and
+   lollipops; the dead-end budget lands with it.
+7. **Squares and the circus** — market square, crescent greens, one circus
+   on the ring.
+8. **Park interiors** — paths, ponds, clumps, one landmark block per big
+   park.
+9. **Rural lanes + frontage granularity** — the polish tail.
+
+Steps 3–4 change how the city reads from the air; 5–6 change how it reads
+from a car; 7–9 are texture. After step 4 the map should pass the test this
+document exists to state: **stand at any point of Anywhere City, look at the
+minimap, and know which borough you are in from the shape of its streets
+alone** — before reading a single colour.
