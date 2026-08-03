@@ -1512,9 +1512,29 @@ nothing touches the sim and nothing adds a runtime pass:
    a park shore touches no lattice, and pruning it re-opens the fringe it
    exists to close.
 5. **`spine`** — Ravenhill woven off The Parade; the ring road gains
-   frontage where it crosses the boroughs that face it.
+   frontage where it crosses the boroughs that face it. **DELIVERED.**
+   Spine turned out to be contour with an avenue for a coastline: the long
+   streets are iso-distance bands of the named road's course — measured
+   analytically against the polyline, so the bands are exact and every
+   tile's bearing is the avenue's real local tangent — bending where it
+   bends and settling toward its mean far away, with straight connectors
+   square to that mean. The innermost pair of bands is the avenue's own
+   frontage street, four tiles off its kerb: The Parade stopped slicing
+   through somebody else's lattice and got a borough shaped around it.
 6. **`crescent`** — New Suburbs and Vasco Heights become loops and
-   lollipops; the dead-end budget lands with it.
+   lollipops; the dead-end budget lands with it. **DELIVERED** for New
+   Suburbs; Vasco Heights stays on the island's 12° grid — the §13.4
+   table named it, but one settlement reading as one fabric beat two
+   fabrics on one small island, and a dockside borough of crescents was
+   the wrong century. The fabric: both lattice families WANDER (a sine of
+   three tiles' amplitude, phase hashed per line), the narrower-pitch
+   family keeps every line whole as the collectors, and the wider one
+   loses roughly two stretches in five to the hash — loops and lollipops,
+   dead ends as chase decisions. Each wavy tile writes its analytic
+   tangent into the bearing plane, so cars park along the bend; the
+   step-4 connect-don't-prune pass underwrites whatever the drops strand.
+   The §13.5 dead-end budget is a test now: a crescent borough must hold
+   between 5 and 80 stub tips — measured 15 — and the suite pins it.
 7. **Squares and the circus** — market square, crescent greens, one circus
    on the ring.
 8. **Park interiors** — paths, ponds, clumps, one landmark block per big

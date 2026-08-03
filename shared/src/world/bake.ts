@@ -305,7 +305,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // are crescents between shore bands: their fill follows the street
     // frontage the mask knows about, not the box the ring fill walks (see
     // fillRegion). Rural ground has no frontage either way.
-    if ((b.angle !== 0 || b.contour) && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
+    if ((b.angle !== 0 || b.shaped) && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
     else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within);
   }
 

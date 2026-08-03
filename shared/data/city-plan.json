@@ -587,7 +587,9 @@
         "pitchX": 17,
         "pitchY": 14,
         "width": 3,
-        "alleyOver": 20
+        "alleyOver": 20,
+        "fabric": "spine",
+        "spine": "The Parade"
       }
     },
     {
@@ -831,7 +833,8 @@
         "pitchX": 23,
         "pitchY": 18,
         "width": 3,
-        "alleyOver": 0
+        "alleyOver": 0,
+        "fabric": "crescent"
       }
     },
     {
@@ -1541,8 +1544,8 @@
       "kind": "tower",
       "name": "The Spire",
       "rect": [
-        412,
-        292,
+        407,
+        298,
         8,
         8
       ]
@@ -1551,8 +1554,8 @@
       "kind": "tower",
       "name": "Halloran Building",
       "rect": [
-        395,
-        152,
+        391,
+        147,
         8,
         8
       ]
@@ -1591,8 +1594,8 @@
       "kind": "hospital",
       "name": "St. Brannoch",
       "rect": [
-        326,
-        167,
+        323,
+        177,
         9,
         7
       ]
@@ -1701,8 +1704,8 @@
       "kind": "stadium",
       "name": "The Bowl",
       "rect": [
-        463,
-        564,
+        508,
+        581,
         15,
         12
       ]

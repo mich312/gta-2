@@ -58,9 +58,17 @@ export function tilesFromSpawn(map: CityMap, margin = 4): Array<readonly [number
   return [...fromSpawn(map, margin)];
 }
 
-/** An axis direction from `from` with at least `need` px of clear line. */
+/**
+ * A direction from `from` with at least `need` px of clear line. Cardinals
+ * first — most callers stage on a street and the street is usually axis —
+ * then sixteen compass points, because on the rotated and contour fabrics
+ * (WORLDGEN.md §13.4) the open direction from a kerb is the street's own
+ * bearing and no cardinal at all.
+ */
 export function clearAim(map: CityMap, from: { x: number; y: number }, need = 60): number {
-  for (const angle of [0, Math.PI, Math.PI / 2, -Math.PI / 2]) {
+  const angles = [0, Math.PI, Math.PI / 2, -Math.PI / 2];
+  for (let i = 0; i < 16; i++) angles.push((i * Math.PI) / 8);
+  for (const angle of angles) {
     const d = rayWallDistance(map, from.x, from.y, Math.cos(angle), Math.sin(angle), need + 20);
     if (d >= need) return angle;
   }

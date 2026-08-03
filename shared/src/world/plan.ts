@@ -135,8 +135,22 @@ export interface StreetGrid {
    * borough that grew along its beach has streets that curve with it,
    * which no rotation of a lattice can say. `angle` is ignored; the shore
    * supplies the frame.
+   *
+   * `spine` is the same idea with an AVENUE for a coastline: long streets
+   * are offsets of the named plan road, `pitchX` apart on both sides, and
+   * the cross streets run square to its mean course. A borough that grew
+   * along its high street has streets that bend where it bends — and the
+   * avenue itself finally gets frontage instead of slicing through
+   * somebody else's lattice.
+   *
+   * `crescent` is the postwar suburb: the lattice's lines wander
+   * sinusoidally instead of running straight, and every so often a stretch
+   * of cross street simply is not there — loops and lollipops, dead ends
+   * as a feature. The §13.5 dead-end budget belongs to these boroughs.
    */
-  fabric: 'grid' | 'contour';
+  fabric: 'grid' | 'contour' | 'spine' | 'crescent';
+  /** For `fabric: 'spine'`: the name of the plan road the borough hangs off. */
+  spine: string;
 }
 
 export interface PlanDistrict {
@@ -313,7 +327,11 @@ export function parseCityPlan(raw: unknown): CityPlan {
           width: int(s['width'], `districts[${i}].street.width`),
           alleyOver: typeof s['alleyOver'] === 'number' ? s['alleyOver'] : 0,
           angle: typeof s['angle'] === 'number' ? s['angle'] : 0,
-          fabric: s['fabric'] === 'contour' ? 'contour' : 'grid',
+          fabric:
+            s['fabric'] === 'contour' || s['fabric'] === 'spine' || s['fabric'] === 'crescent'
+              ? s['fabric']
+              : 'grid',
+          spine: typeof s['spine'] === 'string' ? s['spine'] : '',
         },
         rural: o['rural'] === true,
         density: typeof o['density'] === 'number' ? o['density'] : 0.5,
@@ -385,6 +403,11 @@ export function parseCityPlan(raw: unknown): CityPlan {
     const [x, y, w, h] = l.rect;
     if (x < 1 || y < 1 || x + w > plan.widthTiles - 1 || y + h > plan.heightTiles - 1) {
       fail(`landmark ${l.name} is outside the map`);
+    }
+  }
+  for (const d of plan.districts) {
+    if (d.street.fabric === 'spine' && !plan.roads.some((r) => r.name === d.street.spine)) {
+      fail(`district ${d.name}: spine road "${d.street.spine}" is not in the plan`);
     }
   }
   return plan;

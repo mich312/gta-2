@@ -59,12 +59,13 @@ export interface LayoutBlock extends BlockRect {
    */
   angle: number;
   /**
-   * From a `contour` borough (§13.4): the block is a crescent between two
-   * shore-following streets, and wants the frontage-by-depth fill whatever
-   * its frame angle is — a flat south shore has a mean tangent of zero, and
-   * zero must not read as "the old axis ring fill".
+   * From a fabric that shapes its blocks — contour, spine or crescent
+   * (§13.4): the block is a crescent between two curved streets, and wants
+   * the frontage-by-depth fill whatever its frame angle is. A flat south
+   * shore has a mean tangent of zero, and zero must not read as "the old
+   * axis ring fill".
    */
-  contour: boolean;
+  shaped: boolean;
 }
 
 export interface CityLayout {
@@ -635,7 +636,42 @@ export function buildLayout(plan: CityPlan): CityLayout {
     };
     /* ---- the lattice, on the borough's own axes (§13.4 `grid` fabric) --- */
 
-    const contour = d.street.fabric === 'contour';
+    const fabric = d.street.fabric;
+    const contour = fabric === 'contour';
+
+    /**
+     * The `spine` fabric's field: distance to the named avenue's course,
+     * and the course's own bearing at the nearest point — measured
+     * analytically against the polyline, not walked over tiles, so the
+     * bands are exact and the bearings are the avenue's real tangents.
+     * Contour with an avenue for a coastline: the long streets are offsets
+     * of the spine on both sides, and they bend where it bends.
+     */
+    let spineDist: Float32Array | null = null;
+    let spineAngle: Float32Array | null = null;
+    if (fabric === 'spine') {
+      const road = plan.roads.find((r) => r.name === d.street.spine) as PlanRoad;
+      const pts = road.curve ? smoothPolyline(road.points, 3) : road.points;
+      spineDist = new Float32Array(W * H).fill(1e9);
+      spineAngle = new Float32Array(W * H);
+      for (let ty = Math.max(0, ry - 2); ty <= Math.min(H - 1, ry1 + 2); ty++) {
+        for (let tx = Math.max(0, rx - 2); tx <= Math.min(W - 1, rx1 + 2); tx++) {
+          let bd = 1e9;
+          let ba = 0;
+          for (let k = 0; k + 1 < pts.length; k++) {
+            const [ax, ay] = pts[k] as PlanPoint;
+            const [bx, by] = pts[k + 1] as PlanPoint;
+            const dd = segmentDistance(tx + 0.5, ty + 0.5, ax, ay, bx, by);
+            if (dd < bd) {
+              bd = dd;
+              ba = Math.atan2(by - ay, bx - ax);
+            }
+          }
+          spineDist[ty * W + tx] = bd;
+          spineAngle[ty * W + tx] = ba;
+        }
+      }
+    }
 
     /**
      * The frame the borough's straight streets are carved in. For a `grid`
@@ -700,6 +736,34 @@ export function buildLayout(plan: CityPlan): CityLayout {
         }
       }
     }
+    if (fabric === 'spine' && spineDist !== null && spineAngle !== null) {
+      // The mean course of the spine gives the straight connectors their
+      // frame; the LOCAL course, per tile, goes into the bearing plane the
+      // same way the contour fabric writes its shore tangents.
+      let sx = 0;
+      let sy = 0;
+      const road = plan.roads.find((r) => r.name === d.street.spine) as PlanRoad;
+      const pts = road.curve ? smoothPolyline(road.points, 3) : road.points;
+      for (let k = 0; k + 1 < pts.length; k++) {
+        const [ax, ay] = pts[k] as PlanPoint;
+        const [bx, by] = pts[k + 1] as PlanPoint;
+        // Segments vote with their length, folded into one half-turn so
+        // opposite headings agree.
+        const len = Math.hypot(bx - ax, by - ay);
+        const a2 = 2 * Math.atan2(by - ay, bx - ax);
+        sx += Math.cos(a2) * len;
+        sy += Math.sin(a2) * len;
+      }
+      const mean = 0.5 * Math.atan2(sy, sx);
+      frameDeg = ((Math.round((mean * 180) / Math.PI) % 180) + 180) % 180;
+      for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+        for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+          if (!inThis(tx, ty)) continue;
+          const a = spineAngle[ty * W + tx] as number;
+          bearing[ty * W + tx] = ((Math.round((a * 180) / Math.PI) % 180) + 180) % 180;
+        }
+      }
+    }
 
     const th = (frameDeg * Math.PI) / 180;
     const eux = Math.cos(th);
@@ -731,7 +795,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
      * probe — so the only doubling a lattice line can commit is against a
      * road somebody else drew, and that is the snapshot's whole content.
      */
-    const pre: Uint8Array | null = angle !== 0 || contour ? tiles.slice() : null;
+    const pre: Uint8Array | null = angle !== 0 || fabric !== 'grid' ? tiles.slice() : null;
     const doubledUpCourse = (x1: number, y1: number, x2: number, y2: number): boolean => {
       const len = Math.hypot(x2 - x1, y2 - y1);
       const dx = (x2 - x1) / (len || 1);
@@ -788,9 +852,85 @@ export function buildLayout(plan: CityPlan): CityLayout {
       }
     };
 
-    const axisGrid = angle === 0 && !contour;
+    const axisGrid = angle === 0 && fabric === 'grid';
     const xs = axisGrid ? cuts(rx, rw, pitchX, width) : [];
     const ys = axisGrid ? cuts(ry, rh, pitchY, width) : [];
+
+    // The borough bbox corners, projected into the working frame, bound
+    // every straight family a fabric carves; each line is clipped to owned
+    // ground when it lands.
+    let uMin = Infinity;
+    let uMax = -Infinity;
+    let vMin = Infinity;
+    let vMax = -Infinity;
+    for (const [px, py] of [
+      [rx, ry],
+      [rx1, ry],
+      [rx, ry1],
+      [rx1, ry1],
+    ] as const) {
+      uMin = Math.min(uMin, toU(px, py));
+      uMax = Math.max(uMax, toU(px, py));
+      vMin = Math.min(vMin, toV(px, py));
+      vMax = Math.max(vMax, toV(px, py));
+    }
+
+    /**
+     * A lattice line that WANDERS: the crescent fabric's whole vocabulary.
+     * The centre-line is a sine of a few tiles' amplitude around the
+     * straight cut, phase hashed off the line's own position so two bakes
+     * agree and neighbouring lines do not synchronise. When `drop` is on,
+     * whole pitch-length stretches of the line simply are not carved —
+     * hashed, roughly two in five — which is what turns a warped grid into
+     * loops and lollipops: the kept family is the collectors, the dropped
+     * family's survivors are the crescents, and every gap is a dead end or
+     * a loop that the §13.5 budget owns. The step-4 connect-don't-prune
+     * pass underwrites the experiment: whatever the drops strand gets a
+     * track back to the network or goes.
+     */
+    const carveWavy = (at: number, alongU: boolean, lo: number, hi: number, drop: boolean): void => {
+      const pt = (t: number, off: number): [number, number] =>
+        alongU
+          ? [cx + eux * t - euy * off, cy + euy * t + eux * off]
+          : [cx + eux * off - euy * t, cy + euy * off + eux * t];
+      const [x1, y1] = pt(lo, at);
+      const [x2, y2] = pt(hi, at);
+      if (doubledUpCourse(x1, y1, x2, y2)) return;
+      const lam = Math.max(28, pitchX * 2.6);
+      const amp = 3;
+      const phase = latticeHash(0xc5e5c ^ di, Math.round(at), alongU ? 1 : 0) * Math.PI * 2;
+      const dropLen = Math.max(10, alongU ? pitchX : pitchY);
+      for (let t = lo; t <= hi; t += 0.7) {
+        if (drop) {
+          const m = Math.floor((t - lo) / dropLen);
+          if (latticeHash(0xd50b ^ di, Math.round(at), m) < 0.38) continue;
+        }
+        const off = at + amp * Math.sin(((t - lo) * 2 * Math.PI) / lam + phase);
+        const [px, py] = pt(t, off);
+        // The street's own direction at this point of the wave — the wobble
+        // is analytic, so the tangent is too — written into the bearing
+        // plane for every tile the line touches. A parked car on the bend
+        // of a crescent wants the bend's angle, not the borough's.
+        const slope = ((amp * 2 * Math.PI) / lam) * Math.cos(((t - lo) * 2 * Math.PI) / lam + phase);
+        const ang = alongU
+          ? Math.atan2(euy + eux * slope, eux - euy * slope)
+          : Math.atan2(eux + euy * slope, -euy + eux * slope);
+        const deg = ((Math.round((ang * 180) / Math.PI) % 180) + 180) % 180;
+        for (let oy = -2; oy <= 2; oy++) {
+          for (let ox = -2; ox <= 2; ox++) {
+            const tx = Math.round(px + ox);
+            const ty = Math.round(py + oy);
+            if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+            if (!inThis(tx, ty)) continue;
+            if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) < width / 2) {
+              lay(tx, ty, null);
+              bearing[ty * W + tx] = deg;
+            }
+          }
+        }
+      }
+    };
+
     if (contour) {
       // The long streets ARE the shore, repeated inland: iso-distance bands
       // of the water field, `width` wide, `pitchX` apart, the innermost at
@@ -810,45 +950,60 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // The cross streets: straight connectors perpendicular to the shore's
       // mean tangent, `pitchY` apart along it, carved through the same
       // rotated-frame machinery the grid fabric uses.
-      let uMin = Infinity;
-      let uMax = -Infinity;
-      let vMin = Infinity;
-      let vMax = -Infinity;
-      for (const [px, py] of [
-        [rx, ry],
-        [rx1, ry],
-        [rx, ry1],
-        [rx1, ry1],
-      ] as const) {
-        uMin = Math.min(uMin, toU(px, py));
-        uMax = Math.max(uMax, toU(px, py));
-        vMin = Math.min(vMin, toV(px, py));
-        vMax = Math.max(vMax, toV(px, py));
-      }
       if (pitchY >= width + 3) {
         for (let u = uMin + pitchY; u < uMax - width; u += pitchY) carveLine(u, false, vMin, vMax);
+      }
+    } else if (fabric === 'spine' && spineDist !== null && spineAngle !== null) {
+      // Contour, with the avenue for a coastline: the long streets are
+      // iso-distance bands of the spine's course, both sides, bending where
+      // it bends — and the innermost pair is the avenue's own frontage
+      // street, four tiles off its kerb. The probe along the local normal
+      // keeps a band off any other avenue running beside it.
+      for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+        for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+          const i = ty * W + tx;
+          if (!inThis(tx, ty) || water[i] === 1) continue;
+          const sd = spineDist[i] as number;
+          if (sd < 6) continue;
+          if ((sd - 6) % pitchX >= width) continue;
+          const a = spineAngle[i] as number;
+          let doubled = false;
+          for (let k = -4; k <= 4 && !doubled; k++) {
+            if (k === 0) continue;
+            const px = Math.round(tx - Math.sin(a) * k);
+            const py = Math.round(ty + Math.cos(a) * k);
+            if (px < 0 || py < 0 || px >= W || py >= H) continue;
+            const t = (pre as Uint8Array)[py * W + px] as number;
+            if ((t === T_ROAD || t === T_BRIDGE) && (spineDist[py * W + px] as number) > 5) doubled = true;
+          }
+          if (doubled) continue;
+          lay(tx, ty, null);
+        }
+      }
+      // Straight connectors square to the spine's mean course.
+      if (pitchY >= width + 3) {
+        for (let u = uMin + pitchY; u < uMax - width; u += pitchY) carveLine(u, false, vMin, vMax);
+      }
+    } else if (fabric === 'crescent') {
+      // Loops and lollipops. One family keeps every line whole — the
+      // collectors — and the other loses stretches to the hash; both
+      // wander. Which family collects follows the pitches: the wider pitch
+      // reads as the through direction.
+      const alongIsCollector = pitchX >= pitchY;
+      if (pitchX >= width + 3) {
+        for (let u = uMin + pitchX; u < uMax - width; u += pitchX) {
+          carveWavy(u, false, vMin, vMax, alongIsCollector);
+        }
+      }
+      if (pitchY >= width + 3) {
+        for (let v = vMin + pitchY; v < vMax - width; v += pitchY) {
+          carveWavy(v, true, uMin, uMax, !alongIsCollector);
+        }
       }
     } else if (axisGrid) {
       for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
       for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
     } else {
-      // The borough bbox corners, projected into the rotated frame, bound
-      // the lattice; every line is clipped to owned ground when it lands.
-      let uMin = Infinity;
-      let uMax = -Infinity;
-      let vMin = Infinity;
-      let vMax = -Infinity;
-      for (const [px, py] of [
-        [rx, ry],
-        [rx1, ry],
-        [rx, ry1],
-        [rx1, ry1],
-      ] as const) {
-        uMin = Math.min(uMin, toU(px, py));
-        uMax = Math.max(uMax, toU(px, py));
-        vMin = Math.min(vMin, toV(px, py));
-        vMax = Math.max(vMax, toV(px, py));
-      }
       if (pitchX >= width + 3) {
         for (let u = uMin + pitchX; u < uMax - width; u += pitchX) carveLine(u, false, vMin, vMax);
       }
@@ -955,7 +1110,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       return out;
     };
 
-    if (angle !== 0 || contour) {
+    if (angle !== 0 || fabric !== 'grid') {
       // A rotated or contour borough has no interstice arithmetic to lean
       // on: its blocks are simply the connected pieces of ground its
       // streets leave, over the whole borough at once. Step 2 made the fill
@@ -1025,7 +1180,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           density: d.density,
           mask: c.mask,
           angle: frameDeg,
-          contour,
+          shaped: fabric !== 'grid',
         });
       }
       continue;
@@ -1094,7 +1249,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             density: d.density,
             mask: p.mask,
             angle: 0,
-            contour: false,
+            shaped: false,
           });
         }
       }

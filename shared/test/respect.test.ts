@@ -204,8 +204,13 @@ describe('gang war (J4)', () => {
     const at = turfOf(4);
     const gangA = 1;
     const gangB = rivalsOf(gangA)[0] as number;
+    // The rival stands down a CLEAR line, not a flat +40 east — the same
+    // trap `withGangMember` already dodges: on the curved fabrics the tile
+    // east of a ped spawn can be the building it spawned beside, and two
+    // gang members with a wall between them are neighbours, not a standoff.
+    const spot = clearSpot(map, at, 40);
     const a = createPed(5001, { x: at.x, y: at.y }, 30, gangA);
-    const b = createPed(5002, { x: at.x + 40, y: at.y }, 30, gangB);
+    const b = createPed(5002, { x: spot.x, y: spot.y }, 30, gangB);
     insertEntity(state.peds, a);
     insertEntity(state.peds, b);
     return { state, aId: 5001, bId: 5002, gangA };

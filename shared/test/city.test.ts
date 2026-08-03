@@ -279,6 +279,39 @@ describe('the city, as an asset', () => {
     expect(far).toBeLessThan(checked / 50);
   });
 
+  it('keeps its dead ends where they were ordered: the crescent budget', () => {
+    // §13.5's dead-end budget. The crescent fabric (§13.6 step 6) drops
+    // stretches of cross street ON PURPOSE — a suburb of loops and
+    // lollipops, dead ends as chase decisions — and this is the assertion
+    // that the feature exists AND stays a feature: enough culs-de-sac to
+    // matter, few enough that the borough still drives. Measured tips, not
+    // vibes: a road tile with at most one road neighbour is the end of
+    // something.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const road = (x: number, y: number): boolean => {
+      const t = map.tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    const crescents = plan.districts.filter((d) => d.street.fabric === 'crescent');
+    expect(crescents.length).toBeGreaterThan(0);
+    let tips = 0;
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (!road(x, y)) continue;
+        let n = 0;
+        if (road(x + 1, y)) n++;
+        if (road(x - 1, y)) n++;
+        if (road(x, y + 1)) n++;
+        if (road(x, y - 1)) n++;
+        if (n > 1) continue;
+        if (crescents.some((d) => pointInPoly(d.area, x + 0.5, y + 0.5))) tips++;
+      }
+    }
+    expect(tips).toBeGreaterThanOrEqual(5);
+    expect(tips).toBeLessThanOrEqual(80);
+  });
+
   it('has an island you can only reach by air', () => {
     // Gannet Rock. The claim is exact and worth pinning tile by tile, because
     // every way of getting somewhere in this game is a different question:
