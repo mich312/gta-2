@@ -1410,11 +1410,23 @@ Per §5, every feature ships with its invariant, and two existing checks must
 - **Junction angles.** No junction arm meeting another under ~30 degrees
   outside a plaza — the measurable form of "the fabric acknowledges the
   avenue".
-- **The picture.** `mapgen` grows `--crop=x,y,w` and a stats block per
-  borough: orientation histogram of street tiles, block-size histogram,
-  shore-to-street distance p95. The evidence contact sheet
-  (`evidence/city-fabric-review.png`) is retaken per wave and diffed by eye
-  — the review tool this section was written with.
+- **The picture.** `mapgen` grows `--crop=x,y,w[,h]` (a close-up at up to
+  8 px per tile), `--stats` (per borough: land, road and building share,
+  block count and median size, street orientation split, shore tiles and
+  their p50/p95 distance to the nearest carriageway) and `--sheet`, which
+  retakes the evidence contact sheet (`evidence/city-fabric-review.png`)
+  in one command per wave, to be diffed by eye — the review tool this
+  section was written with. **Delivered**, and the baseline it measured
+  makes the findings numbers: every urban borough is 94–100% axis-aligned
+  street (Finding 1 — the fabrics must move the diag% column), and the
+  shore-to-street p95 is 25 tiles in Beachfront, 73 in Sunridge Park and
+  109 in Marsh End (Finding 3 — the esplanade must bring the urban rows
+  under 5). Two smaller things the table caught that the eye had not: some
+  boroughs own shore on roadless islets (reported as `inf`, correct for
+  Gannet Rock, worth an author's look elsewhere), and ~1900 shore tiles
+  fall outside every borough polygon — the warp pushes beaches past the
+  drawn outlines, so the esplanade pass must attribute shore by nearest
+  borough, not by polygon membership alone.
 
 ### 13.6 The sequence
 
@@ -1422,7 +1434,7 @@ Smallest first, each landing as plan + rebake + render + test, per §12.10;
 nothing touches the sim and nothing adds a runtime pass:
 
 1. **Review tooling** — `mapgen --crop`, per-borough stats, the contact
-   sheet. No map change.
+   sheet. No map change. **DELIVERED** (§13.5, last bullet).
 2. **Region blocks** — the fabric-neutral refactor. Must reproduce today's
    city; the mapgen diff is the acceptance test.
 3. **`grid` + `angle`** — rotate Old Quarter to its harbour, Port Vasco to

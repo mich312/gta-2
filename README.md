@@ -137,6 +137,9 @@ pnpm citybake --fit                         # for every landmark the plan puts
                                             #   somewhere it will not go, name
                                             #   the nearest block that fits
 pnpm mapgen                                 # render the city to PNG, no game
+pnpm mapgen --crop=475,100,120              # a close-up, in tiles, scaled up
+pnpm mapgen --sheet                         # retake evidence/city-fabric-review.png
+pnpm mapgen --stats                         # per-borough street-fabric numbers
 pnpm chase                                  # the chase bench: escape rate + survival time
                                             #   per star level, over several seeds
 pnpm sprites                                # regenerate the sprite sheet
