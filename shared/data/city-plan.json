@@ -739,7 +739,8 @@
         "pitchX": 17,
         "pitchY": 13,
         "width": 3,
-        "alleyOver": 20
+        "alleyOver": 20,
+        "fabric": "contour"
       }
     },
     {
@@ -769,7 +770,8 @@
         "pitchX": 16,
         "pitchY": 13,
         "width": 3,
-        "alleyOver": 19
+        "alleyOver": 19,
+        "fabric": "contour"
       }
     },
     {
@@ -991,7 +993,8 @@
         "pitchY": 24,
         "width": 3,
         "alleyOver": 0,
-        "angle": 12
+        "angle": 0,
+        "fabric": "contour"
       }
     },
     {
@@ -1598,8 +1601,8 @@
       "kind": "stadium",
       "name": "Ironside Stadium",
       "rect": [
-        116,
-        264,
+        126,
+        315,
         15,
         12
       ]
@@ -1608,8 +1611,8 @@
       "kind": "police",
       "name": "Harbour Precinct",
       "rect": [
-        57,
-        322,
+        87,
+        317,
         7,
         7
       ]
@@ -1628,8 +1631,8 @@
       "kind": "power",
       "name": "Kessler Power",
       "rect": [
-        124,
-        365,
+        130,
+        361,
         13,
         11
       ]
@@ -1658,8 +1661,8 @@
       "kind": "police",
       "name": "Sunridge Station",
       "rect": [
-        301,
-        458,
+        314,
+        457,
         7,
         7
       ]
@@ -1688,8 +1691,8 @@
       "kind": "hospital",
       "name": "Seaview Infirmary",
       "rect": [
-        553,
-        433,
+        552,
+        436,
         9,
         7
       ]

@@ -126,6 +126,17 @@ export interface StreetGrid {
    * and the fill follows the street frontage rather than the box.
    */
   angle: number;
+  /**
+   * The §13.4 `contour` fabric: streets that follow the SHORE instead of
+   * any straight frame. Long streets are iso-distance bands of the water
+   * field — the innermost is the esplanade, `pitchX` apart as they climb
+   * inland — and the cross streets are straight connectors perpendicular
+   * to the shore's mean tangent, `pitchY` apart along it. A seafront
+   * borough that grew along its beach has streets that curve with it,
+   * which no rotation of a lattice can say. `angle` is ignored; the shore
+   * supplies the frame.
+   */
+  fabric: 'grid' | 'contour';
 }
 
 export interface PlanDistrict {
@@ -302,6 +313,7 @@ export function parseCityPlan(raw: unknown): CityPlan {
           width: int(s['width'], `districts[${i}].street.width`),
           alleyOver: typeof s['alleyOver'] === 'number' ? s['alleyOver'] : 0,
           angle: typeof s['angle'] === 'number' ? s['angle'] : 0,
+          fabric: s['fabric'] === 'contour' ? 'contour' : 'grid',
         },
         rural: o['rural'] === true,
         density: typeof o['density'] === 'number' ? o['density'] : 0.5,

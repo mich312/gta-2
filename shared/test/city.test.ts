@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import cityPlanJson from '../data/city-plan.json';
 import worldgenJson from '../data/worldgen.json';
-import { parseCityPlan } from '../src/world/plan.js';
+import { parseCityPlan, pointInPoly } from '../src/world/plan.js';
 import { buildLayout } from '../src/world/layout.js';
 import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js';
 import { generateCity } from '../src/world/generate.js';
@@ -200,6 +200,83 @@ describe('the city, as an asset', () => {
     // The main island, the second island, and the rocks — but the two big
     // ones are joined by bridges, so drivable ground is checked elsewhere.
     expect(land.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('meets its own waterfront: urban shore is never far from a street', () => {
+    // The §13.5 waterfront invariant, and the whole point of the esplanade
+    // (WORLDGEN.md §13.6 step 4). The first drawn city kept a dead fringe of
+    // bare field between the last street and the sea — measured at 25 tiles
+    // (p95) on the Beachfront, 109 in Marsh End — because the lattice
+    // stopped where a block stopped being mostly dry and nobody built to the
+    // shore. Every shore tile a NON-RURAL borough owns must now be within a
+    // few tiles of carriageway: the esplanade where nothing else runs, a
+    // contour street where the fabric supplies one. Shore with no land path
+    // to any road at all — an enclosed islet inside a borough polygon — is
+    // excused: it is unreachable by car by design, not unmet.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const dist = new Int32Array(W * H).fill(-1);
+    const queue: number[] = [];
+    for (let i = 0; i < map.tiles.length; i++) {
+      const t = map.tiles[i] as number;
+      if (t === T_ROAD || t === T_BRIDGE) {
+        dist[i] = 0;
+        queue.push(i);
+      }
+    }
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if ((dist[j] as number) >= 0 || map.tiles[j] === T_WATER) continue;
+        dist[j] = (dist[i] as number) + 1;
+        queue.push(j);
+      }
+    }
+    const wet = (x: number, y: number): boolean =>
+      x >= 0 && y >= 0 && x < W && y < H && map.tiles[y * W + x] === T_WATER;
+    // Ownership resolves the way the layout resolves it: LAST polygon
+    // containing the point wins (`buildLayout`'s borough pass — an overlap
+    // is an edit, not an error). The lagoon rim sits inside the New Suburbs
+    // polygon AND inside rural Marsh End drawn over it; the rim is Marsh
+    // End's, country shore by intent, and no esplanade belongs there.
+    const ownerOf = (tx: number, ty: number): (typeof plan.districts)[number] | null => {
+      for (let i = plan.districts.length - 1; i >= 0; i--) {
+        const d = plan.districts[i]!;
+        if (pointInPoly(d.area, tx + 0.5, ty + 0.5)) return d;
+      }
+      return null;
+    };
+    let checked = 0;
+    let far = 0;
+    for (let ty = 1; ty < H - 1; ty++) {
+      for (let tx = 1; tx < W - 1; tx++) {
+        const i = ty * W + tx;
+        if (map.tiles[i] === T_WATER) continue;
+        if (!(wet(tx + 1, ty) || wet(tx - 1, ty) || wet(tx, ty + 1) || wet(tx, ty - 1))) continue;
+        const own = ownerOf(tx, ty);
+        if (!own || own.rural) continue;
+        const d = dist[i] as number;
+        if (d < 0) continue; // enclosed islet: no land path to any road
+        checked++;
+        if (d > 5) far++;
+      }
+    }
+    // A city's worth of urban shoreline was actually measured...
+    expect(checked).toBeGreaterThan(1000);
+    // ...and effectively all of it is met. The allowance covers the odd
+    // cliff-pinched corner where a street cannot fit between rock and water.
+    expect(far).toBeLessThan(checked / 50);
   });
 
   it('has an island you can only reach by air', () => {

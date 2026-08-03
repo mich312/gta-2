@@ -18,6 +18,7 @@ import { ambulanceAnsweringPed } from '../src/sim/ambulance.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { roadLane } from './helpers.js';
+import { rayWallDistance } from '../src/sim/weapons.js';
 
 const map = generateCity(4242, parseWorldgenParams(worldgenJson));
 
@@ -45,7 +46,25 @@ const bleedOutTicks = (): number => Math.round(getTuning().peds.bleedOutSec * TI
  * nobody will ever see is pure cost.
  */
 function casualtyOnTheKerb(seed: number): { state: GameState } {
-  const lane = roadLane(map, 200);
+  // The clear kerb NEAREST A HOSPITAL, not nearest the spawn: the van
+  // dispatches from a hospital and the casualty has `bleedOutTicks` to
+  // live, so the distance between those two points is the test's real
+  // clock. Sorted by spawn distance it measured the map — the street
+  // fabrics moved the nearest qualifying kerb across the city from any
+  // hospital, and the patient died of geography.
+  const lane = ((): (typeof map.vehicleSpawns)[number] => {
+    const byHospital = [...map.vehicleSpawns].sort((a, b) => {
+      const da = Math.min(...map.hospitals.map((h) => Math.hypot(h.x - a.x, h.y - a.y)));
+      const db = Math.min(...map.hospitals.map((h) => Math.hypot(h.x - b.x, h.y - b.y)));
+      return da - db;
+    });
+    for (const s of byHospital) {
+      if (s.x < 64 || s.y < 64 || s.x > map.widthPx - 64 || s.y > map.heightPx - 64) continue;
+      const d = rayWallDistance(map, s.x, s.y, Math.cos(s.heading), Math.sin(s.heading), 220);
+      if (d >= 200) return s;
+    }
+    return roadLane(map, 200);
+  })();
   let state = createGameState(seed);
   state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'witness' }], map);
   state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 40 };

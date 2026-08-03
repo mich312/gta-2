@@ -372,9 +372,16 @@ function bearingCarriageway(map: CityMap, tx: number, ty: number, angle: number)
     if (!on(tx + dx * i, ty + dy * i) || !on(tx - dx * i, ty - dy * i)) return false;
   }
   let width = 1;
-  for (let i = 1; i <= 5 && road(tx - dy * i, ty + dx * i); i++) width++;
-  for (let i = 1; i <= 5 && road(tx + dy * i, ty - dx * i); i++) width++;
-  return width <= 3;
+  for (let i = 1; i <= 6 && road(tx - dy * i, ty + dx * i); i++) width++;
+  for (let i = 1; i <= 6 && road(tx + dy * i, ty - dx * i); i++) width++;
+  // Six across, not three: the walk above has already proved the street runs
+  // linearly here with the car's own heading, and the spot is kerb-adjacent
+  // by construction — the disease this test exists for was cars standing at
+  // WRONG headings mid-carriageway, not cars hugging the edge of a wide one.
+  // Contour fabrics make wide-but-linear tarmac routine (two shore bands
+  // meeting along an inland ridge read as one six-wide boulevard); past six
+  // it is a plaza, and a parked car in a plaza is in everyone's way.
+  return width <= 6;
 }
 
 /** Parked-car spawn points along road edges (consumed by phase 3). */

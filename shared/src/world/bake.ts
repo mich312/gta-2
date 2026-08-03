@@ -301,10 +301,11 @@ export function bakeCity(plan: CityPlan): BakedCity {
     const within = (tx: number, ty: number): boolean =>
       tx >= b.x && ty >= b.y && tx < b.x + b.w && ty < b.y + b.h &&
       b.mask[(ty - b.y) * b.w + (tx - b.x)] === 1;
-    // A rotated borough's blocks are parallelograms: their fill follows the
-    // street frontage the mask knows about, not the box the ring fill walks
-    // (see fillRegion). Rural ground has no frontage either way.
-    if (b.angle !== 0 && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
+    // A rotated borough's blocks are parallelograms and a contour borough's
+    // are crescents between shore bands: their fill follows the street
+    // frontage the mask knows about, not the box the ring fill walks (see
+    // fillRegion). Rural ground has no frontage either way.
+    if ((b.angle !== 0 || b.contour) && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
     else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within);
   }
 

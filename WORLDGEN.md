@@ -1486,6 +1486,31 @@ nothing touches the sim and nothing adds a runtime pass:
    the recurring lesson of every fabric wave so far, §13.5 held.
 4. **The esplanade + `contour`** — the waterfront fix. The biggest visual
    win in the plan; after it, every island wears its streets to the shore.
+   **DELIVERED.** Wherever a non-rural borough meets the water, a street
+   now runs at a quay's distance from it — carved from the water distance
+   field, yielding only to authored coast roads that already stand within
+   quay's reach themselves (an avenue six tiles inland is near enough to
+   double and still leaves the shore unserved). Beachfront, The Terraces
+   and The Docks became `contour` boroughs: their long streets are
+   iso-distance bands of the shore field climbing inland at the borough
+   pitch — the innermost IS the esplanade — and their cross streets are
+   straight connectors perpendicular to the shore's mean tangent, all
+   through the step-3 machinery; their blocks are crescents between bands,
+   filled by the frontage-by-depth filler; their bearing plane carries the
+   LOCAL shore tangent, tile by tile, so cars park along the curve. The
+   invariant is §13.5's, now a test: every urban shore tile within five of
+   carriageway, enclosed islets excused — measured shore-to-street p95
+   went 25 (Beachfront), 73 (Sunridge Park) and 12 (Docks) to **4 in
+   every urban borough**, with rural Marsh End rightly untouched. What
+   the wave taught: the raw chamfer field carves honest three-wide bands
+   but its gradient wobbles (bearings come from a blurred copy — carve
+   raw, steer smooth); two bands meeting along an inland ridge read as one
+   six-wide boulevard, which the parking trust test now accepts at the
+   kerb (the disease was wrong headings, never width); and a stranded
+   street the size of a street gets CONNECTED to the network by a track
+   over bare ground, beach or quay rather than pruned — a promenade round
+   a park shore touches no lattice, and pruning it re-opens the fringe it
+   exists to close.
 5. **`spine`** — Ravenhill woven off The Parade; the ring road gains
    frontage where it crosses the boroughs that face it.
 6. **`crescent`** — New Suburbs and Vasco Heights become loops and

@@ -243,12 +243,15 @@ describe('world generation', () => {
         expect(on(tx + dx * i, ty + dy * i)).toBe(true);
         expect(on(tx - dx * i, ty - dy * i)).toBe(true);
       }
-      // ...and is no wider across than a carriageway: not a plaza, not the
-      // middle of the ring road's diagonal band.
+      // ...and is no wider across than a wide boulevard: not a plaza. Six,
+      // not four, since the contour fabric (§13.6 step 4) — two shore bands
+      // meeting along an inland ridge read as one six-wide boulevard, and a
+      // car at ITS kerb, at its real heading, is parked, not abandoned in a
+      // junction. The generator's own trust test applies the same bound.
       let width = 1;
-      for (let i = 1; i <= 5 && road(Math.round(tx - dy * i), Math.round(ty + dx * i)); i++) width++;
-      for (let i = 1; i <= 5 && road(Math.round(tx + dy * i), Math.round(ty - dx * i)); i++) width++;
-      expect(width).toBeLessThanOrEqual(4);
+      for (let i = 1; i <= 7 && road(Math.round(tx - dy * i), Math.round(ty + dx * i)); i++) width++;
+      for (let i = 1; i <= 7 && road(Math.round(tx + dy * i), Math.round(ty - dx * i)); i++) width++;
+      expect(width).toBeLessThanOrEqual(6);
     }
     // The mark exists to catch the kerbs no heading can be trusted at: some,
     // not many. The budget was a tenth until blocks became masked regions

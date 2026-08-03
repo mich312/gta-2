@@ -6,6 +6,7 @@ import {
   segmentDistance,
   smoothPolyline,
   type CityPlan,
+  type PlanDistrict,
   type PlanPoint,
   type PlanRoad,
   type PlanStroke,
@@ -57,6 +58,13 @@ export interface LayoutBlock extends BlockRect {
    * street, so its fill follows the mask's own street frontage instead.
    */
   angle: number;
+  /**
+   * From a `contour` borough (§13.4): the block is a crescent between two
+   * shore-following streets, and wants the frontage-by-depth fill whatever
+   * its frame angle is — a flat south shore has a mean tangent of zero, and
+   * zero must not read as "the old axis ring fill".
+   */
+  contour: boolean;
 }
 
 export interface CityLayout {
@@ -487,6 +495,72 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
+  /* ---- the esplanade: the city meets its own waterfront ------------ */
+
+  // Distance from every tile to the water, for the esplanade band, the
+  // contour fabric's streets, and the waterfront invariant they exist to
+  // satisfy (WORLDGEN.md §13.5). Two views of it, on purpose. CARVING uses
+  // the raw chamfer field: its slope is one tile per tile everywhere, so a
+  // band of three distance units is a street three tiles wide — blur the
+  // field and its slope flattens near ridges and bays, and the same band
+  // smears four or five tiles across, which the junction labeller and the
+  // parking pass both rightly refuse to call a street. BEARINGS use the
+  // blurred field: the raw gradient is quantised to a handful of directions
+  // and wobbles tile to tile, and a parked car trusts a bearing by walking
+  // it — a wobbling bearing walks off the street.
+  const shoreDist = distanceField(water, 1, W, H);
+  const shoreSmooth = blurField(shoreDist, 3, W, H);
+
+  /**
+   * Is there already a road just inland or just seaward of here? The probe
+   * runs along the shore-distance GRADIENT — perpendicular to the coast —
+   * because the road this tile must not double is one running parallel to
+   * the shore: an authored Coast Road or Esplanade a couple of tiles off.
+   * A road CROSSING the band toward the water meets the probe only beside
+   * the crossing, and the crossing itself becomes the junction.
+   */
+  const preEsp = tiles.slice();
+  const shoreParallelRoadNear = (tx: number, ty: number): boolean => {
+    const gx = (shoreSmooth[Math.min(W - 1, tx + 1) + ty * W] as number) - (shoreSmooth[Math.max(0, tx - 1) + ty * W] as number);
+    const gy = (shoreSmooth[tx + Math.min(H - 1, ty + 1) * W] as number) - (shoreSmooth[tx + Math.max(0, ty - 1) * W] as number);
+    const len = Math.hypot(gx, gy) || 1;
+    for (let k = -4; k <= 4; k++) {
+      if (k === 0) continue;
+      const px = Math.round(tx + (gx / len) * k);
+      const py = Math.round(ty + (gy / len) * k);
+      if (px < 0 || py < 0 || px >= W || py >= H) continue;
+      const t = preEsp[py * W + px] as number;
+      // Only a road that already SERVES the waterfront suppresses the band:
+      // an authored avenue six tiles inland is near enough to double, but a
+      // shore left to it would still be a shore with no street — the whole
+      // §13.5 invariant — so the band yields only to roads standing at
+      // quay's reach of the water themselves.
+      if ((t === T_ROAD || t === T_BRIDGE) && (shoreDist[py * W + px] as number) <= 6) return true;
+    }
+    return false;
+  };
+
+  // Wherever a non-rural borough meets the water, a street runs along the
+  // shore at a quay's distance — §13.1's Finding 3, fixed at the source. The
+  // dead fringe of bare field between the last street and the sea becomes a
+  // harbourfront in the Old Quarter, a promenade on the Beachfront, a
+  // working quay in the Docks. Contour boroughs skip it here: their own
+  // street bands begin with this exact line and carry it inland.
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const i = ty * W + tx;
+      if (water[i] === 1) continue;
+      const own = owner[i] as number;
+      if (own < 0) continue;
+      const d = plan.districts[own] as PlanDistrict;
+      if (d.rural || d.street.fabric === 'contour') continue;
+      const sd = shoreDist[i] as number;
+      if (sd < 3 || sd >= 6) continue;
+      if (shoreParallelRoadNear(tx, ty)) continue;
+      lay(tx, ty, null);
+    }
+  }
+
   /* ---- street lattices, clipped to each borough's outline ---------- */
 
   const cuts = (start: number, extent: number, pitch: number, width: number): number[] => {
@@ -561,7 +635,73 @@ export function buildLayout(plan: CityPlan): CityLayout {
     };
     /* ---- the lattice, on the borough's own axes (§13.4 `grid` fabric) --- */
 
-    const th = (angle * Math.PI) / 180;
+    const contour = d.street.fabric === 'contour';
+
+    /**
+     * The frame the borough's straight streets are carved in. For a `grid`
+     * borough it is the authored angle. For a `contour` borough the SHORE
+     * supplies it: the principal axis of the borough's own waterline is the
+     * mean tangent, the long streets follow the water at any local angle,
+     * and the straight connectors run perpendicular to this mean. Written
+     * back into the bearing plane, so kerbs and cars in a contour borough
+     * know its street directions the same way a rotated grid's do.
+     */
+    let frameDeg = angle;
+    if (contour) {
+      let sxx = 0;
+      let syy = 0;
+      let sxy = 0;
+      let mx = 0;
+      let my = 0;
+      let n = 0;
+      for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+        for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+          if (!inThis(tx, ty)) continue;
+          if ((shoreDist[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
+          mx += tx;
+          my += ty;
+          n++;
+        }
+      }
+      if (n > 0) {
+        mx /= n;
+        my /= n;
+        for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+          for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+            if (!inThis(tx, ty)) continue;
+            if ((shoreDist[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
+            sxx += (tx - mx) * (tx - mx);
+            syy += (ty - my) * (ty - my);
+            sxy += (tx - mx) * (ty - my);
+          }
+        }
+        const rad = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+        frameDeg = ((Math.round((rad * 180) / Math.PI) % 180) + 180) % 180;
+      }
+      // The bearing plane gets the LOCAL tangent, tile by tile, not the
+      // mean: a contour street curves, and a parked car on its bend wants
+      // the direction of the bend, which the shore-distance gradient knows
+      // exactly. The straight connectors sit a quarter-turn off it, which
+      // the two-family trust test in the parking pass already tries.
+      for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+        for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+          if (!inThis(tx, ty)) continue;
+          const gx =
+            (shoreSmooth[Math.min(W - 1, tx + 1) + ty * W] as number) -
+            (shoreSmooth[Math.max(0, tx - 1) + ty * W] as number);
+          const gy =
+            (shoreSmooth[tx + Math.min(H - 1, ty + 1) * W] as number) -
+            (shoreSmooth[tx + Math.max(0, ty - 1) * W] as number);
+          const deg =
+            gx === 0 && gy === 0
+              ? frameDeg
+              : ((Math.round((Math.atan2(gx, -gy) * 180) / Math.PI) % 180) + 180) % 180;
+          bearing[ty * W + tx] = deg;
+        }
+      }
+    }
+
+    const th = (frameDeg * Math.PI) / 180;
     const eux = Math.cos(th);
     const euy = Math.sin(th);
     // The rotated frame: u along the grid's east, v along its south.
@@ -591,7 +731,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
      * probe — so the only doubling a lattice line can commit is against a
      * road somebody else drew, and that is the snapshot's whole content.
      */
-    const pre: Uint8Array | null = angle !== 0 ? tiles.slice() : null;
+    const pre: Uint8Array | null = angle !== 0 || contour ? tiles.slice() : null;
     const doubledUpCourse = (x1: number, y1: number, x2: number, y2: number): boolean => {
       const len = Math.hypot(x2 - x1, y2 - y1);
       const dx = (x2 - x1) / (len || 1);
@@ -648,9 +788,47 @@ export function buildLayout(plan: CityPlan): CityLayout {
       }
     };
 
-    const xs = angle === 0 ? cuts(rx, rw, pitchX, width) : [];
-    const ys = angle === 0 ? cuts(ry, rh, pitchY, width) : [];
-    if (angle === 0) {
+    const axisGrid = angle === 0 && !contour;
+    const xs = axisGrid ? cuts(rx, rw, pitchX, width) : [];
+    const ys = axisGrid ? cuts(ry, rh, pitchY, width) : [];
+    if (contour) {
+      // The long streets ARE the shore, repeated inland: iso-distance bands
+      // of the water field, `width` wide, `pitchX` apart, the innermost at
+      // a quay's distance — the esplanade itself, which is why the global
+      // esplanade pass skips contour boroughs. The same perpendicular probe
+      // keeps a band off any authored coast road running beside it.
+      for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+        for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+          if (!inThis(tx, ty) || water[ty * W + tx] === 1) continue;
+          const sd = shoreDist[ty * W + tx] as number;
+          if (sd < 3) continue;
+          if ((sd - 3) % pitchX >= width) continue;
+          if (shoreParallelRoadNear(tx, ty)) continue;
+          lay(tx, ty, null);
+        }
+      }
+      // The cross streets: straight connectors perpendicular to the shore's
+      // mean tangent, `pitchY` apart along it, carved through the same
+      // rotated-frame machinery the grid fabric uses.
+      let uMin = Infinity;
+      let uMax = -Infinity;
+      let vMin = Infinity;
+      let vMax = -Infinity;
+      for (const [px, py] of [
+        [rx, ry],
+        [rx1, ry],
+        [rx, ry1],
+        [rx1, ry1],
+      ] as const) {
+        uMin = Math.min(uMin, toU(px, py));
+        uMax = Math.max(uMax, toU(px, py));
+        vMin = Math.min(vMin, toV(px, py));
+        vMax = Math.max(vMax, toV(px, py));
+      }
+      if (pitchY >= width + 3) {
+        for (let u = uMin + pitchY; u < uMax - width; u += pitchY) carveLine(u, false, vMin, vMax);
+      }
+    } else if (axisGrid) {
       for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
       for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
     } else {
@@ -777,11 +955,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
       return out;
     };
 
-    if (angle !== 0) {
-      // A rotated borough has no interstice arithmetic to lean on: its
-      // blocks are simply the connected pieces of ground its lattice leaves,
-      // over the whole borough at once. Step 2 made the fill mask-driven, so
-      // the pieces being parallelograms costs nothing downstream.
+    if (angle !== 0 || contour) {
+      // A rotated or contour borough has no interstice arithmetic to lean
+      // on: its blocks are simply the connected pieces of ground its
+      // streets leave, over the whole borough at once. Step 2 made the fill
+      // mask-driven, so the pieces being parallelograms — or crescents
+      // between two shore bands — costs nothing downstream.
       const comps = componentsOf(rx, ry, rw + 1, rh + 1);
       for (const c of comps) {
         // The alley, in the block's own frame: through the middle of the
@@ -845,7 +1024,8 @@ export function buildLayout(plan: CityPlan): CityLayout {
           landmark: d.rural ? -1 : landmarkAt(c.x, c.y, c.w, c.h),
           density: d.density,
           mask: c.mask,
-          angle,
+          angle: frameDeg,
+          contour,
         });
       }
       continue;
@@ -914,6 +1094,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             density: d.density,
             mask: p.mask,
             angle: 0,
+            contour: false,
           });
         }
       }
@@ -1093,9 +1274,72 @@ export function buildLayout(plan: CityPlan): CityLayout {
       `city plan: the road network is in pieces — the largest holds ${kept} of ${roadTiles} tiles`,
     );
   }
+  // A stranded piece big enough to be a real street is CONNECTED, not
+  // pruned. The esplanade made these routine (§13.6 step 4): a promenade
+  // round a park's shore or the lagoon rim touches no lattice, and pruning
+  // it would re-open the very fringe it exists to close. Shortest track over
+  // bare ground to the rest of the network, two tiles wide — the same move
+  // the bake's driveway pass makes for a landmark — and scraps below the
+  // size of a street still go.
+  for (const [id, bag] of members.entries()) {
+    if (id === biggest || bag.length < 20) continue;
+    const from = new Int32Array(W * H).fill(-1);
+    const bfs: number[] = [];
+    for (const i of bag) {
+      from[i] = i;
+      bfs.push(i);
+    }
+    let hit = -1;
+    for (let q = 0; q < bfs.length && hit < 0 && q < 120000; q++) {
+      const i = bfs[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
+        const j = ny * W + nx;
+        if ((from[j] as number) >= 0) continue;
+        // To the MAIN network only. Another stranded piece is no rescue: a
+        // chain of orphans joined to each other is still adrift, and folding
+        // it in would keep road nothing can reach.
+        if (isRoad(j) && (label[j] as number) === biggest) {
+          from[j] = i;
+          hit = j;
+          break;
+        }
+        // Over bare ground, the beach and the quay — a lagoon ring behind a
+        // spit is fenced in by sand on every side, and a track cut across
+        // the beach to reach it is exactly what would be there. Never
+        // through the cliff scrub: sealed coasts stay sealed.
+        if (water[j] === 1) continue;
+        const tj = tiles[j] as number;
+        if (tj !== T_FIELD && tj !== T_SAND && tj !== T_BANK) continue;
+        from[j] = i;
+        bfs.push(j);
+      }
+    }
+    if (hit < 0) continue; // walled in: the prune below takes it after all
+    for (let i = from[hit] as number; (label[i] as number) !== id; i = from[i] as number) {
+      tiles[i] = T_ROAD;
+      const tn = i + 1 < W * H ? (tiles[i + 1] as number) : T_WATER;
+      if (water[i + 1] !== 1 && (tn === T_FIELD || tn === T_SAND || tn === T_BANK)) tiles[i + 1] = T_ROAD;
+      label[i] = biggest;
+    }
+    // The component now reaches the network; fold it into the keep set.
+    for (const i of bag) label[i] = biggest;
+  }
   for (const [id, bag] of members.entries()) {
     if (id === biggest) continue;
-    for (const i of bag) tiles[i] = T_FIELD;
+    for (const i of bag) {
+      if ((label[i] as number) === biggest) continue;
+      tiles[i] = T_FIELD;
+    }
   }
 
   // ...and then the shore is finished again. Pruning a stranded street turns
