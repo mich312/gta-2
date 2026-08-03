@@ -14,7 +14,9 @@ import {
   T_SAND,
   T_SIDEWALK,
   T_FLOOR,
+  bevelOther,
   generateCity,
+  inCutHalf,
   parseCityPlan,
   pointInPoly,
   type CityMap,
@@ -136,8 +138,18 @@ function render(
       } else {
         c = colors[tile] ?? [255, 0, 255];
       }
+      // The diagonal shoreline, at whatever this render's scale can show of
+      // it: the cut half of a bevelled tile wears the neighbour's colour.
+      const code = map.bevel ? (map.bevel[my * map.widthTiles + mx] as number) : 0;
+      const oc: [number, number, number] | null = code
+        ? (colors[bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, mx, my)] ?? null)
+        : null;
       for (let py = 0; py < scale; py++) {
-        for (let px = 0; px < scale; px++) put(tx * scale + px, ty * scale + py, c);
+        for (let px = 0; px < scale; px++) {
+          const cut =
+            oc !== null && inCutHalf(code, ((px + 0.5) / scale) * 16, ((py + 0.5) / scale) * 16);
+          put(tx * scale + px, ty * scale + py, cut ? oc : c);
+        }
       }
     }
   }
@@ -515,10 +527,12 @@ function main(): void {
   }
 
   writeFileSync(out, encodePng(picture.w, picture.h, picture.rgba));
+  const bevels = map.bevel ? map.bevel.reduce((n, b) => n + (b !== 0 ? 1 : 0), 0) : 0;
   console.log(
     `seed=${seed} gen=${genMs.toFixed(0)}ms blocks=${map.blocks.length} ` +
       `buildings=${map.buildings.length} shops=${map.shops.length} ` +
-      `carSpawns=${map.vehicleSpawns.length} playerSpawns=${map.playerSpawns.length} -> ${out}`,
+      `carSpawns=${map.vehicleSpawns.length} playerSpawns=${map.playerSpawns.length} ` +
+      `bevels=${bevels} -> ${out}`,
   );
 
   if (stats) {

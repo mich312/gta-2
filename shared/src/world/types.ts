@@ -238,6 +238,16 @@ export interface CityMap {
    * because a fixture that builds a bare CityMap has no boroughs to speak of.
    */
   bearing?: Uint8Array;
+  /**
+   * Half-tile bevel per cell, row-major — `BEV_*` codes from `bevel.ts`, 0
+   * for the whole-tile default. Where set, the coded half of the tile is
+   * made of the corner neighbours' material instead of the tile's own: the
+   * diagonal shoreline. Derived from the finished tiles in `generateCity`
+   * (after the last pass that carves one), never baked and never sent —
+   * both hosts compute the identical plane from the identical tiles.
+   * Optional because bare test fixtures predate it; absent means square.
+   */
+  bevel?: Uint8Array;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];

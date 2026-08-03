@@ -1073,7 +1073,11 @@ export function placeBoatSpawns(map: CityMap): void {
       if (t(map, tx, ty) !== T_WATER) continue;
       // The whole 3x3 must be open water: a boat is 22 px across, so a
       // mooring pressed against the bank leaves the hull overlapping land
-      // and the boat cannot move at all.
+      // and the boat cannot move at all. This also keeps moorings clear of
+      // the diagonal shoreline for free: a bevel needs two orthogonal land
+      // neighbours, which only a CORNER of the 3x3 ring can have, and a
+      // corner tile's land wedge starts a full tile diagonal (22.6 px) from
+      // the mooring centre — beyond the hull's own 15.6 px corner reach.
       let roomy = true;
       for (let dy = -1; dy <= 1 && roomy; dy++) {
         for (let dx = -1; dx <= 1; dx++) {

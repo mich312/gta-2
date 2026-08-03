@@ -25,12 +25,17 @@ import {
   spansAt,
   diagonalMark,
   laneCentreInTile,
+  BEV_NE,
+  BEV_SE,
+  BEV_SW,
+  bevelOther,
+  oppositeHalf,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
 import { Z_SCALE } from '../render/config.js';
 import { ARTERIAL_WIDTH, RUN_ROAD } from '../render/tiles.js';
-import { addOutline, outlineMaterial, toonMaterial } from './toon.js';
+import { addOutline, outlineMaterial, toonGradient, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 
 /**
@@ -620,9 +625,23 @@ export function buildCity(map: CityMap): CityBuild {
           }
         }
       }
+      // A headland tile bevelled toward water is half sea, and the painted
+      // ground plane's cutout opens onto whatever slab is underneath — so
+      // the slab has to BE the sea: water colour, water depth. The dry half
+      // gets its ground back as a shore wedge (`buildShoreWedges`), whose
+      // diagonal face is the new waterline.
+      const bevCode = map.bevel ? (map.bevel[idx] as number) : 0;
+      const sunk =
+        bevCode !== 0 &&
+        tile !== T_WATER &&
+        bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER;
+      if (sunk) surface = SURFACES[T_WATER] as Surface;
       const list = bucket(tx, ty, surface);
 
-      for (const span of drawnSpans(tile, spansAt(vg, tx, ty))) {
+      const spans: readonly Span[] = sunk
+        ? [{ bottom: EARTH, top: -8 }]
+        : drawnSpans(tile, spansAt(vg, tx, ty));
+      for (const span of spans) {
         // Clamp the earth to something shallow: a ground span runs from
         // EARTH (-4096) and nobody is looking at the bottom of it.
         //
@@ -662,6 +681,7 @@ export function buildCity(map: CityMap): CityBuild {
   instances += buildRoofDetail(map, group, heightAt);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
+  instances += buildShoreWedges(map, group);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
   // One material per surface, shared by every chunk that has any of it.
@@ -867,6 +887,121 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
   slabs.writeTo(mesh);
   group.add(mesh);
   return slabs.count;
+}
+
+/**
+ * The dry halves of the bevelled shoreline, as real geometry.
+ *
+ * The painted ground plane draws the diagonal beach and its cutout opens the
+ * water beside it, but a wedge of painted ground floating over a hole has no
+ * sides — from anything but straight overhead you would see water sliding
+ * under the sand's edge. This puts the ground back: a triangular slab at
+ * street level filling the dry half, with a vertical face down the
+ * hypotenuse — the 45° waterline the whole bevel system exists to draw.
+ *
+ * Plain BufferGeometry rather than instancing, deliberately: the instanced
+ * city is scale+translate boxes only, and a wedge is the one shape in it
+ * that is not a box. A few hundred shore tiles at three triangles each is
+ * single-digit thousands of vertices — one mesh, one draw.
+ */
+function buildShoreWedges(map: CityMap, group: THREE.Group): number {
+  const bevel = map.bevel;
+  if (!bevel) return 0;
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const T = TILE_SIZE;
+  const DEPTH = 16;
+
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  let wedges = 0;
+
+  const put = (x: number, y: number, z: number): void => {
+    positions.push(x, y, z);
+    colors.push(color.r, color.g, color.b);
+  };
+
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const idx = ty * W + tx;
+      const code = bevel[idx] as number;
+      if (code === 0) continue;
+      const tile = map.tiles[idx] as number;
+      const other = bevelOther(map.tiles, bevel, W, tx, ty);
+      // Only water bevels need geometry: a sand/grass bevel sits on the
+      // full slab its tile already has.
+      let dryHalf: number;
+      let dryMat: number;
+      if (tile === T_WATER && other !== T_WATER) {
+        dryHalf = code;
+        dryMat = other;
+      } else if (other === T_WATER) {
+        dryHalf = oppositeHalf(code);
+        dryMat = tile;
+      } else {
+        continue;
+      }
+
+      const x0 = tx * T;
+      const y0 = ty * T;
+      const x1 = x0 + T;
+      const y1 = y0 + T;
+      // The half's three corners, hypotenuse first two — the diagonal face
+      // hangs off hy[0]→hy[1].
+      let a: [number, number];
+      let b: [number, number];
+      let c: [number, number];
+      if (dryHalf === BEV_NE) {
+        a = [x0, y0];
+        b = [x1, y1];
+        c = [x1, y0];
+      } else if (dryHalf === BEV_SE) {
+        a = [x1, y0];
+        b = [x0, y1];
+        c = [x1, y1];
+      } else if (dryHalf === BEV_SW) {
+        a = [x0, y0];
+        b = [x1, y1];
+        c = [x0, y1];
+      } else {
+        a = [x1, y0];
+        b = [x0, y1];
+        c = [x0, y0];
+      }
+
+      color.set((SURFACES[dryMat] ?? DEFAULT_SURFACE).color);
+      // Top face at street level.
+      put(a[0], a[1], 0);
+      put(b[0], b[1], 0);
+      put(c[0], c[1], 0);
+      // The diagonal face, down past the water surface to the slab bottom.
+      put(a[0], a[1], 0);
+      put(b[0], b[1], 0);
+      put(b[0], b[1], -DEPTH);
+      put(a[0], a[1], 0);
+      put(b[0], b[1], -DEPTH);
+      put(a[0], a[1], -DEPTH);
+      wedges++;
+    }
+  }
+  if (wedges === 0) return 0;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  // Double-sided: the wedges are authored in tile space, not wound to a
+  // camera, and at three triangles a tile there is nothing to save.
+  const material = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: toonGradient(),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return wedges;
 }
 
 /**

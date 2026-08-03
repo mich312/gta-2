@@ -33,6 +33,7 @@ export * from './net/sync.js';
 export * from './net/prediction.js';
 export * from './replay/format.js';
 export * from './world/types.js';
+export * from './world/bevel.js';
 export * from './world/marks.js';
 export * from './world/heights.js';
 export * from './world/volume.js';

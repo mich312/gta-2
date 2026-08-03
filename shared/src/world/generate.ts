@@ -1,4 +1,5 @@
 import { labelJunctions } from '../sim/signals.js';
+import { deriveBevels } from './bevel.js';
 import { assignTurf, markGangCars } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { decodeBakedCity, type BakedCity } from './bake.js';
@@ -112,6 +113,11 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // Dead last of the placement passes, and only when asked for: see
   // placeProvingGround on why it must not run before anything else.
   if (params.provingGround) placeProvingGround(map);
+  // The diagonal shoreline, derived from the FINISHED tiles: every pass
+  // above that carves a tile (ramps, the proving ground) has run, so the
+  // bevels can never disagree with the ground they soften. Consumed by
+  // collision and both renderers; consumes no rng, so it moves nobody.
+  map.bevel = deriveBevels(map.tiles, map.widthTiles, map.heightTiles);
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.

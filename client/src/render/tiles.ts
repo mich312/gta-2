@@ -21,6 +21,12 @@ import {
   type DiagonalDir,
   diagonalMark,
   laneCentreInTile,
+  BEV_NE,
+  BEV_NONE,
+  BEV_SE,
+  BEV_SW,
+  bevelOther,
+  inCutHalf,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
@@ -59,8 +65,11 @@ export interface GroundChunk {
   /** One texel per tile, red channel = `SHEEN`. */
   surface: HTMLCanvasElement;
   /**
-   * One texel per tile, green channel 255 for ground and 0 for water — the
-   * cutout, as its own nearest-filtered mask rather than the painting's alpha.
+   * Eight texels per tile edge, green channel 255 for ground and 0 for water —
+   * the cutout, as its own nearest-filtered mask rather than the painting's
+   * alpha. Sub-tile because the shoreline is no longer tile-square: a
+   * bevelled coast tile is half land, and the hole has to follow the
+   * hypotenuse or the 3D water gets a square lid over every diagonal.
    *
    * A canvas cannot hold colour at zero alpha (the backing store is
    * premultiplied), so cutting on the painting's own alpha channel meant every
@@ -507,12 +516,19 @@ export class TileLayer {
     const sctx = surface.getContext('2d') as CanvasRenderingContext2D;
     const mask = sctx.createImageData(CHUNK_TILES, CHUNK_TILES);
 
-    // The cutout mask, one texel per tile. See `GroundChunk.cut`.
+    // The cutout mask — no longer one texel per tile. The hole under a
+    // bevelled shoreline tile is a TRIANGLE, and a mask that can only
+    // punch whole tiles would put a square lid back on every diagonal the
+    // painter just drew. CUT_SUB texels per tile edge keeps the mask tiny
+    // (a 64×64 canvas per chunk) while letting the alpha test follow the
+    // hypotenuse to within two world px. See `GroundChunk.cut`.
+    const CUT_SUB = 8;
+    const cutW = CHUNK_TILES * CUT_SUB;
     const cut = document.createElement('canvas');
-    cut.width = CHUNK_TILES;
-    cut.height = CHUNK_TILES;
+    cut.width = cutW;
+    cut.height = cutW;
     const cctx = cut.getContext('2d') as CanvasRenderingContext2D;
-    const cutMask = cctx.createImageData(CHUNK_TILES, CHUNK_TILES);
+    const cutMask = cctx.createImageData(cutW, cutW);
 
     const tx0 = cx * CHUNK_TILES;
     const ty0 = cy * CHUNK_TILES;
@@ -525,16 +541,48 @@ export class TileLayer {
         const m = ((ty - ty0) * CHUNK_TILES + (tx - tx0)) * 4;
         mask.data[m] = Math.round(255 * sheenOf(tile));
         mask.data[m + 3] = 255;
-        cutMask.data[m + 1] = tile === T_WATER ? 0 : 255;
-        cutMask.data[m + 3] = 255;
+        // Which sub-texels of this tile are open water. A bevelled water
+        // tile keeps water only on its own half; a bevelled land tile whose
+        // cut half is water — a chamfered headland — gives that half up.
+        const code = this.bevelAt(tx, ty);
+        const map = this.map as CityMap;
+        const other =
+          code === BEV_NONE
+            ? tile
+            : bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty);
+        const wetHalf = tile === T_WATER || (code !== BEV_NONE && other === T_WATER);
+        for (let sy = 0; sy < CUT_SUB; sy++) {
+          for (let sx = 0; sx < CUT_SUB; sx++) {
+            let wet = false;
+            if (wetHalf) {
+              if (code === BEV_NONE) {
+                wet = true;
+              } else {
+                const inCut = inCutHalf(
+                  code,
+                  ((sx + 0.5) * TILE_SIZE) / CUT_SUB,
+                  ((sy + 0.5) * TILE_SIZE) / CUT_SUB,
+                );
+                wet = tile === T_WATER ? !inCut : inCut;
+              }
+            }
+            const c =
+              (((ty - ty0) * CUT_SUB + sy) * cutW + ((tx - tx0) * CUT_SUB + sx)) * 4;
+            cutMask.data[c + 1] = wet ? 0 : 255;
+            cutMask.data[c + 3] = 255;
+            if (wet) holes = true;
+          }
+        }
         if (tile === T_WATER) {
-          holes = true;
-          // Flat water colour, opaque. Never SHOWN — the cutout removes the
-          // whole tile — but it is what the filter blends shoreline texels
+          // Flat water colour, opaque. Rarely SHOWN — the cutout removes the
+          // wet part — but it is what the filter blends shoreline texels
           // towards, and blending towards water is invisible where blending
           // towards transparent black was a dark rim around every island.
           ctx.fillStyle = palette.water;
           ctx.fillRect(x, y, TD, TD);
+          // A bevelled water tile is half beach (or bank grass): paint the
+          // dry wedge so the ground plane has something to show there.
+          this.paintBevel(ctx, tx, ty, x, y, false);
           continue;
         }
         if (tile === T_BUILDING) {
@@ -669,6 +717,94 @@ export class TileLayer {
       default:
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
+    }
+    // The diagonal shoreline: where the bevel plane says half this tile is
+    // the neighbour's material, paint that half over the base, clipped to
+    // its triangle. Painted last so it wins over the base painter's own
+    // edge details (a water tile's straight shore lip, say) wherever the
+    // two disagree — which is exactly the half being repainted.
+    this.paintBevel(ctx, tx, ty, x, y, plants);
+  }
+
+  /** Bevel code at a tile, or BEV_NONE off-map / before the map arrives. */
+  private bevelAt(tx: number, ty: number): number {
+    const map = this.map;
+    if (!map?.bevel) return BEV_NONE;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return BEV_NONE;
+    return map.bevel[ty * map.widthTiles + tx] as number;
+  }
+
+  /**
+   * The cut half of a bevelled tile, painted as what it is made of.
+   *
+   * The overlay reuses the ordinary painters clipped to the triangle, so a
+   * sand wedge gets the same speckle as the beach beside it and a water
+   * wedge the same bands as the sea it joins. Along the hypotenuse of any
+   * water bevel goes the same pale lip `paintWater` puts on a straight
+   * shore, so the waterline reads as one continuous line whether it is
+   * running square or at 45°.
+   */
+  private paintBevel(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    plants = true,
+  ): void {
+    const code = this.bevelAt(tx, ty);
+    if (code === BEV_NONE) return;
+    const map = this.map as CityMap;
+    const other = bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty);
+
+    ctx.save();
+    ctx.beginPath();
+    if (code === BEV_NE) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + TD, y);
+      ctx.lineTo(x + TD, y + TD);
+    } else if (code === BEV_SE) {
+      ctx.moveTo(x + TD, y);
+      ctx.lineTo(x + TD, y + TD);
+      ctx.lineTo(x, y + TD);
+    } else if (code === BEV_SW) {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x, y + TD);
+      ctx.lineTo(x + TD, y + TD);
+    } else {
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + TD, y);
+      ctx.lineTo(x, y + TD);
+    }
+    ctx.closePath();
+    ctx.clip();
+    switch (other) {
+      case T_WATER:
+        this.paintWater(ctx, tx, ty, x, y);
+        break;
+      case T_SAND:
+        this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
+        break;
+      case T_PARK:
+        this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
+        break;
+      default:
+        this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
+    }
+    ctx.restore();
+
+    if (other === T_WATER || this.tileAt(tx, ty) === T_WATER) {
+      ctx.strokeStyle = shade(palette.water, 0.3, '#bfe0ef');
+      ctx.lineWidth = Math.max(1, (TD / 14) | 0);
+      ctx.beginPath();
+      if (code === BEV_NE || code === BEV_SW) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + TD, y + TD);
+      } else {
+        ctx.moveTo(x + TD, y);
+        ctx.lineTo(x, y + TD);
+      }
+      ctx.stroke();
     }
   }
 

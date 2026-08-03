@@ -1891,3 +1891,125 @@ is exactly where the mark belongs. The ambient-motion floor eased 0.40
 is a run of new T-junctions, and a car waiting its turn at one is
 traffic working. 808 tests pass; Seaview Infirmary moved two tiles for
 the seam street that now runs past its door.
+
+---
+
+## 15. The diagonal — half-tile bevels, and the end of the square shoreline
+
+### 15.1 The review
+
+Every wave so far fixed structure: fabrics gave the boroughs their own
+grids, seams gave the boundaries streets. But every EDGE on the map is
+still a right angle, because the tile is one. The coast the water field
+drew as a curve arrives on screen as a staircase of 16 px corners; a
+beach reads as Lego; a headland is a crenellation. `REVIEW.md:155`
+said it at the start — "all orthogonal, no diagonals" — and the fabric
+waves answered it for streets while leaving it standing for ground.
+
+The genre solved this before this project existed: GTA2's map format
+had **diagonal block types**, precisely so shores and corners could run
+at 45° on a square grid. That is the shape of the fix — not a finer
+grid, not marching-squares meshes, but a per-tile annotation that one
+half of the tile, cut corner to corner, belongs to the other side of
+the boundary.
+
+### 15.2 The design: the bevel plane
+
+One byte per tile (`shared/src/world/bevel.ts`): `BEV_NONE`, or one of
+four corner codes naming which half belongs to the corner neighbours'
+material. Three properties carry the whole design:
+
+- **Derived, not authored, and rng-free.** `deriveBevels` is a pure
+  function of the finished tile plane, run at the end of `generateCity`
+  after the last pass that carves a tile. The tile plane itself is
+  untouched — every placement pass, every test and both hosts read the
+  same bytes they always read — so the pass moves nobody, which is the
+  placement doctrine's favourite kind of change (§1).
+- **Two phases, because staircases and headlands are different.** On a
+  rasterised 45° line all the inner corners live on one side; phase 1
+  cuts that side (water yields to land, sand to grass) and the whole
+  staircase becomes one continuous diagonal. A convex 90° headland has
+  no water-side stair to cut, so phase 2 chamfers the land — but only
+  where phase 1 did not already smooth that corner, because cutting
+  both sides of one step recedes the coast twice and strands a
+  half-tile spit (found by the first test that drew a staircase).
+- **Soft ground only; built and sheer edges stay square.** Pairs:
+  water↔sand, water↔field, water↔park, sand↔grass. A quay is coursed
+  masonry, a bridge is a deck, a building is a building — squareness is
+  what makes them read as *built*. The wooded sheer coast stays square
+  too, for now: the 3D canopy is a box, and opening its corners to
+  walkers would let them vanish under it.
+
+Guards: the corner's two orthogonals AND the diagonal behind them must
+all be the yielding-to material, and neither opposite orthogonal may be
+(a tile with the sea on three sides is a tip, and cutting a tip makes a
+point where the map meant a finger). One bevel per tile, first corner
+in NE→SE→SW→NW order.
+
+Consumers, one plane, four readers:
+
+- **Collision** (`collide.ts`). `solidPartAt` answers NONE, FULL, or
+  the solid half; the movement solver clamps to the hypotenuse as a
+  linear bound — exact ops, prediction-safe — so a walker slides along
+  a 45° waterline instead of snagging on its stairs, and a boat noses
+  a diagonal bank. `isSolidTile` deliberately stays whole-tile and
+  conservative: everything that PLACES or STEERS by tiles keeps the
+  coarse answer, and only the solver that knows where a box is inside
+  a tile gets the fine one. Movers gain space on one side of the line
+  exactly where they lose it on the other; the mooring pass needs no
+  guard at all, because a bevel needs two orthogonal land neighbours,
+  only the CORNER of a mooring's 3×3 ring can have them, and a corner
+  wedge starts 22.6 px from the mooring centre — beyond the hull's
+  15.6 px reach (`amenities.ts:placeBoatSpawns`).
+- **The 2D painter** (`tiles.ts:paintBevel`). The cut half is painted
+  by the ordinary painters clipped to its triangle — the wedge gets
+  the same speckle as the beach beside it — with `paintWater`'s pale
+  lip drawn along the hypotenuse so the waterline is one continuous
+  line whether square or diagonal.
+- **The 3D ground.** The water cutout mask went from one texel per
+  tile to eight per edge, so the alpha test follows the hypotenuse;
+  a bevelled land tile's slab is sunk to sea depth and the dry half
+  comes back as a **shore wedge** — the one non-box shape in the
+  instanced city, a triangular slab whose vertical face down the
+  hypotenuse IS the new waterline (`cityGeometry.ts:buildShoreWedges`).
+- **mapgen.** Crops render the cut halves, and the summary line counts
+  them, so a shoreline change shows its work.
+
+### 15.3 The invariants
+
+All in `shared/test/bevel.test.ts`: a 45° staircase becomes exactly one
+cut per step, all on the water side, the land side suppressed; a true
+headland chamfers from the land side; a pond goes octagonal and a
+one-tile pond stays square; quays are never touched; the pass is a pure
+function (two runs agree byte for byte); the movement solver enters the
+open half and stops at the hypotenuse, slides a tile east for a tile
+south along the coast, point and box queries agree on both sides of the
+line, and both flip correctly for the water medium.
+
+### 15.4 DELIVERED, and what stays square on purpose
+
+254 bevelled tiles on the city (seed-independent — the ground is baked;
+the plane is derived from it identically on every host), derived in
+~9 ms on the 768×768 map. The first cut took 110 ms: a Set hash per
+candidate corner across half a million tiles. The lesson is §14's
+performance lesson again — a whole-map scan pays for its inner loop —
+so the pair tables are flat byte lookups and the neighbours are index
+offsets. 820 tests pass. Evidence: `evidence/city-shore-review.png`,
+the lagoon mouth and outer spit breaking at 45°.
+
+The rest of the orthogonality, ranked as next steps:
+
+1. **Kerbs along the diagonal avenues** — road↔sidewalk as a cosmetic
+   pair (both open, so collision never notices). The carved diagonal
+   bands already get their paint from `marks.ts`; their kerb line is
+   the last thing about them that stair-steps.
+2. **The wooded shore** — water↔trees for boats (the cliff face going
+   diagonal is pure gain at sea level), once the canopy stops being a
+   box in 3D or is allowed to overhang the cut.
+3. **Chamfered building corners** — the bevel plane extends to
+   building↔sidewalk unchanged, but the three renderers do not: a
+   chamfered mass needs its roof canvas, its 2D extrusion and its 3D
+   facade box to all cut the same corner. That is the road to genuinely
+   diagonal PLACEMENT — a building footprint rasterised at 45° along a
+   diagonal avenue is just a run of bevelled corner tiles once the
+   drawing can keep up.
