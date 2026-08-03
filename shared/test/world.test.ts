@@ -256,14 +256,15 @@ describe('world generation', () => {
     // The mark exists to catch the kerbs no heading can be trusted at: some,
     // not many. The budget was a tenth until blocks became masked regions
     // (§13.6 step 2, more kerb beside the diagonal avenues), then an eighth,
-    // and is a sixth since three boroughs rotated off the axes (§13.6 step
-    // 3): a rotated lattice parks fine along its own bearing — the baked
-    // bearing plane says which way — but its junction diamonds are wider
-    // than axis crossroads and its streets end on a warped coast, and a spot
-    // at either is one the session is right to leave empty. Measured at
-    // 14% of spots, all of them at junctions, band middles or street ends.
+    // then a sixth when three boroughs rotated off the axes (§13.6 step
+    // 3), and is a fifth since the seams became streets (§14): a seam
+    // street parks fine along its written bearing, but the ring's
+    // limited-access fence turned every held-back lattice line into a
+    // street end, and a spot at a stub tip is one the session is right to
+    // leave empty. Measured at 17.7% — 24 marks at the seams themselves,
+    // the rest the same junctions, band middles and street ends as ever.
     expect(crosswise).toBeGreaterThan(0);
-    expect(crosswise).toBeLessThan(map.parkingSpots.length / 6);
+    expect(crosswise).toBeLessThan(map.parkingSpots.length / 5);
   });
 
   it('player spawns are walkable, inside the map, and spread apart', () => {

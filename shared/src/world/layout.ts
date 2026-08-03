@@ -434,6 +434,78 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
+  // Then EVERY dry tile gets an owner (WORLDGEN.md §14.3 D1): the coastline
+  // warp pushes land tens of tiles past the authored outlines, and ground
+  // that belongs to nobody gets no fabric, no esplanade and no invariants —
+  // a transition to it is a transition to an accident. Breadth-first from
+  // the polygon-owned tiles over land, so the warp fringe joins whichever
+  // borough its ground actually hangs off.
+  {
+    const bag: number[] = [];
+    for (let i = 0; i < owner.length; i++) {
+      if ((owner[i] as number) >= 0 && water[i] !== 1) bag.push(i);
+    }
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (water[j] === 1 || (owner[j] as number) >= 0) continue;
+        owner[j] = owner[i] as number;
+        district[j] = district[i] as number;
+        bearing[j] = bearing[i] as number;
+        bag.push(j);
+      }
+    }
+    // A landmass with no polygon tile on it — an islet the warp raised, a
+    // spit the plan never named — is unreachable over land. Second wave,
+    // allowed to wade: the frontier carries owner ACROSS water but only
+    // ASSIGNS on dry ground, so an off-shore rock joins whichever borough
+    // faces it across the strait.
+    const wet = new Int32Array(W * H).fill(-1);
+    const wetBag: number[] = [];
+    for (let i = 0; i < owner.length; i++) {
+      if ((owner[i] as number) >= 0) {
+        wet[i] = owner[i] as number;
+        wetBag.push(i);
+      }
+    }
+    for (let q = 0; q < wetBag.length; q++) {
+      const i = wetBag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if ((wet[j] as number) >= 0) continue;
+        wet[j] = wet[i] as number;
+        wetBag.push(j);
+        if (water[j] !== 1 && (owner[j] as number) < 0) {
+          const d = plan.districts[wet[j] as number] as PlanDistrict;
+          owner[j] = wet[j] as number;
+          district[j] = DISTRICT_IDX[d.district] as number;
+          bearing[j] = ((Math.round(d.street.angle) % 180) + 180) % 180;
+        }
+      }
+    }
+  }
+
   /** Paint one tile of carriageway, bridging where a bridge is warranted. */
   const lay = (tx: number, ty: number, along: PlanPoint | null): void => {
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return;
@@ -454,7 +526,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
    * corner, and the whole reason the plan holds polylines is that its roads
    * are not axis-aligned.
    */
-  const carveCourse = (points: PlanPoint[], width: number, bridges: boolean): void => {
+  const carveCourse = (
+    points: PlanPoint[],
+    width: number,
+    bridges: boolean,
+    put: (tx: number, ty: number, along: PlanPoint | null) => void = lay,
+  ): void => {
     const half = width / 2;
     for (let k = 0; k + 1 < points.length; k++) {
       const [ax, ay] = points[k] as PlanPoint;
@@ -470,7 +547,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       for (let ty = y0; ty <= y1; ty++) {
         for (let tx = x0; tx <= x1; tx++) {
           if (segmentDistance(tx + 0.5, ty + 0.5, ax, ay, bx, by) > half) continue;
-          lay(tx, ty, bridges ? dir : null);
+          put(tx, ty, bridges ? dir : null);
         }
       }
     }
@@ -485,15 +562,31 @@ export function buildLayout(plan: CityPlan): CityLayout {
       return [p[0] - ((b[1] - a[1]) / len) * d, p[1] + ((b[0] - a[0]) / len) * d] as PlanPoint;
     });
 
+  // Which tiles belong to a dual carriageway (the ring) and which to an
+  // ordinary authored avenue — recorded while carving, for §14.3 D6: the
+  // ring becomes limited-access, and its authored crossings are the only
+  // places the lattice may touch it.
+  const ringMask = new Uint8Array(W * H);
+  const avenueMask = new Uint8Array(W * H);
+  let carveMark: Uint8Array | null = null;
+  const markingLay = (tx: number, ty: number, along: PlanPoint | null): void => {
+    lay(tx, ty, along);
+    if (carveMark !== null && tx >= 0 && ty >= 0 && tx < W && ty < H) {
+      const i = ty * W + tx;
+      if (tiles[i] === T_ROAD || tiles[i] === T_BRIDGE) carveMark[i] = 1;
+    }
+  };
   for (const road of plan.roads) {
     const pts = road.curve ? smoothPolyline(road.points, 3) : road.points;
+    carveMark = road.median > 0 ? ringMask : avenueMask;
     if (road.median > 0) {
       const off = (road.median + road.width) / 2;
-      carveCourse(offsetCourse(pts, off), road.width, road.bridges);
-      carveCourse(offsetCourse(pts, -off), road.width, road.bridges);
+      carveCourse(offsetCourse(pts, off), road.width, road.bridges, markingLay);
+      carveCourse(offsetCourse(pts, -off), road.width, road.bridges, markingLay);
     } else {
-      carveCourse(pts, road.width, road.bridges);
+      carveCourse(pts, road.width, road.bridges, markingLay);
     }
+    carveMark = null;
   }
 
   /* ---- the esplanade: the city meets its own waterfront ------------ */
@@ -545,8 +638,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // shore at a quay's distance — §13.1's Finding 3, fixed at the source. The
   // dead fringe of bare field between the last street and the sea becomes a
   // harbourfront in the Old Quarter, a promenade on the Beachfront, a
-  // working quay in the Docks. Contour boroughs skip it here: their own
-  // street bands begin with this exact line and carry it inland.
+  // working quay in the Docks. Contour boroughs skip it here — their own
+  // street bands begin with this exact line and carry it inland — but only
+  // over the ground the author actually DREW them: a headland the D1 fill
+  // handed to a contour borough sits outside its polygon, its bands never
+  // reach it, and without the esplanade its shore would be the streetless
+  // fringe all over again.
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const i = ty * W + tx;
@@ -554,11 +651,107 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const own = owner[i] as number;
       if (own < 0) continue;
       const d = plan.districts[own] as PlanDistrict;
-      if (d.rural || d.street.fabric === 'contour') continue;
+      if (d.rural) continue;
+      if (d.street.fabric === 'contour' && pointInPoly(d.area, tx + 0.5, ty + 0.5)) continue;
       const sd = shoreDist[i] as number;
       if (sd < 3 || sd >= 6) continue;
       if (shoreParallelRoadNear(tx, ty)) continue;
       lay(tx, ty, null);
+    }
+  }
+
+  /* ---- seam streets: where two boroughs meet, a street runs -------- */
+
+  // Where two non-rural boroughs abut, the boundary itself becomes a street
+  // (WORLDGEN.md §14.3 D2). Both lattices are clipped to their owner, so
+  // without this every lattice line dies at the border as a stub against
+  // bare ground; with it, every line that reaches the border makes a
+  // T-junction into a real street, frontage on both sides faces the seam,
+  // and the grid change happens AT an avenue the way it does in a real
+  // city. Runs before the borough loop for exactly that reason: the
+  // lattices must find the seam street already there.
+  {
+    const preSeam = tiles.slice();
+    // An authored avenue already running the seam suppresses the band —
+    // probed along the boundary NORMAL, like the esplanade probes along
+    // the shore gradient, so an avenue CROSSING the seam suppresses only
+    // beside its own tarmac and the crossing becomes the junction.
+    const seamRoadNear = (tx: number, ty: number, nx: number, ny: number): boolean => {
+      for (let k = -4; k <= 4; k++) {
+        if (k === 0) continue;
+        const px = tx + nx * k;
+        const py = ty + ny * k;
+        if (px < 0 || py < 0 || px >= W || py >= H) continue;
+        const t = preSeam[py * W + px] as number;
+        if (t === T_ROAD || t === T_BRIDGE) return true;
+      }
+      return false;
+    };
+    // Boundary tiles: dry, owned, with an east or south neighbour owned by
+    // a DIFFERENT non-rural borough — each boundary edge found exactly
+    // once, from its west/north side. Marking one side only keeps the
+    // dilated band three tiles wide instead of four.
+    const marked: number[] = [];
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const i = ty * W + tx;
+        if (water[i] === 1) continue;
+        const a = owner[i] as number;
+        if (a < 0 || (plan.districts[a] as PlanDistrict).rural) continue;
+        for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+          const qx = tx + dx;
+          const qy = ty + dy;
+          if (qx >= W || qy >= H) continue;
+          const j = qy * W + qx;
+          if (water[j] === 1) continue;
+          const b = owner[j] as number;
+          if (b < 0 || b === a || (plan.districts[b] as PlanDistrict).rural) continue;
+          if (seamRoadNear(tx, ty, dx, dy)) continue;
+          marked.push(i);
+          break;
+        }
+      }
+    }
+    // Chebyshev-1 dilation of the traced line: a staircase boundary
+    // becomes a clean three-wide diagonal course, the same shape the
+    // wavy carver leaves.
+    const markedSet = new Set(marked);
+    for (const i of marked) {
+      const tx = i % W;
+      const ty = (i - tx) / W;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          lay(tx + dx, ty + dy, null);
+        }
+      }
+      // The seam street gets its own bearing, like every carved street
+      // (§13.6 step 3): the boundary's local direction, an axial mean of
+      // the traced tiles around this one. Without it a car parked at the
+      // seam kerb walks the BOROUGH's lattice angle — an angle this
+      // street does not run at — fails the trust walk and is marked
+      // crosswise, which is a budget, not a style.
+      let sx = 0;
+      let sy = 0;
+      for (let dy = -4; dy <= 4; dy++) {
+        for (let dx = -4; dx <= 4; dx++) {
+          if (dx === 0 && dy === 0) continue;
+          if (!markedSet.has((ty + dy) * W + tx + dx)) continue;
+          const n = dx * dx + dy * dy;
+          sx += (dx * dx - dy * dy) / n;
+          sy += (2 * dx * dy) / n;
+        }
+      }
+      if (sx !== 0 || sy !== 0) {
+        const deg = (Math.round((Math.atan2(sy, sx) / 2) * (180 / Math.PI)) + 360) % 180;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = tx + dx;
+            const ny = ty + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            bearing[ny * W + nx] = deg;
+          }
+        }
+      }
     }
   }
 
@@ -1112,7 +1305,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
               bag.push(j);
             }
           }
-          if (bag.length < 4) continue; // dust, not a block
+          // The §13.5 sliver rule, enforced at the source since the seams
+          // wave (§14.4): a region under twelve tiles, or narrower than
+          // three, is not a block — it is the scrap between two systems,
+          // and filling it puts confetti units exactly where the seams
+          // concentrate them. Dropped, it stays the verge it looks like.
+          if (bag.length < 12) continue;
           let x0 = bw;
           let y0 = bh;
           let x1 = 0;
@@ -1127,6 +1325,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
           const w = x1 - x0 + 1;
           const h = y1 - y0 + 1;
+          if (Math.min(w, h) < 3 && w !== h) continue; // a strip, not a block
           const mask = new Uint8Array(w * h);
           for (const i of bag) {
             const lx = i % bw;
@@ -1294,6 +1493,233 @@ export function buildLayout(plan: CityPlan): CityLayout {
             angle: 0,
             shaped: false,
           });
+        }
+      }
+    }
+  }
+
+  /* ---- stitching: crossings are made, not found (§14.3 D3) --------- */
+
+  // The seam street (D2) serves the urban pairs; the pairs it cannot serve
+  // — a suburb against the countryside, one rural parish against the next
+  // — get their crossings MADE here. Every borough pair's shared edge owes
+  // a stated number of gates (WORLDGEN.md §14.4: one per 120 tiles of
+  // urban/rural seam), and where the lattice and the lanes did not happen
+  // to meet, the shortest connector between a street on one side and a
+  // street on the other is carved, widest gaps first, until the number is
+  // met. Gates, not walls — and gates chosen, not found.
+  {
+    type Edge = { i: number; j: number };
+    const seams = new Map<string, Edge[]>();
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const i = ty * W + tx;
+        if (water[i] === 1) continue;
+        const a = owner[i] as number;
+        if (a < 0) continue;
+        for (const [dx, dy] of [[1, 0], [0, 1]] as const) {
+          const qx = tx + dx;
+          const qy = ty + dy;
+          if (qx >= W || qy >= H) continue;
+          const j = qy * W + qx;
+          if (water[j] === 1) continue;
+          const b = owner[j] as number;
+          if (b < 0 || b === a) continue;
+          const da = plan.districts[a] as PlanDistrict;
+          const db = plan.districts[b] as PlanDistrict;
+          // Urban pairs got their street in D2; this pass owes gates only
+          // to the seams at least one side of which is country.
+          if (!da.rural && !db.rural) continue;
+          const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+          let list = seams.get(key);
+          if (!list) {
+            list = [];
+            seams.set(key, list);
+          }
+          list.push(a < b ? { i, j } : { i: j, j: i });
+        }
+      }
+    }
+    const isRoadTile = (t: number): boolean => t === T_ROAD || t === T_BRIDGE;
+    // Shortest land path from a seam tile to carriageway on one side,
+    // breadth-first over that side's own ground only, so a gate serves the
+    // two boroughs it stands between and not a third across a corner.
+    const reach = (start: number, own: number, cap: number): number[] | null => {
+      const prev = new Map<number, number>();
+      prev.set(start, -1);
+      let frontier = [start];
+      for (let depth = 0; depth <= cap && frontier.length > 0; depth++) {
+        const next: number[] = [];
+        for (const c of frontier) {
+          if (isRoadTile(tiles[c] as number)) {
+            const path: number[] = [];
+            for (let at = c; at !== -1; at = prev.get(at) as number) path.push(at);
+            return path;
+          }
+          const x = c % W;
+          const y = (c - x) / W;
+          for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const n = ny * W + nx;
+            if (prev.has(n) || water[n] === 1 || (owner[n] as number) !== own) continue;
+            prev.set(n, c);
+            next.push(n);
+          }
+        }
+        frontier = next;
+      }
+      return null;
+    };
+    for (const [key, edges] of seams) {
+      const [a, b] = key.split('|').map(Number) as [number, number];
+      const len = edges.length;
+      // Existing crossings, clustered: carriageway facing carriageway
+      // within a few tiles of another such edge is the same gate.
+      const gates: Array<[number, number]> = [];
+      const gateNear = (x: number, y: number, r: number): boolean =>
+        gates.some(([gx, gy]) => Math.max(Math.abs(gx - x), Math.abs(gy - y)) < r);
+      for (const e of edges) {
+        if (!isRoadTile(tiles[e.i] as number) || !isRoadTile(tiles[e.j] as number)) continue;
+        const x = e.i % W;
+        const y = (e.i - x) / W;
+        if (!gateNear(x, y, 4)) gates.push([x, y]);
+      }
+      const owed = Math.ceil(len / 120);
+      if (gates.length >= owed) continue;
+      // Candidate gates: seam edges that can reach a street on BOTH sides,
+      // costed by the total track length, shortest first.
+      const cands: Array<{ cost: number; x: number; y: number; path: number[] }> = [];
+      for (let k = 0; k < edges.length; k += 3) {
+        const e = edges[k] as Edge;
+        const pa = reach(e.i, a, 14);
+        if (!pa) continue;
+        const pb = reach(e.j, b, 14);
+        if (!pb) continue;
+        const x = e.i % W;
+        const y = (e.i - x) / W;
+        cands.push({ cost: pa.length + pb.length, x, y, path: [...pa, ...pb] });
+      }
+      cands.sort((u, v) => u.cost - v.cost);
+      for (const c of cands) {
+        if (gates.length >= owed) break;
+        // A new gate keeps its distance from the ones already standing:
+        // the invariant wants the seam crossable ALONG its length, not a
+        // cluster of tracks through one gap.
+        if (gateNear(c.x, c.y, 40)) continue;
+        for (const p of c.path) {
+          const px = p % W;
+          const py = (p - px) / W;
+          lay(px, py, null);
+          lay(px + 1, py, null);
+          lay(px, py + 1, null);
+        }
+        gates.push([c.x, c.y]);
+      }
+    }
+  }
+
+  /* ---- the ring is limited-access (§14.3 D6) ----------------------- */
+
+  // A motorway with four hundred driveways is a wide street, not a
+  // motorway. Every lattice line, lane and track that touches the ring's
+  // carriageways outside an authored junction is held back: tarmac hugging
+  // the ring is shaved off, so the approach becomes a stub a couple of
+  // tiles short of the fence, and the ring's junctions — where the plan
+  // crosses it with a named avenue — become the chokepoints the §5
+  // doctrine wants. Runs before the orphan passes on purpose: a lane
+  // whose only way in was the ring is now stranded, and the standing
+  // machinery reconnects or prunes it like any other orphan.
+  {
+    // An authored junction: ground the ring and a named avenue both
+    // carved. Dilated well past the interchange so the avenue's own
+    // sliproads and the lattice's junction plumbing survive.
+    const JUNCTION_REACH = 9;
+    const junction = new Uint8Array(W * H);
+    {
+      const bag: number[] = [];
+      const depth = new Int32Array(W * H).fill(-1);
+      for (let i = 0; i < junction.length; i++) {
+        if (ringMask[i] === 1 && avenueMask[i] === 1) {
+          junction[i] = 1;
+          depth[i] = 0;
+          bag.push(i);
+        }
+      }
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        if ((depth[i] as number) >= JUNCTION_REACH) continue;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (junction[j] === 1) continue;
+          junction[j] = 1;
+          depth[j] = (depth[i] as number) + 1;
+          bag.push(j);
+        }
+      }
+    }
+    const nearRing = (tx: number, ty: number): boolean => {
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = tx + dx;
+          const ny = ty + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          if (ringMask[ny * W + nx] === 1) return true;
+        }
+      }
+      return false;
+    };
+    const shaved: number[] = [];
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const i = ty * W + tx;
+        const t = tiles[i] as number;
+        if (t !== T_ROAD && t !== T_BRIDGE) continue;
+        if (ringMask[i] === 1 || avenueMask[i] === 1 || junction[i] === 1) continue;
+        if (nearRing(tx, ty)) {
+          tiles[i] = T_FIELD;
+          shaved.push(i);
+        }
+      }
+    }
+    // Shaving must leave CORRIDORS, not potholes: where the lattice merges
+    // with the ring's own plumbing, a lone unprotected tile in the middle
+    // of tarmac becomes a one-tile hole a driver circles for ever. Any
+    // shaved tile still surrounded by carriageway goes back to being
+    // carriageway, until the picture settles.
+    for (let changed = true; changed; ) {
+      changed = false;
+      for (const i of shaved) {
+        if (tiles[i] !== T_FIELD) continue;
+        const x = i % W;
+        const y = (i - x) / W;
+        let around = 0;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const t = tiles[ny * W + nx] as number;
+          if (t === T_ROAD || t === T_BRIDGE) around++;
+        }
+        if (around >= 3) {
+          tiles[i] = T_ROAD;
+          changed = true;
         }
       }
     }
@@ -1557,6 +1983,37 @@ export function buildLayout(plan: CityPlan): CityLayout {
     for (const i of bag) {
       if ((label[i] as number) === biggest) continue;
       tiles[i] = T_FIELD;
+    }
+  }
+
+  // No potholes. Half a dozen passes each carve or decline one tile at a
+  // time — the esplanade yields to a road its neighbour's probe missed,
+  // the seam street skips a tile the lattice then surrounds, the ring
+  // shave spares what the restore below it re-lays — and any of them can
+  // leave a single tile of bare field in the middle of tarmac. A driver
+  // circles a hole like that for ever, so the rule is stated once, at the
+  // end: ground with carriageway on three sides is carriageway.
+  for (let changed = true; changed; ) {
+    changed = false;
+    for (let ty = 1; ty < H - 1; ty++) {
+      for (let tx = 1; tx < W - 1; tx++) {
+        const i = ty * W + tx;
+        if (tiles[i] !== T_FIELD) continue;
+        let around = 0;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const t = tiles[(ty + dy) * W + tx + dx] as number;
+          if (t === T_ROAD || t === T_BRIDGE) around++;
+        }
+        if (around >= 3) {
+          tiles[i] = T_ROAD;
+          changed = true;
+        }
+      }
     }
   }
 

@@ -8,10 +8,15 @@ import { generateCity } from '../src/world/generate.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import {
   LANDMARK_KINDS,
+  T_BANK,
   T_BRIDGE,
   T_BUILDING,
+  T_FIELD,
+  T_LOT,
   T_ROAD,
   T_RUNWAY,
+  T_SAND,
+  T_SIDEWALK,
   T_TREES,
   T_WATER,
   TILE_SIZE,
@@ -487,5 +492,180 @@ describe('the city, as an asset', () => {
     expect(Buffer.from(a.tiles).equals(Buffer.from(b.tiles))).toBe(true);
     expect(Buffer.from(a.district).equals(Buffer.from(b.district))).toBe(true);
     expect(a.blocks).toEqual(b.blocks);
+  });
+
+  it('leaves no ground to nobody, and no borough walled off from its neighbours', { timeout: 60_000 }, () => {
+    // The §14.4 seam invariants, together because they read the same plane.
+    //
+    // No orphan ground: every dry tile has an owner (§14.3 D1) — ground
+    // that belongs to nobody gets no fabric, no esplanade and no invariants,
+    // so a transition to it is a transition to an accident.
+    //
+    // Permeability: for every pair of boroughs that share a land edge, the
+    // seam is crossable — a working share of its length for urban siblings
+    // (the D2 seam street), deliberate gates for the countryside (the D3
+    // stitch). The §14.1 review measured 5-12% between urban siblings;
+    // these floors are what "made, not found" means as a number.
+    const layout = buildLayout(plan);
+    const { tiles, owner, water } = layout;
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+
+    let orphans = 0;
+    for (let i = 0; i < owner.length; i++) {
+      if (water[i] !== 1 && (owner[i] as number) < 0) orphans++;
+    }
+    expect(orphans).toBe(0);
+
+    // Roads per borough, to exempt the trackless: a nature island with no
+    // carriageway at all (Gannet Rock) has nothing for a gate to join.
+    const roadsOf = new Array<number>(plan.districts.length).fill(0);
+    const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
+    for (let i = 0; i < owner.length; i++) {
+      if ((owner[i] as number) >= 0 && isRoad(i)) roadsOf[owner[i] as number]++;
+    }
+
+    type Seam = { len: number; cross: number; gates: Array<[number, number]> };
+    const seams = new Map<string, Seam>();
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (water[i] === 1) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [0, 1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (water[j] === 1) continue;
+          const a = owner[i] as number;
+          const b = owner[j] as number;
+          if (a < 0 || b < 0 || a === b) continue;
+          const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+          let s = seams.get(key);
+          if (!s) {
+            s = { len: 0, cross: 0, gates: [] };
+            seams.set(key, s);
+          }
+          s.len++;
+          if (isRoad(i) && isRoad(j)) {
+            s.cross++;
+            if (!s.gates.some(([gx, gy]) => Math.max(Math.abs(gx - x), Math.abs(gy - y)) < 4)) {
+              s.gates.push([x, y]);
+            }
+          }
+        }
+      }
+    }
+
+    // The sliver rule (§13.5, re-asserted over the seam bands per §14.4):
+    // the seams are where two lattices tear, so it is where scrap blocks
+    // concentrate. A block region within a few tiles of an owner change
+    // must be at least twelve tiles of ground and at least three across —
+    // anything smaller is the verge it looks like, and `componentsOf`
+    // (layout.ts) is supposed to have dropped it.
+    {
+      const seamTile = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W - 1; x++) {
+          const i = y * W + x;
+          const a = owner[i] as number;
+          const b = owner[i + 1] as number;
+          const c = y + 1 < H ? (owner[i + W] as number) : a;
+          if (a >= 0 && ((b >= 0 && b !== a) || (c >= 0 && c !== a))) seamTile[i] = 1;
+        }
+      }
+      const nearSeam = (bx: number, by: number, bw: number, bh: number): boolean => {
+        for (let y = Math.max(0, by - 4); y < Math.min(H, by + bh + 4); y++) {
+          for (let x = Math.max(0, bx - 4); x < Math.min(W, bx + bw + 4); x++) {
+            if (seamTile[y * W + x] === 1) return true;
+          }
+        }
+        return false;
+      };
+      for (const b of layout.blocks) {
+        if (!nearSeam(b.x, b.y, b.w, b.h)) continue;
+        let area = 0;
+        for (const v of b.mask) area += v;
+        expect(area, `sliver block at ${b.x},${b.y}`).toBeGreaterThanOrEqual(12);
+        if (b.w !== b.h) {
+          expect(Math.min(b.w, b.h), `strip block at ${b.x},${b.y}`).toBeGreaterThanOrEqual(3);
+        }
+      }
+    }
+
+    for (const [key, s] of seams) {
+      const [a, b] = key.split('|').map(Number) as [number, number];
+      // A sliver of shared edge is a corner, not a seam; and a borough with
+      // no roads at all cannot be gated into.
+      if (s.len < 30) continue;
+      if (roadsOf[a] === 0 || roadsOf[b] === 0) continue;
+      const da = plan.districts[a];
+      const db = plan.districts[b];
+      const names = `${da?.name} | ${db?.name}`;
+      if (!da?.rural && !db?.rural) {
+        // Urban siblings: the seam street. 12% of the edge crossable and
+        // at least two distinct crossings per hundred tiles.
+        expect(s.cross / s.len, `crossable share of ${names}`).toBeGreaterThanOrEqual(0.12);
+        expect(s.gates.length, `distinct crossings of ${names}`).toBeGreaterThanOrEqual(
+          Math.ceil(s.len / 50),
+        );
+      } else {
+        // The countryside: gates, not walls — one per 120 tiles of seam.
+        expect(s.gates.length, `gates through ${names}`).toBeGreaterThanOrEqual(
+          Math.ceil(s.len / 120),
+        );
+      }
+    }
+  });
+
+  it('never jumps the land-use ladder without a mediating band', () => {
+    // §9.4's red test, twelve months late, adopted as §14.4's ladder
+    // invariant: land use may step one rank at a seam — downtown to
+    // commercial, commercial to residential — and where the plan draws a
+    // bigger jump, something must MEDIATE it: a street, a quay, a beach,
+    // a hedge, the bare verge of a fringe. What may never happen is a
+    // downtown pavement's building standing grass-to-wall against a park:
+    // two built uses two ranks apart on adjacent tiles with nothing
+    // between them.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    // District plane indices: downtown, residential, industrial,
+    // commercial, park — ranked along §9.4's ladder.
+    const RANK = [0, 2, 1, 1, 3] as const;
+    // Ground that IS mediation: carriageway and pavement (a front
+    // street), water's own ladder (quay, beach), woodland (a hedge), open
+    // ground (a verge), and the working lot.
+    const mediates = new Set([
+      T_ROAD,
+      T_BRIDGE,
+      T_SIDEWALK,
+      T_WATER,
+      T_SAND,
+      T_BANK,
+      T_LOT,
+      T_FIELD,
+      T_TREES,
+    ]);
+    let violations = 0;
+    for (let y = 0; y < H - 1; y++) {
+      for (let x = 0; x < W - 1; x++) {
+        const i = y * W + x;
+        if (mediates.has(map.tiles[i] as number)) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [0, 1],
+        ] as const) {
+          const j = (y + dy) * W + x + dx;
+          if (mediates.has(map.tiles[j] as number)) continue;
+          const a = RANK[map.district[i] as number] as number;
+          const b = RANK[map.district[j] as number] as number;
+          if (Math.abs(a - b) > 1) violations++;
+        }
+      }
+    }
+    expect(violations).toBe(0);
   });
 });

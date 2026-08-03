@@ -490,8 +490,14 @@ describe('ambient traffic', () => {
     // driver out of patience, about to reverse out. That is the failure the
     // test was written for, and it is immune to lawful stops of every kind.
     expect(c.wedged / c.samples).toBeLessThan(0.02);
-    // Motion still has a floor, just an honest one for a city with lights.
-    expect(c.moving / c.samples).toBeGreaterThan(0.4);
+    // Motion still has a floor, just an honest one for a city with lights —
+    // and since the seams wave (§14) an honest one for a city with MORE
+    // lights: every seam street is a run of new T-junctions where two
+    // lattices used to tear past each other, and a car waiting its turn at
+    // one is traffic working. Measured 0.48 when signals landed, 0.40
+    // after the seam streets; the wedge measure above is what actually
+    // guards against the failure this test exists for.
+    expect(c.moving / c.samples).toBeGreaterThan(0.35);
     // ...and the lights genuinely stop people, so none of the above is
     // passing because signals quietly did nothing.
     expect(c.heldAtRed).toBeGreaterThan(0);
@@ -950,12 +956,41 @@ describe('traffic signals (J1)', () => {
     return { x: head.x - dx * TILE_SIZE, y: head.y - dy * TILE_SIZE };
   }
 
+  /**
+   * A head whose approach point actually SEES a red within a cycle. The
+   * first head in the list on faith broke every time the map moved under
+   * it — a junction reshaped by a new seam street can leave head[0]'s
+   * approach already inside the box, where the stop line is behind the
+   * bumper and the gap never goes finite-positive.
+   */
+  function signalledHead(): (typeof map.junctions.heads)[number] {
+    const halfExtent = getVehicleTuning('car').halfExtent;
+    for (const head of map.junctions.heads) {
+      const at = approach(head);
+      for (let tick = 0; tick < 400; tick++) {
+        const gap = stopLineGap(
+          map,
+          at.x,
+          at.y,
+          head.dirIdx,
+          0,
+          halfExtent,
+          tick,
+          timing,
+          trafficJson.comfortBrake,
+        );
+        if (gap !== Infinity && gap > 0) return head;
+      }
+    }
+    throw new Error('no junction head sees a red from its approach');
+  }
+
   it('stops short of the box, not with its nose in it', () => {
     // The stop line is bumper-relative like every other gap the driver model
     // consumes. Reporting it from the car's centre parked stationary cars
     // half inside the junction, where they blocked the cross axis: measured
     // at a third off traffic under way.
-    const head = map.junctions.heads[0]!;
+    const head = signalledHead();
     const at = approach(head);
     const halfExtent = getVehicleTuning('car').halfExtent;
     let sawRed = false;
@@ -982,7 +1017,7 @@ describe('traffic signals (J1)', () => {
   });
 
   it('an amber you cannot stop for is one you clear', () => {
-    const head = map.junctions.heads[0]!;
+    const head = signalledHead();
     const timings = { ...timing };
     // Find a tick where this arm is on amber.
     let amberTick = -1;

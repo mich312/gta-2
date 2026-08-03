@@ -1,7 +1,7 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion } from './buildings.js';
-import { fbm } from './fields.js';
+import { fbm, latticeHash } from './fields.js';
 import { buildLayout } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
 import {
@@ -336,6 +336,51 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // been, because one landmark had claimed the block. The block is filled
   // like any other, and the landmark is cleared out of it afterwards.
   const wildAt = (tx: number, ty: number): boolean => fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52;
+  // The rural fringe (§14.3 D5): how far every tile of country stands from
+  // town, walked over dry land from all urban-owned ground. The band within
+  // one rural pitch of the seam is the ecotone — smallholdings and orchard
+  // rows instead of bare meadow — and the depth is the rural district's own
+  // pitch, so a tight shore parish frays over a shorter reach than the
+  // open marsh.
+  const townDist = new Int32Array(W * H).fill(-1);
+  {
+    const bag: number[] = [];
+    for (let i = 0; i < townDist.length; i++) {
+      const own = layout.owner[i] as number;
+      if (own >= 0 && !(plan.districts[own] as { rural?: boolean }).rural && layout.water[i] !== 1) {
+        townDist[i] = 0;
+        bag.push(i);
+      }
+    }
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if ((townDist[j] as number) >= 0 || layout.water[j] === 1) continue;
+        townDist[j] = (townDist[i] as number) + 1;
+        bag.push(j);
+      }
+    }
+  }
+  const fringeAt = (tx: number, ty: number): boolean => {
+    const i = ty * W + tx;
+    const own = layout.owner[i] as number;
+    if (own < 0) return false;
+    const d = plan.districts[own] as { rural?: boolean; street: { pitchX: number; pitchY: number } };
+    if (!d.rural) return false;
+    const td = townDist[i] as number;
+    return td >= 0 && td <= Math.min(d.street.pitchX, d.street.pitchY);
+  };
   for (const b of layout.blocks) {
     const rng = seedRng(deriveSeed(BAKE_SEED, `block.${b.x}.${b.y}`));
     const within = (tx: number, ty: number): boolean =>
@@ -346,7 +391,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // frontage the mask knows about, not the box the ring fill walks (see
     // fillRegion). Rural ground has no frontage either way.
     if ((b.angle !== 0 || b.shaped) && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
-    else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within);
+    else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within, fringeAt);
   }
 
   // Then the landmark takes its plot back: anything built inside its footprint
@@ -415,6 +460,50 @@ export function bakeCity(plan: CityPlan): BakedCity {
     }
   }
 
+  // A pocket of meadow the trees have sealed is absorbed into the wood.
+  // The hedgerow and orchard passes (§14.3 D5) plant tree-lines through
+  // country the wildness field has already made patchy, and where the two
+  // conspire they pen in a few tiles of grass with no way to walk in —
+  // ground the connectivity checker rightly calls orphaned. A clearing
+  // nobody can reach is not a clearing; it is wood with a hole in the
+  // canopy, so paint it as the wood it is.
+  {
+    const open = (t: number): boolean => t !== T_BUILDING && t !== T_WATER && t !== T_TREES;
+    const seen = new Uint8Array(W * H);
+    for (let s0 = 0; s0 < tiles.length; s0++) {
+      if (seen[s0] === 1 || !open(tiles[s0] as number)) continue;
+      const pocket: number[] = [s0];
+      seen[s0] = 1;
+      let plain = true; // nothing but field and park grass
+      let landlocked = true; // no shore to moor at
+      for (let q = 0; q < pocket.length; q++) {
+        const i = pocket[q] as number;
+        const t = tiles[i] as number;
+        if (t !== T_FIELD && t !== T_PARK) plain = false;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (tiles[j] === T_WATER) landlocked = false;
+          if (seen[j] === 1 || !open(tiles[j] as number)) continue;
+          seen[j] = 1;
+          pocket.push(j);
+        }
+      }
+      if (pocket.length <= 20 && plain && landlocked) {
+        for (const i of pocket) tiles[i] = T_TREES;
+      }
+    }
+  }
+
   // The cliff, sealed last.
   //
   // Every pass between the shore and here can open one by accident — a
@@ -435,6 +524,63 @@ export function bakeCity(plan: CityPlan): BakedCity {
         (ty + 1 < H && tiles[i + W] === T_WATER) ||
         (ty > 0 && tiles[i - W] === T_WATER);
       if (wet) tiles[i] = T_TREES;
+    }
+  }
+
+  // The blend band (§14.3 D4). Every district channel — palette, stock,
+  // props, peds — flips on the painted line, because everything reads the
+  // district plane and the plane flips on one tile. Identity is allowed to
+  // (the fabric seam is §13's product); intensity is not, so within a few
+  // tiles of a one-rank neighbour, about a third of the buildings adopt
+  // the district across the line — a commercial parade bleeding into
+  // residential streets — and the plane is repainted under their
+  // footprints, which hands the prop and ped passes the same dither for
+  // free. The bearing plane is deliberately untouched: fabric stays sharp.
+  {
+    const DISTRICTS = ['downtown', 'residential', 'industrial', 'commercial', 'park'] as const;
+    const IDX: Record<string, number> = { downtown: 0, residential: 1, industrial: 2, commercial: 3, park: 4 };
+    // One rung of §9.4's ladder: the pairs that shade into each other in a
+    // real city. Parks and the countryside are two ranks from everything —
+    // their seams get fronts and fringes (D5, D6), not dither.
+    const LADDER: ReadonlyArray<readonly [string, string]> = [
+      ['downtown', 'commercial'],
+      ['commercial', 'residential'],
+      ['industrial', 'residential'],
+      ['industrial', 'commercial'],
+    ];
+    const rung = new Set(LADDER.flatMap(([a, b]) => [`${a}|${b}`, `${b}|${a}`]));
+    const BLEND_SEED = 0xb1e4d;
+    const BAND = 5;
+    for (const bld of buildings) {
+      if (!(bld.district in IDX) || bld.district === 'park') continue;
+      if (latticeHash(BLEND_SEED, bld.x, bld.y) >= 0.35) continue;
+      const cx = Math.min(W - 1, Math.max(0, Math.floor(bld.x + bld.w / 2)));
+      const cy = Math.min(H - 1, Math.max(0, Math.floor(bld.y + bld.h / 2)));
+      // Nearest one-rank neighbour within the band, nearest ring first, so
+      // a corner where three districts meet blends toward the closest.
+      let adopt: string | null = null;
+      for (let r = 1; r <= BAND && adopt === null; r++) {
+        for (let dy = -r; dy <= r && adopt === null; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const nx = cx + dx;
+            const ny = cy + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const other = DISTRICTS[layout.district[ny * W + nx] as number] as string;
+            if (other !== bld.district && rung.has(`${bld.district}|${other}`)) {
+              adopt = other;
+              break;
+            }
+          }
+        }
+      }
+      if (adopt === null) continue;
+      bld.district = adopt as DistrictType;
+      for (let ty = Math.max(0, bld.y); ty < Math.min(H, bld.y + bld.h); ty++) {
+        for (let tx = Math.max(0, bld.x); tx < Math.min(W, bld.x + bld.w); tx++) {
+          layout.district[ty * W + tx] = IDX[adopt] as number;
+        }
+      }
     }
   }
 

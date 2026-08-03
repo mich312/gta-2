@@ -1790,3 +1790,104 @@ global blur field over districts — §9.4's "fields make everything fade"
 is adopted for INTENSITY only, band-local, because a city where
 everything fades into everything is the uniform plaid again with extra
 steps.
+
+### 14.6 DELIVERED — all six items, one wave
+
+Shipped in one pass over `layout.ts`, `bake.ts` and `buildings.ts`;
+what each item became when it met the map, and what it measured:
+
+- **D1 own everything — DELIVERED.** Two BFS waves after the borough
+  polygon pass: over land first, so the warp fringe joins the borough
+  its ground hangs off; then a second wave allowed to wade, carrying
+  owner across water but assigning only on dry ground, so the two
+  landmasses no polygon touches (1,159 tiles off the east coast, 338
+  off the west) join whoever faces them across the strait. Zero orphan
+  dry tiles, asserted in `city.test.ts`. The esplanade follows
+  ownership: a contour borough now skips it only INSIDE its authored
+  polygon, so Beachfront's adopted headland got a shore street instead
+  of staying the streetless fringe all over again (its shore p95 had
+  hit 42; back to 4). The mapgen stray-shore footnote reads zero and
+  went; islet shore no road can reach is counted aside instead of
+  drowning the tables in `inf`.
+- **D2 seam streets — DELIVERED.** Boundary tiles between non-rural
+  owner pairs, traced from the west/north side only, dilated
+  Chebyshev-1 into a three-wide course before the lattices carve —
+  both fabrics then T into it. Suppression probes along the boundary
+  NORMAL (the esplanade's own trick), so an avenue running the seam
+  suppresses the band while an avenue crossing it merely becomes the
+  junction. The seam street writes its own bearing — an axial mean of
+  the traced line — because a car parked at a seam kerb walks the
+  bearing plane, and the borough's lattice angle is an angle this
+  street does not run at. Crossable share of every urban pair: was
+  5-24%, now 71-100%.
+- **D3 stitching — DELIVERED.** For seams at least one side of which
+  is country: existing gates counted by clustering (carriageway facing
+  carriageway within 4 tiles is one gate), one gate owed per 120 tiles
+  of seam, candidates found by BFS from the seam over each side's OWN
+  ground to its nearest street (so a gate serves the two boroughs it
+  stands between), shortest connectors carved first, 40 tiles apart
+  minimum. In practice the D2 streets and the rural lanes already met
+  most floors; the invariant in `city.test.ts` is what keeps them met.
+  One stated exemption: a borough with no carriageway at all (Gannet
+  Rock, deliberately trackless) has nothing for a gate to join.
+- **D5 fringe + hedgerows — DELIVERED.** A town-distance field (BFS
+  over land from urban-owned ground) defines the fringe: country
+  within its own district's pitch of town. There, smallholdings —
+  house-and-yard stamps, world-grid anchor cells, six jittered darts
+  per cell, yard must be clearable ground within reach of a lane — and
+  orchard rows (hash-chosen cells, trees on a planted every-third-
+  column grid, which is what makes them rows). Everywhere rural,
+  hedgerows: an intermittent tree-line one verge back from every lane,
+  world-grid hashed so runs cross block corners, never against a
+  building, never rounding a junction corner (a hedge bending round
+  one pens the verge in). A closing bake pass absorbs any pocket of
+  grass the trees seal (≤20 tiles, pure meadow, landlocked) into the
+  wood — the orphan-ground count is now zero, better than the
+  pre-wave baseline of 3.
+- **D4 blend band — DELIVERED, subtle.** One rung of the ladder
+  (downtown↔commercial, commercial↔residential, industrial↔both),
+  buildings hashed at 35% within 5 tiles of a one-rank neighbour adopt
+  its district, and the district plane is repainted under their
+  footprints — so the prop and ped passes inherit the dither for free,
+  which was the whole §9.4 point. 50 buildings adopted across the
+  city; the bearing plane untouched. Judged on the contact sheet:
+  subtle is what was asked for and subtle is what it is.
+- **D6 fronts and the ring — DELIVERED, ring kept.** Park fronts came
+  free from D2: the park districts are non-rural, so their urban edges
+  are seam streets (Spine|Ravenhill Park went from a torn edge to 71%
+  crossable street with frontage facing the green). The ring: its dual
+  carriageways and the authored avenues are recorded as masks while
+  carving; every other road tile within two of the ring is shaved off
+  outside a 9-tile dilation of the authored crossings, then any shaved
+  tile still surrounded by carriageway on three sides is re-laid, so
+  the shave leaves corridors, not potholes. Stranded lanes fall to the
+  standing orphan machinery. Chase bench before/after: 3★ escapes 2/5
+  → 3-4/5, 4★ 0/5 → 0/5, 5★ 0/5 → 0-1/5, survival times level — the
+  junctions became chokepoints without tipping the calculus, so the
+  ring ships.
+
+The §14.4 invariants all landed as tests in `city.test.ts`: zero
+orphan dry tiles; per-pair permeability floors (12% crossable and a
+gate per 50 tiles for urban siblings, a gate per 120 for the
+countryside, trackless boroughs exempt); the sliver rule — now
+enforced at the source, `componentsOf` refuses any region under twelve
+tiles or narrower than three, which took the city from 1,239 blocks to
+1,132 and the seam bands from 25 slivers to none; and the ladder sweep
+— zero adjacencies anywhere on the map where two built uses two ranks
+apart touch without a street, quay, beach, hedge or verge between
+them. §9.4's red test finally runs, and runs green.
+
+The wave's own lessons, for the next one: a lattice's phase anchor is
+`polyBounds` and must stay so (widening the carve box to the owned
+extent rephased three boroughs and misfit nine landmarks — reverted for
+the esplanade-outside-the-polygon rule instead); and half a dozen
+passes that each decline one tile can strand that tile inside tarmac
+between them, so the pothole rule is stated once at the end of the
+layout — ground with carriageway on three sides is carriageway. The
+crosswise parking budget stepped a sixth → a fifth: the ring fence
+turned every held-back lattice line into a street end, and a stub tip
+is exactly where the mark belongs. The ambient-motion floor eased 0.40
+→ 0.35 for the same reason in the other direction — every seam street
+is a run of new T-junctions, and a car waiting its turn at one is
+traffic working. 808 tests pass; Seaview Infirmary moved two tiles for
+the seam street that now runs past its door.

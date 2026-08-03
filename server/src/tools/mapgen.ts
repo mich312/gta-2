@@ -201,10 +201,13 @@ function renderSheet(map: CityMap, palette: PaletteFile): Render {
 /**
  * Which borough owns each tile, recomputed from the plan the same way the
  * layout does (`layout.ts` borough pass): point-in-polygon at tile centres,
- * later polygons winning. Recomputed rather than baked because ownership is
- * a review question, not something the game needs at runtime.
+ * later polygons winning, then the §14.3 D1 fill — breadth-first from the
+ * polygon-owned tiles over land, so the warp fringe reads as part of the
+ * borough it hangs off, the way the layout actually treats it. Recomputed
+ * rather than baked because ownership is a review question, not something
+ * the game needs at runtime.
  */
-function ownerPlane(plan: CityPlan, W: number, H: number): Int16Array {
+function ownerPlane(plan: CityPlan, map: CityMap, W: number, H: number): Int16Array {
   const owner = new Int16Array(W * H).fill(-1);
   for (const [di, d] of plan.districts.entries()) {
     let x0 = Infinity;
@@ -221,6 +224,60 @@ function ownerPlane(plan: CityPlan, W: number, H: number): Int16Array {
       for (let tx = Math.max(0, Math.floor(x0)); tx <= Math.min(W - 1, Math.ceil(x1)); tx++) {
         if (pointInPoly(d.area, tx + 0.5, ty + 0.5)) owner[ty * W + tx] = di;
       }
+    }
+  }
+  const dry = (i: number): boolean => map.tiles[i] !== T_WATER;
+  const bag: number[] = [];
+  for (let i = 0; i < owner.length; i++) {
+    if ((owner[i] as number) >= 0 && dry(i)) bag.push(i);
+  }
+  for (let q = 0; q < bag.length; q++) {
+    const i = bag[q] as number;
+    const x = i % W;
+    const y = (i - x) / W;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      if (!dry(j) || (owner[j] as number) >= 0) continue;
+      owner[j] = owner[i] as number;
+      bag.push(j);
+    }
+  }
+  // Second wave, allowed to wade (layout.ts does the same): a landmass with
+  // no polygon tile on it joins whichever borough faces it across the water.
+  const wet = new Int32Array(W * H).fill(-1);
+  const wetBag: number[] = [];
+  for (let i = 0; i < owner.length; i++) {
+    if ((owner[i] as number) >= 0) {
+      wet[i] = owner[i] as number;
+      wetBag.push(i);
+    }
+  }
+  for (let q = 0; q < wetBag.length; q++) {
+    const i = wetBag[q] as number;
+    const x = i % W;
+    const y = (i - x) / W;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      if ((wet[j] as number) >= 0) continue;
+      wet[j] = wet[i] as number;
+      wetBag.push(j);
+      if (dry(j) && (owner[j] as number) < 0) owner[j] = wet[j] as number;
     }
   }
   return owner;
@@ -322,7 +379,7 @@ function percentile(sorted: number[], p: number): number {
 function printStats(map: CityMap, plan: CityPlan): void {
   const W = map.widthTiles;
   const H = map.heightTiles;
-  const owner = ownerPlane(plan, W, H);
+  const owner = ownerPlane(plan, map, W, H);
   const n = plan.districts.length;
   const { axis, diag } = orientationBins(map.tiles, W, H, owner, n);
   const dist = roadDistance(map.tiles, W, H);
@@ -331,6 +388,7 @@ function printStats(map: CityMap, plan: CityPlan): void {
   const road = new Int32Array(n);
   const built = new Int32Array(n);
   const shore: number[][] = Array.from({ length: n }, () => []);
+  const islanded = new Int32Array(n);
   let strayShore = 0;
   const wet = (x: number, y: number): boolean =>
     x >= 0 && y >= 0 && x < W && y < H && map.tiles[y * W + x] === T_WATER;
@@ -353,7 +411,14 @@ function printStats(map: CityMap, plan: CityPlan): void {
       // Unreachable shore (an island the roads never visit) sorts as very
       // far, not as very near — Gannet Rock is meant to be roadless, and a
       // -1 sentinel at the front of a sorted list would flatter every p50.
-      if (onShore) (shore[own] as number[]).push((dist[i] as number) < 0 ? Infinity : (dist[i] as number));
+      // But an off-shore rock ADOPTED by an urban borough (§14.3 D1 gives
+      // every islet an owner) must not drown that borough's esplanade
+      // numbers in inf: shore no road can reach over land is counted
+      // aside, so sh-p95 keeps measuring the waterfront the streets serve.
+      if (onShore) {
+        if ((dist[i] as number) < 0) islanded[own] = (islanded[own] as number) + 1;
+        else (shore[own] as number[]).push(dist[i] as number);
+      }
     }
   }
 
@@ -392,6 +457,8 @@ function printStats(map: CityMap, plan: CityPlan): void {
     );
   }
   if (strayShore > 0) console.log(`(${strayShore} shore tiles outside every borough polygon)`);
+  const cut = islanded.reduce((s, v) => s + v, 0);
+  if (cut > 0) console.log(`(${cut} shore tiles on islets no road reaches, counted aside)`);
 }
 
 /* ------------------------------------------------------------------ */
