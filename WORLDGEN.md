@@ -1536,10 +1536,42 @@ nothing touches the sim and nothing adds a runtime pass:
    The §13.5 dead-end budget is a test now: a crescent borough must hold
    between 5 and 80 stub tips — measured 15 — and the suite pins it.
 7. **Squares and the circus** — market square, crescent greens, one circus
-   on the ring.
+   on the ring. **DELIVERED**, as three new LANDMARK kinds rather than a
+   new primitive: `square` (paved), `green` (grass) and `circus` are
+   landmarks whose recipes stamp open ground with no solid parts — except
+   the circus, which stands a 3×3 monument in the ring's median for the
+   traffic to swing around. They are named, on the minimap, protected by
+   the same claim-and-demolish machinery as every landmark, and — the one
+   rule change — their footprints WELCOME carriageway: the bake's
+   built-over-the-road error and `--fit`'s clear-rect test both exempt
+   them, because streets flowing through is what makes a square a square,
+   while a plaza's solid parts are still checked tile-by-tile (a monument
+   one tile off the median severs the ring, and the bake says so). Four
+   shipped: Market Square in the Old Quarter, Chapel Green in the
+   crescents, Parade Ground on The Parade, King's Circus on the ring's
+   north straight.
 8. **Park interiors** — paths, ponds, clumps, one landmark block per big
-   park.
-9. **Rural lanes + frontage granularity** — the polish tail.
+   park. **DELIVERED** (`fillPark`, `buildings.ts`): gates thinned from
+   the park's own kerb and ordered round its middle, a ring of walks gate
+   to gate plus one long desire line — `meanderPolyline`, the same
+   machinery as the rivers — ponds with noise-warped shores RINGED IN SAND
+   (a pond has a beach, and the quay invariant demands land never meet
+   water flush), woodland clumps off the paths from the countryside's own
+   wildness field, and a bandstand deep in the green. The waterfront
+   invariant learned to flood the SEA from the map corner first: pond
+   edges are a borough's own interior water, not the waterfront boats
+   arrive at.
+9. **Rural lanes + frontage granularity** — the polish tail. **DELIVERED.**
+   Rural lattice cuts keep their pitch and endpoints but are meandered
+   before they are carved — the same midpoint displacement that makes a
+   river a river makes a lane a lane — and the step-2 masks absorb the
+   shapes. The shaped fills' units run a tile smaller, so row-houses
+   stairstep finer along every curve. A side effect worth recording: the
+   wandering lanes and the park paths cut the map's unreachable-courtyard
+   count from 436 tiles to 3 — the sealed pockets §12.9 counted as a
+   feature are all but gone, opened by lanes that no longer run straight
+   past them. If enclosed courtyards are wanted back, they are now a thing
+   to author, not an accident to keep.
 
 Steps 3–4 change how the city reads from the air; 5–6 change how it reads
 from a car; 7–9 are texture. After step 4 the map should pass the test this

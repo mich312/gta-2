@@ -99,7 +99,30 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   quarry: { ground: T_LOT, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
   // A long clear run and a hangar at one end: nothing else goes on it.
   airstrip: { ground: T_RUNWAY, apron: T_RUNWAY, parts: () => [[0, 0, 3, 3]] },
+  // The deliberate plazas (§13.6 step 7): open ground with streets flowing
+  // through it. No parts — the space IS the landmark — except the circus,
+  // whose monument stands in the ring's median for traffic to swing round.
+  square: { ground: T_SIDEWALK, apron: T_SIDEWALK, parts: () => [] },
+  green: { ground: T_PARK, apron: T_PARK, parts: () => [] },
+  // Green, not paved: tarmac beside tarmac is invisible from the air, and
+  // a circus is above all a thing you navigate by. Grass around the
+  // carriageways with a monument in the median is the classic.
+  circus: {
+    ground: T_PARK,
+    apron: T_SIDEWALK,
+    parts: (w, h) => [[Math.floor(w / 2) - 1, Math.floor(h / 2) - 1, 3, 3]],
+  },
 };
+
+/**
+ * Kinds whose footprint welcomes carriageway: a plaza with no streets
+ * flowing through it is a courtyard. Their GROUND never overwrites road (the
+ * `paintable` guard), and their solid parts are validated individually
+ * instead of the whole rect — a circus monument that landed on a carriageway
+ * would sever the ring, so it has to sit in the median, and the bake checks
+ * that it does.
+ */
+const OPEN_TO_ROAD = new Set<LandmarkKind>(['square', 'green', 'circus']);
 
 function paintable(t: number): boolean {
   return t !== T_WATER && t !== T_BANK && t !== T_SAND && t !== T_ROAD && t !== T_BRIDGE;
@@ -221,16 +244,33 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // wrong, and where.
   for (const l of plan.landmarks) {
     const [lx, ly, lw, lh] = l.rect;
+    const openToRoad = OPEN_TO_ROAD.has(l.kind);
     for (let ty = ly; ty < ly + lh; ty++) {
       for (let tx = lx; tx < lx + lw; tx++) {
         const t = layout.tiles[ty * W + tx] as number;
         if (layout.water[ty * W + tx] === 1) {
           throw new Error(`city plan: landmark ${l.name} at ${lx},${ly} stands in the water`);
         }
-        if (t === T_ROAD || t === T_BRIDGE) {
+        if (!openToRoad && (t === T_ROAD || t === T_BRIDGE)) {
           throw new Error(
             `city plan: landmark ${l.name} at ${lx},${ly} (${lw}x${lh}) is built over the road at ${tx},${ty}`,
           );
+        }
+      }
+    }
+    // A plaza's SOLID parts still may not stand on carriageway: the circus
+    // monument belongs in the median, and one tile over severs the ring.
+    if (openToRoad) {
+      for (const [dx, dy, pw, ph] of RECIPES[l.kind].parts(lw, lh)) {
+        for (let ty = ly + dy; ty < ly + dy + ph; ty++) {
+          for (let tx = lx + dx; tx < lx + dx + pw; tx++) {
+            const t = layout.tiles[ty * W + tx] as number;
+            if (t === T_ROAD || t === T_BRIDGE) {
+              throw new Error(
+                `city plan: ${l.name}'s monument stands on the carriageway at ${tx},${ty} — centre it on the median`,
+              );
+            }
+          }
         }
       }
     }

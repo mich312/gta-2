@@ -125,6 +125,18 @@ export const LANDMARK_KINDS = [
    * makes it a destination rather than scenery. See GTA.md S2.
    */
   'airstrip',
+  /**
+   * Deliberate plazas (WORLDGEN.md §13.6 step 7). The signal pass already
+   * refuses to signalise a big patch of junction and calls it a plaza;
+   * these are the plazas made ON PURPOSE — named, navigated by, fought
+   * over. `square` is paved, `green` is grass, and `circus` stands a
+   * monument in the ring road's median for the traffic to swing around.
+   * Streets are allowed to flow straight through all three: that is what
+   * makes a square a square rather than a courtyard.
+   */
+  'square',
+  'green',
+  'circus',
 ] as const;
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 

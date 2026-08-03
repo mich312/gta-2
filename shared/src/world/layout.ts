@@ -1000,6 +1000,49 @@ export function buildLayout(plan: CityPlan): CityLayout {
           carveWavy(v, true, uMin, uMax, !alongIsCollector);
         }
       }
+    } else if (axisGrid && d.rural) {
+      // Country lanes wander (§13.6 step 9). A rural cut keeps its pitch and
+      // its endpoints but is meandered before it is carved — the same
+      // midpoint displacement that makes a river a river instead of a canal
+      // makes a lane a lane instead of a survey line. The masks of step 2
+      // absorb whatever shapes the wander leaves.
+      const lane = (points: PlanPoint[], salt: number): void => {
+        const course = meanderPolyline(points, 0x1a2e5 ^ (di * 8191) ^ salt, 9, 4, latticeHash);
+        for (let k = 0; k + 1 < course.length; k++) {
+          const [ax, ay] = course[k] as PlanPoint;
+          const [bx, by] = course[k + 1] as PlanPoint;
+          const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - width));
+          const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx) + width));
+          const y0 = Math.max(0, Math.floor(Math.min(ay, by) - width));
+          const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by) + width));
+          for (let ty = y0; ty <= y1; ty++) {
+            for (let tx = x0; tx <= x1; tx++) {
+              if (!inThis(tx, ty)) continue;
+              if (segmentDistance(tx + 0.5, ty + 0.5, ax, ay, bx, by) < width / 2) lay(tx, ty, null);
+            }
+          }
+        }
+      };
+      for (const x of xs) {
+        if (doubledUp(x, ry, ry + rh, width, true)) continue;
+        lane(
+          [
+            [x + width / 2, ry],
+            [x + width / 2, ry + rh],
+          ],
+          x,
+        );
+      }
+      for (const y of ys) {
+        if (doubledUp(y, rx, rx + rw, width, false)) continue;
+        lane(
+          [
+            [rx, y + width / 2],
+            [rx + rw, y + width / 2],
+          ],
+          y + 100000,
+        );
+      }
     } else if (axisGrid) {
       for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
       for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
@@ -1436,54 +1479,74 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // bare ground to the rest of the network, two tiles wide — the same move
   // the bake's driveway pass makes for a landmark — and scraps below the
   // size of a street still go.
+  const wetBeside = (i: number): boolean => {
+    const x = i % W;
+    const y = (i - x) / W;
+    return (
+      (x + 1 < W && water[i + 1] === 1) ||
+      (x > 0 && water[i - 1] === 1) ||
+      (y + 1 < H && water[i + W] === 1) ||
+      (y > 0 && water[i - W] === 1)
+    );
+  };
   for (const [id, bag] of members.entries()) {
     if (id === biggest || bag.length < 20) continue;
-    const from = new Int32Array(W * H).fill(-1);
-    const bfs: number[] = [];
-    for (const i of bag) {
-      from[i] = i;
-      bfs.push(i);
-    }
+    // Two passes: the first refuses to walk the waterline, because a track
+    // laid along it is a street beside open water — the thing the drowned-
+    // road check exists to count. Only a piece genuinely boxed in by water
+    // (a lagoon ring behind a narrow spit) gets the shoreline route.
     let hit = -1;
-    for (let q = 0; q < bfs.length && hit < 0 && q < 120000; q++) {
-      const i = bfs[q] as number;
-      const x = i % W;
-      const y = (i - x) / W;
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
-        const j = ny * W + nx;
-        if ((from[j] as number) >= 0) continue;
-        // To the MAIN network only. Another stranded piece is no rescue: a
-        // chain of orphans joined to each other is still adrift, and folding
-        // it in would keep road nothing can reach.
-        if (isRoad(j) && (label[j] as number) === biggest) {
-          from[j] = i;
-          hit = j;
-          break;
-        }
-        // Over bare ground, the beach and the quay — a lagoon ring behind a
-        // spit is fenced in by sand on every side, and a track cut across
-        // the beach to reach it is exactly what would be there. Never
-        // through the cliff scrub: sealed coasts stay sealed.
-        if (water[j] === 1) continue;
-        const tj = tiles[j] as number;
-        if (tj !== T_FIELD && tj !== T_SAND && tj !== T_BANK) continue;
-        from[j] = i;
-        bfs.push(j);
+    let from: Int32Array | null = null;
+    for (const avoidShore of [true, false]) {
+      from = new Int32Array(W * H).fill(-1);
+      const bfs: number[] = [];
+      for (const i of bag) {
+        from[i] = i;
+        bfs.push(i);
       }
+      hit = -1;
+      for (let q = 0; q < bfs.length && hit < 0 && q < 120000; q++) {
+        const i = bfs[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
+          const j = ny * W + nx;
+          if ((from[j] as number) >= 0) continue;
+          // To the MAIN network only. Another stranded piece is no rescue: a
+          // chain of orphans joined to each other is still adrift, and
+          // folding it in would keep road nothing can reach.
+          if (isRoad(j) && (label[j] as number) === biggest) {
+            from[j] = i;
+            hit = j;
+            break;
+          }
+          // Over bare ground, the beach and the quay — never through the
+          // cliff scrub: sealed coasts stay sealed.
+          if (water[j] === 1) continue;
+          const tj = tiles[j] as number;
+          if (tj !== T_FIELD && tj !== T_SAND && tj !== T_BANK) continue;
+          if (avoidShore && wetBeside(j)) continue;
+          from[j] = i;
+          bfs.push(j);
+        }
+      }
+      if (hit >= 0) break;
     }
-    if (hit < 0) continue; // walled in: the prune below takes it after all
+    if (hit < 0 || from === null) continue; // walled in: the prune below takes it
     for (let i = from[hit] as number; (label[i] as number) !== id; i = from[i] as number) {
       tiles[i] = T_ROAD;
       const tn = i + 1 < W * H ? (tiles[i + 1] as number) : T_WATER;
-      if (water[i + 1] !== 1 && (tn === T_FIELD || tn === T_SAND || tn === T_BANK)) tiles[i + 1] = T_ROAD;
+      if (water[i + 1] !== 1 && !wetBeside(i + 1) && (tn === T_FIELD || tn === T_SAND || tn === T_BANK)) {
+        tiles[i + 1] = T_ROAD;
+      }
       label[i] = biggest;
     }
     // The component now reaches the network; fold it into the keep set.

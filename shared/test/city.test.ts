@@ -243,8 +243,36 @@ describe('the city, as an asset', () => {
         queue.push(j);
       }
     }
+    // The SEA, not every water tile: park ponds (§13.6 step 8) are water a
+    // borough deliberately keeps in its own interior, and "the waterfront"
+    // this invariant guards is the one boats arrive at. Flooded from the
+    // map corner, which is always open sea (the margin guarantees it).
+    const sea = new Uint8Array(W * H);
+    {
+      const bag = [0];
+      sea[0] = 1;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (sea[j] === 1 || map.tiles[j] !== T_WATER) continue;
+          sea[j] = 1;
+          bag.push(j);
+        }
+      }
+    }
     const wet = (x: number, y: number): boolean =>
-      x >= 0 && y >= 0 && x < W && y < H && map.tiles[y * W + x] === T_WATER;
+      x >= 0 && y >= 0 && x < W && y < H && sea[y * W + x] === 1;
     // Ownership resolves the way the layout resolves it: LAST polygon
     // containing the point wins (`buildLayout`'s borough pass — an overlap
     // is an edit, not an error). The lagoon rim sits inside the New Suburbs

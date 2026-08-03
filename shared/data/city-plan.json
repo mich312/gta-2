@@ -1734,8 +1734,8 @@
       "kind": "farm",
       "name": "Hollis Farm",
       "rect": [
-        626,
-        584,
+        630,
+        566,
         11,
         8
       ]
@@ -1781,6 +1781,46 @@
         7
       ],
       "byAir": true
+    },
+    {
+      "kind": "square",
+      "name": "Market Square",
+      "rect": [
+        598,
+        221,
+        13,
+        13
+      ]
+    },
+    {
+      "kind": "green",
+      "name": "Chapel Green",
+      "rect": [
+        544,
+        539,
+        12,
+        12
+      ]
+    },
+    {
+      "kind": "square",
+      "name": "Parade Ground",
+      "rect": [
+        314,
+        211,
+        12,
+        10
+      ]
+    },
+    {
+      "kind": "circus",
+      "name": "King's Circus",
+      "rect": [
+        452,
+        104,
+        16,
+        16
+      ]
     }
   ],
   "shopQuota": {

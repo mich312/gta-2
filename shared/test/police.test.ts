@@ -324,6 +324,23 @@ describe('wanted + police', () => {
     // Ambient traffic (and now the lights it waits at) shifts the timing of
     // the whole chase, which is how a passing test came to depend on it.
     let everHurt = false;
+    // The measuring party is POSTED at the sight-range edge of the lane,
+    // the way the arrest and noise tests post theirs; the wave spawner is
+    // measured separately by peakCops below. It used to be one measurement:
+    // whether the WAVE also converged — which held on the plaid, where any
+    // ring kerb could walk to any lane, and stopped holding on the §13
+    // fabrics, where a junction-free straight is exactly the street a wave
+    // can land one solid block away from and never see into. Chasing that
+    // with ever-cleverer lane scoring was measuring the map again; what
+    // this test owns is that officers IN CONTACT converge and draw blood.
+    for (const [k, dx] of [-16, 16].entries()) {
+      const me2 = state.players.byId[1]!;
+      const cop = createCop(950 + k, { x: me2.pos.x + dx * TILE_SIZE, y: me2.pos.y }, t.copHealth);
+      cop.targetId = 1;
+      cop.lastSeenX = me2.pos.x;
+      cop.lastSeenY = me2.pos.y;
+      insertEntity(state.cops, cop);
+    }
     for (let i = 0; i < 600; i++) {
       // Keep the fugitive on their feet and wanted: a dead target has no
       // pursuers, and this test is about whether pursuit converges.

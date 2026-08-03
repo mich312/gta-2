@@ -323,6 +323,12 @@ function fit(plan: ReturnType<typeof parseCityPlan>): void {
   };
   let bad = 0;
   for (const l of plan.landmarks) {
+    // Plazas WANT streets through their footprint (bake.ts OPEN_TO_ROAD):
+    // "there is a road on this square" is the point, not a misfit, and the
+    // rect-must-be-clear test below would exile every one of them to a
+    // field. Their real constraints (no water, monument in the median) are
+    // the bake's errors, checked there.
+    if (l.kind === 'square' || l.kind === 'green' || l.kind === 'circus') continue;
     const [lx, ly, lw, lh] = l.rect;
     if (clear(lx, ly, lw, lh)) continue;
     bad++;

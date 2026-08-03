@@ -1,4 +1,6 @@
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
+import { latticeHash, valueNoise } from './fields.js';
+import { meanderPolyline, type PlanPoint } from './plan.js';
 import {
   T_BANK,
   T_BRIDGE,
@@ -285,6 +287,13 @@ export function fillBlock(
     }
     case 'park': {
       fill(ctx, ix, iy, iw, ih, T_PARK);
+      // A big park gets a real interior (§13.6 step 8): gates, a meandering
+      // path network, a pond with a warped shore, woodland clumps, a
+      // bandstand. Anything smaller keeps the modest cross-paths below.
+      if (iw * ih >= 1200) {
+        rng = fillPark(ctx, b, rng, wildAt);
+        break;
+      }
       // A park was an empty green rectangle. Paths across it, a pond in a
       // big one and a bandstand in the middle give it something to be, and
       // give the props pass edges to hang benches and fences off. A park in
@@ -334,6 +343,180 @@ export function fillBlock(
 }
 
 /**
+ * The interior of a big park (§13.6 step 8): gates where the streets touch
+ * it, a network of meandering paths between them, a pond with a warped
+ * shore, woodland clumps off the paths, and a bandstand to navigate by.
+ *
+ * Everything reuses machinery the geography already paid for — the paths
+ * are `meanderPolyline` like the rivers, the pond's shore is value noise
+ * like the coast's warp, the woodland is the same field the countryside
+ * grows from. A park in a chase should be a shortcut with a cost: paths are
+ * fast and watched, the woods are cover that slows a car to a crawl, and
+ * the pond is the wall you forgot was there.
+ */
+function fillPark(
+  ctx: Ctx,
+  b: BlockRect,
+  rng: number,
+  wildAt?: (tx: number, ty: number) => boolean,
+): number {
+  const { W, H, tiles } = ctx;
+  const inBlock = (tx: number, ty: number): boolean =>
+    tx >= b.x &&
+    ty >= b.y &&
+    tx < b.x + b.w &&
+    ty < b.y + b.h &&
+    !(ctx.within !== undefined && !ctx.within(tx, ty));
+  const parkAt = (tx: number, ty: number): boolean =>
+    inBlock(tx, ty) && tiles[ty * W + tx] === T_PARK;
+
+  // The gates: kerb tiles on the park's own edge, thinned so consecutive
+  // gates are a walk apart, ordered by angle round the middle so the path
+  // ring visits them the way a stroller would.
+  const kerbs: Array<[number, number]> = [];
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      if (!inBlock(tx, ty)) continue;
+      if (tiles[ty * W + tx] !== T_SIDEWALK) continue;
+      kerbs.push([tx, ty]);
+    }
+  }
+  if (kerbs.length === 0) return rng;
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  kerbs.sort(
+    (p, q) => Math.atan2(p[1] - cy, p[0] - cx) - Math.atan2(q[1] - cy, q[0] - cx),
+  );
+  const gates: Array<[number, number]> = [];
+  for (const k of kerbs) {
+    if (gates.every((g) => Math.hypot(g[0] - k[0], g[1] - k[1]) >= 22)) gates.push(k);
+  }
+  if (gates.length < 2) return rng;
+
+  /** A 2-wide walk carved over park grass only: never through the trees the
+   *  clump pass has not planted yet, never over water, never over a street. */
+  const path = (from: [number, number], to: [number, number], salt: number): void => {
+    const course = meanderPolyline(
+      [from as PlanPoint, to as PlanPoint],
+      deriveParkSeed(b, salt),
+      Math.min(8, Math.hypot(to[0] - from[0], to[1] - from[1]) / 5),
+      3,
+      latticeHash,
+    );
+    for (let k = 0; k + 1 < course.length; k++) {
+      const [ax, ay] = course[k] as PlanPoint;
+      const [bx, by] = course[k + 1] as PlanPoint;
+      const len = Math.hypot(bx - ax, by - ay) || 1;
+      for (let s = 0; s <= len; s += 0.6) {
+        const px = ax + ((bx - ax) * s) / len;
+        const py = ay + ((by - ay) * s) / len;
+        for (let oy = -1; oy <= 1; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const tx = Math.round(px + ox * 0.5);
+            const ty = Math.round(py + oy * 0.5);
+            if (parkAt(tx, ty) && Math.hypot(tx + 0.5 - px, ty + 0.5 - py) < 1.1) {
+              tiles[ty * W + tx] = T_SIDEWALK;
+            }
+          }
+        }
+      }
+    }
+  };
+  // The ring of walks gate to gate, and one long diagonal — the desire line.
+  for (let i = 0; i < gates.length; i++) {
+    path(gates[i] as [number, number], gates[(i + 1) % gates.length] as [number, number], i);
+  }
+  if (gates.length >= 4) {
+    path(gates[0] as [number, number], gates[Math.floor(gates.length / 2)] as [number, number], 99);
+  }
+
+  // The pond: a disc with a noise-warped shore, somewhere deep in the green
+  // and clear of every path — open water may not touch a street, in a park
+  // least of all.
+  let ponds = 0;
+  for (let attempt = 0; attempt < 24 && ponds < 2; attempt++) {
+    let px: number;
+    let py: number;
+    let pr: number;
+    [px, rng] = nextIntRange(rng, b.x + 8, b.x + b.w - 8);
+    [py, rng] = nextIntRange(rng, b.y + 8, b.y + b.h - 8);
+    [pr, rng] = nextIntRange(rng, 4, 8);
+    let clear = true;
+    for (let ty = py - pr - 2; ty <= py + pr + 2 && clear; ty++) {
+      for (let tx = px - pr - 2; tx <= px + pr + 2 && clear; tx++) {
+        if (Math.hypot(tx - px, ty - py) > pr + 2) continue;
+        clear = parkAt(tx, ty);
+      }
+    }
+    if (!clear) continue;
+    for (let ty = py - pr; ty <= py + pr; ty++) {
+      for (let tx = px - pr; tx <= px + pr; tx++) {
+        const warp = (valueNoise(deriveParkSeed(b, 7), tx / 5, ty / 5) - 0.5) * 3;
+        if (Math.hypot(tx - px, ty - py) < pr - 1 + warp) tiles[ty * W + tx] = T_WATER;
+      }
+    }
+    // A pond has a shore: the grass never meets the water flush. Sand is
+    // the city's standing rule for where land is allowed to touch water
+    // (`water.test`'s quay invariant), and a small beach is also simply
+    // what a park pond has.
+    for (let ty = py - pr - 1; ty <= py + pr + 1; ty++) {
+      for (let tx = px - pr - 1; tx <= px + pr + 1; tx++) {
+        if (!parkAt(tx, ty)) continue;
+        if (
+          tiles[ty * W + tx + 1] === T_WATER ||
+          tiles[ty * W + tx - 1] === T_WATER ||
+          tiles[(ty + 1) * W + tx] === T_WATER ||
+          tiles[(ty - 1) * W + tx] === T_WATER
+        ) {
+          tiles[ty * W + tx] = T_SAND;
+        }
+      }
+    }
+    ponds++;
+  }
+
+  // The bandstand: a small solid deep inside, clear of paths and water.
+  for (let attempt = 0; attempt < 16; attempt++) {
+    let bx: number;
+    let by: number;
+    [bx, rng] = nextIntRange(rng, b.x + 6, b.x + b.w - 9);
+    [by, rng] = nextIntRange(rng, b.y + 6, b.y + b.h - 9);
+    let clear = true;
+    for (let ty = by - 1; ty <= by + 3 && clear; ty++) {
+      for (let tx = bx - 1; tx <= bx + 3 && clear; tx++) clear = parkAt(tx, ty);
+    }
+    if (!clear) continue;
+    fill(ctx, bx, by, 3, 3, T_BUILDING);
+    ctx.buildings.push({ x: bx, y: by, w: 3, h: 3, district: b.district });
+    break;
+  }
+
+  // Woodland clumps, off the paths and back from the water: cover with a
+  // cost, not a fence. The same wildness field the countryside grows from,
+  // thresholded a little looser because a park is planted, not wild.
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      if (!parkAt(tx, ty)) continue;
+      if (!wildAt?.(tx, ty)) continue;
+      let back = true;
+      for (let oy = -2; oy <= 2 && back; oy++) {
+        for (let ox = -2; ox <= 2 && back; ox++) {
+          const t2 = tiles[(ty + oy) * W + (tx + ox)] as number;
+          if (t2 === T_SIDEWALK || t2 === T_ROAD || t2 === T_WATER) back = false;
+        }
+      }
+      if (back) tiles[ty * W + tx] = T_TREES;
+    }
+  }
+  return rng;
+}
+
+/** A stable seed for a park's furniture, derived from where the park is. */
+function deriveParkSeed(b: BlockRect, salt: number): number {
+  return (Math.imul(b.x, 2654435761) ^ Math.imul(b.y, 40503) ^ Math.imul(salt + 1, 7919)) >>> 0;
+}
+
+/**
  * Fill a block that is not a rectangle: frontage by DEPTH, not by ring.
  *
  * The ring fill below walks the bounding box's edges, which is right exactly
@@ -366,10 +549,13 @@ export function fillRegion(
   }
 
   const density = b.density ?? 0.5;
+  // Unit sizes run a tile smaller than the axis ring fill's (§13.6 step 9):
+  // every block through here has a CURVED or angled frontage, and the finer
+  // the unit, the finer the stairstep with which the row-houses follow it.
   const style: Record<string, { depth: number; gap: number; yard: number; lo: number; hi: number }> = {
-    downtown: { depth: 6, gap: 0.05 * (1 - density), yard: T_LOT, lo: 3, hi: 7 },
-    commercial: { depth: 5, gap: 0.1 * (1 - density), yard: T_LOT, lo: 3, hi: 7 },
-    residential: { depth: 4, gap: 0.22 * (1 - density), yard: T_PARK, lo: 2, hi: 6 },
+    downtown: { depth: 6, gap: 0.05 * (1 - density), yard: T_LOT, lo: 3, hi: 6 },
+    commercial: { depth: 5, gap: 0.1 * (1 - density), yard: T_LOT, lo: 3, hi: 6 },
+    residential: { depth: 4, gap: 0.22 * (1 - density), yard: T_PARK, lo: 2, hi: 5 },
     // Industrial has no frontage band: big sheds stand anywhere on the open
     // yard, and the district's shape is the space between them.
     industrial: { depth: 999, gap: 0.55, yard: T_LOT, lo: 4, hi: 9 },

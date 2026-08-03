@@ -216,11 +216,51 @@ export function straightEastLane(
   // whose ring held thirteen lonely spots, the wave never assembled, and a
   // test about pursuit measured kerb scarcity instead. So score a fistful
   // of candidates by ring density and take the busiest.
+  // Ring kerbs that can actually be WALKED from: a kerb across a solid
+  // block from the lane fields a unit that stands eleven tiles away
+  // looking at a wall until the search clock buries it. Breadth-first over
+  // open ground from the lane, capped at a couple of streets' worth, and a
+  // kerb only counts if the walk to it is not wildly longer than the crow's
+  // flight.
   const ringKerbs = (fx: number, fy: number): number => {
+    const R = 44;
+    const cx = Math.floor(fx / TILE_SIZE);
+    const cy = Math.floor(fy / TILE_SIZE);
+    const side = 2 * R + 1;
+    const dist = new Int16Array(side * side).fill(-1);
+    const at = (tx: number, ty: number): number => (ty - cy + R) * side + (tx - cx + R);
+    const inWin = (tx: number, ty: number): boolean =>
+      Math.abs(tx - cx) <= R && Math.abs(ty - cy) <= R;
+    const bag = [cy * 100000 + cx];
+    dist[at(cx, cy)] = 0;
+    for (let q = 0; q < bag.length; q++) {
+      const code = bag[q] as number;
+      const x = code % 100000;
+      const y = (code - x) / 100000;
+      const d = dist[at(x, y)] as number;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (!inWin(nx, ny) || isSolidTile(map, nx, ny, 'land')) continue;
+        if ((dist[at(nx, ny)] as number) >= 0) continue;
+        dist[at(nx, ny)] = d + 1;
+        bag.push(ny * 100000 + nx);
+      }
+    }
     let n = 0;
     for (const s of map.vehicleSpawns) {
       const d = Math.hypot(s.x - fx, s.y - fy);
-      if (d >= 260 && d <= 640) n++;
+      if (d < 260 || d > 640) continue;
+      const tx = Math.floor(s.x / TILE_SIZE);
+      const ty = Math.floor(s.y / TILE_SIZE);
+      if (!inWin(tx, ty)) continue;
+      const w = dist[at(tx, ty)] as number;
+      if (w >= 0 && w * TILE_SIZE <= d * 1.6 + 96) n++;
     }
     return n;
   };
