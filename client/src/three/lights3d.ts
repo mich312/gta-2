@@ -126,6 +126,29 @@ interface Want {
   rank: number;
   /** Spotlight only: which way it points, and how wide. */
   cone?: { angle: number; spread: number };
+  /**
+   * Stable identity across frames, for the slot hysteresis in `spend`.
+   *
+   * Composed as `tag * 1e6 + source id`, where the tag says which family the
+   * light belongs to (lamp, sign, head…) so ids from different tables cannot
+   * collide. Transient lights (flashes, glow particles) key off their pool
+   * slot, which is as stable as anything that lives half a second needs.
+   */
+  key: number;
+  /**
+   * The lamp's moment-to-moment character — `flicker()`, a package's pulse —
+   * applied to the granted light's INTENSITY only, never to the ranking.
+   *
+   * This split is most of the fix for the 3D flicker. The 2D pass draws
+   * every light it knows about, so a humming lamp dims and recovers in
+   * place; here the same multiplier sat inside `alpha`, alpha sat inside the
+   * ranking weight, and a lamp near the budget cutoff crossed it every time
+   * its character wavered — which in a granted-or-parked world is a hard
+   * on/off pop, sustained, on every marginal lamp in view. Ranking on the
+   * stable base and flickering only what was granted turns that back into
+   * what the tables meant: character, not churn.
+   */
+  flick?: number;
   /** Contribution near the focus, filled by `spend` just before sorting. */
   weight?: number;
 }
@@ -165,6 +188,27 @@ export class Lights3dLayer {
   private readonly wants: Want[] = [];
   private budget = { points: MAX_POINTS, spots: MAX_SPOTS };
   private readonly colors = new Map<LightKind, THREE.Color>();
+  /** Keys of the wants that held slots last frame, for the hysteresis. */
+  private granted = new Set<number>();
+  /** Scratch for the frame being decided; swapped with `granted` after. */
+  private grantedNext = new Set<number>();
+  /** Slots that changed hands on the last spend, for the overlay. */
+  private lastTurnover = 0;
+  /**
+   * Fade-in progress per want key, 0..1.
+   *
+   * Even with the hysteresis, slots legitimately change hands — a car's
+   * lights arriving in view SHOULD displace the dimmest street lamp — and a
+   * granted-or-parked light otherwise arrives at full brightness in one
+   * frame, which the eye reads as a pop however justified the handover was.
+   * A newly granted light ramps up over ~150 ms instead; keyed by the
+   * want's identity rather than the slot index, because the same lamp lands
+   * on a different slot whenever anything above it reorders. Keys that lose
+   * their slot are dropped, so a light that returns fades in again.
+   * Flashes are exempt: a muzzle flash that eases in is not a flash.
+   */
+  private readonly ramp = new Map<number, number>();
+  private lastSpendMs = 0;
 
   constructor(scene: THREE.Object3D) {
     scene.add(this.group);
@@ -241,13 +285,16 @@ export class Lights3dLayer {
         z: LAMP_Z,
         radius: 34,
         kind: 'lamp',
-        alpha: 0.5 * f * lit,
+        alpha: 0.5 * lit,
+        flick: f,
         rank: RANK.lamp,
+        key: 1e6 + prop.id,
       });
     }
 
     if (map) {
-      for (const shop of map.shops) {
+      for (let si = 0; si < map.shops.length; si++) {
+        const shop = map.shops[si]!;
         const wx = (shop.doorX + 0.5) * TILE_SIZE;
         const wy = (shop.doorY + 0.5) * TILE_SIZE;
         if (!inView(wx, wy)) continue;
@@ -259,8 +306,10 @@ export class Lights3dLayer {
           z: SIGN_Z,
           radius: 22,
           kind: 'shop',
-          alpha: 0.45 * lit * sign,
+          alpha: 0.45 * lit,
+          flick: sign,
           rank: RANK.shop,
+          key: 2e6 + si,
         });
         // The room behind the door is lit too, or walking in is walking into a
         // dark hole in the middle of a lit street.
@@ -275,6 +324,7 @@ export class Lights3dLayer {
           kind: 'shop',
           alpha: 0.5,
           rank: RANK.shop,
+          key: 3e6 + si,
         });
       }
 
@@ -283,7 +333,8 @@ export class Lights3dLayer {
       const heads = map.junctions?.heads;
       if (heads) {
         const timing = getTrafficTuning().signals;
-        for (const head of heads) {
+        for (let hi = 0; hi < heads.length; hi++) {
+          const head = heads[hi]!;
           if (!inView(head.x, head.y)) continue;
           const colour = signalColour(head.junctionId, head.dirIdx, scene.tick, timing);
           const ax = CARDINALS[head.dirIdx]![0]!;
@@ -296,6 +347,7 @@ export class Lights3dLayer {
             kind: colour === 'green' ? 'lamp' : 'red',
             alpha: 0.22,
             rank: RANK.marker,
+            key: 4e6 + hi,
           });
         }
       }
@@ -308,10 +360,16 @@ export class Lights3dLayer {
           x: at.x,
           y: at.y,
           z: 6,
-          radius: 6 + pulse * 4,
+          // Base geometry and alpha are STABLE — the pulse rides on `flick` —
+          // so a package's rank near the cutoff does not breathe it in and
+          // out of existence. Radius was pulsing too, which squared into the
+          // ranking weight.
+          radius: 8,
           kind: 'shop',
-          alpha: 0.25 + pulse * 0.2,
+          alpha: 0.35,
+          flick: (0.25 + pulse * 0.2) / 0.35,
           rank: RANK.marker,
+          key: 5e6 + i,
         });
       }
     }
@@ -350,6 +408,9 @@ export class Lights3dLayer {
 
     // Flashes and glowing particles: a muzzle flash, a fireball, a burning
     // wreck. These outrank everything static, because a flash is information.
+    // Keyed by pool slot: transient by design, and their fade lives in
+    // `alpha` on purpose — a flash is SUPPOSED to preempt and die.
+    let fi = 0;
     for (const f of effects.flashPool) {
       const t = f.life / f.maxLife;
       wants.push({
@@ -362,9 +423,12 @@ export class Lights3dLayer {
         // what the eye gets.
         alpha: f.peak * t * t,
         rank: RANK.flash,
+        key: 9e6 + fi++,
       });
     }
+    let gi = 0;
     for (const p of effects.particlePool) {
+      gi++;
       if (!p.alive || p.glow <= 0) continue;
       const t = p.life / p.maxLife;
       wants.push({
@@ -375,10 +439,11 @@ export class Lights3dLayer {
         kind: 'muzzle',
         alpha: t * 0.6,
         rank: RANK.glow,
+        key: 10e6 + gi,
       });
     }
 
-    this.spend(wants, focus);
+    this.spend(wants, focus, scene.nowMs);
   }
 
   /** Headlights, tail lights and a strobe, for one occupied vehicle. */
@@ -427,6 +492,7 @@ export class Lights3dLayer {
         alpha: (both ? 0.46 : 0.32) * beam,
         rank: RANK.headlight,
         cone: { angle: heading, spread: 0.62 },
+        key: 6e6 + id,
       });
     }
     const braking = speed < 0 || Math.abs(speed) < 7;
@@ -443,6 +509,7 @@ export class Lights3dLayer {
         kind: 'red',
         alpha: (braking ? 0.55 : 0.32) * beam,
         rank: RANK.taillight,
+        key: 7e6 + id * 2 + (s + 1) / 2,
       });
     }
     if (kind === 'copcar') {
@@ -459,6 +526,7 @@ export class Lights3dLayer {
         // punch — but not all of it, or a squad car outshines the sun.
         alpha: 0.85 * (0.45 + 0.55 * night),
         rank: RANK.strobe,
+        key: 8e6 + id,
       });
     }
   }
@@ -469,7 +537,10 @@ export class Lights3dLayer {
    * Rank first, then distance from where the camera is looking: a headlight
    * always beats a lamp, and between two lamps the near one wins.
    */
-  private spend(wants: Want[], focus: { x: number; y: number }): void {
+  private spend(wants: Want[], focus: { x: number; y: number }, nowMs: number): void {
+    // Fade-in step for this frame; clamped so a stall does not skip the ramp.
+    const rampStep = Math.min(100, Math.max(0, nowMs - this.lastSpendMs)) / 150;
+    this.lastSpendMs = nowMs;
     // Rank first, then how much this light will actually contribute where the
     // player is looking — brightness and reach over distance. Sorting on
     // distance alone put a dim glow six feet away above a lamp lighting the
@@ -478,12 +549,23 @@ export class Lights3dLayer {
     // (a dist2 each) runs them O(n log n) times per frame instead of O(n).
     for (const w of wants) {
       w.weight = (w.alpha * w.radius * w.radius) / Math.max(1, dist2(w.x, w.y, focus.x, focus.y));
+      // Slot hysteresis: a light that held a slot last frame keeps a margin
+      // over a challenger of the same rank. Without it the pool is re-argued
+      // from a blank slate sixty times a second, and with the wants running
+      // six to one over the slots, everything near the cutoff swapped in and
+      // out continuously — the "flickering lights" a play-test will always
+      // report, because a granted-or-parked light has no way to dim
+      // gracefully. The margin only defends a slot; a genuinely brighter or
+      // nearer newcomer still takes it, just not over a few percent of noise.
+      if (this.granted.has(w.key)) w.weight *= 1.6;
     }
     wants.sort((a, b) => {
       if (a.rank !== b.rank) return b.rank - a.rank;
       return (b.weight as number) - (a.weight as number);
     });
 
+    const nextGranted = this.grantedNext;
+    nextGranted.clear();
     let pi = 0;
     let si = 0;
     for (const w of wants) {
@@ -491,10 +573,22 @@ export class Lights3dLayer {
       // Convert at the distance to the surface this light is for: a lamp lights
       // the road beneath it, a beam lights the street ahead.
       const ref = w.cone ? Math.max(MIN_REF, w.radius * 0.5) : Math.max(MIN_REF, w.z);
-      const intensity = w.alpha * GAIN * ref * ref;
+      // `flick` — the lamp's moment-to-moment character — applies HERE, to
+      // the light that was granted, and nowhere near the ranking above. See
+      // the note on `Want.flick`. The fade-in ramp rides the same way.
+      let frac = 1;
+      if (w.rank < RANK.flash) {
+        // A fresh grant starts at a floor rather than at zero: the light has
+        // presence on the frame it arrives — nothing reads as dead — and the
+        // ramp carries it the rest of the way.
+        frac = Math.min(1, Math.max(0.15, this.ramp.get(w.key) ?? 0) + rampStep);
+        this.ramp.set(w.key, frac);
+      }
+      const intensity = w.alpha * (w.flick ?? 1) * frac * GAIN * ref * ref;
       const color = this.colors.get(w.kind) ?? this.colors.get('lamp')!;
       if (w.cone && si < this.budget.spots) {
         const light = this.spots[si++]!;
+        nextGranted.add(w.key);
         light.color.copy(color);
         // Same window compensation as the point path below.
         const throwTo = w.radius * 2.4;
@@ -523,6 +617,7 @@ export class Lights3dLayer {
       if (w.cone) continue;
       if (pi >= this.budget.points) continue;
       const light = this.points[pi++]!;
+      nextGranted.add(w.key);
       light.color.copy(color);
       // Wide enough for the pool to reach the road it is lighting, but short
       // of the 2.6× that had sixteen lamps overlapping into a flat ambient
@@ -565,14 +660,31 @@ export class Lights3dLayer {
     }
     for (let i = 0; i < pi; i++) this.points[i]!.visible = true;
     for (let i = 0; i < si; i++) this.spots[i]!.visible = true;
+
+    // This frame's winners defend their slots next frame. The two sets swap
+    // rather than reallocate.
+    let turnover = 0;
+    for (const k of nextGranted) if (!this.granted.has(k)) turnover++;
+    this.lastTurnover = turnover;
+    const held = this.granted;
+    this.granted = nextGranted;
+    this.grantedNext = held;
+    // A light that lost its slot starts its fade again if it wins one back.
+    for (const k of this.ramp.keys()) {
+      if (!this.granted.has(k)) this.ramp.delete(k);
+    }
   }
 
   /** What the budget actually spent, for the debug overlay. */
-  counts(): { points: number; spots: number; wanted: number } {
+  counts(): { points: number; spots: number; wanted: number; turnover: number } {
     return {
       points: this.points.filter((l) => l.intensity > 0).length,
       spots: this.spots.filter((l) => l.intensity > 0).length,
       wanted: this.wants.length,
+      // How many slots changed hands on the last spend — the flicker, as a
+      // number. Standing still it should sit at zero; every unit above that
+      // is a light that popped.
+      turnover: this.lastTurnover,
     };
   }
 }

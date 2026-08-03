@@ -532,7 +532,7 @@ street — sits centred on its own lot with the carriageway fully readable,
 `evidence/review-building-473.png`. Anyone still seeing buildings across
 streets is running a build older than #22.
 
-### 8.2 The lights — born flickering at `9919471`, OPEN
+### 8.2 The lights — born flickering at `9919471`, REPAIRED (budget size still open)
 
 `9919471` ("the city gets lit") gave the 3D city dynamic lights as a fixed
 pool — 16 points and 4 spots — handed out each frame to the best-ranked of
@@ -558,11 +558,35 @@ Measured, standing still at night with `peds=0`, five frames 400 ms apart:
 the 3D frame shows **34,487** pixels of large (>90/765) frame-to-frame change
 against **2,611** in 2D — thirteen times the churn, sustained across every
 pair. §6 already carries the budget SIZE as an open decision for a machine
-with a GPU; the repairs that do not need that decision are (1) slot
-hysteresis — an incumbent keeps its light until a challenger beats it by a
-margin, (2) rank on the lamp's BASE alpha and apply `flicker()` only to the
-granted light's intensity, so character dims lamps instead of despawning
-them, and (3) let bloom carry the signal heads instead of the point pool.
+with a GPU.
+
+**The repair, which needed no budget decision.** Three changes in
+`lights3d.ts`:
+
+1. **Character out of the ranking.** A want's `alpha` is now its stable
+   base; `flicker()` and the package pulse ride a separate `flick` factor
+   applied to the granted light's INTENSITY only. A humming lamp dims in
+   place, as the 2D tables always meant, instead of crossing the cutoff and
+   despawning. (The package glow's radius pulse is stabilised too — it
+   squared into the weight.)
+2. **Slot hysteresis.** Every want carries a stable identity key, and an
+   incumbent's weight is multiplied by 1.6 while it holds a slot, so the
+   pool stops being re-argued from a blank slate sixty times a second. A
+   genuinely brighter or nearer newcomer still wins; a few percent of noise
+   no longer does.
+3. **Fade-in on handover.** Legitimate swaps remain — a car's lights
+   arriving SHOULD displace the dimmest lamp — so a newly granted light
+   starts at 15% and ramps to full over ~150 ms, keyed by the light's
+   identity rather than its slot index. Flashes and beams are exempt: a
+   muzzle flash that eases in is not a flash.
+
+Verified: slot turnover — now exported as `__debug.lights3d.turnover` — sits
+at 2–4 per frame standing still in traffic, all of it moving-vehicle
+handovers that now fade instead of popping; static lamps hold their slots.
+A `?lights=off` control puts ~12k of the residual pixel change down to the
+traffic itself. The signal heads stayed in the pool after all: with stable
+weights and hysteresis they no longer churn it, and evicting them would
+have cost the one glow that marks a red light at night.
 
 ---
 
