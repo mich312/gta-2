@@ -507,6 +507,65 @@ repro with more detail than the report carried.
 
 ---
 
+## §8 "Lights are flickering, buildings are in the wrong place" (third pass)
+
+Reported against the 3D renderer, with "in 2D it was working — when migrating
+to 3D it broke at some point". Two separate faults with two separate
+histories; one is fixed, one is open.
+
+### 8.1 The buildings — broken at `1404dda`, FIXED at `a9b0d41` (#22)
+
+The full story is §1 plus the #22 commit message; the short version: the sim
+was never wrong — every building record, spawn and 6,714 sampled traffic
+positions sit on legal ground — but from `1404dda` ("the world gets volume")
+the city was DRAWN at its collision heights under a perspective camera that
+sits at 589 world px. A 288 px tower is magnified 1.96× by the projection and
+displaced by nearly its own height, so downtown masses were drawn across
+whole carriageways and the cars "driving through houses" were driving down
+perfectly clear streets behind a mis-drawn wall. REVIEW-3D.md carried the
+divergence three times as "a constants decision rather than a bug". #22 fixed
+it with `Z_SCALE = 0.25` in `render/config.ts`.
+
+Verified still fixed on current main: the worked example from the #22 message
+— the 9-storey block at {x:473, y:184} whose mass used to cover the four-lane
+street — sits centred on its own lot with the carriageway fully readable,
+`evidence/review-building-473.png`. Anyone still seeing buildings across
+streets is running a build older than #22.
+
+### 8.2 The lights — born flickering at `9919471`, OPEN
+
+`9919471` ("the city gets lit") gave the 3D city dynamic lights as a fixed
+pool — 16 points and 4 spots — handed out each frame to the best-ranked of
+everything that wants light. Measured live at night from the spawn: the scene
+asks for **120** lights (`__debug.lights3d = {points:16, spots:4,
+wanted:120}`). Six times oversubscribed, the pool's cutoff boundary is where
+the flicker lives, and three things conspire at it, all present since that
+first commit:
+
+- `spend()` re-ranks from scratch every frame with **no hysteresis**: any
+  weight wobble near the cutoff swaps a lit lamp for a parked one, which in
+  3D is a hard on/off.
+- The ranking weight is `alpha · r² / dist²`, and a lamp's alpha carries its
+  `flicker()` character (`buzz`, `failing`, `neon`). In 2D that character is
+  a smooth brightness modulation on a glow that is ALWAYS drawn — the 2D
+  light pass has no budget — so the same tables that read as atmosphere in
+  2D read as churn in 3D: a humming lamp's weight oscillates across the
+  cutoff and the lamp snaps in and out of existence.
+- Signal heads flood the queue: every junction arm in view wants a 7 px glow,
+  which is dozens of the 120, keeping the cutoff crowded.
+
+Measured, standing still at night with `peds=0`, five frames 400 ms apart:
+the 3D frame shows **34,487** pixels of large (>90/765) frame-to-frame change
+against **2,611** in 2D — thirteen times the churn, sustained across every
+pair. §6 already carries the budget SIZE as an open decision for a machine
+with a GPU; the repairs that do not need that decision are (1) slot
+hysteresis — an incumbent keeps its light until a challenger beats it by a
+margin, (2) rank on the lamp's BASE alpha and apply `flicker()` only to the
+granted light's intensity, so character dims lamps instead of despawning
+them, and (3) let bloom carry the signal heads instead of the point pool.
+
+---
+
 ## Reproducing
 
 ```bash
