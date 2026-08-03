@@ -1578,3 +1578,215 @@ from a car; 7–9 are texture. After step 4 the map should pass the test this
 document exists to state: **stand at any point of Anywhere City, look at the
 minimap, and know which borough you are in from the shape of its streets
 alone** — before reading a single colour.
+
+---
+
+## 14. The seams — a plan for the places where biomes meet
+
+Fourth wave. §13 gave every borough its own street fabric and the map now
+answers "where am I?" from shape alone — which means the city's remaining
+visual debt has moved to the one place §13 deliberately did not spend:
+the SEAMS. Between any two fabrics, between any two districts, between
+town and country, there is now a line, and almost everything about that
+line is an accident of two systems stopping rather than a place somebody
+made. This section is the review of those lines, the doctrine for what a
+good one is, and the sequenced plan. §9.4 wrote the transition doctrine
+for the dead generator — ladders, ecotones, one density field, invariants
+— and most of its ideas survive their author; they are adapted here to
+the authored city rather than reinvented.
+
+### 14.1 The review
+
+Rendered at the seams (crops from `pnpm mapgen --crop`), and measured
+along the ownership boundaries (owner-change tiles between non-rural
+pairs; a "crossing" is carriageway on both sides of the line):
+
+| seam | length | crossing tiles | share |
+|---|---|---|---|
+| Marsh End \| New Suburbs | 289 | 14 | 5% |
+| Beachfront \| New Suburbs | 251 | 15 | 6% |
+| Old Suburbs \| The Terraces | 236 | 28 | 12% |
+| North Point \| Old Quarter | 195 | 46 | 24% |
+| Ravenhill \| The Spine | 194 | 19 | 10% |
+| Old Quarter \| The Spine | 171 | 33 | 19% |
+| The Docks \| The Foundry | 170 | 12 | 7% |
+
+**Finding 1 — the seams are torn, not made.** Where the Spine's rigid
+columns meet the Old Quarter's 20° weave, both lattices simply stop: a
+band of leftover ground, sliver blocks with confetti units on both sides,
+buildings at odd clearances. The same at Ravenhill/Spine, where the
+Spine's westmost blocks are half-width slivers pressed against
+Ravenhill's torn edge. Nothing SAYS "two quarters meet here" — no street
+runs the seam, no frontage faces it. Real cities change grid at an
+avenue; ours changes grid at an absence.
+
+**Finding 2 — neighbouring boroughs are walled off.** The table is the
+finding: two ADJACENT urban boroughs connect along 5-12% of their shared
+edge. Beachfront to New Suburbs — the seafront to its own suburb — is
+crossable at 15 tiles of 251: for stretches of sixty-plus tiles there is
+no way over the line short of a detour. §5 calls chokepoints the good
+kind of constraint when they are DELIBERATE (a bridge, a gate); a wall of
+block-backs between two living districts is the accidental kind, and it
+makes every cross-borough chase route through the same one or two gaps
+nobody chose.
+
+**Finding 3 — every district channel flips on one line.** Palette,
+building stock, density, prop mix, ped dress and turf all switch exactly
+at the polygon edge — §9.4's "five channels switching independently at a
+painted border", still true four waves later. The fabric seam is
+identity and should stay sharp; the CHANNELS around it should not all
+agree on the same tile.
+
+**Finding 4 — town stops, country starts.** New Suburbs' last crescent
+backs directly onto Marsh End's empty meadow: no fringe, no
+smallholdings, no field pattern, nothing between "suburb" and "nothing".
+The §9.4 ladder (`downtown → commercial → residential → suburb → rural →
+nature`) is violated at nearly every urban/rural edge, and it is the most
+jarring transition on the map because it is the largest.
+
+**Finding 5 — some ground belongs to nobody.** The coastline warp pushes
+land past the authored polygons (~1,900 shore tiles outside every
+borough, §13.5), and slivers of interior ground fall between abutting
+polygons. Unowned ground gets no fabric, no esplanade, no invariants —
+transitions to it are transitions to an accident. §13.5 already named
+the fix; it becomes load-bearing here.
+
+What is already GOOD and must not be flattened: the water transitions
+(quay/beach/esplanade — §13.6 step 4), the park interiors, and the
+seams' very existence. §13's whole point is that fabrics differ; the goal
+of this wave is that they meet like neighbours, not like torn paper.
+
+### 14.2 What a good seam is
+
+One sentence of doctrine: **a seam should be a PLACE — a street, a
+fringe, a front — never an absence.** Three rules under it:
+
+1. **Sharp identity, soft intensity.** The fabric (street bearing, block
+   shape) may change on one tile — that is the borough's identity and
+   §13 earned it. The intensity channels (density, palette mix, props,
+   crowd) fade across a band, per §9.4's field doctrine.
+2. **Ladders, enforced.** §9.4's adjacency ladders come back as bake
+   invariants: land use may step one rank at a seam, and where the plan
+   draws a two-rank jump, the bake inserts the mediating band — an
+   urban/rural edge grows a fringe, a downtown/park edge grows a front
+   street. Water's ladder is already law; land's becomes law.
+3. **Crossings are made, not found.** A seam's permeability is a stated
+   number per pair (a working share of its length for siblings, a few
+   deliberate gates for strangers), asserted in tests like every other
+   invariant — not whatever the lattices happened to leave.
+
+### 14.3 The design
+
+Six items, each with its mechanism named. All of them are bake-time; none
+touches the sim.
+
+**D1 — Own everything first.** Every dry tile outside all polygons is
+assigned to the nearest borough (BFS over land from owned tiles — the
+same chamfer machinery as everything else). Kills Finding 5, extends the
+esplanade and every §13.5 invariant to the warp fringe, and gives every
+seam an owner on both sides. Pure prerequisite; no visual change of its
+own beyond the fringes joining their boroughs.
+
+**D2 — Seam streets.** Where two urban boroughs abut, the boundary
+itself becomes a street: trace the owner-change line into polylines
+(marching along the boundary tiles), simplify, and carve as a 3-wide
+course through the existing swept machinery — suppressed, like every
+§13 street, where an authored avenue already runs the seam. Both
+lattices then END on something: every lattice line that reaches the
+boundary makes a T-junction instead of a stub, frontage on both sides
+faces a real street, and the grid change happens AT an avenue the way it
+does in a real city. The sliver blocks of Finding 1 mostly dissolve into
+the seam street's frontage; those that survive fall under the §13.5
+sliver rule.
+
+**D3 — Stitching.** After seam streets, a healing pass for the
+crossings the seam street cannot give (urban/park edges, borough pairs
+whose seam is water or cliff): any street end within four tiles of a
+street across the boundary gets the connector carved — the driveway/
+rescue-track machinery generalised from "landmark to network" to
+"stub to stub". The permeability invariant (14.4) is what decides how
+hard this pass must work; it stops when the number is met, preferring
+the shortest connectors.
+
+**D4 — The blend band.** Within ~6 tiles of a district boundary whose
+ladder distance is one, the bake dithers the CHANNELS: building records
+near the line draw their district from either side by position hash
+(mixed frontage — a commercial parade bleeding into residential
+streets), block density interpolates toward the neighbour's, and the
+prop/ped passes — which filter on district — inherit the dither for
+free because they read the district plane. The bearing plane is
+deliberately NOT dithered: fabric stays sharp (14.2.1). Where ladder
+distance is two or more, no dither — D5's ecotone mediates instead.
+
+**D5 — The rural fringe, and hedgerows.** The urban/rural ladder jump
+gets its ecotone: a band one rural pitch deep on the country side of
+every urban/rural seam becomes FRINGE — smallholdings (house-and-yard
+stamps at low density), orchard rows, and lanes that continue out of
+the suburb's collectors into the rural net (D3 stitches them). And the
+one cheap trick with outsized reach: **hedgerows** — the rural
+lattice's block edges carry intermittent tree-lines with gaps, so the
+countryside reads as FIELDS rather than as empty green, everywhere,
+not only at the seam. The masks of §13.6 step 2 already know every
+rural block's perimeter; the hedgerow pass walks it. (T_TREES is
+solid: gaps are gates, per the chokepoint doctrine — a hedge you must
+find the gap in is countryside gameplay, not decoration.)
+
+**D6 — Fronts for the strangers.** The two-rank seams that are not
+rural: parks and the ring road. Urban blocks facing a big park get a
+PARK FRONT — the park-side boundary carved as a street (the esplanade
+mechanism pointed at parks instead of the sea), so houses face the
+green across a road, the classic park-edge form. The ring becomes
+limited-access: lattice lines that would T into its carriageways are
+held one block short unless they are within a few tiles of an authored
+junction — the motorway stops being a road with four hundred driveways
+and its junctions become the chokepoints the §5 doctrine wants.
+Gameplay-sensitive (chase routes change), so it ships behind the chase
+bench (`pnpm chase`) with before/after escape rates, and is the one
+item here that is allowed to be dropped if the bench says it hurts.
+
+### 14.4 The invariants
+
+Per the house rule, each item ships with its test:
+
+- **Permeability.** For every adjacent non-rural pair: crossing tiles ≥
+  12% of seam length (siblings), and ≥ 2 distinct crossings per 100
+  tiles of seam. For urban/rural pairs: ≥ 1 crossing per 120 tiles —
+  gates, not walls. The 14.1 table becomes the regression fixture.
+- **The ladder.** No tile adjacency jumps more than one land-use rank
+  without a mediating band (fringe, front, quay). Sweep the owner
+  plane; assert zero violations. This is §9.4's red test, twelve
+  months late.
+- **No orphan ground.** After D1: zero dry tiles with owner -1. The
+  stats table's "(1891 shore tiles outside every borough polygon)" line
+  reads zero and the mapgen footnote is deleted.
+- **Slivers at seams.** The §13.5 sliver rule, re-asserted specifically
+  over the seam bands after D2 — the place slivers concentrate today.
+- **Nothing regresses.** Waterfront p95 ≤ 5, dead-end budget, drowned
+  roads ≤ baseline, one road component, 806 tests — the standing bar.
+
+### 14.5 The sequence
+
+Smallest first, each landing as code + rebake + crops + tests, per
+§12.10; D1 is a prerequisite for everything and D6's ring item is
+deliberately last and droppable:
+
+1. **D1 own everything** + the no-orphan invariant. Mostly invisible;
+   the esplanade quietly extends to the warp fringe.
+2. **D2 seam streets** + the sliver re-assertion. The big visible one:
+   every fabric change becomes an avenue.
+3. **D3 stitching** + the permeability invariant. The chase map opens
+   up; measure crossings before/after into the commit message.
+4. **D5 rural fringe + hedgerows** + the ladder invariant. The
+   countryside becomes fields; the suburb edge becomes a fringe.
+5. **D4 blend band.** Channels fade; fabric stays sharp. Judged on the
+   contact sheet — this is the one most likely to need taste passes.
+6. **D6 park fronts, then ring access** — the latter behind the chase
+   bench, with the standing permission to drop it.
+
+What this section deliberately does not do: soften the fabric seams
+themselves (identity is the product of §13, not a bug in it), blur the
+water ladder (it is the best transition on the map), or reach for a
+global blur field over districts — §9.4's "fields make everything fade"
+is adopted for INTENSITY only, band-local, because a city where
+everything fades into everything is the uniform plaid again with extra
+steps.
