@@ -1459,7 +1459,31 @@ nothing touches the sim and nothing adds a runtime pass:
    ring-density-scored lanes instead of kerb-geometry luck).
 3. **`grid` + `angle`** — rotate Old Quarter to its harbour, Port Vasco to
    its island axis, Sunridge to its seafront. First visible seams between
-   boroughs; cheapest fabric, validates the whole path.
+   boroughs; cheapest fabric, validates the whole path. **DELIVERED**, with
+   the whole Port Vasco island at 12°, the Old Quarter at 20° and North
+   Point at 26°; Sunridge's tilt is too shallow to read as intent and waits
+   for the contour fabric instead. What it took, beyond the carve itself
+   (rotated lattice lines through the step-2 swept-course machinery, blocks
+   as whole-borough components): a frontage-by-depth filler (`fillRegion`,
+   `buildings.ts`) because a ring walked round a parallelogram's bounding
+   box builds into the street on two sides; suppression of lattice lines
+   against PRE-EXISTING roads only, from a snapshot, because the two
+   rotated families cross each other every pitch and a crossing sampled at
+   the wrong phase reads as a conflict — half of one family died of it at
+   random in the first bake; alleys only through pieces eight tiles thick,
+   or the strips a suppressed line leaves become corduroy; and a baked
+   per-tile **bearing plane** (`CityMap.bearing`) so the passes that stand
+   cars at kerbs or walk "along the street" get the exact angle the
+   lattice was carved with — parked cars, ambient traffic and police
+   cruisers now park and turn out along the rotated streets, oriented by
+   the same right-hand-traffic rule the axis grids use, with the
+   crosswise mark kept for junction diamonds and street ends (budget now a
+   sixth, measured 14%). Five landmarks moved to ground the rotated
+   lattices left them (`citybake --fit` named the spots). The review tools
+   grew an `angle` column; the axis/diag run-probe under-reads shallow
+   rotations, so the bearing plane is the truth and the probe is texture.
+   Six scene-staged tests were re-staged on found-not-assumed ground —
+   the recurring lesson of every fabric wave so far, §13.5 held.
 4. **The esplanade + `contour`** — the waterfront fix. The biggest visual
    win in the plan; after it, every island wears its streets to the shore.
 5. **`spine`** — Ravenhill woven off The Parade; the ring road gains

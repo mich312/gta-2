@@ -22,7 +22,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
-import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
+import { T_BUILDING, T_ROAD, T_SIDEWALK, TILE_SIZE } from '../src/world/types.js';
 import {
   busyKerb,
   clearSpot,
@@ -52,8 +52,17 @@ function fire(seq: number, aim: number): InputIntent {
   return { ...NULL_INPUT, seq, tick: seq, fire: true, aimAngle: aim };
 }
 
-/** Two players; p1 shoots p2 until wanted level reaches the target. */
-function commitCrimes(targetLevel: number): GameState {
+/**
+ * Two players; p1 shoots p2 until wanted level reaches the target.
+ *
+ * `at` moves the crook there BEFORE the spree, so the crimes, the waves and
+ * the pursuit all happen around the street the test actually measures. The
+ * old shape — spree wherever the spawn landed, then teleport the fugitive to
+ * the lane — left the responding units centred on a street two hundred tiles
+ * from the one under test, and whether any of them ever found the fugitive
+ * was a fact about the ground between, not about pursuit.
+ */
+function commitCrimes(targetLevel: number, at?: { x: number; y: number }): GameState {
   let state = createGameState(42);
   state = step(
     state,
@@ -64,6 +73,7 @@ function commitCrimes(targetLevel: number): GameState {
     ],
     map,
   );
+  if (at) state.players.byId[1]!.pos = { x: at.x, y: at.y };
   let seq = 1;
   // Aim at the victim; keep shooting (and let respawns re-supply victims).
   // Spawns are deliberately spread out, so the test drags the victim next to
@@ -283,15 +293,13 @@ describe('wanted + police', () => {
   });
 
   it('cops spawn for the wanted, converge, and hurt them (the level-3 chase)', () => {
-    let state = commitCrimes(3);
+    // The whole affair happens ON the lane under test — spree, waves,
+    // pursuit — see commitCrimes on why the fugitive is not teleported to it
+    // afterwards instead.
+    const lane = straightEastLane(map);
+    let state = commitCrimes(3, { x: lane.x + 5 * TILE_SIZE, y: lane.y });
     expect(wantedLevelOf(state.players.byId[1]!)).toBeGreaterThanOrEqual(3);
     const t = getTuning().police;
-
-    // Stand the fugitive in the open, on a road, rather than wherever the
-    // spree left them: this test is about whether pursuit converges and gets
-    // a shot away, not about whether the seed happened to leave them cornered
-    // somewhere with no line of sight.
-    const lane = straightEastLane(map);
     state.players.byId[1]!.pos = { x: lane.x + 5 * TILE_SIZE, y: lane.y };
 
     // Cops arrive on a ramp (one per spawnCooldownTicks), not as a wall, so
@@ -814,7 +822,13 @@ describe('escalation by kind', () => {
       let open = true;
       for (let dy = -4; dy <= 4 && open; dy++) {
         for (let dx = -12; dx < 26; dx++) {
-          if (isSolidTile(map, tx + dx, ty + dy, 'land')) {
+          const tile = map.tiles[(ty + dy) * map.widthTiles + (tx + dx)] as number;
+          // OPEN GROUND means ground: not merely "not a wall". Since the
+          // rotated boroughs (§13.4) the nearest not-solid expanse is a
+          // junction plaza — carriageway strewn with kerb tiles and parked
+          // cars, where a U-turning cruiser clips a kerb, wedges and bails,
+          // which is the other test's behaviour and not this one's.
+          if (isSolidTile(map, tx + dx, ty + dy, 'land') || tile === T_ROAD || tile === T_SIDEWALK) {
             open = false;
             break;
           }
@@ -1515,6 +1529,14 @@ describe('escalation by kind (I1)', () => {
     for (let i = 0; i < 60; i++) {
       const p = state.players.byId[1]!;
       p.heat = 610;
+      // HELD SEEN as well as hot: the spawner stands down for a suspect
+      // whose trail has gone cold (`isCoolingDown`), and with only the
+      // two-star pair fielded, whether anybody still has eyes on the
+      // suspect is an accident of where those two wandered — on the rotated
+      // fabric they lose the trail inside the sixty-tick window and the
+      // six-star wave never turns out. The visibility model has its own
+      // tests; this one is about the escalation ladder.
+      p.unseenTicks = 0;
       p.vel = { x: getTuning().player.walkSpeed, y: 0 };
       p.pos = { ...heldAt };
       state = step(state, {}, [], map);

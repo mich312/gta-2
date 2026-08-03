@@ -333,6 +333,50 @@ function axisCarriageway(map: CityMap, tx: number, ty: number, alongY: boolean):
   return width <= 4;
 }
 
+/**
+ * The street grid's bearing at this tile, in radians, or 0 on the axes.
+ *
+ * Read from the baked bearing plane (`CityMap.bearing`): the exact angle the
+ * borough's lattice was carved with (§13.4 `grid` fabric), not an estimate
+ * from tarmac. The kerb inference above knows two directions, and a rotated
+ * borough's streets run at neither — every kerb in the Old Quarter says
+ * "north-south street" about tarmac running twenty degrees off it.
+ */
+function bearingAt(map: CityMap, tx: number, ty: number): number {
+  const deg = map.bearing?.[ty * map.widthTiles + tx] ?? 0;
+  return (deg * PI) / 180;
+}
+
+/**
+ * Does the street really run along `angle` here, and is it street-narrow?
+ *
+ * The rotated-street version of `axisCarriageway`: walk the true line three
+ * tiles each way, then measure across it. The width bound is 3 rather than
+ * 4 — every rotated lattice street is 3 wide, and the 4s are the authored
+ * avenues and the ring's stair-steps, where a parked car is in the traffic.
+ */
+function bearingCarriageway(map: CityMap, tx: number, ty: number, angle: number): boolean {
+  const road = (x: number, y: number): boolean => {
+    const tile = t(map, Math.round(x), Math.round(y));
+    return tile === T_ROAD || tile === T_BRIDGE;
+  };
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  // One tile of sideways tolerance on the walk: a rotated band's edge lane
+  // rasterises with a half-tile wobble, and a spot ON the wobble is still on
+  // a street that genuinely continues. What the car needs is the street,
+  // not the raster.
+  const on = (x: number, y: number): boolean =>
+    road(x, y) || road(x - dy, y + dx) || road(x + dy, y - dx);
+  for (let i = 1; i <= 3; i++) {
+    if (!on(tx + dx * i, ty + dy * i) || !on(tx - dx * i, ty - dy * i)) return false;
+  }
+  let width = 1;
+  for (let i = 1; i <= 5 && road(tx - dy * i, ty + dx * i); i++) width++;
+  for (let i = 1; i <= 5 && road(tx + dy * i, ty - dx * i); i++) width++;
+  return width <= 3;
+}
+
 /** Parked-car spawn points along road edges (consumed by phase 3). */
 export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: number): number {
   const spawns: VehicleSpawn[] = [];
@@ -363,9 +407,26 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
       const along = alongY ? gy : gx;
       if (along - seg * span !== key % span) continue;
       // Heading follows the road direction implied by which side has kerb,
-      // and which way along it is a second draw from the same place.
+      // and which way along it is a second draw from the same place. On a
+      // rotated street (§13.4) the kerb's guess is wrong by the borough's
+      // whole angle — a car spawned by it noses into the frontage and wedges
+      // there, which for a police cruiser is a unit lost before the chase
+      // starts — so the tarmac's own bearing wins whenever it is confident
+      // and off-axis. On the axis grids the probe measures the axis to the
+      // bit and this stays exactly the heading it always was.
       const flip = placeHash(where, gx * 2 + 1, gy * 2 + 1) % 2 === 0;
-      const heading = alongY ? (flip ? HALF_PI : -HALF_PI) : flip ? 0 : PI;
+      const grid = bearingAt(map, gx, gy);
+      // A rotated lattice runs two ways — the bearing and the bearing plus
+      // ninety — and the tarmac says which family this kerb sits on.
+      let heading = alongY ? (flip ? HALF_PI : -HALF_PI) : flip ? 0 : PI;
+      if (grid !== 0) {
+        const a = bearingCarriageway(map, gx, gy, grid)
+          ? grid
+          : bearingCarriageway(map, gx, gy, grid + HALF_PI)
+            ? grid + HALF_PI
+            : grid;
+        heading = flip ? a : a + PI;
+      }
       spawns.push({
         x: (tx + 0.5) * TILE_SIZE,
         y: (ty + 0.5) * TILE_SIZE,
@@ -421,6 +482,41 @@ export function placeParking(map: CityMap, params: WorldgenParams): void {
     // pool shrinking promotes new ones everywhere) and thinned the police
     // waves, which stage from the same kerbs. The mark keeps the lists and
     // their order intact; the session just never stands a car on it.
+    // A rotated street (§13.4) has a bearing the kerb cannot name. Where the
+    // baked bearing plane states one, the car parks along it — oriented so
+    // the kerb is on its right, which is the same right-hand-traffic rule
+    // the axis arms below apply — and the spot stays at the lane tile's
+    // centre, because "push against the kerb edge" is axis arithmetic.
+    // Everything on the axis grids takes the branch it always took, to the
+    // pixel.
+    const grid = bearingAt(map, tx, ty);
+    if (grid !== 0) {
+      // The plane stores ONE angle and the lattice runs two ways: its
+      // streets lie along the bearing and along the bearing plus ninety.
+      // The tarmac says which family this kerb belongs to.
+      const along = bearingCarriageway(map, tx, ty, grid)
+        ? grid
+        : bearingCarriageway(map, tx, ty, grid + HALF_PI)
+          ? grid + HALF_PI
+          : null;
+      const a = along ?? grid;
+      // Kerb on the right of travel: for a west kerb that means heading
+      // south; here it means whichever of the two ways along the bearing
+      // puts the kerb tile on the right-hand side.
+      const rightDot = kerbWest ? Math.sin(a) : -Math.cos(a);
+      const heading = rightDot > 0 ? a : a + PI;
+      const trusted = along !== null;
+      spots.push({
+        x: s.x,
+        y: s.y,
+        heading,
+        kind: PARKED_CYCLE[placeHash(whatSeed, tx, ty) % PARKED_CYCLE.length] as string,
+        paint: placeHash(paintSeed, tx, ty) % PAINT_VARIANTS,
+        ...(trusted ? {} : { crosswise: true }),
+        gangId: 0,
+      });
+      continue;
+    }
     const crosswise = !axisCarriageway(map, tx, ty, kerbWest);
 
     // How much carriageway there is, counting away from the kerb.

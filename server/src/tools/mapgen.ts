@@ -371,7 +371,7 @@ function printStats(map: CityMap, plan: CityPlan): void {
   const pad = (s: string, w: number): string => (s.length >= w ? s : s + ' '.repeat(w - s.length));
   const num = (s: string, w: number): string => (s.length >= w ? s : ' '.repeat(w - s.length) + s);
   console.log(
-    `\n${pad('borough', 16)}${pad('district', 12)}${num('land', 7)}${num('road%', 7)}` +
+    `\n${pad('borough', 16)}${pad('district', 12)}${num('angle', 6)}${num('land', 7)}${num('road%', 7)}` +
       `${num('bldg%', 7)}${num('blocks', 8)}${num('medblk', 8)}${num('axis%', 7)}` +
       `${num('diag%', 7)}${num('shore', 7)}${num('sh-p50', 8)}${num('sh-p95', 8)}`,
   );
@@ -383,7 +383,7 @@ function printStats(map: CityMap, plan: CityPlan): void {
     const pct = (v: number, of: number): string => (of > 0 ? ((v * 100) / of).toFixed(0) : '-');
     const dst = (v: number): string => (Number.isFinite(v) ? String(v) : 'inf');
     console.log(
-      `${pad(d.name, 16)}${pad(d.district, 12)}${num(String(l), 7)}` +
+      `${pad(d.name, 16)}${pad(d.district, 12)}${num(String(d.street.angle), 6)}${num(String(l), 7)}` +
         `${num(pct(road[di] as number, l), 7)}${num(pct(built[di] as number, l), 7)}` +
         `${num(String(blockCount[di] as number), 8)}${num(String(percentile(areas, 50)), 8)}` +
         `${num(pct(axis[di] as number, o), 7)}${num(pct(diag[di] as number, o), 7)}` +

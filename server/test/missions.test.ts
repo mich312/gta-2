@@ -18,6 +18,7 @@ import {
   generateCity,
   getTuning,
   initTuning,
+  isSolidAtWorld,
   parseWorldgenParams,
   respectOf,
   step,
@@ -330,15 +331,21 @@ describe('escort, and losing the car (N2)', () => {
     let state = base;
     const p = state.players.byId[1]!;
     p.respect = p.respect.map(() => 60);
-    // Somebody to walk home.
+    // Somebody to walk home — spawned on WALKABLE ground, found rather than
+    // assumed. The old row (+20 east, six px apart) straddled a building
+    // once the payphone's borough rotated (§13.4), and an escortee embedded
+    // in a wall follows nobody.
     const cmds = [];
-    for (let i = 0; i < 8; i++) {
-      cmds.push({
-        type: 'spawnPed' as const,
-        pedId: 4000 + i,
-        x: p.pos.x + 20 + i * 6,
-        y: p.pos.y + 12,
-      });
+    let placed = 0;
+    for (let ring = 1; ring <= 4 && placed < 8; ring++) {
+      for (let k = 0; k < 12 && placed < 8; k++) {
+        const a = (k / 12) * 2 * Math.PI;
+        const x = p.pos.x + Math.cos(a) * ring * 24;
+        const y = p.pos.y + Math.sin(a) * ring * 24;
+        if (isSolidAtWorld(map, x, y, 'land')) continue;
+        cmds.push({ type: 'spawnPed' as const, pedId: 4000 + placed, x, y });
+        placed++;
+      }
     }
     state = step(state, {}, cmds, map);
     state.players.byId[1]!.pos = { x: p.pos.x, y: p.pos.y };
@@ -369,9 +376,41 @@ describe('escort, and losing the car (N2)', () => {
     expect(ped.escortOf).toBe(1);
     expect(ped.gangId).toBe(0); // a civilian, not somebody's soldier
 
-    // Walk away; they close the gap rather than wandering off.
+    // Walk away — in a direction the escortee can actually FOLLOW, found
+    // rather than assumed: a flat +120 east held while the payphone's
+    // neighbourhood was an axis grid with room eastward, and stopped holding
+    // when the fabric there rotated. The escortee walks a straight line with
+    // local avoidance, so the line from THEM to where the player now stands
+    // is the thing that has to be clear — a player teleported across a wall
+    // is somebody an escortee rightly cannot close on.
     const p = state.players.byId[1]!;
-    p.pos = { x: p.pos.x + 120, y: p.pos.y };
+    const clearLine = (x0: number, y0: number, x1: number, y1: number): boolean => {
+      const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 8);
+      for (let i = 0; i <= steps; i++) {
+        if (isSolidAtWorld(map, x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps, 'land')) {
+          return false;
+        }
+      }
+      return true;
+    };
+    // Along the street's own bearing first — the payphone stands in a
+    // rotated borough (§13.4), where the only 120 px of open ground runs
+    // with the street, not with the screen axes. The baked bearing plane
+    // says which way that is; the cardinals stay as fallbacks for phones
+    // on the axis grids.
+    const deg = map.bearing?.[Math.floor(p.pos.y / 16) * map.widthTiles + Math.floor(p.pos.x / 16)] ?? 0;
+    const rad = (deg * Math.PI) / 180;
+    const candidates: Array<[number, number]> = [];
+    if (deg !== 0) {
+      for (const a of [rad, rad + Math.PI, rad + Math.PI / 2, rad - Math.PI / 2]) {
+        candidates.push([Math.cos(a) * 120, Math.sin(a) * 120]);
+      }
+    }
+    candidates.push([0, 120], [0, -120], [120, 0], [-120, 0]);
+    const hop =
+      candidates.find(([dx, dy]) => clearLine(ped.pos.x, ped.pos.y, p.pos.x + dx, p.pos.y + dy)) ??
+      ([120, 0] as [number, number]);
+    p.pos = { x: p.pos.x + hop[0], y: p.pos.y + hop[1] };
     const before = Math.hypot(
       state.peds.byId[m.escorteeId!]!.pos.x - p.pos.x,
       state.peds.byId[m.escorteeId!]!.pos.y - p.pos.y,

@@ -148,6 +148,15 @@ export function roadLane(
    * physics bug that is not there.
    */
   most = Infinity,
+  /**
+   * Clear ground REQUIRED behind the spot too, in px. A test that stages a
+   * second party `n` px behind the lane and rolls it forward is validating
+   * the ground ahead and trusting the ground behind — which held while the
+   * nearest lanes were long axis straights, and stopped holding when the
+   * rotated boroughs made the nearest lane a short diagonal with a junction
+   * at its tail.
+   */
+  back = 0,
 ): VehicleSpawn {
   const probe = Number.isFinite(most) ? most + 20 : need + 20;
   const near = [...map.vehicleSpawns].sort(
@@ -163,7 +172,12 @@ export function roadLane(
       continue;
     }
     const d = rayWallDistance(map, s.x, s.y, Math.cos(s.heading), Math.sin(s.heading), probe);
-    if (d >= need && d <= most) return s;
+    if (d < need || d > most) continue;
+    if (back > 0) {
+      const b = rayWallDistance(map, s.x, s.y, -Math.cos(s.heading), -Math.sin(s.heading), back + 20);
+      if (b < back) continue;
+    }
+    return s;
   }
   throw new Error('no clear lane on this map');
 }

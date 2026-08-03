@@ -217,6 +217,15 @@ export interface CityMap {
   tiles: Uint8Array;
   /** District index (into DISTRICT_TYPES) per cell, row-major. */
   district: Uint8Array;
+  /**
+   * The street grid's bearing per cell, in degrees 0..179, row-major; 0 for
+   * the screen axes. Baked from the plan's per-borough `street.angle`
+   * (WORLDGEN.md §13.4), so a pass that stands a car at a kerb or walks "the
+   * way the street runs" can ask the ground for the exact angle instead of
+   * estimating it from tarmac and being wrong at every junction. Optional
+   * because a fixture that builds a bare CityMap has no boroughs to speak of.
+   */
+  bearing?: Uint8Array;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];

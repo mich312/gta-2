@@ -113,6 +113,19 @@ export interface StreetGrid {
    * you can take a shortcut through, and the city had none.
    */
   alleyOver: number;
+  /**
+   * Rotate the whole lattice, in degrees clockwise on screen. 0 keeps the
+   * borough on the screen axes and on the exact carve it always had.
+   *
+   * This is the `grid` fabric of WORLDGEN.md §13.4: a borough that grew
+   * around its own harbour or its own island's long axis has streets that
+   * run with THAT, not with the map edges — and the seam where two grids
+   * meet at an angle is what makes neighbouring boroughs read as different
+   * places instead of one plaid in two colours. Streets are carved in the
+   * rotated frame, blocks become masked regions (§13.6 step 2 built that),
+   * and the fill follows the street frontage rather than the box.
+   */
+  angle: number;
 }
 
 export interface PlanDistrict {
@@ -288,6 +301,7 @@ export function parseCityPlan(raw: unknown): CityPlan {
           pitchY: int(s['pitchY'], `districts[${i}].street.pitchY`),
           width: int(s['width'], `districts[${i}].street.width`),
           alleyOver: typeof s['alleyOver'] === 'number' ? s['alleyOver'] : 0,
+          angle: typeof s['angle'] === 'number' ? s['angle'] : 0,
         },
         rural: o['rural'] === true,
         density: typeof o['density'] === 'number' ? o['density'] : 0.5,

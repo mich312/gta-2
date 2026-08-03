@@ -1,6 +1,6 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { fillBlock } from './buildings.js';
+import { fillBlock, fillRegion } from './buildings.js';
 import { fbm } from './fields.js';
 import { buildLayout } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
@@ -50,6 +50,8 @@ export interface BakedCity {
   heightTiles: number;
   tiles: Uint8Array;
   district: Uint8Array;
+  /** Street-grid bearing per tile, degrees 0..179; 0 on the screen axes. */
+  bearing: Uint8Array;
   blocks: BlockRect[];
   buildings: Building[];
   landmarks: Landmark[];
@@ -299,7 +301,11 @@ export function bakeCity(plan: CityPlan): BakedCity {
     const within = (tx: number, ty: number): boolean =>
       tx >= b.x && ty >= b.y && tx < b.x + b.w && ty < b.y + b.h &&
       b.mask[(ty - b.y) * b.w + (tx - b.x)] === 1;
-    fillBlock(tiles, W, H, buildings, b, rng, wildAt, within);
+    // A rotated borough's blocks are parallelograms: their fill follows the
+    // street frontage the mask knows about, not the box the ring fill walks
+    // (see fillRegion). Rural ground has no frontage either way.
+    if (b.angle !== 0 && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
+    else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within);
   }
 
   // Then the landmark takes its plot back: anything built inside its footprint
@@ -407,6 +413,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
     heightTiles: H,
     tiles,
     district: layout.district,
+    bearing: layout.bearing,
     blocks,
     buildings,
     landmarks,
@@ -508,6 +515,7 @@ export function encodeBakedCity(city: BakedCity): string {
       heightTiles: city.heightTiles,
       tiles: encodePlane(city.tiles),
       district: encodePlane(city.district),
+      bearing: encodePlane(city.bearing),
       blocks: city.blocks,
       buildings: city.buildings,
       landmarks: city.landmarks,
@@ -529,6 +537,8 @@ export function decodeBakedCity(raw: unknown): BakedCity {
     heightTiles,
     tiles: decodePlane(r['tiles'] as string, n),
     district: decodePlane(r['district'] as string, n),
+    // Absent in a pre-bearing bake: every street was on the screen axes.
+    bearing: typeof r['bearing'] === 'string' ? decodePlane(r['bearing'] as string, n) : new Uint8Array(n),
     blocks: r['blocks'] as BlockRect[],
     buildings: r['buildings'] as Building[],
     landmarks: r['landmarks'] as Landmark[],

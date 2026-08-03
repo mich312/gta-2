@@ -647,7 +647,8 @@
         "pitchX": 17,
         "pitchY": 14,
         "width": 3,
-        "alleyOver": 20
+        "alleyOver": 20,
+        "angle": 26
       }
     },
     {
@@ -677,7 +678,8 @@
         "pitchX": 11,
         "pitchY": 9,
         "width": 3,
-        "alleyOver": 13
+        "alleyOver": 13,
+        "angle": 20
       }
     },
     {
@@ -957,7 +959,8 @@
         "pitchX": 17,
         "pitchY": 14,
         "width": 3,
-        "alleyOver": 0
+        "alleyOver": 0,
+        "angle": 12
       }
     },
     {
@@ -987,7 +990,8 @@
         "pitchX": 28,
         "pitchY": 24,
         "width": 3,
-        "alleyOver": 0
+        "alleyOver": 0,
+        "angle": 12
       }
     },
     {
@@ -1017,7 +1021,8 @@
         "pitchX": 24,
         "pitchY": 20,
         "width": 3,
-        "alleyOver": 0
+        "alleyOver": 0,
+        "angle": 12
       }
     },
     {
@@ -1573,8 +1578,8 @@
       "kind": "hospital",
       "name": "Mercy General",
       "rect": [
-        595,
-        113,
+        602,
+        144,
         9,
         7
       ]
@@ -1593,8 +1598,8 @@
       "kind": "stadium",
       "name": "Ironside Stadium",
       "rect": [
-        120,
-        255,
+        116,
+        264,
         15,
         12
       ]
@@ -1603,8 +1608,8 @@
       "kind": "police",
       "name": "Harbour Precinct",
       "rect": [
-        68,
-        306,
+        57,
+        322,
         7,
         7
       ]
@@ -1613,8 +1618,8 @@
       "kind": "hospital",
       "name": "Riverside Infirmary",
       "rect": [
-        99,
-        213,
+        106,
+        211,
         9,
         7
       ]
@@ -1623,8 +1628,8 @@
       "kind": "power",
       "name": "Kessler Power",
       "rect": [
-        121,
-        352,
+        124,
+        365,
         13,
         11
       ]
@@ -1633,8 +1638,8 @@
       "kind": "quarry",
       "name": "Greyhill Quarry",
       "rect": [
-        87,
-        452,
+        76,
+        449,
         13,
         10
       ]

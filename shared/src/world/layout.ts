@@ -49,6 +49,14 @@ export interface LayoutBlock extends BlockRect {
    * wire format still carries plain rects, because nothing at runtime asks.
    */
   mask: Uint8Array;
+  /**
+   * The borough lattice's rotation in degrees, 0 for the screen axes. Tells
+   * the bake which filler this block wants: an unrotated block keeps the
+   * frontage-ring fill it always had; a rotated one is a parallelogram in
+   * an axis-aligned box, and a ring around that box would build into the
+   * street, so its fill follows the mask's own street frontage instead.
+   */
+  angle: number;
 }
 
 export interface CityLayout {
@@ -63,6 +71,8 @@ export interface CityLayout {
   owner: Int16Array;
   /** 1 on landmasses the plan says are cliff-bound. See PlanGeography. */
   sheer: Uint8Array;
+  /** Street-grid bearing per tile, degrees 0..179; 0 on the screen axes. */
+  bearing: Uint8Array;
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -396,15 +406,21 @@ export function buildLayout(plan: CityPlan): CityLayout {
   for (let i = 0; i < tiles.length; i++) tiles[i] = water[i] === 1 ? T_WATER : T_FIELD;
 
   // Boroughs, in plan order: later polygons win, so an overlap is an edit
-  // rather than an error.
+  // rather than an error. The bearing plane is written here too: every tile
+  // a borough owns knows the angle its streets run at, so the passes that
+  // stand cars at kerbs or walk "along the street" get the exact number the
+  // lattice was carved with instead of estimating it from tarmac.
+  const bearing = new Uint8Array(W * H);
   for (const [di, d] of plan.districts.entries()) {
     const idx = DISTRICT_IDX[d.district];
+    const deg = ((Math.round(d.street.angle) % 180) + 180) % 180;
     const [bx0, by0, bx1, by1] = polyBounds(d.area);
     for (let ty = Math.max(0, by0); ty <= Math.min(H - 1, by1); ty++) {
       for (let tx = Math.max(0, bx0); tx <= Math.min(W - 1, bx1); tx++) {
         if (!pointInPoly(d.area, tx + 0.5, ty + 0.5)) continue;
         district[ty * W + tx] = idx;
         owner[ty * W + tx] = di;
+        bearing[ty * W + tx] = deg;
       }
     }
   }
@@ -530,12 +546,10 @@ export function buildLayout(plan: CityPlan): CityLayout {
     const [rx, ry, rx1, ry1] = polyBounds(d.area);
     const rw = rx1 - rx;
     const rh = ry1 - ry;
-    const { pitchX, pitchY, width, alleyOver } = d.street;
+    const { pitchX, pitchY, width, alleyOver, angle } = d.street;
     const inThis = (tx: number, ty: number): boolean =>
       tx >= 0 && ty >= 0 && tx < W && ty < H && owner[ty * W + tx] === di;
 
-    const xs = cuts(rx, rw, pitchX, width);
-    const ys = cuts(ry, rh, pitchY, width);
     /** Carve a lattice line, but only over ground this borough owns. */
     const line = (x: number, y: number, w: number, h: number): void => {
       for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
@@ -545,8 +559,125 @@ export function buildLayout(plan: CityPlan): CityLayout {
         }
       }
     };
-    for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
-    for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
+    /* ---- the lattice, on the borough's own axes (§13.4 `grid` fabric) --- */
+
+    const th = (angle * Math.PI) / 180;
+    const eux = Math.cos(th);
+    const euy = Math.sin(th);
+    // The rotated frame: u along the grid's east, v along its south.
+    const cx = (rx + rx1) / 2;
+    const cy = (ry + ry1) / 2;
+    const toU = (x: number, y: number): number => (x - cx) * eux + (y - cy) * euy;
+    const toV = (x: number, y: number): number => -(x - cx) * euy + (y - cy) * eux;
+
+    /**
+     * `doubledUp`, for a course that is not axis-aligned: sample along it,
+     * probing only PERPENDICULAR to the line. Same conflict ratio and the
+     * same reason as the axis test — a lattice line running alongside an
+     * avenue reads as one very wide road. The probe must be a thin corridor,
+     * not a box: a box counts every street this line merely CROSSES, and a
+     * lattice whose two families cross each other every pitch then suppresses
+     * one family entirely. A crossing conflicts near the crossing and
+     * nowhere else; only a parallel road conflicts the whole way down.
+     */
+    /**
+     * The roads that were already there when this borough's lattice began —
+     * the avenues, the ring, a neighbour's streets across the seam. The
+     * rotated lattice is suppressed against THESE and never against itself:
+     * its own two families cross every pitch, and a crossing sampled at the
+     * wrong phase reads as a conflict, which is how half of one family died
+     * at random in the first bake. Two lines of the same lattice cannot run
+     * alongside each other by construction — the pitch is wider than the
+     * probe — so the only doubling a lattice line can commit is against a
+     * road somebody else drew, and that is the snapshot's whole content.
+     */
+    const pre: Uint8Array | null = angle !== 0 ? tiles.slice() : null;
+    const doubledUpCourse = (x1: number, y1: number, x2: number, y2: number): boolean => {
+      const len = Math.hypot(x2 - x1, y2 - y1);
+      const dx = (x2 - x1) / (len || 1);
+      const dy = (y2 - y1) / (len || 1);
+      const reach = width / 2 + 2;
+      const was = pre as Uint8Array;
+      let n = 0;
+      let conflicts = 0;
+      for (let s = 0; s <= len; s += 3) {
+        const px = x1 + dx * s;
+        const py = y1 + dy * s;
+        if (!inThis(Math.round(px), Math.round(py))) continue;
+        n++;
+        let hit = false;
+        for (let o = -reach; o <= reach && !hit; o += 1) {
+          const tx = Math.round(px - dy * o);
+          const ty = Math.round(py + dx * o);
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+          const t = was[ty * W + tx] as number;
+          if (t === T_ROAD || t === T_BRIDGE) hit = true;
+        }
+        if (hit) conflicts++;
+      }
+      // Suppressed only when it spends MOST of its run beside somebody
+      // else's road. The axis test uses 40%, but an axis lattice line meets
+      // an avenue at one angle for a short stretch; in a rotated borough the
+      // avenues are the things that curve, and a lattice line can brush one
+      // for a third of its length while being the only street the rest of
+      // the borough has. Half is where "duplicate" stops being a judgement
+      // call.
+      return n > 0 && conflicts * 2 > n;
+    };
+
+    /** Carve one rotated lattice line: the band |coord - at| < width/2. */
+    const carveLine = (at: number, alongU: boolean, lo: number, hi: number): void => {
+      // Endpoints in map space, for the doubled-up sampling.
+      const pt = (t: number): [number, number] =>
+        alongU
+          ? [cx + eux * t - euy * at, cy + euy * t + eux * at]
+          : [cx + eux * at - euy * t, cy + euy * at + eux * t];
+      const [x1, y1] = pt(lo);
+      const [x2, y2] = pt(hi);
+      if (doubledUpCourse(x1, y1, x2, y2)) return;
+      const x0 = Math.max(0, Math.floor(Math.min(x1, x2) - width));
+      const xe = Math.min(W - 1, Math.ceil(Math.max(x1, x2) + width));
+      const y0 = Math.max(0, Math.floor(Math.min(y1, y2) - width));
+      const ye = Math.min(H - 1, Math.ceil(Math.max(y1, y2) + width));
+      for (let ty = y0; ty <= ye; ty++) {
+        for (let tx = x0; tx <= xe; tx++) {
+          if (!inThis(tx, ty)) continue;
+          const c = alongU ? toV(tx + 0.5, ty + 0.5) : toU(tx + 0.5, ty + 0.5);
+          if (Math.abs(c - at) < width / 2) lay(tx, ty, null);
+        }
+      }
+    };
+
+    const xs = angle === 0 ? cuts(rx, rw, pitchX, width) : [];
+    const ys = angle === 0 ? cuts(ry, rh, pitchY, width) : [];
+    if (angle === 0) {
+      for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
+      for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
+    } else {
+      // The borough bbox corners, projected into the rotated frame, bound
+      // the lattice; every line is clipped to owned ground when it lands.
+      let uMin = Infinity;
+      let uMax = -Infinity;
+      let vMin = Infinity;
+      let vMax = -Infinity;
+      for (const [px, py] of [
+        [rx, ry],
+        [rx1, ry],
+        [rx, ry1],
+        [rx1, ry1],
+      ] as const) {
+        uMin = Math.min(uMin, toU(px, py));
+        uMax = Math.max(uMax, toU(px, py));
+        vMin = Math.min(vMin, toV(px, py));
+        vMax = Math.max(vMax, toV(px, py));
+      }
+      if (pitchX >= width + 3) {
+        for (let u = uMin + pitchX; u < uMax - width; u += pitchX) carveLine(u, false, vMin, vMax);
+      }
+      if (pitchY >= width + 3) {
+        for (let v = vMin + pitchY; v < vMax - width; v += pitchY) carveLine(v, true, uMin, uMax);
+      }
+    }
 
     /**
      * Ground this block can be: the borough's own dry land, minus whatever
@@ -646,6 +777,80 @@ export function buildLayout(plan: CityPlan): CityLayout {
       return out;
     };
 
+    if (angle !== 0) {
+      // A rotated borough has no interstice arithmetic to lean on: its
+      // blocks are simply the connected pieces of ground its lattice leaves,
+      // over the whole borough at once. Step 2 made the fill mask-driven, so
+      // the pieces being parallelograms costs nothing downstream.
+      const comps = componentsOf(rx, ry, rw + 1, rh + 1);
+      for (const c of comps) {
+        // The alley, in the block's own frame: through the middle of the
+        // piece, along whichever rotated axis the piece runs longest in —
+        // the same rule the axis path applies, measured in u and v instead
+        // of x and y. Carved after the piece is cut, so it stays a shortcut
+        // through the block's yard rather than splitting it in two.
+        if (alleyOver > 0) {
+          let uLo = Infinity;
+          let uHi = -Infinity;
+          let vLo = Infinity;
+          let vHi = -Infinity;
+          let mx = 0;
+          let my = 0;
+          let n = 0;
+          for (let ly = 0; ly < c.h; ly++) {
+            for (let lx = 0; lx < c.w; lx++) {
+              if (c.mask[ly * c.w + lx] !== 1) continue;
+              const px = c.x + lx + 0.5;
+              const py = c.y + ly + 0.5;
+              uLo = Math.min(uLo, toU(px, py));
+              uHi = Math.max(uHi, toU(px, py));
+              vLo = Math.min(vLo, toV(px, py));
+              vHi = Math.max(vHi, toV(px, py));
+              mx += px;
+              my += py;
+              n++;
+            }
+          }
+          // Both extents matter: a strip left where a lattice line was
+          // suppressed is long enough for an alley and far too thin — an
+          // alley through it leaves nothing but two rows of frontage, which
+          // is corduroy, not a shortcut through a yard. Eight is frontage
+          // both sides of the cut with a yard's worth left over.
+          if (n > 0 && Math.max(uHi - uLo, vHi - vLo) >= alleyOver && Math.min(uHi - uLo, vHi - vLo) >= 8) {
+            const alongU = uHi - uLo >= vHi - vLo;
+            const gx = mx / n;
+            const gy = my / n;
+            const at = alongU ? toV(gx, gy) : toU(gx, gy);
+            const lo = alongU ? uLo : vLo;
+            const hi = alongU ? uHi : vHi;
+            for (let ly = 0; ly < c.h; ly++) {
+              for (let lx = 0; lx < c.w; lx++) {
+                if (c.mask[ly * c.w + lx] !== 1) continue;
+                const tx = c.x + lx;
+                const ty = c.y + ly;
+                const cu = alongU ? toU(tx + 0.5, ty + 0.5) : toV(tx + 0.5, ty + 0.5);
+                const cv = alongU ? toV(tx + 0.5, ty + 0.5) : toU(tx + 0.5, ty + 0.5);
+                if (cu >= lo && cu <= hi && Math.abs(cv - at) < 1) lay(tx, ty, null);
+              }
+            }
+          }
+        }
+        blocks.push({
+          x: c.x,
+          y: c.y,
+          w: c.w,
+          h: c.h,
+          district: d.district,
+          rural: d.rural,
+          landmark: d.rural ? -1 : landmarkAt(c.x, c.y, c.w, c.h),
+          density: d.density,
+          mask: c.mask,
+          angle,
+        });
+      }
+      continue;
+    }
+
     for (let j = 0; j < ys.length; j++) {
       const by = (ys[j] as number) + width;
       const bh = (j + 1 < ys.length ? (ys[j + 1] as number) : ry + rh) - by;
@@ -708,6 +913,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             landmark: p.landmark,
             density: d.density,
             mask: p.mask,
+            angle: 0,
           });
         }
       }
@@ -910,5 +1116,5 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
-  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand };
+  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing };
 }

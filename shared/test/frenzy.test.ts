@@ -17,6 +17,7 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { T_RAMP, TILE_SIZE } from '../src/world/types.js';
+import { isSolidTile } from '../src/world/collide.js';
 import { clearSpot } from './helpers.js';
 
 initTuning({
@@ -157,24 +158,53 @@ describe('stunt jumps', () => {
   function onRamp(seed: number): GameState {
     let state = createGameState(seed);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'stunt' }], map);
-    // Find a real ramp tile and put the car just before it.
-    let ramp = { tx: -1, ty: -1 };
-    outer: for (let ty = 0; ty < map.heightTiles; ty++) {
+    // Find a ramp with a clear APPROACH and a clear RUN-OUT, and drive at
+    // it. The first ramp in scan order used to do, with the car spawned ON
+    // the ramp tile and heading 0 assumed — which worked only while that
+    // ramp's surroundings happened to cooperate. A ramp is a solid you
+    // drive UP in the volume model, so a car planted inside it at ground
+    // level is a collision, not a stunt; and the launch direction is the
+    // car's own heading, so the heading has to be one the jump can actually
+    // be flown along. Stage the approach and let the car arrive, which is
+    // what the launch sweep in `sim/frenzy.ts` is written for.
+    let ramp: { tx: number; ty: number; heading: number; dx: number; dy: number } | null = null;
+    outer: for (let ty = 0; ty < map.heightTiles && !ramp; ty++) {
       for (let tx = 0; tx < map.widthTiles; tx++) {
-        if (map.tiles[ty * map.widthTiles + tx] === T_RAMP) {
-          ramp = { tx, ty };
-          break outer;
+        if (map.tiles[ty * map.widthTiles + tx] !== T_RAMP) continue;
+        for (const [dx, dy, heading] of [
+          [1, 0, 0],
+          [-1, 0, Math.PI],
+          [0, 1, Math.PI / 2],
+          [0, -1, -Math.PI / 2],
+        ] as const) {
+          // A car-wide corridor, not a point line: the whole run — approach,
+          // ramp and run-out — must be clear one tile EITHER SIDE too, or
+          // the car's own width clips whatever stands beside the lane (the
+          // first attempt bounced off a tree hard against the ramp's flank).
+          let clear = true;
+          for (let i = -3; i <= 10 && clear; i++) {
+            for (let o = -1; o <= 1 && clear; o++) {
+              const cx = tx + dx * i - dy * o;
+              const cy = ty + dy * i + dx * o;
+              clear = !isSolidTile(map, cx, cy, 'land');
+              if (clear && i < 0 && map.tiles[cy * map.widthTiles + cx] === T_RAMP) clear = false;
+            }
+          }
+          if (clear) {
+            ramp = { tx, ty, heading, dx, dy };
+            continue outer;
+          }
         }
       }
     }
-    expect(ramp.tx).toBeGreaterThanOrEqual(0);
-    const x = (ramp.tx + 0.5) * TILE_SIZE;
-    const y = (ramp.ty + 0.5) * TILE_SIZE;
+    expect(ramp).not.toBeNull();
+    const x = (ramp!.tx + 0.5 - ramp!.dx * 2.5) * TILE_SIZE;
+    const y = (ramp!.ty + 0.5 - ramp!.dy * 2.5) * TILE_SIZE;
     state.players.byId[1]!.pos = { x, y };
     state = step(
       state,
       {},
-      [{ type: 'spawnVehicle', vehicleId: 3, kind: 'car', x, y, heading: 0 }],
+      [{ type: 'spawnVehicle', vehicleId: 3, kind: 'car', x, y, heading: ramp!.heading }],
       map,
     );
     return step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);

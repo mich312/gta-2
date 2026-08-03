@@ -68,6 +68,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     // the next one will load.
     tiles: baked.tiles.slice(),
     district: baked.district.slice(),
+    bearing: baked.bearing,
     blocks: baked.blocks,
     buildings: baked.buildings.slice(),
     shops: baked.shops.map((s) => ({ ...s })),

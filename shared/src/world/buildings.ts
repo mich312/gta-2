@@ -334,6 +334,140 @@ export function fillBlock(
 }
 
 /**
+ * Fill a block that is not a rectangle: frontage by DEPTH, not by ring.
+ *
+ * The ring fill below walks the bounding box's edges, which is right exactly
+ * when the box edge is the street edge. A rotated borough's block is a
+ * parallelogram in an axis-aligned box (WORLDGEN.md §13.4 `grid` fabric) —
+ * its box edges cut through the middle of the carriageway, and a ring laid
+ * along them builds into the street on two sides and faces bare yard on the
+ * others. So this filler asks the ground instead: breadth-first from the
+ * kerb, every member tile learns how deep it sits behind the street, and the
+ * frontage is the band within the district's depth — whatever direction the
+ * street happens to run. Units are small axis-aligned rects packed into the
+ * band with hashed sizes and gap rolls, one tile of seam between them, which
+ * is what an axis-aligned tile world can honestly make of a rotated street
+ * wall: row-houses stepping along the frontage.
+ */
+export function fillRegion(
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+  buildings: Building[],
+  b: BlockRect,
+  rng: number,
+  within: (tx: number, ty: number) => boolean,
+): number {
+  const ctx: Ctx = { tiles, W, H, buildings, within };
+  laySidewalk(ctx, b);
+  if (b.district === 'park') {
+    fill(ctx, b.x, b.y, b.w, b.h, T_PARK);
+    return rng;
+  }
+
+  const density = b.density ?? 0.5;
+  const style: Record<string, { depth: number; gap: number; yard: number; lo: number; hi: number }> = {
+    downtown: { depth: 6, gap: 0.05 * (1 - density), yard: T_LOT, lo: 3, hi: 7 },
+    commercial: { depth: 5, gap: 0.1 * (1 - density), yard: T_LOT, lo: 3, hi: 7 },
+    residential: { depth: 4, gap: 0.22 * (1 - density), yard: T_PARK, lo: 2, hi: 6 },
+    // Industrial has no frontage band: big sheds stand anywhere on the open
+    // yard, and the district's shape is the space between them.
+    industrial: { depth: 999, gap: 0.55, yard: T_LOT, lo: 4, hi: 9 },
+  };
+  const s = style[b.district] ?? (style['commercial'] as { depth: number; gap: number; yard: number; lo: number; hi: number });
+
+  // How deep each member tile sits behind the kerb.
+  const depth = new Int16Array(b.w * b.h).fill(-1);
+  const queue: number[] = [];
+  const at = (tx: number, ty: number): number => (ty - b.y) * b.w + (tx - b.x);
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      if (!within(tx, ty)) continue;
+      if (tiles[ty * W + tx] === T_SIDEWALK) {
+        depth[at(tx, ty)] = 0;
+        queue.push(at(tx, ty));
+      }
+    }
+  }
+  for (let head = 0; head < queue.length; head++) {
+    const i = queue[head] as number;
+    const lx = i % b.w;
+    const ly = (i - lx) / b.w;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const tx = b.x + lx + dx;
+      const ty = b.y + ly + dy;
+      if (tx < b.x || ty < b.y || tx >= b.x + b.w || ty >= b.y + b.h) continue;
+      if (!within(tx, ty)) continue;
+      if ((depth[at(tx, ty)] as number) >= 0) continue;
+      depth[at(tx, ty)] = (depth[i] as number) + 1;
+      queue.push(at(tx, ty));
+    }
+  }
+
+  // The yard first, the buildings over it — same order as the ring fill.
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      if (!within(tx, ty)) continue;
+      if ((depth[at(tx, ty)] as number) < 1) continue;
+      if (tiles[ty * W + tx] === T_FIELD) tiles[ty * W + tx] = s.yard;
+    }
+  }
+
+  const gone = new Uint8Array(b.w * b.h); // gap rolls consume ground for real
+  const cand = (tx: number, ty: number): boolean => {
+    if (tx < b.x || ty < b.y || tx >= b.x + b.w || ty >= b.y + b.h) return false;
+    if (!within(tx, ty) || gone[at(tx, ty)] === 1) return false;
+    const d = depth[at(tx, ty)] as number;
+    if (d < 1 || d > s.depth) return false;
+    return tiles[ty * W + tx] === s.yard;
+  };
+  const nearBuilt = (x0: number, y0: number, w: number, h: number): boolean => {
+    for (let ty = y0 - 1; ty <= y0 + h; ty++) {
+      for (let tx = x0 - 1; tx <= x0 + w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        if (tiles[ty * W + tx] === T_BUILDING) return true;
+      }
+    }
+    return false;
+  };
+
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      if (!cand(tx, ty)) continue;
+      let uw: number;
+      let uh: number;
+      let roll: number;
+      [uw, rng] = nextIntRange(rng, s.lo, s.hi);
+      [uh, rng] = nextIntRange(rng, s.lo, s.hi);
+      [roll, rng] = nextFloat01(rng);
+      if (roll < s.gap) {
+        // A real gap: this stretch of frontage is a yard entrance, not a
+        // unit that failed. Consumed, or the next anchor rebuilds it.
+        for (let g = 0; g < uw && tx + g < b.x + b.w; g++) gone[at(tx + g, ty)] = 1;
+        continue;
+      }
+      let w = 0;
+      while (w < uw && cand(tx + w, ty)) w++;
+      let h = 1;
+      grow: while (h < uh) {
+        for (let gx = 0; gx < w; gx++) if (!cand(tx + gx, ty + h)) break grow;
+        h++;
+      }
+      if (w < 2 || h < 2) continue;
+      if (nearBuilt(tx, ty, w, h)) continue;
+      fill(ctx, tx, ty, w, h, T_BUILDING);
+      buildings.push({ x: tx, y: ty, w, h, district: b.district });
+    }
+  }
+  return rng;
+}
+
+/**
  * Build the block's street frontage and leave its middle open.
  *
  * This replaced a recursive split that scattered detached three-tile sheds

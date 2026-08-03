@@ -227,27 +227,40 @@ describe('world generation', () => {
       }
       const tx = Math.floor(s.x / TILE_SIZE);
       const ty = Math.floor(s.y / TILE_SIZE);
-      const alongY = Math.abs(Math.sin(s.heading)) > 0.5;
-      // The street really runs the way the car is pointed...
+      // The street really runs the way the car is pointed — walked along the
+      // TRUE bearing, because the rotated boroughs (§13.4) park cars at
+      // twenty degrees and an axis walk would step off their streets. On an
+      // axis street this visits exactly the tiles the old axis walk did.
+      const dx = Math.cos(s.heading);
+      const dy = Math.sin(s.heading);
+      // One tile of sideways tolerance, same as the generator's own trust
+      // test: a rotated band's edge lane rasterises with a half-tile wobble.
+      const on = (x: number, y: number): boolean =>
+        road(Math.round(x), Math.round(y)) ||
+        road(Math.round(x - dy), Math.round(y + dx)) ||
+        road(Math.round(x + dy), Math.round(y - dx));
       for (let i = 1; i <= 3; i++) {
-        expect(road(tx + (alongY ? 0 : i), ty + (alongY ? i : 0))).toBe(true);
-        expect(road(tx - (alongY ? 0 : i), ty - (alongY ? i : 0))).toBe(true);
+        expect(on(tx + dx * i, ty + dy * i)).toBe(true);
+        expect(on(tx - dx * i, ty - dy * i)).toBe(true);
       }
       // ...and is no wider across than a carriageway: not a plaza, not the
       // middle of the ring road's diagonal band.
       let width = 1;
-      for (let i = 1; i <= 5 && road(tx + (alongY ? i : 0), ty + (alongY ? 0 : i)); i++) width++;
-      for (let i = 1; i <= 5 && road(tx - (alongY ? i : 0), ty - (alongY ? 0 : i)); i++) width++;
+      for (let i = 1; i <= 5 && road(Math.round(tx - dy * i), Math.round(ty + dx * i)); i++) width++;
+      for (let i = 1; i <= 5 && road(Math.round(tx + dy * i), Math.round(ty - dx * i)); i++) width++;
       expect(width).toBeLessThanOrEqual(4);
     }
-    // The mark exists to catch the ring road's stair steps: some, not many.
-    // The budget was a tenth until blocks became masked regions (WORLDGEN.md
-    // §13.6 step 2): pieces beside an avenue now kerb their side of it where
-    // the old rect fill often stood a building instead, so the diagonal
-    // avenues carry more kerb — and every kerb tile on a diagonal is a spot
-    // the inference rightly refuses to trust. An eighth is still "not many".
+    // The mark exists to catch the kerbs no heading can be trusted at: some,
+    // not many. The budget was a tenth until blocks became masked regions
+    // (§13.6 step 2, more kerb beside the diagonal avenues), then an eighth,
+    // and is a sixth since three boroughs rotated off the axes (§13.6 step
+    // 3): a rotated lattice parks fine along its own bearing — the baked
+    // bearing plane says which way — but its junction diamonds are wider
+    // than axis crossroads and its streets end on a warped coast, and a spot
+    // at either is one the session is right to leave empty. Measured at
+    // 14% of spots, all of them at junctions, band middles or street ends.
     expect(crosswise).toBeGreaterThan(0);
-    expect(crosswise).toBeLessThan(map.parkingSpots.length / 8);
+    expect(crosswise).toBeLessThan(map.parkingSpots.length / 6);
   });
 
   it('player spawns are walkable, inside the map, and spread apart', () => {
