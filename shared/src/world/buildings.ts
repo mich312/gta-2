@@ -21,6 +21,16 @@ export interface Ctx {
   W: number;
   H: number;
   buildings: Building[];
+  /**
+   * Which tiles the current block may touch, if it is not its whole rect.
+   *
+   * A block's record is its bounding box, but a block an avenue cut in two —
+   * or any block a future street fabric leaves non-rectangular (WORLDGEN.md
+   * §13) — is only SOME of that box, and its neighbour across the road owns
+   * the rest. Absent means the whole box, which is what every block was
+   * before the avenues crossed them.
+   */
+  within?: (tx: number, ty: number) => boolean;
 }
 
 /**
@@ -35,6 +45,10 @@ export interface Ctx {
  */
 function blocked(ctx: Ctx, tx: number, ty: number): boolean {
   if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) return false;
+  // Ground beyond the block's own mask is another block's ground, however it
+  // sits inside this one's bounding box: not paintable, and (through
+  // rectHasWater) not buildable-over either.
+  if (ctx.within !== undefined && !ctx.within(tx, ty)) return true;
   const t = ctx.tiles[ty * ctx.W + tx];
   return (
     t === T_WATER ||
@@ -103,6 +117,7 @@ export function laySidewalk(ctx: Ctx, b: BlockRect): void {
   for (let ty = b.y; ty < b.y + b.h; ty++) {
     for (let tx = b.x; tx < b.x + b.w; tx++) {
       if (tx < 0 || ty < 0 || tx >= ctx.W || ty >= ctx.H) continue;
+      if (ctx.within !== undefined && !ctx.within(tx, ty)) continue;
       const here = ctx.tiles[ty * ctx.W + tx];
       // Only bare ground becomes kerb: no pavement over a river, a quay, a
       // beach, or the carriageway itself.
@@ -181,8 +196,10 @@ export function fillBlock(
   rng: number,
   /** Forest predicate (window-LOCAL tiles); only rural blocks consult it. */
   wildAt?: (tx: number, ty: number) => boolean,
+  /** The block's mask, when it is not its whole rect. See `Ctx.within`. */
+  within?: (tx: number, ty: number) => boolean,
 ): number {
-  const ctx: Ctx = { tiles, W, H, buildings };
+  const ctx: Ctx = { tiles, W, H, buildings, within };
 
   if (b.rural) {
     // Open country: no kerbs (which is what silences the crowd, the
@@ -193,6 +210,7 @@ export function fillBlock(
     for (let ty = b.y; ty < b.y + b.h; ty++) {
       for (let tx = b.x; tx < b.x + b.w; tx++) {
         if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        if (within !== undefined && !within(tx, ty)) continue;
         const here = tiles[ty * W + tx];
         if (here !== T_FIELD) continue; // water, bank, sand, roads stay
         tiles[ty * W + tx] = wildAt?.(tx, ty) ? T_TREES : T_FIELD;
@@ -291,11 +309,20 @@ export function fillBlock(
         let ph: number;
         [pw, rng] = nextIntRange(rng, 4, Math.min(9, iw - 6));
         [ph, rng] = nextIntRange(rng, 4, Math.min(9, ih - 6));
-        fill(ctx, ix + 2, iy + 2, pw, ph, T_WATER);
-        // A bandstand: something to navigate by inside the green.
+        // The pond wants a margin of park all the way round, tested on the
+        // ground rather than trusted to the box. A block used to BE its box,
+        // so "two tiles in from the edge" was margin enough; a block that is
+        // a curved sliver along a road (a motorway median through a park has
+        // a park-sized box) would put open water at the kerb, and a street
+        // may not end in the sea — least of all in the middle of a park.
+        if (!rectHasWater(ctx, ix + 1, iy + 1, pw + 2, ph + 2)) {
+          fill(ctx, ix + 2, iy + 2, pw, ph, T_WATER);
+        }
+        // A bandstand: something to navigate by inside the green. The same
+        // margin test, for the same reason — not on a road shoulder.
         const bx = ix + iw - 5;
         const by = iy + ih - 5;
-        if (!rectHasWater(ctx, bx, by, 3, 3)) {
+        if (!rectHasWater(ctx, bx - 1, by - 1, 5, 5)) {
           fill(ctx, bx, by, 3, 3, T_BUILDING);
           buildings.push({ x: bx, y: by, w: 3, h: 3, district: b.district });
         }

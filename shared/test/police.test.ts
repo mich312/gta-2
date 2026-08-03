@@ -28,6 +28,7 @@ import {
   clearSpot,
   openSquare,
   roadLane,
+  spotInsideWall,
   straightEastLane,
   tilesFromSpawn,
 } from './helpers.js';
@@ -361,6 +362,24 @@ describe('wanted + police', () => {
     // foot, which a junction-riddled or dead-end spot can quietly prevent.
     const lane = straightEastLane(map);
     state.players.byId[1]!.pos = { x: lane.x + 5 * TILE_SIZE, y: lane.y };
+    // The posse is POSTED on the lane, in sight of the suspect, the way the
+    // P1a and noise tests post their officers. This test used to lean on the
+    // wave spawner happening to land units close: a foot unit gives up after
+    // `searchGiveUpTicks` (240) without a sighting, sight range is 260 px,
+    // and the spawn ring reaches 640 px — so whether anyone ARRIVED was a
+    // race decided by kerb geometry, and the city's new fabric moved the
+    // kerbs. The rule under test is what an officer does on arrival —
+    // hands, not bullets, on a suspect standing still — so stage the
+    // arrival and let the approach, the closing and the bust-versus-shoot
+    // cadence all run for real.
+    const me = state.players.byId[1]!;
+    for (const [k, dx] of [-14, -12, 12].entries()) {
+      const cop = createCop(900 + k, { x: me.pos.x + dx * TILE_SIZE, y: me.pos.y }, t.copHealth);
+      cop.targetId = 1;
+      cop.lastSeenX = me.pos.x;
+      cop.lastSeenY = me.pos.y;
+      insertEntity(state.cops, cop);
+    }
 
     const events: SimEvent[] = [];
     // How far the SHOOTER was from the suspect, for every police shot. The
@@ -699,26 +718,10 @@ describe('escalation by kind', () => {
     // into a building damages itself and eventually detonates. The rule under
     // test is about the officer, so do not hand them a bomb.
     const t = getTuning().police;
-    // A wall with twenty tiles of clear approach to the west of it, found
-    // rather than assumed: the cruiser is staged on that approach and has to
-    // be able to DRIVE at the wall for "cannot close" to mean anything. The
-    // first building in scan order used to do, until the first building in
-    // scan order became one on a dockside with the harbour behind it.
-    let solid: { x: number; y: number } | null = null;
-    for (const [tx, ty] of tilesFromSpawn(map, 24)) {
-      if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
-      let open = true;
-      for (let i = 1; i <= 20 && open; i++) {
-        for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
-      }
-      // ...and a wall deep enough that driving round it is not the easy way.
-      for (let dy = -2; dy <= 2 && open; dy++) {
-        open = map.tiles[(ty + dy) * map.widthTiles + tx] === T_BUILDING;
-      }
-      if (!open) continue;
-      solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-      break;
-    }
+    // A spot inside a wall with a clear western approach, shared staging for
+    // every hide-the-suspect test: see `spotInsideWall` on why the wall is
+    // three deep.
+    const solid = spotInsideWall(map);
     expect(solid, 'no wall with a clear approach on this map').not.toBeNull();
     let state = createGameState(71);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
@@ -755,26 +758,10 @@ describe('escalation by kind', () => {
     // P1a: `blocked` and `seen` are the same ray test, so it could never
     // fire once pursuit stopped being omniscient. A fugitive inside a
     // building is now a search that expires, covered by its own test above.)
-    // A wall with twenty tiles of clear approach to the west of it, found
-    // rather than assumed: the cruiser is staged on that approach and has to
-    // be able to DRIVE at the wall for "cannot close" to mean anything. The
-    // first building in scan order used to do, until the first building in
-    // scan order became one on a dockside with the harbour behind it.
-    let solid: { x: number; y: number } | null = null;
-    for (const [tx, ty] of tilesFromSpawn(map, 24)) {
-      if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
-      let open = true;
-      for (let i = 1; i <= 20 && open; i++) {
-        for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
-      }
-      // ...and a wall deep enough that driving round it is not the easy way.
-      for (let dy = -2; dy <= 2 && open; dy++) {
-        open = map.tiles[(ty + dy) * map.widthTiles + tx] === T_BUILDING;
-      }
-      if (!open) continue;
-      solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-      break;
-    }
+    // A spot inside a wall with a clear western approach, shared staging for
+    // every hide-the-suspect test: see `spotInsideWall` on why the wall is
+    // three deep.
+    const solid = spotInsideWall(map);
     expect(solid, 'no wall with a clear approach on this map').not.toBeNull();
     let state = wedged({ x: solid!.x - 300, y: solid!.y }, solid!);
     for (let i = 0; i < 400 && state.cops.byId[500]?.vehicleId != null; i++) {
@@ -1351,26 +1338,10 @@ describe('air support (S1)', () => {
 
     // Parked inside a building — invisible to anybody on the street, and in
     // plain view from the air.
-    // A wall with twenty tiles of clear approach to the west of it, found
-    // rather than assumed: the cruiser is staged on that approach and has to
-    // be able to DRIVE at the wall for "cannot close" to mean anything. The
-    // first building in scan order used to do, until the first building in
-    // scan order became one on a dockside with the harbour behind it.
-    let solid: { x: number; y: number } | null = null;
-    for (const [tx, ty] of tilesFromSpawn(map, 24)) {
-      if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
-      let open = true;
-      for (let i = 1; i <= 20 && open; i++) {
-        for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
-      }
-      // ...and a wall deep enough that driving round it is not the easy way.
-      for (let dy = -2; dy <= 2 && open; dy++) {
-        open = map.tiles[(ty + dy) * map.widthTiles + tx] === T_BUILDING;
-      }
-      if (!open) continue;
-      solid = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-      break;
-    }
+    // A spot inside a wall with a clear western approach, shared staging for
+    // every hide-the-suspect test: see `spotInsideWall` on why the wall is
+    // three deep.
+    const solid = spotInsideWall(map);
     expect(solid, 'no wall with a clear approach on this map').not.toBeNull();
     let state = createGameState(901);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);

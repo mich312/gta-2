@@ -39,6 +39,16 @@ export interface LayoutBlock extends BlockRect {
   landmark: number;
   /** How solidly this block's borough is built up, 0..1. */
   density: number;
+  /**
+   * Which tiles of the rect the block actually is, row-major over w×h.
+   *
+   * A block stopped being a rectangle when the avenues did (WORLDGEN.md §13):
+   * ground between streets is whatever shape the streets leave, so the rect
+   * is only the bounding box and this says which of its tiles belong. The
+   * fill passes consult it through `Ctx.within`; the bake drops it — the
+   * wire format still carries plain rects, because nothing at runtime asks.
+   */
+  mask: Uint8Array;
 }
 
 export interface CityLayout {
@@ -538,6 +548,104 @@ export function buildLayout(plan: CityPlan): CityLayout {
     for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
     for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
 
+    /**
+     * Ground this block can be: the borough's own dry land, minus whatever
+     * carriageway has already been carved through it — the lattice's, and
+     * above all an authored avenue's.
+     */
+    const buildable = (tx: number, ty: number): boolean => {
+      if (!inThis(tx, ty) || water[ty * W + tx] === 1) return false;
+      const t = tiles[ty * W + tx] as number;
+      return t !== T_ROAD && t !== T_BRIDGE;
+    };
+
+    /**
+     * The connected pieces of an interstice's buildable ground.
+     *
+     * A block used to BE the lattice rect. But an avenue drawn through a
+     * borough crosses the rects rather than bounding them, and a rect the
+     * avenue cuts in two is two blocks: each side gets its own record, its
+     * own bounding box, its own mask and its own fill, instead of one fill
+     * straddling four lanes of road and scattering fragments on the far
+     * side. Rects no road crosses come out exactly as before — one
+     * component, the full rect, every tile of its ground a member — which
+     * is what keeps this refactor invisible where the fabric is untouched
+     * (WORLDGEN.md §13.6 step 2).
+     */
+    const componentsOf = (
+      bx: number,
+      by: number,
+      bw: number,
+      bh: number,
+    ): Array<{ x: number; y: number; w: number; h: number; mask: Uint8Array }> => {
+      const seen = new Uint8Array(bw * bh);
+      const out: Array<{ x: number; y: number; w: number; h: number; mask: Uint8Array }> = [];
+      for (let sy = by; sy < by + bh; sy++) {
+        for (let sx = bx; sx < bx + bw; sx++) {
+          const s = (sy - by) * bw + (sx - bx);
+          if (seen[s] === 1 || !buildable(sx, sy)) continue;
+          const bag = [s];
+          seen[s] = 1;
+          for (let q = 0; q < bag.length; q++) {
+            const i = bag[q] as number;
+            const lx = i % bw;
+            const ly = (i - lx) / bw;
+            for (const [dx, dy] of [
+              [1, 0],
+              [-1, 0],
+              [0, 1],
+              [0, -1],
+            ] as const) {
+              const nx = lx + dx;
+              const ny = ly + dy;
+              if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue;
+              const j = ny * bw + nx;
+              if (seen[j] === 1 || !buildable(bx + nx, by + ny)) continue;
+              seen[j] = 1;
+              bag.push(j);
+            }
+          }
+          if (bag.length < 4) continue; // dust, not a block
+          let x0 = bw;
+          let y0 = bh;
+          let x1 = 0;
+          let y1 = 0;
+          for (const i of bag) {
+            const lx = i % bw;
+            const ly = (i - lx) / bw;
+            x0 = Math.min(x0, lx);
+            y0 = Math.min(y0, ly);
+            x1 = Math.max(x1, lx);
+            y1 = Math.max(y1, ly);
+          }
+          const w = x1 - x0 + 1;
+          const h = y1 - y0 + 1;
+          const mask = new Uint8Array(w * h);
+          for (const i of bag) {
+            const lx = i % bw;
+            const ly = (i - lx) / bw;
+            mask[(ly - y0) * w + (lx - x0)] = 1;
+          }
+          out.push({ x: bx + x0, y: by + y0, w, h, mask });
+        }
+      }
+      // One piece means no road crossed the rect, and the block is the rect
+      // it always was — full bounding box, so its fill seed and its frontage
+      // geometry come out exactly as before this refactor, with the mask
+      // only fencing off water and the neighbouring borough's ground. Tight
+      // boxes are for the pieces an avenue actually made.
+      if (out.length === 1) {
+        const mask = new Uint8Array(bw * bh);
+        for (let ly = 0; ly < bh; ly++) {
+          for (let lx = 0; lx < bw; lx++) {
+            if (seen[ly * bw + lx] === 1) mask[ly * bw + lx] = 1;
+          }
+        }
+        return [{ x: bx, y: by, w: bw, h: bh, mask }];
+      }
+      return out;
+    };
+
     for (let j = 0; j < ys.length; j++) {
       const by = (ys[j] as number) + width;
       const bh = (j + 1 < ys.length ? (ys[j + 1] as number) : ry + rh) - by;
@@ -556,6 +664,10 @@ export function buildLayout(plan: CityPlan): CityLayout {
         }
         if (mine * 5 < bw * bh * 2) continue;
 
+        // The pieces are cut BEFORE the alley: an avenue makes two blocks of
+        // a rect, an alley is a shortcut through the yard of one.
+        const comps = componentsOf(bx, by, bw, bh);
+
         // A service alley through anything big enough to hide in. Blocks
         // without one are walls; blocks with one are a shortcut with a risk,
         // which is the whole of a foot chase.
@@ -564,16 +676,40 @@ export function buildLayout(plan: CityPlan): CityLayout {
           else line(bx, by + Math.floor(bh / 2) - 1, bw, 2);
         }
 
-        blocks.push({
-          x: bx,
-          y: by,
-          w: bw,
-          h: bh,
-          district: d.district,
-          rural: d.rural,
-          landmark: d.rural ? -1 : landmarkAt(bx, by, bw, bh),
-          density: d.density,
+        // The landmark claim stays a decision about the WHOLE interstice:
+        // a landmark standing across the avenue from a piece still needs
+        // some block to carry the claim, or the bake stamps it before the
+        // fill instead of after (see bakeCity on why urban landmarks must
+        // come second). It goes to every piece whose box it overlaps, or to
+        // the first piece if the avenue cut it away from all of them.
+        const li = d.rural ? -1 : landmarkAt(bx, by, bw, bh);
+        const lRect = li >= 0 ? (plan.landmarks[li] as { rect: [number, number, number, number] }).rect : null;
+        let claimed = false;
+        const pieces = comps.map((c) => {
+          const overlaps =
+            lRect !== null &&
+            lRect[0] < c.x + c.w &&
+            lRect[0] + lRect[2] > c.x &&
+            lRect[1] < c.y + c.h &&
+            lRect[1] + lRect[3] > c.y;
+          if (overlaps) claimed = true;
+          return { ...c, landmark: overlaps ? li : -1 };
         });
+        if (li >= 0 && !claimed && pieces.length > 0) (pieces[0] as { landmark: number }).landmark = li;
+
+        for (const p of pieces) {
+          blocks.push({
+            x: p.x,
+            y: p.y,
+            w: p.w,
+            h: p.h,
+            district: d.district,
+            rural: d.rural,
+            landmark: p.landmark,
+            density: d.density,
+            mask: p.mask,
+          });
+        }
       }
     }
   }

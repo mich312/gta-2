@@ -241,8 +241,13 @@ describe('world generation', () => {
       expect(width).toBeLessThanOrEqual(4);
     }
     // The mark exists to catch the ring road's stair steps: some, not many.
+    // The budget was a tenth until blocks became masked regions (WORLDGEN.md
+    // §13.6 step 2): pieces beside an avenue now kerb their side of it where
+    // the old rect fill often stood a building instead, so the diagonal
+    // avenues carry more kerb — and every kerb tile on a diagonal is a spot
+    // the inference rightly refuses to trust. An eighth is still "not many".
     expect(crosswise).toBeGreaterThan(0);
-    expect(crosswise).toBeLessThan(map.parkingSpots.length / 10);
+    expect(crosswise).toBeLessThan(map.parkingSpots.length / 8);
   });
 
   it('player spawns are walkable, inside the map, and spread apart', () => {

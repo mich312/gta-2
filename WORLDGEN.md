@@ -1436,7 +1436,27 @@ nothing touches the sim and nothing adds a runtime pass:
 1. **Review tooling** — `mapgen --crop`, per-borough stats, the contact
    sheet. No map change. **DELIVERED** (§13.5, last bullet).
 2. **Region blocks** — the fabric-neutral refactor. Must reproduce today's
-   city; the mapgen diff is the acceptance test.
+   city; the mapgen diff is the acceptance test. **DELIVERED.** A block is
+   now the connected ground between carved streets: a rect no road crosses
+   comes out exactly as before (full box, every tile a member — same fill
+   seed, same picture), and a rect an avenue crosses becomes one masked
+   piece per side, each filling toward its own frontage instead of one fill
+   scattering fragments across four lanes of road. The mask reaches the
+   fill through one chokepoint (`Ctx.within`, consulted by `blocked()` in
+   `buildings.ts`), so every placement test — painting, footprints,
+   sidewalk — respects it without knowing it exists. 1054 blocks became
+   1221 (167 avenue-made pieces); 2.0% of tiles changed, all of it along
+   avenues, borough seams and through the parks; the checker's counts came
+   out level or better (436 unreachable tiles against 445 before, the same
+   16 drowned road tiles). Two things the diff taught: park ponds and
+   bandstands now prove a margin of ground around them rather than
+   trusting the box (a motorway median through a park has a park-sized
+   box, and the first bake put a pond on it), and the diagonal avenues
+   carry more kerb than before — the old rect fill often stood a building
+   where a piece now lays pavement — which raised the crosswise-parking
+   mark from a tenth to an eighth of spots and moved four scene-staged
+   police/noise tests onto sturdier staging (posted posses and
+   ring-density-scored lanes instead of kerb-geometry luck).
 3. **`grid` + `angle`** — rotate Old Quarter to its harbour, Port Vasco to
    its island axis, Sunridge to its seafront. First visible seams between
    boroughs; cheapest fabric, validates the whole path.

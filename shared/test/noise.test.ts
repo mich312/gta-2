@@ -23,6 +23,7 @@ import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { isSolidTile } from '../src/world/collide.js';
+import { rayWallDistance } from '../src/sim/weapons.js';
 import { T_BUILDING, TILE_SIZE } from '../src/world/types.js';
 import { clearSpot } from './helpers.js';
 
@@ -84,33 +85,36 @@ describe('weapon noise (M2)', () => {
     // The officer must be in EARSHOT of anything loud but out of SIGHT:
     // noticedBy is hearing OR line of sight, so an officer with a clear
     // view is noticed by a silenced shot too — correctly. The old staging
-    // (a flat +60,+60 offset) passed only while a wall happened to sit on
-    // that diagonal. Find the wall deliberately: walk a cardinal from the
-    // shooter to the first building, then post the officer just past it.
+    // walked a cardinal from the shooter to the first building and posted
+    // the officer just past it, which held only while every spawn had a
+    // wall on a cardinal within sixteen tiles — seven of sixteen no longer
+    // do. So state the actual requirement and search for THAT: an open
+    // tile past the quiet gun's noise radius, inside the loud gun's, with
+    // a wall on the line between officer and shooter. Any city that can
+    // fail this search has no cover in earshot of a shotgun, and that
+    // would be worth a test failure.
     const copSpotBehindWall = (p: { x: number; y: number }): { x: number; y: number } | null => {
+      const quiet = getWeaponTuning('silenced')!.noiseRadius * 1.2;
+      const loud = getWeaponTuning('shotgun')!.noiseRadius * 0.9;
       const tx0 = Math.floor(p.x / TILE_SIZE);
       const ty0 = Math.floor(p.y / TILE_SIZE);
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        for (let s = 2; s <= 16; s++) {
-          if (map.tiles[(ty0 + dy * s) * map.widthTiles + (tx0 + dx * s)] !== T_BUILDING) continue;
-          // Twelve tiles of wall to look through, not six: a city block is a
-          // ring of frontage five or six deep now, so an officer standing
-          // behind the building opposite is further behind it than they used
-          // to be.
-          for (let s2 = s + 1; s2 <= s + 12 && s2 <= 22; s2++) {
-            const tx = tx0 + dx * s2;
-            const ty = ty0 + dy * s2;
-            const tile = map.tiles[ty * map.widthTiles + tx];
-            if (tile === T_BUILDING) continue;
-            if (isSolidTile(map, tx, ty, 'land')) break;
-            return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      const reach = Math.ceil(loud / TILE_SIZE);
+      for (let r = 2; r <= reach; r++) {
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx += Math.abs(dy) === r ? 1 : 2 * r) {
+            const tx = tx0 + dx;
+            const ty = ty0 + dy;
+            if (tx < 1 || ty < 1 || tx >= map.widthTiles - 1 || ty >= map.heightTiles - 1) continue;
+            if (map.tiles[ty * map.widthTiles + tx] === T_BUILDING) continue;
+            if (isSolidTile(map, tx, ty, 'land')) continue;
+            const x = (tx + 0.5) * TILE_SIZE;
+            const y = (ty + 0.5) * TILE_SIZE;
+            const d = Math.hypot(x - p.x, y - p.y);
+            if (d <= quiet || d >= loud) continue;
+            // Out of sight: the ray to the shooter hits a wall first.
+            if (rayWallDistance(map, x, y, (p.x - x) / d, (p.y - y) / d, d) >= d) continue;
+            return { x, y };
           }
-          break;
         }
       }
       return null;

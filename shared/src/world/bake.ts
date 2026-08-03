@@ -296,7 +296,10 @@ export function bakeCity(plan: CityPlan): BakedCity {
   const wildAt = (tx: number, ty: number): boolean => fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52;
   for (const b of layout.blocks) {
     const rng = seedRng(deriveSeed(BAKE_SEED, `block.${b.x}.${b.y}`));
-    fillBlock(tiles, W, H, buildings, b, rng, wildAt);
+    const within = (tx: number, ty: number): boolean =>
+      tx >= b.x && ty >= b.y && tx < b.x + b.w && ty < b.y + b.h &&
+      b.mask[(ty - b.y) * b.w + (tx - b.x)] === 1;
+    fillBlock(tiles, W, H, buildings, b, rng, wildAt, within);
   }
 
   // Then the landmark takes its plot back: anything built inside its footprint

@@ -1,7 +1,7 @@
 import { rayWallDistance } from '../src/sim/weapons.js';
 import { drivableTile } from '../src/sim/roadgrid.js';
-import { isSolidAtWorld } from '../src/world/collide.js';
-import { TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.js';
+import { isSolidAtWorld, isSolidTile } from '../src/world/collide.js';
+import { T_BUILDING, TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.js';
 
 /**
  * Geometry helpers for tests.
@@ -185,16 +185,79 @@ export function straightEastLane(
   runTiles = 14,
   widthTiles = 3,
 ): { x: number; y: number } {
+  // Not the FIRST qualifying lane: the one the police can actually turn out
+  // to. Waves stage at kerbside spawn points in a 260-640 px ring around
+  // the suspect (`police.json` spawnMinDist/MaxDist), and a whole wave
+  // wants company — kerbs near other kerbs — before it fields. The first
+  // qualifying lane used to sit deep in the grid where kerbs are thick;
+  // once the city gained avenues and a coastline it landed on a quiet edge
+  // whose ring held thirteen lonely spots, the wave never assembled, and a
+  // test about pursuit measured kerb scarcity instead. So score a fistful
+  // of candidates by ring density and take the busiest.
+  const ringKerbs = (fx: number, fy: number): number => {
+    let n = 0;
+    for (const s of map.vehicleSpawns) {
+      const d = Math.hypot(s.x - fx, s.y - fy);
+      if (d >= 260 && d <= 640) n++;
+    }
+    return n;
+  };
+  let best: { x: number; y: number } | null = null;
+  let bestKerbs = -1;
+  let seen = 0;
   for (const [tx, ty] of fromSpawn(map, 6 + runTiles)) {
     let ok = true;
     for (let i = 0; i < runTiles && ok; i++) {
       for (let r = 0; r < widthTiles && ok; r++) ok = drivableTile(map, tx + i, ty + r);
       if (ok) ok = !drivableTile(map, tx + i, ty - 1) && !drivableTile(map, tx + i, ty + widthTiles);
     }
+    if (!ok) continue;
     // Right-hand traffic: eastbound keeps to the southern row.
-    if (ok) return { x: (tx + 0.5) * TILE_SIZE, y: (ty + widthTiles - 0.5) * TILE_SIZE };
+    const lane = { x: (tx + 0.5) * TILE_SIZE, y: (ty + widthTiles - 0.5) * TILE_SIZE };
+    const kerbs = ringKerbs(lane.x + 5 * TILE_SIZE, lane.y);
+    if (kerbs > bestKerbs) {
+      best = lane;
+      bestKerbs = kerbs;
+    }
+    if (++seen >= 40) break;
   }
+  if (best) return best;
   throw new Error('no straight junction-free street on this map');
+}
+
+/**
+ * Somewhere to stand INSIDE a wall, with twenty tiles of clear approach to
+ * the west of it — for tests that hide a suspect where nobody at street
+ * level can see or reach them, while a cruiser staged on the approach can
+ * genuinely DRIVE at the wall.
+ *
+ * Found rather than assumed: the first building in scan order used to do,
+ * until the first building in scan order became one on a dockside with the
+ * harbour behind it. The wall is five tall and three deep, and the point
+ * returned is the middle of its west face. In a one-tile wall the suspect's
+ * body pokes to within a couple of pixels of both faces, and an officer
+ * casting about on the far side can catch a sliver of them through it — one
+ * glimpse resets the search clock through the radio, and "gives up" never
+ * comes. Hidden must mean hidden.
+ */
+export function spotInsideWall(map: CityMap): { x: number; y: number } | null {
+  for (const [tx, ty] of tilesFromSpawn(map, 24)) {
+    if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
+    let open = true;
+    for (let i = 1; i <= 20 && open; i++) {
+      for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
+    }
+    // ...and a wall deep enough that driving round it is not the easy way,
+    // in both axes.
+    for (let dy = -2; dy <= 2 && open; dy++) {
+      for (let dx = 0; dx <= 2 && open; dx++) {
+        open = map.tiles[(ty + dy) * map.widthTiles + tx + dx] === T_BUILDING;
+      }
+    }
+    if (!open) continue;
+    return { x: (tx + 1.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+  }
+  return null;
 }
 
 /**
