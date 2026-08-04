@@ -1,5 +1,6 @@
 import { HALF_PI, PI, wrapAngle } from '../math/trig.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE, type CityMap } from '../world/types.js';
+import { routeNodes, tilesToJunction, type RoadNet } from './roadnet.js';
 
 /**
  * The road grid as a navigation aid.
@@ -168,11 +169,134 @@ export function planRoute(
   toX: number,
   toY: number,
 ): number[] | null {
-  const w = map.widthTiles;
-  const size = w * map.heightTiles;
   const start = nearestDrivable(map, fromX, fromY);
   const goal = nearestDrivable(map, toX, toY);
   if (start < 0 || goal < 0) return null;
+  const net = map.roadNet;
+  if (net !== undefined) {
+    const tiles = routeOverNet(net, start, goal);
+    if (tiles !== null) return waypoints(tiles, map.widthTiles);
+    // Owned by no junction at either end — a lane on an islet with no
+    // intersection anywhere on it. Rare, and the tile search still answers it.
+    if ((net.owner[start] as number) >= 0 && (net.owner[goal] as number) >= 0) return null;
+  }
+  return planRouteOverTiles(map, start, goal);
+}
+
+/**
+ * The tile path from one drivable tile to another, over the junction graph.
+ *
+ * Three pieces, and only the middle one is a search: walk the flood tree from
+ * the start out to its own junction, cross the city junction by junction,
+ * then walk the tree in from the destination's junction to the destination.
+ * The first and last legs cost nothing at all — every tile already knows its
+ * way home, which is what the flood built.
+ *
+ * Null when either end belongs to no junction, or when no street joins the
+ * two. It does NOT fall back to searching tiles on a genuine disconnection:
+ * "these two are not joined" is a question the graph answers in microseconds
+ * and the tile search answered by flooding the whole city, which is the
+ * twenty-millisecond spike `MAX_EXPANSIONS` existed to cap.
+ */
+function routeOverNet(net: RoadNet, start: number, goal: number): number[] | null {
+  const a = net.owner[start] as number;
+  const b = net.owner[goal] as number;
+  if (a < 0 || b < 0) return null;
+  const raw: number[] = tilesToJunction(net, start);
+  if (a !== b) {
+    const edges = routeNodes(net, a, b);
+    if (edges === null) return null;
+    let at = a;
+    for (const e of edges) {
+      const forward = (net.edgeA[e] as number) === at;
+      const lo = net.pathOff[e] as number;
+      const hi = net.pathOff[e + 1] as number;
+      if (forward) for (let k = lo; k < hi; k++) raw.push(net.pathTiles[k] as number);
+      else for (let k = hi - 1; k >= lo; k--) raw.push(net.pathTiles[k] as number);
+      at = forward ? (net.edgeB[e] as number) : (net.edgeA[e] as number);
+    }
+  }
+  for (const t of tilesToJunction(net, goal).reverse()) raw.push(t);
+
+  // Cut every loop out of it. The walk to a junction goes to whichever of its
+  // tiles the flood happened to seed from, and the street out of it leaves
+  // from another, so the spliced path doubles back on itself around every
+  // node — and around the start too, when the destination lies back down the
+  // street the car is already on. Dropping everything between a tile and its
+  // own second appearance leaves the simple path through the same corridor.
+  const seen = new Map<number, number>();
+  const out: number[] = [];
+  for (const t of raw) {
+    const p = seen.get(t);
+    if (p === undefined) {
+      seen.set(t, out.length);
+      out.push(t);
+      continue;
+    }
+    for (let k = out.length - 1; k > p; k--) seen.delete(out[k] as number);
+    out.length = p + 1;
+  }
+  return out;
+}
+
+/**
+ * A tile path compressed to the corners a driver steers at: where it turns,
+ * plus one every few tiles along a straight.
+ *
+ * Pure corners would be enough to drive by, but the follower judges "off the
+ * plan" by distance to its current waypoint — against a corner half a street
+ * away, every long straight reads as hopelessly lost and the route is
+ * re-planned into a livelock. Bounded spacing keeps waypoint distance an
+ * honest proxy for off-route distance, at a few extra cloned numbers per
+ * straight.
+ */
+function waypoints(tiles: readonly number[], w: number): number[] {
+  const out: number[] = [];
+  let sinceEmit = 0;
+  for (let i = 1; i < tiles.length; i++) {
+    const isLast = i === tiles.length - 1;
+    // Index deltas encode direction (+-1 along x, +-w along y): a change of
+    // delta is a turn. A splice between two junction tiles is not adjacent at
+    // all, which reads as a turn and earns a waypoint, which is right.
+    const turn =
+      !isLast &&
+      (tiles[i] as number) - (tiles[i - 1] as number) !==
+        (tiles[i + 1] as number) - (tiles[i] as number);
+    sinceEmit++;
+    if (turn || isLast || sinceEmit >= ROUTE_SEGMENT_TILES) {
+      const x = (tiles[i] as number) % w;
+      out.push((x + 0.5) * TILE_SIZE, (((tiles[i] as number) - x) / w + 0.5) * TILE_SIZE);
+      sinceEmit = 0;
+    }
+  }
+  // A splice between two tiles of the same junction is a jump, not a step,
+  // and one wider than the follower's repath distance reads to it as being
+  // hopelessly off plan. Halve any such gap until it is short enough; every
+  // point inserted lies between two tiles of one junction, which is a
+  // connected patch of carriageway, so it is somewhere a car can be.
+  for (let i = 2; i < out.length; i += 2) {
+    const dx = (out[i] as number) - (out[i - 2] as number);
+    const dy = (out[i + 1] as number) - (out[i - 1] as number);
+    if (Math.abs(dx) + Math.abs(dy) <= MAX_WAYPOINT_GAP) continue;
+    out.splice(i, 0, (out[i - 2] as number) + dx / 2, (out[i - 1] as number) + dy / 2);
+    i -= 2;
+  }
+  if (out.length === 0 && tiles.length > 0) {
+    const last = tiles[tiles.length - 1] as number;
+    const x = last % w;
+    out.push((x + 0.5) * TILE_SIZE, ((last - x) / w + 0.5) * TILE_SIZE);
+  }
+  return out;
+}
+
+/**
+ * The original search, kept for the carriageway the graph does not reach: a
+ * lane on an islet with no intersection on it, and the bare test fixtures
+ * that have no junction table to build a graph from.
+ */
+function planRouteOverTiles(map: CityMap, start: number, goal: number): number[] | null {
+  const w = map.widthTiles;
+  const size = w * map.heightTiles;
   if (start === goal) {
     const x = goal % w;
     return [(x + 0.5) * TILE_SIZE, ((goal - x) / w + 0.5) * TILE_SIZE];
@@ -233,10 +357,6 @@ export function planRoute(
     const idx = pop() % size;
     if (stamp[idx] === -era) continue; // a stale entry superseded by a better g
     stamp[idx] = -era;
-    // A tick guard, not a quality knob. Without it, a route to somewhere the
-    // roads do not reach exhausts the whole network before returning null,
-    // and on a city this size that is a twenty-millisecond spike against a
-    // thirty-three-millisecond budget.
     if (++expanded > MAX_EXPANSIONS) return null;
     if (idx === goal) {
       found = true;
@@ -261,14 +381,6 @@ export function planRoute(
   }
   if (!found) return null;
 
-  // Walk back to the start, then compress the tile path to waypoints: the
-  // corners where it turns, plus one every few tiles along a straight. Pure
-  // corners would be enough to drive by, but the follower judges "off the
-  // plan" by distance to its current waypoint — against a corner half a
-  // street away, every long straight reads as hopelessly lost and the route
-  // is re-planned into a livelock. Bounded spacing keeps waypoint distance an
-  // honest proxy for off-route distance, at a few extra cloned numbers per
-  // straight.
   // Terminated on the START, not on a sentinel. `cameFrom` is reused scratch
   // that is never cleared, so a leftover value from an earlier search is not
   // -1 and walking until it is walks into another route, or into a cycle.
@@ -278,25 +390,14 @@ export function planRoute(
     if (idx === start) break;
   }
   tiles.reverse();
-  const out: number[] = [];
-  let sinceEmit = 0;
-  for (let i = 1; i < tiles.length; i++) {
-    const isLast = i === tiles.length - 1;
-    // Index deltas encode direction (+-1 along x, +-w along y): a change of
-    // delta is a turn.
-    const turn =
-      !isLast &&
-      (tiles[i] as number) - (tiles[i - 1] as number) !==
-        (tiles[i + 1] as number) - (tiles[i] as number);
-    sinceEmit++;
-    if (turn || isLast || sinceEmit >= ROUTE_SEGMENT_TILES) {
-      const x = (tiles[i] as number) % w;
-      out.push((x + 0.5) * TILE_SIZE, (((tiles[i] as number) - x) / w + 0.5) * TILE_SIZE);
-      sinceEmit = 0;
-    }
-  }
-  return out;
+  return waypoints(tiles, w);
 }
+
+/**
+ * Widest gap allowed between consecutive waypoints, in px. Under
+ * `traffic.REPATH_DIST`, which is what a driver calls lost.
+ */
+const MAX_WAYPOINT_GAP = TILE_SIZE * 5;
 
 /** Longest straight between route waypoints, in tiles. See planRoute. */
 export const ROUTE_SEGMENT_TILES = 6;

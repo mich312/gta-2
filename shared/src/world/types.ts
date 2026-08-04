@@ -312,6 +312,15 @@ export interface CityMap {
    * tile bytes, which is what every host did before there were any.
    */
   shoreIndex?: ShoreIndex;
+  /**
+   * The road network as junctions and the streets between them
+   * (WORLDGEN.md §17.13), derived at generation time from the tiles and the
+   * junction table. Routing searches it instead of the hundred thousand tiles
+   * the roads are painted on. Typed loosely for the same reason `courses` is:
+   * `sim/roadnet.ts` sits above `types.ts` in the import order. Absent means
+   * "no graph here", and routing falls back to searching tiles.
+   */
+  roadNet?: import('../sim/roadnet.js').RoadNet;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];

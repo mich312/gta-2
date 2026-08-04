@@ -2462,7 +2462,7 @@ byte-identical.
 |---|---|---|---|
 | 1 | **The soup, derived** | The bake emits V1/V2/V4 *from the finished tile plane* — marching squares to trace each material's boundary, collinear merge, then simplification — and ships them beside it. No consumer changes. | nothing yet *(superseded: §17.11 replaces this step, and says why)* |
 | 2 | **Collision moves** | `moveWithCollision` clips against edges; `isSolidAtWorld` reads surfaces | the 45°-only shoreline *(DELIVERED for water: §17.12 — and the bevel plane survives it, see there)* |
-| 3 | **The network replaces the probes** | `planRoute` and `traffic.ts` on V3; `signals.ts` labels nodes | `MAX_EXPANSIONS`, the 5 MB A* scratch, the bearing plane (120 kB) |
+| 3 | **The network replaces the probes** | `planRoute` and `traffic.ts` on V3; `signals.ts` labels nodes | `MAX_EXPANSIONS`, the 5 MB A* scratch, the bearing plane (120 kB) *(DELIVERED for routing: §17.13. The follower still probes tiles.)* |
 | 4 | **The bake emits vectors first** | The plan's polygons carried through to V1/V2 instead of recovered from the raster; tiles become an *output* | `trimCourses`' recovery pass; the 880 kB |
 | 5 | **The renderer fills polygons** | Ground chunks painted from surfaces; art as tile-space texture | 46 per-tile branches; the staircase kerb |
 | 6 | **Surfaces get z** | Floor/ceiling per surface; `collide3` adopted against V1 rather than a span grid | `T_BRIDGE` as a material; **the flyover ban** |
@@ -2768,3 +2768,97 @@ need only junctions and widths to become V3, and `planRoute`'s A* over 589,824
 cells with its 60,000-expansion guard becomes a search over some three thousand
 segments. It is the largest single win left for game code, and unlike this wave
 it touches no solver.
+
+### 17.13 The road stops being paint — the network as a graph, DELIVERED
+
+Wave 3. §9.1's first complaint was that roads exist only as painted cells, so
+every consumer reverse-engineers meaning from pixels; §17.5 asked for typed
+nodes and typed edges. This is that, at the level routing needs it: **junctions
+are nodes, the streets between them are edges**, and crossing the city is a
+search over a thousand of them instead of over the hundred thousand tiles they
+are drawn on.
+
+**The claim, checked before it was built.** §17.12 promised this was "the
+largest single win left for game code". Measured first, because a promise is
+not a number: `planRoute` costs **3.54 ms** a call on random city-wide pairs,
+and traffic, ambulance dispatch and errand assignment between them call it
+several times a second against a 33 ms budget. The win was real.
+
+| | |
+|---|---|
+| Nodes / edges | **970 / 1,864**, from 104,385 drivable tiles |
+| `planRoute` | **0.19 ms**, against 3.57 ms over tiles — **19×** |
+| Routes the tile search had given up on | 5 of 300 |
+| Route length against tile-optimal | p50 **1.07**, p95 1.36, max 2.22 |
+| Build | 28 ms once per session; 1.9 MB resident |
+| Waypoints off carriageway | 0 |
+| Tests | 881 pass; host parity green, and the 600-tick hash is UNCHANGED |
+
+**Why this one is derived from the tiles, when §17.11 said not to.** That rule
+was about *geometry*: tracing a raster gives back the staircase, so the shore
+had to come from the field it was thresholded from. **Topology is not damaged
+by rasterisation.** A junction is a junction whatever it is drawn on, and which
+junction connects to which is exactly as true in the bytes as in the drawing.
+The courses (§16) were the obvious source and were measured and rejected: they
+cover 80% of the carriageway — a fifth of the city would have had no graph, and
+routing would have fallen back to the tile search constantly. The tiles cover
+all of it. What they cannot supply is where an edge *runs*: the paths here are
+chains of tile centres, staircase and all, and marrying them to the courses
+belongs to the wave that gives the bake a network to emit.
+
+**One flood, not a thousand searches.** Every junction tile seeds a
+breadth-first wave at distance zero and they spread over the carriageway
+together. Each tile ends up owned by the junction nearest it *along the road*,
+carrying the direction the wave arrived from — so every tile in the city
+already knows its way to its own junction and the first and last leg of every
+route cost nothing at all. Where two owners meet, their junctions have a street
+between them, and its length is what the two waves had travelled. One pass
+builds every node, every edge and every path.
+
+The one thing that needs care is what the splicing leaves behind. A walk out to
+a junction ends at whichever of its tiles the flood seeded from, and the street
+out of it leaves from another, so the assembled path doubles back on itself
+around every node — and around the start too, whenever the destination lies
+back down the street the car is already on. Cutting everything between a tile
+and its own second appearance leaves the simple path through the same corridor,
+and is also what turns a U-turn at the start into no U-turn at all.
+
+**The invariants** (`roadnet.test.ts`), and the middle one is load-bearing:
+
+- **Coverage.** Every drivable tile is owned by a junction. Not a quota, a
+  property: there is nowhere a car can be that routing cannot start from.
+- **The graph agrees with the tiles about what connects to what.** Flood the
+  drivable tiles for their true connected components, flood the graph for its
+  own, and assert the two partitions are identical. The graph can therefore
+  never claim a route the roads do not have, nor deny one they do — which is
+  what makes it safe to stop falling back to the tile search on a failure, and
+  that is where the twenty-millisecond spike went.
+- **The tree terminates and its steps are steps.** Every walk home is over
+  carriageway, one tile at a time, ending at a junction.
+- **Routes are drivable.** Every waypoint on carriageway, and no two waypoints
+  further apart than the follower's repath distance — a splice inside a
+  junction is a jump rather than a step, and an unhalved one reads to a driver
+  as being hopelessly off plan.
+- **It is a pure function of the map.** Rebuild it, get the same arrays.
+
+**What it cost.** Routes are about 7% longer than tile-optimal at the median
+and up to 2.2× at the worst, because a route now goes *via junctions* rather
+than wherever the tiles allow. That is the price of the abstraction and it buys
+the nineteen-fold: a car takes a plausible route rather than an optimal one,
+which is what drivers do. Nothing in the game measures route length, and the
+600-tick parity hash did not move.
+
+**What is owed.** The 1.9 MB is one `Int16` and one byte per tile — the
+`fromDir`/no-`depth` economy that §17.12's shore index still owes and should
+now be held to. Edges carry a length and nothing else: no width, no kind, no
+one-way flag, no lanes, though the courses have width and kind sitting right
+there. And `traffic.ts` still probes tiles for `dirIsOpen` and still fans
+bearings when the cardinals fail (`traffic.ts:560`) — the graph answers that
+question directly, and converting the *follower* is the next wave rather than
+this one.
+
+**Where §17 stands.** Three of the seven steps have landed, in the corrected
+order: the shore is a curve (§17.11), collision reads it (§17.12), routing
+reads a graph (§17.13). The tile plane is still the master for everything else,
+and the two biggest remaining items are unchanged — the bake emitting vectors
+first, and surfaces with a floor and a ceiling, which is the flyover.
