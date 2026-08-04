@@ -590,11 +590,129 @@ have cost the one glow that marks a red light at night.
 
 ---
 
+## §9 "Houses on roads, black squares, the shore is buggy — and ships sail through land" (fourth pass)
+
+Five complaints, reported together against the 3D renderer. Four of them are
+one bug, and it is one line long; a fifth turned up while looking.
+
+### 9.1 The painted ground was mirrored inside every chunk — FIXED
+
+`GroundLayer` lays the 2D painter's work over the instanced city as one
+textured quad per 8×8-tile chunk. `TileLayer.groundChunk` paints top-down —
+tile row `ty0` into canvas row 0 — and a `CanvasTexture` uploads with
+`flipY = true`, because WebGL's texture origin is the bottom-left and a
+canvas's is the top-left. In a y-UP scene those two turns cancel and the
+painting lands the right way up.
+
+This scene is not y-up. `CityView` scales the world group by −1 in y so the
+game's y-DOWN coordinates land where the radar says they are (that flip has
+its own test, `cityOrientation.test.ts`). The mirror is applied to the quad's
+GEOMETRY; the texture never heard about it. So every chunk showed its
+painting **upside down within its own 128 px square** — the north row painted
+at the south edge — while the boxes underneath, the buildings, the water and
+the collision were all correct.
+
+Measured over the shipped city at seed 7, that is:
+
+- **62.8%** of the 40,110 building tiles were painted with some other tile's
+  surface, and **36.2%** — 14,532 of them — were painted **carriageway or
+  pavement**. Better than a third of every building in the city stood on a
+  painted road, lane lines running under the walls. *"Houses on roads."*
+- The `wallShade` fill the painter puts under a building — a colour meant
+  never to be seen, because a building covers its own footprint — was drawn
+  out in the open two or three tiles off its block. Near-black, hard-edged,
+  building-shaped. *"Black squares."*
+- **7,418 water tiles** kept the opaque ground plane over them, because the
+  cutout mask carries the same flip: open water painted as land, at
+  `z = +0.06`, over a river surface at `z = −8`. And the same 7,418 land
+  tiles had the hole punched through them instead. *"The shore is buggy"* —
+  and it is also both boat complaints, because a hull sails the water the
+  SIM knows about: through the land it appeared to have been given, and into
+  the land that had been painted as sea. *"Ships can drive through land and
+  there may be a collision on the sea."*
+
+The repair is `texture.flipY = false` on all three of a chunk's maps — the
+painting, the wetness mask and the water cutout — with the reasoning written
+where the next person will look for it. `groundOrientation.test.ts` holds it:
+the real `PlaneGeometry` UVs, the real world-group scale, and an assertion
+that the chunk's north edge samples canvas row 0. Its second case asserts the
+mirror is still there without the flag, so the test is known to be measuring
+something. Evidence: `evidence/bug-ground-mirrored.png` against
+`fixed-ground-mirrored.png`, and `bug-ground-black-squares.png` against
+`fixed-ground-black-squares.png`.
+
+Nothing outside the renderer moved. The tiles, the volume grid, the bake and
+the collision were right the whole time, which is why nothing in 829 tests
+noticed — a mirrored city is a plausible city, the same trap `cityOrientation`
+was written for.
+
+### 9.2 The boats were never the problem — NOT REPRODUCED in the sim
+
+Checked separately from the paint, because "ships drive through land" would be
+a serious collision fault if it were one. It is not:
+
+- 3,200 runs — 400 moorings × 8 headings, full throttle, 200 ticks each —
+  put **zero** boat centres on a non-water tile. `plainSolid` makes every
+  tile that is not `T_WATER` or `T_BRIDGE` solid in the water medium, and the
+  bevel path makes a chamfered headland solid on the half that is land.
+- Every one of the 271,903 water tiles with two tiles of water clearance in
+  all directions — anything that could be called open sea — is clear to a
+  boat's 11 px hull box. There is no invisible wall out there.
+- All 1,524 bridge tiles are open to a boat, so nothing can be shut in.
+
+What the player hit was the mirrored paint in §9.1, in both directions.
+
+### 9.3 Orphan course ribbons — FIXED
+
+Not in the report, found while looking. §16's course painter strokes each
+recorded centreline as a ribbon; `bake.ts:trimCourses` keeps only the runs
+whose every half-tile sample lands on carriageway, and dropped what was left
+under three tiles. Three tiles was too short: at tile (530, 206) a four-tile,
+two-point street course survived as an isolated ribbon lying at 20° across an
+ordinary square crossroads, kerb casing, edge lines, centre dash and all —
+carriageway painted where no carriageway runs, and where such a stub crosses
+a block it paints road under a house. 65 of the 409 courses were under four
+tiles, 83 under six.
+
+**Where the first guess was wrong.** The note left here said the rule wanted
+was a direction test — drop a ribbon that disagrees with the road mass under
+it, as `bevel.ts` phase 3 does for the diagonal kerbs. Measured against the
+actual stub, no local test tells it from a road. The road runs three tiles
+either way perpendicular to it, its band is fully covered, and both ends
+carry on into more road — because it is inside a crossroads, where every one
+of those is true of any direction you pick. What is wrong with it is that it
+is four tiles long: short enough to hide inside the junction it crosses.
+
+So the floor is stated against the thing it has to outgrow, in the ribbon's
+own terms: **three times the course's own carriageway width** — nine tiles
+for a street, twelve for an avenue or the ring. The widest crossing in the
+city is two arterials meeting, about six tiles across the kerbs and eight
+corner to corner, so the floor clears it with room; and a stroke shorter than
+a few times its width reads as a blob rather than a line whatever it is lying
+on.
+
+Re-baked (`pnpm citybake`): **409 courses → 289**, all 120 of them under ten
+tiles. The tile and district planes hash identical to the previous bake and
+every ground statistic is unchanged — nobody's city moved, and the buildings,
+shops and landmarks are the same records. Of the ribbon that anybody can see,
+**97.8%** survives (27,700 → 27,086 tiles of painted centreline); the 25–100
+and 100+ tile courses are untouched, so the ring, the avenues and the
+borough-length streets §16 was written for are all still drawn as one line.
+Dropping a stub costs nothing else: the tiles are untouched, and `courseCover`
+lifts with the course, so the per-tile lane markings come straight back
+underneath.
+
+`courses.test.ts` gained the floor as an invariant, and a second case holding
+the long courses so a future floor cannot quietly eat them. Evidence:
+`evidence/bug-course-stub.png` against `fixed-course-stub.png`.
+
+---
+
 ## Reproducing
 
 ```bash
 pnpm install && pnpm build
-pnpm test                                   # 776 tests
+pnpm test                                   # 831 tests
 pnpm --filter client dev
 
 # terrain, no player in the way — drive the camera with __city.lookAt(x, y)

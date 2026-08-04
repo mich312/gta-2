@@ -618,6 +618,42 @@ export function bakeCity(plan: CityPlan): BakedCity {
 }
 
 /**
+ * A run has to be this many times its own carriageway width to be kept.
+ *
+ * The trim's original floor was a flat three tiles, from the wave where the
+ * only courses were the ring and the long avenues — nothing short survived
+ * anyway, so the number was never tested. The second wave brought 409
+ * courses from every street family, and short survivors became common: 65 of
+ * them under four tiles.
+ *
+ * A four-tile survivor is not a road. What it is, every time, is the piece of
+ * some carved-away line that happened to cross a JUNCTION — and a junction is
+ * road in all directions by construction, so every centreline sample lands on
+ * carriageway and the run passes the trim. Painted, it is an isolated ribbon
+ * lying across a square crossroads at whatever angle its parent line ran:
+ * kerb casing, edge lines and centre dash included. `evidence/` has one at
+ * tile (530, 206), 20° across a plain four-way.
+ *
+ * No local geometry tells that stub from a road. Perpendicular to it the road
+ * runs three tiles either way, its ends carry on into more road, and its band
+ * is fully covered — because it is inside a crossroads, where all of that is
+ * true of any direction you pick. The one thing that distinguishes it is its
+ * LENGTH: it is short enough to hide inside the junction it crosses. So the
+ * floor is stated against the thing it has to outgrow. The widest crossing in
+ * the city is two arterials (`ARTERIAL_WIDTH`, four tiles) meeting, about six
+ * tiles across the kerbs and eight corner to corner; three times a course's
+ * own width — nine tiles for a street, twelve for an avenue or the ring —
+ * clears that with room, and is the same statement in the ribbon's own terms:
+ * a stroke shorter than a few times its width reads as a blob, not a line.
+ *
+ * Dropping a run costs nothing but the smooth kerb on a stretch too short to
+ * see it on. The tiles are untouched, so the road is still there and still
+ * drivable, and `courseCover` lifts with the course it belonged to — the
+ * per-tile lane markings come straight back underneath.
+ */
+const MIN_RUN_WIDTHS = 3;
+
+/**
  * Keep only the stretches of each course that still run over carriageway.
  *
  * The courses were recorded while carving, but a dozen passes have run
@@ -625,8 +661,9 @@ export function bakeCity(plan: CityPlan): BakedCity {
  * plot back — and a painted ribbon over ground that is not road any more
  * would be the renderer contradicting the map. Long segments are split to
  * trimming granularity first, every half tile of each is sampled against
- * the FINISHED tiles, and only unbroken runs survive; stubs shorter than
- * three tiles are dropped rather than left as orphan streaks.
+ * the FINISHED tiles, and only unbroken runs survive; stubs too short to be
+ * anything but a streak across a junction are dropped — see
+ * `MIN_RUN_WIDTHS`.
  */
 function trimCourses(
   courses: StreetCourse[],
@@ -665,10 +702,11 @@ function trimCourses(
       pts.push([q(lx), q(ly)]);
     }
 
+    const minRun = Math.max(3, course.width * MIN_RUN_WIDTHS);
     let run: Array<readonly [number, number]> = [];
     let runLen = 0;
     const flush = (): void => {
-      if (run.length >= 2 && runLen >= 3) {
+      if (run.length >= 2 && runLen >= minRun) {
         out.push({ points: run, width: course.width, kind: course.kind });
       }
       run = [];

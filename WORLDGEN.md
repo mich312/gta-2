@@ -2109,10 +2109,23 @@ the borough. The contour and spine bands have no polyline — they are
 per-tile predicates over a distance field — so the curve is RECOVERED:
 the band's centre iso-tiles are chained by a greedy nearest-unvisited
 walk, relaxed twice with a moving average to shed the chamfer field's
-octagonal facets, and trimmed like everything else. 409 courses,
-10,006 points; the per-tile probes that keep a band off a neighbouring
+octagonal facets, and trimmed like everything else. 289 courses,
+9,658 points; the per-tile probes that keep a band off a neighbouring
 road never need re-stating, because the trim clips to what was carved.
 Evidence: `evidence/city-3d-contour.png`, `city-3d-crescent.png`. Zebra crossings across a course
 vanish with the suppressed per-tile marks; crossings that follow the
 curve want course-space placement. And the ribbon's flat asphalt could
 carry grain once the painter can clip to a stroked path.
+
+**The trim's floor, corrected (BUGS.md §9.3).** This wave shipped 409
+courses under a flat three-tile floor, and 120 of them were streaks
+rather than roads: a junction is carriageway in every direction, so a
+few tiles of a carved-away line crossing a crossroads passes every
+sample the trim takes, and paints an isolated ribbon at whatever angle
+its parent ran. The floor is now three times the course's own width —
+nine tiles for a street, twelve for an avenue or the ring — which is
+more than the widest crossing in the city measures corner to corner.
+289 courses survive with 97.8% of the painted centreline length; the
+tile and district planes hash identical to the previous bake, so this
+moved paint and nothing else. `courses.test.ts` holds both ends of it:
+no stub under the floor, and the long courses still there.

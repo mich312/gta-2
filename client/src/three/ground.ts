@@ -61,6 +61,53 @@ const MARGIN_CHUNKS = 1;
 /** How many chunks may be painted in one frame. A paint is 64 tiles of canvas. */
 const BUILDS_PER_FRAME = 2;
 
+/**
+ * Undo three.js's upload flip, because the world group already flipped.
+ *
+ * A `CanvasTexture` uploads with `flipY = true`: WebGL's texture origin is the
+ * BOTTOM-left and a canvas's is the top-left, so three.js turns the image over
+ * on the way to the GPU and `v = 0` lands on the canvas's LAST row. A plane's
+ * own UVs put `v = 0` on its `-y` edge, so out of the box a quad shows the
+ * canvas the right way up in a y-UP scene.
+ *
+ * This scene is not y-up. `CityView` scales the world group by −1 in y so that
+ * the game's y-DOWN coordinates land where the radar says they are, and that
+ * mirror is applied to the quad's geometry, not to its texture — so the
+ * painting arrived mirrored north-for-south inside every chunk. `groundChunk`
+ * paints row `ty0` at canvas y = 0, and it was being shown at the chunk's
+ * SOUTH edge.
+ *
+ * What that looked like: the building footprints, which the painter fills with
+ * `wallShade` because a building normally covers them, were drawn out in the
+ * open as near-black rectangles a couple of tiles off their block; the
+ * carriageway, its lane lines and its crossings were painted across the block
+ * interiors so buildings stood in the middle of a road; and the water cutout —
+ * the same flip, in the mask that punches the river through the ground plane —
+ * put the hole on the mirror image of the coast, so the sea showed through dry
+ * land and the ground plane floated over open water.
+ *
+ * One flag per texture, and the mirror cancels. Nothing else on these quads
+ * cares which way the image went up.
+ *
+ * Exported, with `chunkQuad` below, so the orientation can be held to its
+ * contract without a GPU: a mirrored city is a plausible-looking city, which
+ * is exactly why this shipped and why it gets a test.
+ */
+export function flipForWorld(texture: THREE.Texture): void {
+  texture.flipY = false;
+}
+
+/**
+ * The quad one painted chunk is shown on: `CHUNK_WORLD` square, in the plane.
+ *
+ * A function rather than a constant because the layer shares ONE geometry
+ * across every chunk and the test needs its own; what matters to both is that
+ * the UVs come from the same construction.
+ */
+export function chunkQuad(): THREE.PlaneGeometry {
+  return new THREE.PlaneGeometry(CHUNK_WORLD, CHUNK_WORLD);
+}
+
 interface Tile {
   mesh: THREE.Mesh;
   texture: THREE.Texture;
@@ -172,7 +219,7 @@ export class GroundLayer {
     private readonly painter: TileLayer,
   ) {
     // One plane, shared by every chunk; only the transform and the map differ.
-    this.geometry = new THREE.PlaneGeometry(CHUNK_WORLD, CHUNK_WORLD);
+    this.geometry = chunkQuad();
     scene.add(this.group);
   }
 
@@ -226,6 +273,7 @@ export class GroundLayer {
     // The canvas is authored in sRGB; without this it is treated as linear and
     // every painted surface comes out washed out against the boxes beneath.
     texture.colorSpace = THREE.SRGBColorSpace;
+    flipForWorld(texture);
     // Pixel art, sampled as pixel art. The default linear magnification plus a
     // mipmap chain smeared every 1-px lane line and paving joint across two
     // screen pixels — crawling as the camera moved — and gave each chunk its
@@ -243,6 +291,7 @@ export class GroundLayer {
     // One texel per tile, and a number rather than a colour: no filtering, no
     // colour space. A blurred edge here would put a wet fringe on the grass.
     const surface = new THREE.CanvasTexture(surfaceCanvas);
+    flipForWorld(surface);
     surface.magFilter = THREE.NearestFilter;
     surface.minFilter = THREE.NearestFilter;
     surface.generateMipmaps = false;
@@ -252,6 +301,7 @@ export class GroundLayer {
     // `GroundChunk.cut` for why the hole lives in its own mask rather than in
     // the painting's alpha channel.
     const cutTex = new THREE.CanvasTexture(cut);
+    flipForWorld(cutTex);
     cutTex.magFilter = THREE.NearestFilter;
     cutTex.minFilter = THREE.NearestFilter;
     cutTex.generateMipmaps = false;
