@@ -68,6 +68,20 @@ export interface LayoutBlock extends BlockRect {
   shaped: boolean;
 }
 
+/**
+ * A carved street's own geometry, kept after the disc has swept it: the
+ * centreline polyline in tile units and the width it was carved at. What
+ * the tiles cannot say — the tiles are the staircase, this is the curve —
+ * and therefore what the renderer strokes to draw the road in one line
+ * (WORLDGEN.md §16). `ring` carriageways are already offset from the
+ * median; `avenue` is any other authored road.
+ */
+export interface StreetCourse {
+  points: Array<readonly [number, number]>;
+  width: number;
+  kind: 'avenue' | 'ring';
+}
+
 export interface CityLayout {
   widthTiles: number;
   heightTiles: number;
@@ -82,6 +96,8 @@ export interface CityLayout {
   sheer: Uint8Array;
   /** Street-grid bearing per tile, degrees 0..179; 0 on the screen axes. */
   bearing: Uint8Array;
+  /** The authored roads as carved: the curves the tile bands rasterise. */
+  courses: StreetCourse[];
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -568,6 +584,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // places the lattice may touch it.
   const ringMask = new Uint8Array(W * H);
   const avenueMask = new Uint8Array(W * H);
+  // The courses themselves, kept after carving (WORLDGEN.md §16). The
+  // renderer has only ever seen the rasterised band, which is why every
+  // curved road on screen is a staircase: the curve exists right here and
+  // was thrown away. Recorded in tile units, exactly as carved — offsets,
+  // smoothing and all — so what the painter strokes is what the disc swept.
+  const courses: StreetCourse[] = [];
   let carveMark: Uint8Array | null = null;
   const markingLay = (tx: number, ty: number, along: PlanPoint | null): void => {
     lay(tx, ty, along);
@@ -581,10 +603,15 @@ export function buildLayout(plan: CityPlan): CityLayout {
     carveMark = road.median > 0 ? ringMask : avenueMask;
     if (road.median > 0) {
       const off = (road.median + road.width) / 2;
-      carveCourse(offsetCourse(pts, off), road.width, road.bridges, markingLay);
-      carveCourse(offsetCourse(pts, -off), road.width, road.bridges, markingLay);
+      const a = offsetCourse(pts, off);
+      const b = offsetCourse(pts, -off);
+      carveCourse(a, road.width, road.bridges, markingLay);
+      carveCourse(b, road.width, road.bridges, markingLay);
+      courses.push({ points: a, width: road.width, kind: 'ring' });
+      courses.push({ points: b, width: road.width, kind: 'ring' });
     } else {
       carveCourse(pts, road.width, road.bridges, markingLay);
+      courses.push({ points: pts, width: road.width, kind: 'avenue' });
     }
     carveMark = null;
   }
@@ -2035,5 +2062,5 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
-  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing };
+  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing, courses };
 }

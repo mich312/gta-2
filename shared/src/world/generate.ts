@@ -70,6 +70,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     tiles: baked.tiles.slice(),
     district: baked.district.slice(),
     bearing: baked.bearing,
+    courses: baked.courses,
     blocks: baked.blocks,
     buildings: baked.buildings.slice(),
     shops: baked.shops.map((s) => ({ ...s })),

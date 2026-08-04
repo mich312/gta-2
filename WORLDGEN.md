@@ -2046,3 +2046,64 @@ The rest of the orthogonality, ranked as next steps:
    diagonal PLACEMENT — a building footprint rasterised at 45° along a
    diagonal avenue is just a run of bevelled corner tiles once the
    drawing can keep up.
+
+---
+
+## 16. The road drawn in one line — street courses
+
+### 16.1 The review
+
+§15's bevels made the diagonal possible, but a curve is not a diagonal:
+the ring road and the curved avenues still rasterise to stair-stepped
+bands, their centre lines quantised to 45° dashes hopping tile to tile,
+their kerbs a staircase the bevels could only chamfer. The absurdity is
+that the curve EXISTS — `carveCourse` (`layout.ts`) sweeps a disc along
+a smoothed polyline, which is why the bands turn at all — and the bake
+threw the polyline away, shipping only its rasterisation. The renderer
+has been reconstructing curves from their own wreckage (`diagonalRoadDir`
+covariance, run measurements) when the source geometry was one field
+away from being kept.
+
+### 16.2 The design
+
+Keep the courses. `StreetCourse` (`layout.ts`): the centreline polyline
+in tile units, the carve width, and the kind (`ring` carriageways
+already offset from the median; `avenue` otherwise). Recorded at the
+three `carveCourse` call sites — exactly what the disc swept, offsets
+and smoothing included — TRIMMED against the finished tiles at the end
+of the bake (`bake.ts:trimCourses`: every half-tile sample of every
+segment must land on carriageway, stubs under three tiles dropped, and
+the polyline is quantised to the shipped hundredth-of-a-tile BEFORE
+sampling, because trimming the true line and shipping a rounded one let
+a point round across a tile boundary), and shipped in the baked city.
+Tiles, collision, traffic: untouched — the band remains the drivable
+truth, and the ground bake is byte-identical to the previous one.
+
+The painter (`tiles.ts:paintCourses`) strokes them per chunk in
+map-renderer order, all courses per pass: every kerb casing, then every
+carriageway fill — so where two courses meet, the later fill opens the
+junction through the earlier casing — then edge lines, then the centre
+dash, one continuous curve through the whole course. Per-tile road
+marks are suppressed on covered tiles (`courseCover`, swept exactly as
+the carve swept): the ribbon and the staircase disagreeing about where
+the road runs is worse than either alone. The 3D ground takes the same
+chunks as textures, so the curve arrives in both renderers from one
+painting.
+
+### 16.3 DELIVERED
+
+23 courses, 1,933 points, ~30 kB of bake. All 826 tests pass;
+`courses.test.ts` holds the invariants (the ring ships both
+carriageways, every centreline sample sits on carriageway, the wire
+form round-trips at the shipped quantisation). Evidence:
+`evidence/city-3d-ring.png` — the ring road curving through open
+country as one stroked line, dashes flowing unbroken through the bend,
+beside a straight avenue keeping its per-tile furniture.
+
+What stays for the next wave: the contour and wavy lattice streets are
+carved from field bands and wave functions rather than polylines, so
+they have no course to keep yet — tracing one at carve time is the same
+one-hook change `carveCourse` got. Zebra crossings across a course
+vanish with the suppressed per-tile marks; crossings that follow the
+curve want course-space placement. And the ribbon's flat asphalt could
+carry grain once the painter can clip to a stroked path.

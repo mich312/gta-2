@@ -221,6 +221,23 @@ export class TileLayer {
   private runV: Uint8Array = new Uint8Array(0);
   private idxH: Uint8Array = new Uint8Array(0);
   private idxV: Uint8Array = new Uint8Array(0);
+  /**
+   * The authored road courses in world px, ready to stroke (§16): the curve
+   * each tile band rasterises, drawn as one line. `cover` marks the tiles a
+   * course runs over, so the per-tile painter keeps its marks off them —
+   * ribbon paint and stair-step paint on the same tarmac is two centre
+   * lines disagreeing about where the road is.
+   */
+  private ribbons: Array<{
+    pts: Float64Array;
+    widthPx: number;
+    kind: string;
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+  }> = [];
+  private courseCover: Uint8Array | null = null;
 
   constructor(private readonly sprites: SpriteSheet) {}
 
@@ -232,6 +249,140 @@ export class TileLayer {
     this.indexBuildings(map);
     this.indexShops(map);
     this.indexRoadRuns(map);
+    this.indexCourses(map);
+  }
+
+  /** World-px ribbons and the tile cover mask, from the baked courses. */
+  private indexCourses(map: CityMap): void {
+    this.ribbons = [];
+    this.courseCover = null;
+    const courses = map.courses ?? [];
+    if (courses.length === 0) return;
+    const cover = new Uint8Array(map.widthTiles * map.heightTiles);
+    for (const c of courses) {
+      const pts = new Float64Array(c.points.length * 2);
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      c.points.forEach(([px, py], i) => {
+        const wx = px * TILE_SIZE;
+        const wy = py * TILE_SIZE;
+        pts[i * 2] = wx;
+        pts[i * 2 + 1] = wy;
+        if (wx < minX) minX = wx;
+        if (wy < minY) minY = wy;
+        if (wx > maxX) maxX = wx;
+        if (wy > maxY) maxY = wy;
+      });
+      const pad = (c.width / 2) * TILE_SIZE + TILE_SIZE;
+      this.ribbons.push({
+        pts,
+        widthPx: c.width * TILE_SIZE,
+        kind: c.kind,
+        minX: minX - pad,
+        minY: minY - pad,
+        maxX: maxX + pad,
+        maxY: maxY + pad,
+      });
+      // The cover mask, swept exactly as the carve swept its disc.
+      const half = c.width / 2 + 0.05;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - half - 1));
+        const x1 = Math.min(map.widthTiles - 1, Math.ceil(Math.max(ax, bx) + half + 1));
+        const y0 = Math.max(0, Math.floor(Math.min(ay, by) - half - 1));
+        const y1 = Math.min(map.heightTiles - 1, Math.ceil(Math.max(ay, by) + half + 1));
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy || 1;
+        for (let ty = y0; ty <= y1; ty++) {
+          for (let tx = x0; tx <= x1; tx++) {
+            const px = tx + 0.5 - ax;
+            const py = ty + 0.5 - ay;
+            const t = Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
+            const qx = px - t * dx;
+            const qy = py - t * dy;
+            if (qx * qx + qy * qy <= half * half) cover[ty * map.widthTiles + tx] = 1;
+          }
+        }
+      }
+    }
+    this.courseCover = cover;
+  }
+
+  /**
+   * Stroke the road courses through one chunk: the curve, drawn as a curve.
+   *
+   * Map-renderer order, all courses per pass: every casing first, then
+   * every carriageway fill — so where two courses meet, the second fill
+   * paints over the first one's casing and the junction opens itself — then
+   * edge lines and the centre dash on top. The centre line is the course's
+   * own polyline, midpoint-smoothed, which is the "one line" the §16 review
+   * asked for: no stair steps, no per-tile quantisation, dashes flowing
+   * unbroken through every curve.
+   */
+  private paintCourses(ctx: CanvasRenderingContext2D, tx0: number, ty0: number): void {
+    if (this.ribbons.length === 0) return;
+    const wx0 = tx0 * TILE_SIZE;
+    const wy0 = ty0 * TILE_SIZE;
+    const wx1 = wx0 + CHUNK_TILES * TILE_SIZE;
+    const wy1 = wy0 + CHUNK_TILES * TILE_SIZE;
+    const near = this.ribbons.filter((r) => r.maxX > wx0 && r.minX < wx1 && r.maxY > wy0 && r.minY < wy1);
+    if (near.length === 0) return;
+
+    const t = RENDER_SCALE;
+    const paths = near.map((r) => {
+      const path = new Path2D();
+      const px = (i: number): number => ((r.pts[i * 2] as number) - wx0) * t;
+      const py = (i: number): number => ((r.pts[i * 2 + 1] as number) - wy0) * t;
+      const n = r.pts.length / 2;
+      path.moveTo(px(0), py(0));
+      if (n === 2) {
+        path.lineTo(px(1), py(1));
+      } else {
+        for (let i = 1; i < n - 1; i++) {
+          path.quadraticCurveTo(px(i), py(i), (px(i) + px(i + 1)) / 2, (py(i) + py(i + 1)) / 2);
+        }
+        path.lineTo(px(n - 1), py(n - 1));
+      }
+      return { path, w: r.widthPx * t };
+    });
+
+    ctx.save();
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'butt';
+    // Kerb casing, proud of the carriageway by the kerb band's width.
+    ctx.strokeStyle = palette.kerb;
+    for (const p of paths) {
+      ctx.lineWidth = p.w + 4 * t;
+      ctx.stroke(p.path);
+    }
+    // The carriageway itself.
+    ctx.strokeStyle = palette.road;
+    for (const p of paths) {
+      ctx.lineWidth = p.w;
+      ctx.stroke(p.path);
+    }
+    // Edge lines, held one world px off the kerb, as the straight streets
+    // hold theirs: a pale ring left by two strokes, then the interior
+    // repainted over it.
+    for (const p of paths) {
+      ctx.strokeStyle = palette.roadLane;
+      ctx.lineWidth = p.w - 2 * t;
+      ctx.stroke(p.path);
+      ctx.strokeStyle = palette.road;
+      ctx.lineWidth = p.w - 4 * t;
+      ctx.stroke(p.path);
+    }
+    // The centre line: one dashed curve, flowing through the whole course.
+    ctx.setLineDash([4 * t, 6 * t]);
+    ctx.strokeStyle = palette.roadLane;
+    ctx.lineWidth = t;
+    for (const p of paths) ctx.stroke(p.path);
+    ctx.setLineDash([]);
+    ctx.restore();
   }
 
   /** Drop every cached chunk — used when the sprite sheet finishes loading. */
@@ -597,6 +748,7 @@ export class TileLayer {
         this.paintGround(ctx, tx, ty, x, y, tile, false);
       }
     }
+    this.paintCourses(ctx, tx0, ty0);
     sctx.putImageData(mask, 0, 0);
     cctx.putImageData(cutMask, 0, 0);
     return { canvas, holes, surface, cut };
@@ -615,7 +767,7 @@ export class TileLayer {
     const ox = (tx: number): number => (tx - tx0) * TD;
     const oy = (ty: number): number => (ty - ty0) * TD;
 
-    // 1. Ground.
+    // 1. Ground, then the road courses stroked over it as curves (§16).
     for (let ty = ty0; ty < ty0 + CHUNK_TILES; ty++) {
       for (let tx = tx0; tx < tx0 + CHUNK_TILES; tx++) {
         const tile = this.tileAt(tx, ty);
@@ -623,6 +775,7 @@ export class TileLayer {
         this.paintGround(ctx, tx, ty, ox(tx), oy(ty), tile);
       }
     }
+    this.paintCourses(ctx, tx0, ty0);
 
     // 2. Building shadows, built as one opaque mask so overlapping tiles do not
     //    double-darken, then laid down translucent in a single blit.
@@ -1091,6 +1244,13 @@ export class TileLayer {
       ctx.arc(x + TD / 2, y + TD / 2, 4 * RENDER_SCALE, 0, Math.PI * 2);
       ctx.fill();
     }
+
+    // A tile under a stroked course gets its marks from the ribbon: the
+    // per-tile paint underneath is the staircase the ribbon exists to
+    // replace, and two centre lines disagreeing about where the road runs
+    // is worse than either alone. Base asphalt above still paints — the
+    // rasterised band overhangs the stroke by up to half a tile.
+    if (this.courseCover !== null && this.courseCover[i] === 1) return;
 
     const hLen = this.runH[i] as number;
     const vLen = this.runV[i] as number;

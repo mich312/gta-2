@@ -2,7 +2,7 @@ import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
-import { buildLayout } from './layout.js';
+import { buildLayout, type StreetCourse } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
 import {
   T_BANK,
@@ -56,6 +56,12 @@ export interface BakedCity {
   buildings: Building[];
   landmarks: Landmark[];
   shops: Shop[];
+  /**
+   * The authored roads' centrelines as carved (tile units), trimmed to the
+   * finished carriageway — what the renderer strokes to draw a curved road
+   * as one line instead of a staircase of tiles. See WORLDGEN.md §16.
+   */
+  courses: StreetCourse[];
 }
 
 /**
@@ -605,9 +611,92 @@ export function bakeCity(plan: CityPlan): BakedCity {
     buildings,
     landmarks,
     shops: [],
+    courses: trimCourses(layout.courses, tiles, W, H),
   };
   baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles);
   return baked;
+}
+
+/**
+ * Keep only the stretches of each course that still run over carriageway.
+ *
+ * The courses were recorded while carving, but a dozen passes have run
+ * since — an unbridgeable strait left the road un-laid, a landmark took a
+ * plot back — and a painted ribbon over ground that is not road any more
+ * would be the renderer contradicting the map. Long segments are split to
+ * trimming granularity first, every half tile of each is sampled against
+ * the FINISHED tiles, and only unbroken runs survive; stubs shorter than
+ * three tiles are dropped rather than left as orphan streaks.
+ */
+function trimCourses(
+  courses: StreetCourse[],
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+): StreetCourse[] {
+  const onCarriageway = (x: number, y: number): boolean => {
+    const tx = Math.floor(x);
+    const ty = Math.floor(y);
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
+    const t = tiles[ty * W + tx] as number;
+    return t === T_ROAD || t === T_BRIDGE;
+  };
+  const out: StreetCourse[] = [];
+  // Quantised BEFORE sampling, to the same hundredth of a tile the encoder
+  // ships: trimming the true line and shipping a rounded one let a point
+  // within 0.005 of a tile boundary round across it, and the invariant
+  // "every centreline sample is on carriageway" held for a polyline nobody
+  // was ever given.
+  const q = (v: number): number => Math.round(v * 100) / 100;
+  for (const course of courses) {
+    // Split to at most 4-tile segments so a break only costs its own piece.
+    const pts: Array<readonly [number, number]> = [];
+    for (let k = 0; k + 1 < course.points.length; k++) {
+      const [ax, ay] = course.points[k] as readonly [number, number];
+      const [bx, by] = course.points[k + 1] as readonly [number, number];
+      const len = Math.hypot(bx - ax, by - ay);
+      const n = Math.max(1, Math.ceil(len / 4));
+      for (let s = 0; s < n; s++) {
+        pts.push([q(ax + ((bx - ax) * s) / n), q(ay + ((by - ay) * s) / n)]);
+      }
+    }
+    if (course.points.length > 0) {
+      const [lx, ly] = course.points[course.points.length - 1] as readonly [number, number];
+      pts.push([q(lx), q(ly)]);
+    }
+
+    let run: Array<readonly [number, number]> = [];
+    let runLen = 0;
+    const flush = (): void => {
+      if (run.length >= 2 && runLen >= 3) {
+        out.push({ points: run, width: course.width, kind: course.kind });
+      }
+      run = [];
+      runLen = 0;
+    };
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const [ax, ay] = pts[k] as readonly [number, number];
+      const [bx, by] = pts[k + 1] as readonly [number, number];
+      const len = Math.hypot(bx - ax, by - ay);
+      const steps = Math.max(1, Math.ceil(len * 2));
+      let clear = true;
+      for (let s = 0; s <= steps; s++) {
+        if (!onCarriageway(ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps)) {
+          clear = false;
+          break;
+        }
+      }
+      if (clear) {
+        if (run.length === 0) run.push(pts[k] as never);
+        run.push(pts[k + 1] as never);
+        runLen += len;
+      } else {
+        flush();
+      }
+    }
+    flush();
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -707,6 +796,13 @@ export function encodeBakedCity(city: BakedCity): string {
       buildings: city.buildings,
       landmarks: city.landmarks,
       shops: city.shops,
+      // Centrelines to the hundredth of a tile: a sixth of a world px,
+      // invisible on screen and a third of the JSON of full doubles.
+      courses: city.courses.map((c) => ({
+        points: c.points.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100]),
+        width: c.width,
+        kind: c.kind,
+      })),
     },
     null,
     0,
@@ -730,5 +826,7 @@ export function decodeBakedCity(raw: unknown): BakedCity {
     buildings: r['buildings'] as Building[],
     landmarks: r['landmarks'] as Landmark[],
     shops: r['shops'] as Shop[],
+    // Absent in a pre-course bake: every road was its tiles and nothing more.
+    courses: (r['courses'] as StreetCourse[] | undefined) ?? [],
   };
 }

@@ -248,6 +248,19 @@ export interface CityMap {
    * Optional because bare test fixtures predate it; absent means square.
    */
   bevel?: Uint8Array;
+  /**
+   * The authored roads' centrelines in tile units, from the bake — the
+   * curves the tile bands rasterise, for the renderer to stroke as one
+   * continuous line (WORLDGEN.md §16). Structurally `StreetCourse[]`
+   * (layout.ts); typed loosely here because types.ts sits below layout in
+   * the import order. Optional: bare fixtures and pre-course bakes have
+   * none, and every consumer treats absence as "no curves to draw".
+   */
+  courses?: Array<{
+    points: Array<readonly [number, number]>;
+    width: number;
+    kind: string;
+  }>;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];
