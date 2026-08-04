@@ -5,6 +5,13 @@ import type { PasswordCrypto } from './passwords.js';
 const OFFLINE = 'accounts are online-only';
 
 /**
+ * Salt used when the account does not exist, so `verify` does the same work
+ * either way. Any fixed hex string does — it is never stored and never
+ * compared against, it only has to make the derivation happen.
+ */
+const DUMMY_SALT = '00000000000000000000000000000000';
+
+/**
  * Optional accounts (guests always play). Username + password: a bare
  * username is NOT identity — without the password anyone could claim another
  * player's cash.
@@ -22,13 +29,19 @@ export class Accounts {
     private readonly crypto: PasswordCrypto | null = null,
   ) {}
 
-  register(username: string, password: string): { ok: boolean; message: string } {
+  async register(username: string, password: string): Promise<{ ok: boolean; message: string }> {
     if (!this.crypto) return { ok: false, message: OFFLINE };
     if (this.store.getAccount(username)) {
       return { ok: false, message: 'username taken' };
     }
     const salt = this.crypto.newSalt();
-    const passHash = this.crypto.hash(password, salt);
+    const passHash = await this.crypto.hash(password, salt);
+    // Checked again on the far side of the hash: two registrations for the
+    // same name can now be in flight at once, and without this the second one
+    // overwrites the first's row — including its password.
+    if (this.store.getAccount(username)) {
+      return { ok: false, message: 'username taken' };
+    }
     const row: AccountRow = {
       username,
       passHash,
@@ -41,11 +54,24 @@ export class Accounts {
     return { ok: true, message: 'account created' };
   }
 
-  verify(username: string, password: string): AccountRow | null {
+  /**
+   * Check a password, taking the same time whether the account exists or not.
+   *
+   * The early `return null` for an unknown username was a username oracle:
+   * a name nobody had registered answered in microseconds, a name somebody
+   * had answered in fifty milliseconds, so anyone could enumerate the
+   * player list by timing. Hashing against a fixed dummy salt costs one
+   * derivation on the worker pool and removes the difference. What stops
+   * that being a way to spend the pool is the auth rate limit in `GameHost`,
+   * which does not care whether the account exists either.
+   */
+  async verify(username: string, password: string): Promise<AccountRow | null> {
     if (!this.crypto) return null;
     const row = this.store.getAccount(username);
+    const salt = row ? row.salt : DUMMY_SALT;
+    const attempt = await this.crypto.hash(password, salt);
     if (!row) return null;
-    if (!this.crypto.matches(row.passHash, this.crypto.hash(password, row.salt))) return null;
+    if (!this.crypto.matches(row.passHash, attempt)) return null;
     return row;
   }
 

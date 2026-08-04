@@ -147,6 +147,14 @@ const PED_FIELDS = [
   'health',
   'timer',
   'targetId',
+  // Hashed, therefore it MUST be diffed — the third time this list has been
+  // caught short the same way (see `airDist` and `climb`/`liftHeld` above).
+  // A mission assigns an escortee by writing this field and nothing else, so
+  // the delta was empty, the client's ped kept `escortOf: null` for the whole
+  // mission, and every hashed snapshot after the assignment disagreed. Both
+  // renderers draw the escort marker off exactly this field, so the person
+  // you were sent to protect had nothing over their head either.
+  'escortOf',
 ] as const;
 const PROP_FIELDS = ['kind', 'pos', 'orient', 'intact', 'hp', 'respawnAtTick'] as const;
 const PICKUP_FIELDS = ['kind', 'pos', 'active', 'respawnAtTick', 'weaponId', 'ammo'] as const;

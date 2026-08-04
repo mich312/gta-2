@@ -54,6 +54,8 @@ the art on whole pixels.
 | `WEAPONS_LOST_ON_DEATH` | `true` | death costs your guns (design flag) |
 | `PED_COUNT` | `200` | pedestrians per session |
 | `INTEREST_RADIUS` | `600` | px; entities beyond it aren't sent |
+| `MAX_CONNECTIONS` | `128` | sockets at once, joined or not |
+| `MAX_PLAYERS` | `32` | players in the session at once; reconnects are exempt |
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
 | `DIFFICULTY` | `normal` | police preset: `relaxed`, `normal` or `hard` (`police.json` → `presets`). Server-side: in a shared city a per-player difficulty is a cheat |
 | `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |

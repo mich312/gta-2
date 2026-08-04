@@ -74,7 +74,16 @@ function boot(opts: LocalHostOptions): void {
   // interface MemoryStore already satisfies.
   const economy = new Economy(new MemoryStore(), localCatalog(), localEconomyParams());
 
-  host = new GameHost({ interestRadius: opts.interestRadius }, session, economy);
+  // One tab, one player, one `MessagePort`. The caps exist to bound what
+  // untrusted peers can ask a shared server for, and offline there are none —
+  // but they are set rather than waived, so a bug in the local host shows up
+  // as the same refusal a real server would give rather than as a worker
+  // quietly filling the tab's memory.
+  host = new GameHost(
+    { interestRadius: opts.interestRadius, maxConnections: 4, maxPlayers: 4 },
+    session,
+    economy,
+  );
   host.accept(conn);
 
   loop = new TickLoop(() => host?.onTick());

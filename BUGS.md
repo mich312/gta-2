@@ -827,11 +827,158 @@ somebody who can look at it.
 
 ---
 
+## §11 The netcode, audited
+
+Not a play-test complaint — an audit, asked for on its own. Most of what it
+found was that the netcode is in good order, so start there: 8 bots for 60 s
+and 16 for 45 s, both against a real server, gave **zero desyncs, zero stale
+deltas, zero full resyncs**, 9–22 KB/s down per client against a 50 KB/s gate,
+0.47 KB/s up, and a server that held 30 Hz with every client in lockstep at
+twice the design player count. Copy-on-write deltas, interest management, the
+dilated interpolation clock and the `viewTick` rewind all do what they say.
+
+Three things were wrong. One of them ends a server.
+
+### 11.1 One unauthenticated socket could kill a server permanently — FIXED
+
+`register` reached `scryptSync` — 50.6 ms and 64 MB, measured on this box —
+**synchronously on the event loop the 30 Hz tick runs on**, and nothing
+anywhere rate-limited messages, capped connections or bounded payloads. It
+also hashed *before* the duplicate-name check could reject it, so a fresh
+random username always paid in full.
+
+One socket, which never joined, against a real server:
+
+| flood | sent in 5 s | tick rate: baseline → under → 15 s after it hung up |
+| --- | --- | --- |
+| `ping` (control) | 251,249 | 30.0 → 28.2 → 29.3 |
+| `register` | 52,909 | 29.8 → **1.0** → **0.0** |
+
+52,909 × 50.6 ms is **45 minutes of synchronous work bought with a five-second
+flood**, and it is already queued — the tick rate is zero *after* the attacker
+disconnects and does not recover. A separately flooded server sat at 82% CPU a
+minute later and never answered another `join`. The `ping` control is what
+says the cost was the hashing rather than the reading.
+
+Four changes, and the same flood re-run against all four — eight sockets this
+time, since one is now hung up on — with the meter in its own process (in the
+first pass the meter and the flooder shared an event loop, which is fine for
+measuring a server that has died and useless for measuring one that has not):
+
+| flood | sent by 8 sockets in 5 s | still open at the end | tick rate |
+| --- | --- | --- | --- |
+| `ping` | 24,746 | 0 | 28.8 → 29.2 → 30.0 |
+| `register` | 85,483 | 0 | 29.4 → 28.8 → 30.0 |
+
+A player joining after all that gets 89 state messages in three seconds, which
+is 29.7 Hz. The four:
+
+1. **The hash is off the event loop.** `PasswordCrypto.hash` returns a promise
+   and `nodePasswords` uses `scrypt` rather than `scryptSync`, so the
+   derivation runs on libuv's pool. `GameHost.receive` starts it and returns;
+   the answer is sent whenever it lands. Two follow-ons came with it: the
+   duplicate-name check is repeated on the far side of the hash, because two
+   registrations of one name can now be in flight and the loser was
+   overwriting the winner's row, password included; and `verify` now hashes
+   against a dummy salt for an unknown username, which closes a timing oracle
+   that told anyone which names were taken.
+2. **A token bucket per connection**, in `GameHost` rather than the transport,
+   because it is a property of what a message means — which is also how the
+   worker transport gets it for free. 90/s sustained, 150 burst, against a
+   real client's 31/s. Over budget a message is dropped *before the decode*,
+   which matters: the flood that reached a real server was undecodable, and an
+   exception per frame at socket speed is its own denial of service. Past 600
+   in arrears the socket is terminated — `terminate`, not `close`, because a
+   close is a handshake and the peer that will not stop sending is the peer
+   that will not answer one.
+3. **A tighter bucket for the two verbs that cost a hash**: five in hand, one
+   back every three seconds. It refuses with a message rather than a hang-up,
+   because getting your own password wrong five times is a thing people do.
+4. **Caps**: `maxPayload` 32 KiB on the socket (`ws` defaults to 100 MiB),
+   `MAX_CONNECTIONS` 128, `MAX_PLAYERS` 32 — with reconnects exempt from the
+   player cap, or a full server could never readmit its own players.
+
+Ten tests in `server/test/floodResistance.test.ts`, including the one that
+matters most: `receive` returns in under 10 ms for a `register`, which is the
+whole difference between a 50 ms hash and a 33 ms tick.
+
+Two smaller things fixed alongside, both about sockets nobody is on the other
+end of. There was **no heartbeat**, so a peer that vanished without a FIN — a
+lid closed, a wifi drop — kept its slot `connected` until TCP gave up minutes
+later; and because `resumeByToken` only resumes a slot that is *not*
+connected, that player's reconnect was refused and they came back as a second
+player with their old body still standing in the road. `wsServer` now pings
+every 15 s and terminates a socket that misses one. And `ClientConn.send` had
+**no backpressure check** at all, so the per-tick state message queued behind
+a non-reading peer without limit; there is now a soft limit that skips the
+state message (safe: the next delta is built against what the client last
+ACKED, so the gap closes itself) and a hard one that terminates.
+
+**A correction on that last one.** The first pass reported a non-reading
+client taking the server from 160 MB to 446 MB in fifteen seconds. That was a
+measurement error: a client reading *normally* grows it the same amount over
+the same window — it is the server's own warm-up. Measured properly, after
+75 s of settling, one non-reading client costs about 45 KB/s, which is 2 MB
+over two minutes and inside GC noise. The guard is worth keeping because the
+queue had no ceiling and the socket was never reaped, not because of the
+number originally quoted.
+
+### 11.2 `escortOf` was hashed but never diffed — FIXED
+
+The third time this list has been caught short the same way, after `airDist`
+and `climb`/`liftHeld`, and the file's own comments warn about it twice.
+`PED_FIELDS` omitted `escortOf`; `hash.ts` hashes it and a mission writes it.
+Proven directly, before the fix:
+
+```
+server ped.escortOf : 42
+delta rows for peds : {"added":[],"updated":[],"removed":[]}
+client ped.escortOf : null
+hashes agree        : false
+```
+
+So the desync tripwire fired continuously for as long as an escortee lived —
+useless exactly during the mission you would most want it watching — and,
+because **both renderers draw the escort marker off that field**
+(`three/entities.ts`, `render/renderer.ts`), the escort mission shipped with
+nothing over the head of the person you were sent to protect. The bot harness
+never saw it: no script takes an escort mission.
+
+The repair is one line. What is new is that the next one cannot hide:
+`shared/test/diffCoverage.test.ts` does not compare a list against a list — it
+perturbs every field of every table in turn and asserts that anything the hash
+can see survives a round trip through `diffSnapshots`/`applyDelta`. Run
+against the code before the repair it names `peds.escortOf` and nothing else,
+which is also how we know there was exactly one.
+
+### 11.3 The JSON-text fallback never worked — FIXED
+
+`binaryCodec.decode` says "Tolerated so a JSON-speaking peer still works
+during a rollout"; `wsServer` said "the codec tolerates both". Neither was
+true. `ws` delivers a text frame as a Buffer just like a binary one and only
+says which through a separate argument, so a JSON peer's leading `{` was read
+as frame tag 0x7B, the codec threw on the first byte of every message, and
+`receive` swallowed it. Measured, same server, same message: binary join 76
+frames back, text join **0**. `rawToFrame` now takes `isBinary`; three tests
+in `server/test/frameKinds.test.ts` hold both framings to the same parse.
+
+### 11.4 Left alone
+
+- **Resume tokens are never rotated.** One UUID per slot for the session's
+  life, in `sessionStorage`; anyone who obtains it owns that player. A
+  rotation on each resume is the fix and it is a protocol change.
+- **Diffed but not hashed** — `unseenTicks`, `wantedSinceTick`, vehicle
+  `z`/`climb`/`liftHeld`/`paint`, five cop search fields. This direction is
+  harmless: it costs a few bytes and cannot desync anything. Listed so the
+  next audit does not re-find it as a defect.
+
+---
+
 ## Reproducing
 
 ```bash
 pnpm install && pnpm build
-pnpm test                                   # 842 tests
+pnpm test                                   # 856 tests
 pnpm --filter client dev
 
 # terrain, no player in the way — drive the camera with __city.lookAt(x, y)
@@ -840,6 +987,10 @@ pnpm --filter client dev
 # the game itself, 3D and 2D over the same seed and clock
 /?local=1&seed=7&night=0
 /?local=1&seed=7&night=0&render=2d
+
+# the netcode, end to end against a real server (§11)
+pnpm bots --count=8  --script=cruise --duration=60
+pnpm bots --count=16 --script=brawl  --duration=45
 ```
 
 The numbers quoted above came from throwaway probes run against `server/dist`

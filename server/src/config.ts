@@ -21,6 +21,23 @@ export interface ServerConfig {
   /** Interest-management radius (px): entities beyond it aren't sent. */
   interestRadius: number;
   /**
+   * Sockets allowed at once, joined or not.
+   *
+   * A connection is not free before anybody joins on it — it carries a parse
+   * budget and a place in every fan-out loop — and nothing else bounds how
+   * many an anonymous peer may open.
+   */
+  maxConnections: number;
+  /**
+   * Players allowed in the session at once.
+   *
+   * Each one is an entity in the sim plus a 90-deep ring of the filtered
+   * snapshots sent to them. The game is designed around 4-8 and measured
+   * healthy at 16; the default leaves room above that without leaving the
+   * count unbounded. Reconnecting players are exempt (see `handleJoin`).
+   */
+  maxPlayers: number;
+  /**
    * When set, the server also serves the built client from this directory over
    * HTTP and carries the WebSocket on the same port — one origin behind a TLS
    * proxy. When null (local dev), it's a standalone WS server and the client is
@@ -64,6 +81,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     persistPath: env['PERSIST_PATH'] ?? 'data/persist.db',
     pedCount: envInt(env['PED_COUNT'], 200),
     interestRadius: envInt(env['INTEREST_RADIUS'], 600),
+    maxConnections: envInt(env['MAX_CONNECTIONS'], 128),
+    maxPlayers: envInt(env['MAX_PLAYERS'], 32),
     clientDir: env['CLIENT_DIR'] ?? null,
     provingGround: env['PROVING_GROUND'] === '1' || env['PROVING_GROUND'] === 'true',
     difficulty: env['DIFFICULTY'] ?? 'normal',

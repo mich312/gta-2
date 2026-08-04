@@ -50,13 +50,48 @@ describe('ledger', () => {
 });
 
 describe('accounts', () => {
-  it('register + verify; wrong password and unknown user fail', () => {
+  it('register + verify; wrong password and unknown user fail', async () => {
     const accounts = new Accounts(new MemoryStore(), nodePasswords);
-    expect(accounts.register('alice', 'hunter22').ok).toBe(true);
-    expect(accounts.register('ALICE', 'other-pass').ok).toBe(false); // case-insensitive taken
-    expect(accounts.verify('alice', 'hunter22')?.username).toBe('alice');
-    expect(accounts.verify('alice', 'wrong-pass')).toBeNull();
-    expect(accounts.verify('bob', 'hunter22')).toBeNull();
+    expect((await accounts.register('alice', 'hunter22')).ok).toBe(true);
+    // case-insensitive taken
+    expect((await accounts.register('ALICE', 'other-pass')).ok).toBe(false);
+    expect((await accounts.verify('alice', 'hunter22'))?.username).toBe('alice');
+    expect(await accounts.verify('alice', 'wrong-pass')).toBeNull();
+    expect(await accounts.verify('bob', 'hunter22')).toBeNull();
+  });
+
+  it('does not let two registrations of one name race past each other', async () => {
+    // The hash is off the event loop now, so two `register` messages for the
+    // same username can be in flight at the same time. Whoever loses must
+    // lose cleanly: before the second existence check, the later one
+    // overwrote the earlier row — including its password.
+    const accounts = new Accounts(new MemoryStore(), nodePasswords);
+    const [a, b] = await Promise.all([
+      accounts.register('dana', 'first-password'),
+      accounts.register('dana', 'second-password'),
+    ]);
+    expect([a.ok, b.ok].filter(Boolean)).toHaveLength(1);
+    const winner = a.ok ? 'first-password' : 'second-password';
+    const loser = a.ok ? 'second-password' : 'first-password';
+    expect((await accounts.verify('dana', winner))?.username).toBe('dana');
+    expect(await accounts.verify('dana', loser)).toBeNull();
+  });
+
+  it('takes the same time on an unknown username as on a known one', async () => {
+    // An early return for an unknown name was a username oracle: a name
+    // nobody had registered answered in microseconds, a registered one took a
+    // password hash. Both hash now. Measured loosely on purpose — this is
+    // asserting that the work happens, not benchmarking scrypt.
+    const accounts = new Accounts(new MemoryStore(), nodePasswords);
+    await accounts.register('frank', 'secret-pw');
+    const time = async (user: string): Promise<number> => {
+      const t0 = performance.now();
+      await accounts.verify(user, 'secret-pw');
+      return performance.now() - t0;
+    };
+    const known = await time('frank');
+    const unknown = await time('nobody-by-that-name');
+    expect(unknown).toBeGreaterThan(known * 0.25);
   });
 });
 
@@ -147,14 +182,14 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
   ];
 
   for (const [name, open] of backends) {
-    it(`${name}: cash, transactions, and cosmetics reload from disk`, () => {
+    it(`${name}: cash, transactions, and cosmetics reload from disk`, async () => {
       const dir = mkdtempSync(join(tmpdir(), `persist-${name}-`));
 
       {
         const store = open(dir);
         const accounts = new Accounts(store, nodePasswords);
         const ledger = new Ledger(store);
-        accounts.register('carol', 'secret-pw');
+        await accounts.register('carol', 'secret-pw');
         ledger.append('acct:carol', 400, 'starting-cash', 'start:acct:carol');
         ledger.append('acct:carol', -300, 'buy:jacket_red', 'buy:tx-1');
         accounts.addCosmetic('carol', 1);
@@ -165,7 +200,7 @@ describe('persistence (the phase gate: a purchase survives a server restart)', (
       const accounts2 = new Accounts(store2, nodePasswords);
       const ledger2 = new Ledger(store2);
       expect(ledger2.balance('acct:carol')).toBe(100);
-      expect(accounts2.verify('carol', 'secret-pw')?.cosmeticsOwned).toEqual([1]);
+      expect((await accounts2.verify('carol', 'secret-pw'))?.cosmeticsOwned).toEqual([1]);
       expect(accounts2.get('carol')?.equippedCosmetic).toBe(1);
       // Idempotency survives restart too: replaying the old tx does nothing.
       expect(ledger2.append('acct:carol', -300, 'buy:jacket_red', 'buy:tx-1')).toBe(false);

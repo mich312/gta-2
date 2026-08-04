@@ -22,6 +22,81 @@ import type { Conn } from './net/conn.js';
 export interface HostConfig {
   /** Interest-management radius (px): entities beyond it aren't sent. */
   interestRadius: number;
+  /** Sockets allowed at once. Beyond this, new ones are refused. */
+  maxConnections: number;
+  /** Players allowed in the session at once. */
+  maxPlayers: number;
+}
+
+/**
+ * What one connection may spend, per second and in one burst.
+ *
+ * A well-behaved client sends one `input` a tick (30/s), a `ping` a second,
+ * and a handful of shop or mission requests when the player presses something.
+ * These are set well above that and well below what a socket can physically
+ * deliver — measured, one socket managed 50,000 messages a second against a
+ * loopback server, which is three orders of magnitude more than playing the
+ * game costs.
+ *
+ * Over budget, a message is dropped rather than answered. Dropping is safe for
+ * every verb the game has: inputs are re-sent implicitly (the next one carries
+ * the newer state), and everything else is a request the player can make again.
+ */
+const MSG_PER_SEC = 90;
+const MSG_BURST = 150;
+/**
+ * How far into arrears a connection may go before it is hung up on.
+ *
+ * Dropping messages costs a parse each, so a client that keeps flooding after
+ * its budget is gone is still buying server work with nothing. Past this it is
+ * not a client with a bug, it is a client to close the socket on.
+ */
+const MSG_DEBT_LIMIT = 600;
+
+/**
+ * The same, for the two verbs that cost a password hash.
+ *
+ * A separate and much tighter budget, because these are the expensive ones:
+ * `register` and `login` each spend a scrypt derivation on the platform's
+ * worker pool — 50 ms and 64 MB apiece. Five in hand and one back every three
+ * seconds is more than a person typing their password needs and far less than
+ * a pool exhaustion costs.
+ */
+const AUTH_BURST = 5;
+const AUTH_PER_SEC = 1 / 3;
+
+/** A token bucket, in tokens per millisecond of real time. */
+class Budget {
+  private tokens: number;
+  private lastMs: number;
+
+  constructor(
+    private readonly perSec: number,
+    private readonly burst: number,
+    nowMs: number,
+  ) {
+    this.tokens = burst;
+    this.lastMs = nowMs;
+  }
+
+  /** Spend one token. False when there was none — the caller drops the work. */
+  take(nowMs: number): boolean {
+    this.tokens = Math.min(this.burst, this.tokens + ((nowMs - this.lastMs) / 1000) * this.perSec);
+    this.lastMs = nowMs;
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return true;
+    }
+    // Arrears are counted below zero so a sustained flood is distinguishable
+    // from a client that is merely a little over.
+    this.tokens -= 1;
+    return false;
+  }
+
+  /** How far past its budget this bucket has been pushed. */
+  get debt(): number {
+    return this.tokens < 0 ? -this.tokens : 0;
+  }
 }
 
 /**
@@ -41,6 +116,15 @@ export class GameHost {
   private readonly missions = new Missions();
   private readonly jobs = new Jobs();
   private sentExportVersion = -1;
+  /**
+   * Per-connection budgets, held here rather than on the `Conn` because they
+   * are a property of what a message MEANS, not of how it arrived — which is
+   * this class's whole job, and which is why the worker transport gets the
+   * same protection for free.
+   */
+  private readonly budgets = new Map<Conn, { msg: Budget; auth: Budget; cut: boolean }>();
+  /** Messages dropped for being over budget, and sockets closed for it. */
+  readonly dropped = { messages: 0, connections: 0 };
 
   constructor(
     private readonly config: HostConfig,
@@ -56,6 +140,11 @@ export class GameHost {
     for (const [playerId, conn] of this.byPlayer) {
       const slot = this.session.slots.get(playerId);
       if (!slot || !slot.connected) continue;
+      // A client whose socket is not draining is skipped entirely — the
+      // filter, the diff and the encode are all skipped with it. Its next
+      // delta is built against whatever it last acked, so the gap closes
+      // itself the moment it starts reading again. See `ClientConn.draining`.
+      if (conn.draining === false) continue;
       conn.send(buildStateMessage(slot, snap, this.config.interestRadius, withHash));
       const me = snap.players.find((p) => p.id === playerId);
       for (const ev of this.session.lastEvents) {
@@ -190,9 +279,31 @@ export class GameHost {
     };
   }
 
-  /** A transport has a new connection. */
-  accept(conn: Conn): void {
+  /**
+   * A transport has a new connection.
+   *
+   * Returns false when the session is full, and the transport is expected to
+   * close it. A cap is needed because a connection is not free before anybody
+   * joins on it: it carries a parse budget, and once it joins, a player entity
+   * and a 90-deep ring of filtered snapshots.
+   */
+  accept(conn: Conn, nowMs = Date.now()): boolean {
+    if (this.conns.size >= this.config.maxConnections) {
+      conn.send({
+        type: 'error',
+        code: 'full',
+        message: 'server is full — try again in a minute',
+      });
+      this.dropped.connections++;
+      return false;
+    }
     this.conns.add(conn);
+    this.budgets.set(conn, {
+      msg: new Budget(MSG_PER_SEC, MSG_BURST, nowMs),
+      auth: new Budget(AUTH_PER_SEC, AUTH_BURST, nowMs),
+      cut: false,
+    });
+    return true;
   }
 
   /** Hang up on everybody — the transport still has to close itself. */
@@ -206,7 +317,28 @@ export class GameHost {
    * accounting has already happened, because only the transport knows what a
    * byte cost.
    */
-  receive(conn: Conn, frame: string | Uint8Array): void {
+  receive(conn: Conn, frame: string | Uint8Array, nowMs = Date.now()): void {
+    // The budget is spent BEFORE the decode, because decoding is most of what
+    // a junk frame costs: an undecodable one throws, and an exception per
+    // frame at socket speed is itself enough to bury the tick loop.
+    const budget = this.budgets.get(conn);
+    if (budget && !budget.msg.take(nowMs)) {
+      this.dropped.messages++;
+      // Once. Cutting a socket does not stop what it already put on the wire
+      // from arriving, so without this the counter and the hang-up both fire
+      // once per straggler.
+      if (budget.msg.debt > MSG_DEBT_LIMIT && !budget.cut) {
+        budget.cut = true;
+        this.dropped.connections++;
+        // Terminate, not close: a close is a handshake, and a peer that is
+        // flooding is not going to answer one — so the socket would stay
+        // open and keep delivering for as long as it liked. See
+        // `Conn.terminate`.
+        if (conn.terminate) conn.terminate();
+        else conn.close();
+      }
+      return;
+    }
     let raw: unknown;
     try {
       raw = binaryCodec.decode(frame);
@@ -296,22 +428,61 @@ export class GameHost {
         conn.send({ type: 'wallet', ...this.economy.walletOf(conn.playerId) });
         break;
       }
-      case 'register': {
-        const res = this.economy.accounts.register(msg.username, msg.password);
-        conn.send({ type: 'account', ok: res.ok, username: res.ok ? msg.username : null, message: res.message });
-        if (res.ok && conn.playerId !== null) this.bindAccount(conn, msg.username);
-        break;
-      }
+      case 'register':
       case 'login': {
-        const row = this.economy.accounts.verify(msg.username, msg.password);
-        if (!row) {
-          conn.send({ type: 'account', ok: false, username: null, message: 'bad credentials' });
+        // The two verbs that cost a password hash, on their own tight budget.
+        // Refusing is a message; it does not close the socket, because getting
+        // your own password wrong five times is a thing people do.
+        if (budget && !budget.auth.take(nowMs)) {
+          conn.send({
+            type: 'account',
+            ok: false,
+            username: null,
+            message: 'too many attempts — wait a few seconds',
+          });
           break;
         }
-        conn.send({ type: 'account', ok: true, username: row.username, message: 'logged in' });
-        if (conn.playerId !== null) this.bindAccount(conn, row.username);
+        // Deliberately not awaited: `receive` is called from a socket
+        // callback and must return promptly. The hash runs on the worker
+        // pool and the answer is sent whenever it lands, which is what keeps
+        // the tick loop free. `conn.playerId` is re-read on the far side —
+        // the connection may have joined, dropped or been replaced while the
+        // derivation was in flight, and `send` no-ops on a closed socket.
+        void this.finishAuth(conn, msg.type, msg.username, msg.password);
         break;
       }
+    }
+  }
+
+  private async finishAuth(
+    conn: Conn,
+    kind: 'register' | 'login',
+    username: string,
+    password: string,
+  ): Promise<void> {
+    try {
+      if (kind === 'register') {
+        const res = await this.economy.accounts.register(username, password);
+        conn.send({
+          type: 'account',
+          ok: res.ok,
+          username: res.ok ? username : null,
+          message: res.message,
+        });
+        if (res.ok && conn.playerId !== null) this.bindAccount(conn, username);
+        return;
+      }
+      const row = await this.economy.accounts.verify(username, password);
+      if (!row) {
+        conn.send({ type: 'account', ok: false, username: null, message: 'bad credentials' });
+        return;
+      }
+      conn.send({ type: 'account', ok: true, username: row.username, message: 'logged in' });
+      if (conn.playerId !== null) this.bindAccount(conn, row.username);
+    } catch {
+      // A hash that fails is a broken host, not a broken client. Say so
+      // rather than leaving them watching a prompt that never answers.
+      conn.send({ type: 'account', ok: false, username: null, message: 'account service failed' });
     }
   }
 
@@ -333,6 +504,18 @@ export class GameHost {
       // A resumed player keeps their entity; kick any zombie conn mapping.
       this.byPlayer.get(slot.playerId)?.close();
     } else {
+      // Resuming is exempt: somebody already in the session reconnecting is
+      // not a new player, and turning them away at the cap would mean a full
+      // server could never recover from a wobbly connection.
+      if (this.session.slots.size >= this.config.maxPlayers) {
+        conn.send({
+          type: 'error',
+          code: 'full',
+          message: `this city holds ${this.config.maxPlayers} players and is full`,
+        });
+        conn.close();
+        return;
+      }
       slot = this.session.addPlayer(name, newUuid());
       this.economy.bindGuest(slot.playerId);
     }
@@ -366,6 +549,7 @@ export class GameHost {
   /** The transport lost a connection. */
   drop(conn: Conn): void {
     this.conns.delete(conn);
+    this.budgets.delete(conn);
     if (conn.playerId !== null) {
       if (this.byPlayer.get(conn.playerId) === conn) {
         this.byPlayer.delete(conn.playerId);

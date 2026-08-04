@@ -26,7 +26,7 @@ const { Accounts } = await import('../src/economy/accounts.js');
 const { Ledger } = await import('../src/economy/ledger.js');
 
 describe('persistence without node:sqlite', () => {
-  it('boots on the sibling .json file instead of throwing, and says so', () => {
+  it('boots on the sibling .json file instead of throwing, and says so', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'no-sqlite-'));
     const warn = vi.fn();
 
@@ -41,7 +41,7 @@ describe('persistence without node:sqlite', () => {
     // Same guarantees as the SQLite store: durable, idempotent, append-only.
     const accounts = new Accounts(store, nodePasswords);
     const ledger = new Ledger(store);
-    accounts.register('erin', 'secret-pw');
+    await accounts.register('erin', 'secret-pw');
     ledger.append('acct:erin', 400, 'starting-cash', 'start:acct:erin');
     expect(ledger.append('acct:erin', 400, 'starting-cash', 'start:acct:erin')).toBe(false);
 
