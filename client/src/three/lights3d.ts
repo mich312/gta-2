@@ -149,6 +149,20 @@ interface Want {
    * what the tables meant: character, not churn.
    */
   flick?: number;
+  /**
+   * Skip the slot fades — arrive and leave at full brightness.
+   *
+   * For the lights whose whole job is to be abrupt: a muzzle flash, an
+   * explosion, a burning particle, the strobe on a police car. Their own
+   * `alpha` already carries the shape of their life, and easing a flash in is
+   * a way of not having a flash.
+   *
+   * Everything else fades, headlights emphatically included. They used to be
+   * exempt by accident — the exemption tested `rank < RANK.flash` and a
+   * headlight outranks a flash — so of all the lights in the city, the four
+   * that change hands most often were the four that changed hands hardest.
+   */
+  instant?: boolean;
   /** Contribution near the focus, filled by `spend` just before sorting. */
   weight?: number;
 }
@@ -180,6 +194,83 @@ function dist2(ax: number, ay: number, bx: number, by: number): number {
   return dx * dx + dy * dy;
 }
 
+/**
+ * How long a light takes to arrive, and to leave.
+ *
+ * Both halves matter and only the first was ever built. A newly granted light
+ * used to ramp up over ~150 ms while the light it displaced went out between
+ * one frame and the next — so every handover was still a pop, just a pop and a
+ * swell rather than two pops. What the eye reads as flashing is the leaving
+ * half.
+ */
+const FADE_MS = 140;
+
+/**
+ * How long a light keeps its slot before the ranking may take it away.
+ *
+ * The hysteresis below defends a slot against noise; this defends it against
+ * a genuine, sustained crossing — which for four spot slots and a street of
+ * moving cars happens constantly, because the ranking is distance-based and
+ * the cars are what is moving. Without it, two headlights of nearly equal
+ * weight trade the same slot back and forth for as long as they are side by
+ * side, each trade costing a full fade out and in.
+ *
+ * A higher rank still preempts immediately: rank is sorted before weight, so
+ * a muzzle flash never waits behind a street lamp's dwell.
+ */
+const DWELL_MS = 400;
+/** Weight multiplier while an incumbent is inside its dwell window. */
+const DWELL_BOOST = 12;
+/** Weight multiplier for an incumbent past its dwell — noise rejection only. */
+const HYSTERESIS = 1.6;
+
+/** Speed at which brake lights come on, and the higher one at which they go off. */
+const BRAKE_ON = 6;
+const BRAKE_OFF = 9;
+
+/**
+ * One slot of one pool, and what is happening in it.
+ *
+ * A slot is the unit the crossfade lives on, and it has to be: the pools are a
+ * fixed size because three.js compiles the number of *visible* lights into
+ * every shader, so a handover cannot borrow a spare light to fade out on. The
+ * outgoing light therefore fades out on its own slot and the incoming one
+ * waits for it — about a seventh of a second, invisible against a light that
+ * would otherwise have snapped on.
+ */
+interface Slot {
+  /** The want holding it, or 0 for free. */
+  key: number;
+  /** 0 dark, 1 full. */
+  fade: number;
+  /** Fading out and about to free itself. */
+  retiring: boolean;
+  /** When this key took the slot, for the dwell. */
+  sinceMs: number;
+  /**
+   * Recorded from the want at the moment of the grant, not read off it later.
+   *
+   * A flash is the thing most likely to be gone by the time its slot is
+   * released — that is what a flash is — and a released slot has no want left
+   * to ask. Kept here, a dead muzzle flash still cuts out instead of easing.
+   */
+  instant: boolean;
+  /**
+   * The light's intensity at full fade, from the last frame its want existed.
+   *
+   * A slot can outlive the thing that asked for it: a car leaves the streamed
+   * world, a driver gets out, a flash dies. The fade still has to finish, and
+   * with no want left to convert there is nothing to compute it from — so the
+   * last figure is kept and simply scaled down. Position, colour and range are
+   * left where they were, which is where the light was when its source went.
+   */
+  base: number;
+}
+
+function freeSlot(): Slot {
+  return { key: 0, fade: 0, retiring: false, sinceMs: 0, instant: false, base: 0 };
+}
+
 export class Lights3dLayer {
   private readonly group = new THREE.Group();
   private readonly points: THREE.PointLight[] = [];
@@ -188,27 +279,25 @@ export class Lights3dLayer {
   private readonly wants: Want[] = [];
   private budget = { points: MAX_POINTS, spots: MAX_SPOTS };
   private readonly colors = new Map<LightKind, THREE.Color>();
-  /** Keys of the wants that held slots last frame, for the hysteresis. */
-  private granted = new Set<number>();
-  /** Scratch for the frame being decided; swapped with `granted` after. */
-  private grantedNext = new Set<number>();
+  /** What holds each point slot, and how far through its fade it is. */
+  private readonly pointSlots: Slot[] = [];
+  /** The same, for the spots — which is where the headlights live. */
+  private readonly spotSlots: Slot[] = [];
+  /**
+   * When each currently-held key took its slot, for the hysteresis and dwell.
+   *
+   * Rebuilt from the slots after every spend, so it cannot drift out of step
+   * with them.
+   */
+  private readonly heldSince = new Map<number, number>();
   /** Slots that changed hands on the last spend, for the overlay. */
   private lastTurnover = 0;
-  /**
-   * Fade-in progress per want key, 0..1.
-   *
-   * Even with the hysteresis, slots legitimately change hands — a car's
-   * lights arriving in view SHOULD displace the dimmest street lamp — and a
-   * granted-or-parked light otherwise arrives at full brightness in one
-   * frame, which the eye reads as a pop however justified the handover was.
-   * A newly granted light ramps up over ~150 ms instead; keyed by the
-   * want's identity rather than the slot index, because the same lamp lands
-   * on a different slot whenever anything above it reorders. Keys that lose
-   * their slot are dropped, so a light that returns fades in again.
-   * Flashes are exempt: a muzzle flash that eases in is not a flash.
-   */
-  private readonly ramp = new Map<number, number>();
   private lastSpendMs = 0;
+  /** Scratch, so the per-frame decision allocates nothing. */
+  private readonly wantByKey = new Map<number, Want>();
+  private readonly winners = new Set<number>();
+  /** Vehicle ids whose brake lights are currently on. See `braking`. */
+  private readonly brakeLatch = new Set<number>();
 
   constructor(scene: THREE.Object3D) {
     scene.add(this.group);
@@ -217,6 +306,7 @@ export class Lights3dLayer {
       light.castShadow = false;
       this.group.add(light);
       this.points.push(light);
+      this.pointSlots.push(freeSlot());
     }
     for (let i = 0; i < MAX_SPOTS; i++) {
       const light = new THREE.SpotLight(0xffffff, 0, 200, 0.6, 0.5, 2);
@@ -224,6 +314,7 @@ export class Lights3dLayer {
       this.group.add(light);
       this.group.add(light.target);
       this.spots.push(light);
+      this.spotSlots.push(freeSlot());
     }
     for (const kind of Object.keys(LIGHT_COLORS) as LightKind[]) {
       this.colors.set(kind, new THREE.Color(LIGHT_COLORS[kind]));
@@ -423,6 +514,7 @@ export class Lights3dLayer {
         // what the eye gets.
         alpha: f.peak * t * t,
         rank: RANK.flash,
+        instant: true,
         key: 9e6 + fi++,
       });
     }
@@ -439,9 +531,17 @@ export class Lights3dLayer {
         kind: 'muzzle',
         alpha: t * 0.6,
         rank: RANK.glow,
+        instant: true,
         key: 10e6 + gi,
       });
     }
+
+    // A car that leaves the streamed world while its brake lights are on
+    // leaves its id behind in the latch. Dropping the lot when it gets large
+    // costs one frame in which every car inside the deadband re-decides from
+    // its speed alone, which is what it would have decided anyway unless it
+    // is in the three-unit band — and then for one frame.
+    if (this.brakeLatch.size > 256) this.brakeLatch.clear();
 
     this.spend(wants, focus, scene.nowMs);
   }
@@ -495,7 +595,7 @@ export class Lights3dLayer {
         key: 6e6 + id,
       });
     }
-    const braking = speed < 0 || Math.abs(speed) < 7;
+    const braking = this.braking(id, speed);
     for (const [s, ok] of [
       [-1, (broken & PART_TAILLIGHT_L) === 0],
       [1, (broken & PART_TAILLIGHT_R) === 0],
@@ -526,153 +626,294 @@ export class Lights3dLayer {
         // punch — but not all of it, or a squad car outshines the sun.
         alpha: 0.85 * (0.45 + 0.55 * night),
         rank: RANK.strobe,
+        instant: true,
         key: 8e6 + id,
       });
     }
   }
 
   /**
+   * Are this car's brake lights on — with a deadband, so they stay decided.
+   *
+   * The test was a bare `|speed| < 7`, and traffic spends most of its life
+   * either side of that: a car queueing at a junction, or crawling behind a
+   * bus, crosses it several times a second. Each crossing swung the tail
+   * light's ranking weight by nearly three (0.55·6² against 0.32·4²), which is
+   * more than enough to walk it across the point-pool cutoff and back — a red
+   * light on the car in front, blinking at whatever rate the traffic happened
+   * to be doing. The lamp is genuinely meant to change here; what it is not
+   * meant to do is change on the same tenth of a mile per hour twice a second.
+   *
+   * Reversing is unambiguous and needs no band.
+   */
+  private braking(id: number, speed: number): boolean {
+    if (speed < 0) return true;
+    const was = this.brakeLatch.has(id);
+    const on = speed < (was ? BRAKE_OFF : BRAKE_ON);
+    if (on) this.brakeLatch.add(id);
+    else this.brakeLatch.delete(id);
+    return on;
+  }
+
+  /**
    * Hand the pools out to the best candidates and park the rest.
    *
    * Rank first, then distance from where the camera is looking: a headlight
-   * always beats a lamp, and between two lamps the near one wins.
+   * always beats a lamp, and between two lamps the near one wins. What the
+   * ranking decides is only who *should* be lit; the slots below decide when
+   * that actually happens, because the change of hands is what the eye sees.
    */
   private spend(wants: Want[], focus: { x: number; y: number }, nowMs: number): void {
-    // Fade-in step for this frame; clamped so a stall does not skip the ramp.
-    const rampStep = Math.min(100, Math.max(0, nowMs - this.lastSpendMs)) / 150;
+    // Fade step for this frame; clamped so a stall does not skip the fade.
+    const step = Math.min(100, Math.max(0, nowMs - this.lastSpendMs)) / FADE_MS;
     this.lastSpendMs = nowMs;
+
     // Rank first, then how much this light will actually contribute where the
     // player is looking — brightness and reach over distance. Sorting on
     // distance alone put a dim glow six feet away above a lamp lighting the
     // junction you are driving into. Weights are computed once per light
     // before the sort: a comparator that recomputes both operands' weights
     // (a dist2 each) runs them O(n log n) times per frame instead of O(n).
+    const byKey = this.wantByKey;
+    byKey.clear();
     for (const w of wants) {
       w.weight = (w.alpha * w.radius * w.radius) / Math.max(1, dist2(w.x, w.y, focus.x, focus.y));
-      // Slot hysteresis: a light that held a slot last frame keeps a margin
-      // over a challenger of the same rank. Without it the pool is re-argued
-      // from a blank slate sixty times a second, and with the wants running
-      // six to one over the slots, everything near the cutoff swapped in and
-      // out continuously — the "flickering lights" a play-test will always
-      // report, because a granted-or-parked light has no way to dim
-      // gracefully. The margin only defends a slot; a genuinely brighter or
-      // nearer newcomer still takes it, just not over a few percent of noise.
-      if (this.granted.has(w.key)) w.weight *= 1.6;
+      // Slot hysteresis, and above it the dwell. The margin defends a slot
+      // against noise; the dwell defends it against a real crossing for long
+      // enough that two cars running side by side stop trading one slot
+      // between them. Both only ever apply within a rank.
+      const since = this.heldSince.get(w.key);
+      if (since !== undefined) {
+        w.weight *= nowMs - since < DWELL_MS ? DWELL_BOOST : HYSTERESIS;
+      }
+      byKey.set(w.key, w);
     }
     wants.sort((a, b) => {
       if (a.rank !== b.rank) return b.rank - a.rank;
       return (b.weight as number) - (a.weight as number);
     });
 
-    const nextGranted = this.grantedNext;
-    nextGranted.clear();
-    let pi = 0;
-    let si = 0;
+    // Who should be lit. Cones and points are separate pools with separate
+    // budgets, and a beam that cannot get a spot slot is dropped rather than
+    // demoted — see the note further down.
+    const winners = this.winners;
+    winners.clear();
+    let wantPoints = 0;
+    let wantSpots = 0;
     for (const w of wants) {
       if (w.alpha <= 0.002) continue;
-      // Convert at the distance to the surface this light is for: a lamp lights
-      // the road beneath it, a beam lights the street ahead.
-      const ref = w.cone ? Math.max(MIN_REF, w.radius * 0.5) : Math.max(MIN_REF, w.z);
-      // `flick` — the lamp's moment-to-moment character — applies HERE, to
-      // the light that was granted, and nowhere near the ranking above. See
-      // the note on `Want.flick`. The fade-in ramp rides the same way.
-      let frac = 1;
-      if (w.rank < RANK.flash) {
-        // A fresh grant starts at a floor rather than at zero: the light has
-        // presence on the frame it arrives — nothing reads as dead — and the
-        // ramp carries it the rest of the way.
-        frac = Math.min(1, Math.max(0.15, this.ramp.get(w.key) ?? 0) + rampStep);
-        this.ramp.set(w.key, frac);
+      if (w.cone) {
+        if (wantSpots >= this.budget.spots) continue;
+        wantSpots++;
+      } else {
+        if (wantPoints >= this.budget.points) continue;
+        wantPoints++;
       }
-      const intensity = w.alpha * (w.flick ?? 1) * frac * GAIN * ref * ref;
-      const color = this.colors.get(w.kind) ?? this.colors.get('lamp')!;
-      if (w.cone && si < this.budget.spots) {
-        const light = this.spots[si++]!;
-        nextGranted.add(w.key);
-        light.color.copy(color);
-        // Same window compensation as the point path below.
-        const throwTo = w.radius * 2.4;
-        light.intensity = intensity / falloffWindow(ref, throwTo);
-        light.distance = throwTo;
-        light.angle = w.cone.spread;
-        light.position.set(w.x, w.y, w.z + 6);
-        // Aimed down the bonnet and slightly at the road, so the beam lands on
-        // the street ahead rather than lighting the skyline.
-        light.target.position.set(
-          w.x + Math.cos(w.cone.angle) * w.radius,
-          w.y + Math.sin(w.cone.angle) * w.radius,
-          0,
-        );
-        light.target.updateMatrixWorld();
+      winners.add(w.key);
+    }
+
+    let turnover = 0;
+    turnover += this.assign(this.spotSlots, winners, byKey, this.budget.spots, step, nowMs);
+    turnover += this.assign(this.pointSlots, winners, byKey, this.budget.points, step, nowMs);
+    this.lastTurnover = turnover;
+
+    // What holds what, for next frame's hysteresis and dwell. Rebuilt from the
+    // slots rather than tracked alongside them, so the two cannot disagree.
+    this.heldSince.clear();
+    for (const slots of [this.spotSlots, this.pointSlots]) {
+      for (const s of slots) {
+        if (s.key !== 0 && !s.retiring) this.heldSince.set(s.key, s.sinceMs);
+      }
+    }
+
+    for (let i = 0; i < this.spots.length; i++) {
+      this.applySpot(i, this.spotSlots[i]!, byKey);
+    }
+    for (let i = 0; i < this.points.length; i++) {
+      this.applyPoint(i, this.pointSlots[i]!, byKey);
+    }
+  }
+
+  /**
+   * Move one pool's slots towards what the ranking asked for.
+   *
+   * The rule a slot follows, and the whole of the repair:
+   *
+   * - **Holding a winner** — fade towards full and stay put.
+   * - **Holding a loser** — fade towards dark, *keeping the light*, and only
+   *   free the slot when it reaches zero. This is the half that was missing:
+   *   an evicted light used to vanish between two frames, so every legitimate
+   *   handover still flashed however gently its replacement arrived.
+   * - **Free** — take the highest-ranked winner nobody is holding, starting
+   *   dark. A winner that finds no free slot simply waits: the fade it is
+   *   waiting on is a seventh of a second.
+   *
+   * Instant lights — a muzzle flash, an explosion, a police strobe — skip both
+   * fades. A flash that eases in is not a flash, and a strobe that eases out
+   * is not a strobe.
+   *
+   * Returns how many slots changed hands, which is the flicker as a number.
+   */
+  private assign(
+    slots: Slot[],
+    winners: Set<number>,
+    byKey: Map<number, Want>,
+    budget: number,
+    step: number,
+    nowMs: number,
+  ): number {
+    let turnover = 0;
+    // First, what the slots already hold: keep it, or start letting go of it.
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i]!;
+      if (slot.key === 0) continue;
+      // Over budget (`?lights=cheap` turned down mid-session): release at once.
+      // Nothing is drawn from these slots either way.
+      if (i >= budget) {
+        slot.key = 0;
+        slot.fade = 0;
+        slot.retiring = false;
         continue;
       }
-      // A beam that could not get a spot slot is dropped, not demoted.
-      //
-      // Falling through to the point path turned it into an omnidirectional
-      // light carrying the cone's intensity — a headlight became a sun-bright
-      // sphere on the car's bonnet, throwing light backwards and sideways down
-      // a street it should have been aiming along. And because headlights
-      // outrank lamps, those fakes then evicted the street lighting that was
-      // doing an honest job.
-      if (w.cone) continue;
-      if (pi >= this.budget.points) continue;
-      const light = this.points[pi++]!;
-      nextGranted.add(w.key);
-      light.color.copy(color);
-      // Wide enough for the pool to reach the road it is lighting, but short
-      // of the 2.6× that had sixteen lamps overlapping into a flat ambient
-      // wash with no pools in it at all. At 1.25× the patch stopped at the
-      // kerb and the carriageway stayed black, which is not what a street lamp
-      // is for either. The compensation below is what makes this a free choice
-      // about the shape of the pool rather than one about its brightness.
-      const distance = w.radius * 2.0;
-      // Shortening the range dims the light as well as narrowing it, which is
-      // not what was wanted and is easy to miss. three.js windows the inverse
-      // square by `(1 - (d/distance)^4)^2`, so at a lamp's own 30 px height
-      // that window is 0.97 at the old reach and 0.57 at this one — the pool
-      // on the road came out barely over half as bright, which reads as the
-      // same flat dimness the wide version had. Dividing the window out at the
-      // reference distance makes brightness *there* independent of the range,
-      // so the range is free to be a shape decision on its own.
-      light.intensity = intensity / falloffWindow(ref, distance);
-      light.distance = distance;
-      light.position.set(w.x, w.y, w.z);
+      const want = byKey.get(slot.key);
+      const keep = !slot.retiring && winners.has(slot.key) && want !== undefined;
+      if (keep) {
+        slot.retiring = false;
+        slot.fade = Math.min(1, slot.fade + step);
+        continue;
+      }
+      // Losing it. An instant light and one whose want has gone out of the
+      // world entirely both go straight to dark; anything else fades.
+      slot.retiring = true;
+      slot.fade = slot.instant ? 0 : Math.max(0, slot.fade - step);
+      if (slot.fade <= 0) {
+        slot.key = 0;
+        slot.retiring = false;
+      }
     }
+
+    // Then fill what is free, best first: `winners` was filled in sorted
+    // order, so iterating it is iterating the ranking.
+    const isSpot = slots === this.spotSlots;
+    let slotIndex = 0;
+    for (const key of winners) {
+      const want = byKey.get(key);
+      if (!want) continue;
+      // A cone only ever goes in a spot slot and a point only in a point slot;
+      // `winners` holds both families, so skip the ones this pool cannot take.
+      if (isSpot !== (want.cone !== undefined)) continue;
+      // Including a slot part-way through its fade out — a key cannot hold two.
+      if (this.holds(slots, key)) continue;
+      while (slotIndex < slots.length && slotIndex < budget && slots[slotIndex]!.key !== 0) {
+        slotIndex++;
+      }
+      if (slotIndex >= slots.length || slotIndex >= budget) break;
+      const slot = slots[slotIndex]!;
+      slot.key = key;
+      slot.retiring = false;
+      slot.instant = want.instant === true;
+      // A flash arrives at full. Everything else starts at a floor rather than
+      // at nothing, so the light has presence on the frame it lands and the
+      // fade carries it the rest of the way.
+      slot.fade = want.instant === true ? 1 : Math.min(1, 0.15 + step);
+      slot.sinceMs = nowMs;
+      turnover++;
+    }
+    return turnover;
+  }
+
+  private holds(slots: Slot[], key: number): boolean {
+    for (const s of slots) if (s.key === key) return true;
+    return false;
+  }
+
+  /**
+   * Brightness for a slot, in three.js's candela.
+   *
+   * The conversion happens at the distance to the surface the light is *for*
+   * (see `GAIN`), `flick` — the lamp's moment-to-moment character — rides on
+   * top of it, and the slot's fade rides on top of that.
+   */
+  private intensityOf(w: Want, fade: number): number {
+    const ref = w.cone ? Math.max(MIN_REF, w.radius * 0.5) : Math.max(MIN_REF, w.z);
+    return w.alpha * (w.flick ?? 1) * fade * GAIN * ref * ref;
+  }
+
+  private applySpot(i: number, slot: Slot, byKey: Map<number, Want>): void {
+    const light = this.spots[i]!;
     // Unspent slots are hidden, not merely dimmed.
     //
     // `WebGLLights.setup` counts every *visible* light whatever its intensity,
     // and the count is a program cache key — so a zeroed light still made the
-    // toon shader loop over it for every fragment it touched, and `?lights=cheap`
-    // bought nothing at all on the GPU. `projectObject` skips an invisible one,
-    // so this is what makes the option mean something. It costs one shader
-    // recompile at the moment the count changes, which is why intensity is
-    // zeroed as well: a light that is off looks the same either way, and the
-    // count only moves when the budget does.
-    for (let i = pi; i < this.points.length; i++) {
-      const light = this.points[i]!;
+    // toon shader loop over it for every fragment it touched, and
+    // `?lights=cheap` bought nothing at all on the GPU. `projectObject` skips
+    // an invisible one, so this is what makes the option mean something. It
+    // costs one shader recompile at the moment the count changes, which is why
+    // intensity is zeroed as well: a light that is off looks the same either
+    // way, and the count only moves when the budget does.
+    light.visible = i < this.budget.spots;
+    const w = slot.key === 0 ? undefined : byKey.get(slot.key);
+    if (slot.fade <= 0) {
       light.intensity = 0;
-      light.visible = i < this.budget.points;
+      return;
     }
-    for (let i = si; i < this.spots.length; i++) {
-      const light = this.spots[i]!;
-      light.intensity = 0;
-      light.visible = i < this.budget.spots;
+    if (!w) {
+      // The source is gone and the fade is not finished. Dim what is already
+      // there rather than cutting it — see `Slot.base`.
+      light.intensity = slot.base * slot.fade;
+      return;
     }
-    for (let i = 0; i < pi; i++) this.points[i]!.visible = true;
-    for (let i = 0; i < si; i++) this.spots[i]!.visible = true;
+    // A retiring light keeps following its want while it fades: a headlight
+    // that lost its slot belongs to a car that is still driving, and fading
+    // out where the car used to be would leave a pool behind on the road.
+    const ref = Math.max(MIN_REF, w.radius * 0.5);
+    const throwTo = w.radius * 2.4;
+    light.color.copy(this.colors.get(w.kind) ?? this.colors.get('lamp')!);
+    slot.base = this.intensityOf(w, 1) / falloffWindow(ref, throwTo);
+    light.intensity = slot.base * slot.fade;
+    light.distance = throwTo;
+    light.angle = w.cone?.spread ?? 0.6;
+    light.position.set(w.x, w.y, w.z + 6);
+    // Aimed down the bonnet and slightly at the road, so the beam lands on
+    // the street ahead rather than lighting the skyline.
+    const angle = w.cone?.angle ?? 0;
+    light.target.position.set(w.x + Math.cos(angle) * w.radius, w.y + Math.sin(angle) * w.radius, 0);
+    light.target.updateMatrixWorld();
+  }
 
-    // This frame's winners defend their slots next frame. The two sets swap
-    // rather than reallocate.
-    let turnover = 0;
-    for (const k of nextGranted) if (!this.granted.has(k)) turnover++;
-    this.lastTurnover = turnover;
-    const held = this.granted;
-    this.granted = nextGranted;
-    this.grantedNext = held;
-    // A light that lost its slot starts its fade again if it wins one back.
-    for (const k of this.ramp.keys()) {
-      if (!this.granted.has(k)) this.ramp.delete(k);
+  private applyPoint(i: number, slot: Slot, byKey: Map<number, Want>): void {
+    const light = this.points[i]!;
+    light.visible = i < this.budget.points;
+    const w = slot.key === 0 ? undefined : byKey.get(slot.key);
+    if (slot.fade <= 0) {
+      light.intensity = 0;
+      return;
     }
+    if (!w) {
+      light.intensity = slot.base * slot.fade;
+      return;
+    }
+    const ref = Math.max(MIN_REF, w.z);
+    // Wide enough for the pool to reach the road it is lighting, but short
+    // of the 2.6× that had sixteen lamps overlapping into a flat ambient
+    // wash with no pools in it at all. At 1.25× the patch stopped at the
+    // kerb and the carriageway stayed black, which is not what a street lamp
+    // is for either. The compensation below is what makes this a free choice
+    // about the shape of the pool rather than one about its brightness.
+    const distance = w.radius * 2.0;
+    light.color.copy(this.colors.get(w.kind) ?? this.colors.get('lamp')!);
+    // Shortening the range dims the light as well as narrowing it, which is
+    // not what was wanted and is easy to miss. three.js windows the inverse
+    // square by `(1 - (d/distance)^4)^2`, so at a lamp's own 30 px height
+    // that window is 0.97 at the old reach and 0.57 at this one — the pool
+    // on the road came out barely over half as bright, which reads as the
+    // same flat dimness the wide version had. Dividing the window out at the
+    // reference distance makes brightness *there* independent of the range,
+    // so the range is free to be a shape decision on its own.
+    slot.base = this.intensityOf(w, 1) / falloffWindow(ref, distance);
+    light.intensity = slot.base * slot.fade;
+    light.distance = distance;
+    light.position.set(w.x, w.y, w.z);
   }
 
   /** What the budget actually spent, for the debug overlay. */

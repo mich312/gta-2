@@ -411,4 +411,70 @@ describe('bodies and vehicles in 3D', () => {
     );
     expect(variants.size).toBe(3);
   });
+  it('stops the pool map growing for the whole session', () => {
+    // Every (sprite, colourway, walk frame) the session had ever laid eyes on
+    // used to stay in the scene for good, drawing nothing. Measured in the
+    // running game, standing still at the spawn: 25 pools to 52 in forty
+    // seconds, and the frame's draw count 258 to 289 with them — every one a
+    // zero-instance draw call walked twice, for colour and for the shadow map.
+    // Driving is a tour of the rest of them.
+    const fx = layer();
+    const group = (fx as unknown as { group: THREE.Group }).group;
+    // `vehicles.json` carries a couple of global scalars alongside the kinds.
+    const kinds = Object.keys(vehiclesJson as Record<string, unknown>).filter((k) => {
+      try {
+        getVehicleTuning(k);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    expect(kinds.length).toBeGreaterThan(8);
+
+    // A long drive: a different handful of cars in view every frame, over
+    // enough ids and kinds to reach every colourway the sheet has.
+    for (let f = 0; f < 1200; f++) {
+      const cars = Array.from({ length: 4 }, (_, i) => {
+        const n = f * 4 + i;
+        return veh({ id: n, kind: kinds[n % kinds.length] as string, driverId: n });
+      });
+      fx.update(emptyWorld({ vehicles: cars } as never), -1);
+    }
+    const afterDriving = poolsOf(fx).size;
+    // Well past the point where the old layer would have collected every
+    // colourway in the sheet.
+    expect(afterDriving).toBeLessThan(kinds.length * 10);
+
+    // Now park. Nothing but these four is drawn again, and once the idle
+    // window has passed nothing but these four is still in the scene.
+    const parked = Array.from({ length: 4 }, (_, i) => veh({ id: i, kind: 'car', driverId: i }));
+    for (let f = 0; f < 700; f++) fx.update(emptyWorld({ vehicles: parked } as never), -1);
+
+    const pools = poolsOf(fx);
+    expect(pools.size).toBeLessThanOrEqual(4);
+    expect(pools.size).toBeLessThan(afterDriving);
+    // What is left is in the scene and what was swept is out of it: the group
+    // holds a body and an outline twin per pool, and nothing orphaned.
+    expect(group.children.length).toBe(pools.size * 2);
+    // ...and the cars still in view are still drawn.
+    expect([...drawn(fx).values()].reduce((a, b) => a + b, 0)).toBe(4);
+  });
+
+  it('shares one material between every pool', () => {
+    // A body's colour is its vertex colours and its per-instance tint, so
+    // nothing about the material varies pool to pool — and a copy each meant
+    // three.js set the same toon uniforms once per pool per frame, twice over
+    // with the shadow pass.
+    const fx = layer();
+    fx.update(
+      emptyWorld({
+        vehicles: [veh({ id: 1, kind: 'car', driverId: 1 }), veh({ id: 2, kind: 'bus', driverId: 2 })],
+        peds: [ped(1, 'walk'), ped(2, 'walk')],
+      } as never),
+      -1,
+    );
+    const mats = new Set([...poolsOf(fx).values()].map((p) => p.mesh.material));
+    expect(poolsOf(fx).size).toBeGreaterThan(2);
+    expect(mats.size).toBe(1);
+  });
 });

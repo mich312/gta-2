@@ -708,11 +708,130 @@ the long courses so a future floor cannot quietly eat them. Evidence:
 
 ---
 
+## §10 "It still lags sometimes when driving, and the car lights still flash"
+
+Both complaints reported again after POLISH.md's five phases and §8.2's light
+repair. Both were real, both were still in the code, and the reason the
+earlier work did not reach them is the same in each case: the repair was
+aimed at the *steady state* and what a player meets while driving is the
+**transitions** — a body seen for the first time, a light changing hands.
+
+### 10.1 The car lights — the fade only ever had a first half — FIXED
+
+§8.2 gave the pool a fade-in and a hysteresis and measured slot turnover
+down to 2–4 a frame, "all of it moving-vehicle handovers that now fade
+instead of popping". The turnover figure was right; the sentence was not.
+Three things were wrong with it, and together they are the whole complaint.
+
+**The fade-in never applied to headlights.** The exemption was written as
+`w.rank < RANK.flash` — meant for muzzle flashes, which must not ease in —
+and `RANK.headlight` is 6 against `RANK.flash`'s 5. So the test excluded
+headlights along with the flashes, and the police strobe with them. Of every
+light in the city, the four that change hands most often were the four that
+arrived at full brightness in a single frame.
+
+**There was never a fade-out.** A light that lost its slot went dark between
+two frames whatever the light replacing it did, so every handover was still
+a discontinuity — the fade-in only changed which end of it you saw. This is
+half the fix and it needed the slots to become the unit of the crossfade:
+the pools are a fixed size (three.js compiles the number of *visible* lights
+into every shader, which is why `?lights=cheap` toggles `visible` rather than
+intensity), so a handover cannot borrow a spare light to fade out on. The
+outgoing light now fades out on its own slot and the incoming one waits about
+a seventh of a second for it.
+
+**A headlight carries no brightness information at all.** Every headlight in
+the city converts to the same intensity — same alpha, same radius — so a slot
+changing hands does not move a single number the shader sees. What moves is
+the *position*: the pool on the road stops being in front of one car and
+starts being in front of another. Measured over 212 frames of six cars
+circling the focus at crossing radii, **a lit beam teleported 143 world px in
+one frame**; after the repair the furthest a lit beam moves in a frame is
+1.0 px, which is the car's own motion. That measurement is now
+`never teleports a lit beam from one car to another` in `lights3d.test.ts`.
+
+Alongside it, a fourth thing that was flashing on its own account: the brake
+lights. `braking` was a bare `Math.abs(speed) < 7`, and traffic spends its
+life either side of that — a car queueing at a junction crosses it several
+times a second. Each crossing swung the tail light's ranking weight by nearly
+three (0.55·6² against 0.32·4²), enough to walk it across the point-pool
+cutoff and back. It is a latch with a 6/9 deadband now.
+
+Five tests in `lights3d.test.ts` cover it, and all five fail against the
+version before this change: headlights fade in, headlights fade out, flashes
+do neither, no lit beam teleports, and a brake light hunting across its own
+threshold does not change at all.
+
+### 10.2 The driving lag — a body's tenth paint job cost as much as its first — FIXED
+
+`EntityLayer` keeps one instanced pool per `(sprite, colourway, walk frame)`,
+built the first time it is asked for. A colourway is baked into the vertex
+colours, so ten paint jobs of a car were ten *separate builds* — ten
+extrusion-and-merge passes, ten `computeVertexNormals`, ten position-keyed
+outline welds — even though the positions, the normals and the weld are
+identical across all ten. **Meeting a car colour you had not seen before cost
+a full body build, in the frame you met it.** Driving is how you meet new
+cars.
+
+Measured in the running game, standing still at the spawn on the CI box (no
+GPU, so read these as a shape rather than as a player's milliseconds):
+
+| | pool builds | p50 | p90 | max | total |
+| --- | --- | --- | --- | --- | --- |
+| Before | 45 | 3.4 ms | 20.3 ms | **133.6 ms** | 542.6 ms |
+| After | 45 | 0.4 ms | 4.3 ms | 12.1 ms | 84 ms |
+
+The repair is in `spriteMesh.ts`: the merge is cached as a *shell* keyed
+without the variant, and a paint job is a colour array laid over it. Variants
+share the shell's `position`, `normal` and `outlineNormal` **by reference**,
+and that sharing reaches the GPU — three.js keys its buffer cache on the
+`BufferAttribute` object, so ten colourways upload one set of positions
+between them. What is left of a first sighting is the shell, one per
+`(sprite, zScale, frame)` rather than one per colourway.
+
+The second half is that the pools never went away. Every combination a
+session had ever laid eyes on stayed in the scene drawing nothing, and a
+zero-instance `InstancedMesh` is still walked, still sorted and still set up
+— twice, because the outline twin pays it too, and again for the shadow map.
+Standing still at the spawn the map went **25 pools to 52 in forty seconds
+and the frame's draw count 258 to 289** with it; a drive across the city is a
+tour of the rest of them. `EntityLayer` now retires a pool that has drawn
+nothing for ten seconds. On idleness rather than on a cap, because the two
+requirements of a cap fight each other: it has to sit above the busiest frame
+or it evicts something in view, and a cap that sits just above the busiest
+frame sweeps on every one of them. Retiring is safe to do often because
+rebuilding is cheap now — the geometry is cached and shared, so a returning
+pool is a colour array and an `InstancedMesh`.
+
+While in there: every pool had its own copy of a material that never varies —
+a body's colour is its vertex colours and its per-instance tint — so three.js
+set the same toon uniforms once per pool per frame, twice over with the
+shadow pass. One material now, and one outline material per thickness.
+
+### 10.3 Found and not fixed: a tail light is brighter when you are not braking
+
+Turned up while testing 10.1 and left alone, because it is a brightness
+decision and this box has no GPU to judge it on. `MIN_REF` floors the
+conversion distance at 8 world px, but a tail light's range is `radius · 2` —
+8 px when running, 12 px braking. A source converting at or beyond its own
+range hits `falloffWindow`'s 0.15 floor, which is the case the function's own
+comment calls "a tuning mistake … it would turn into a flare rather than
+showing up as one". The running lamp is inside that floor and the braking one
+is not, so the numbers come out 682 against 273 per lamp — the brake light is
+*dimmer* than the running light, which is backwards. The signal heads
+(radius 7) and package glints (radius 8) are in the same bracket.
+
+The fix is presumably a floor on `distance` relative to `ref` rather than a
+floor on the window, but it moves every marker in the city and wants
+somebody who can look at it.
+
+---
+
 ## Reproducing
 
 ```bash
 pnpm install && pnpm build
-pnpm test                                   # 831 tests
+pnpm test                                   # 842 tests
 pnpm --filter client dev
 
 # terrain, no player in the way — drive the camera with __city.lookAt(x, y)

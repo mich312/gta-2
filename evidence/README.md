@@ -229,3 +229,18 @@ screen and the two renderers can be compared pixel for pixel.
 | `bug-building-lean.png` | `Z_PER_STOREY` 24 drawn literally. A 9-storey block whose footprint is tiles 473–478 is drawn over 467.8–477.5 — magnified 1.58× by being 216 world px nearer the lens than the ground, and pushed 4.4 tiles further from the screen centre. It covers the four-lane carriageway and the pavement; the cars on that street are behind it. The near-black ground beside every block is the same 216 px throwing eleven tiles of shadow. |
 | `fixed-building-lean.png` | The same frame at `Z_SCALE` 0.25. Blocks sit on their plots, the carriageway and its centre line are visible, the pavement has its paving joints back, and the lots are olive rather than black. |
 | `building-lean-tilegrid.png` | The three-way, zoomed, with the world tile grid drawn over all of it in red: 2D on top, the bug in the middle, the fix at the bottom. The grid is what makes it arguable rather than a matter of taste — the fixed frame and the 2D frame put the same tiles in the same places. |
+
+## The handover, and the pool sweep (BUGS.md §10)
+
+Both complaints in §10 are about *transitions*, which a still cannot show —
+a beam teleporting between two cars and a body being built for the first
+time both live in the gap between two frames. The numbers are in §10 and the
+invariants are in `client/test/lights3d.test.ts` and `entities3d.test.ts`.
+These two are the corroborating stills: that the city still looks like
+itself after the light slots learned to crossfade and the paint jobs started
+sharing one body.
+
+| file | what it shows |
+|---|---|
+| `lights-handover-night.png` | Seed 7 at `night=0.9`, ninety seconds in. Sixteen point slots and four spots against 55 asked for, the lamp pools on the road, the traffic lit and the shop signs on. Nothing about the scene changed with the crossfade — what changed is that no slot in it arrives or leaves in one frame. |
+| `pool-sweep-day.png` | Seed 7 at midday with the proving ground on, a hundred seconds in — long enough for the pool sweep to have run several times. The distinct car colourways are the check that matters: variants now share one set of position and normal buffers between them, and a bug there would show as a street of identically painted cars. |

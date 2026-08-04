@@ -95,19 +95,14 @@ function hexOf(name: string): number {
   return parseInt(String(raw).replace('#', ''), 16) || 0x888888;
 }
 
-/** Paint every vertex of a geometry one colour. */
-function paint(g: THREE.BufferGeometry, color: number): THREE.BufferGeometry {
-  const attr = g.attributes['position'] as THREE.BufferAttribute;
-  const n = attr.count;
+/** Paint a run of vertices one colour, in place. */
+function paintSpan(colors: Float32Array, start: number, count: number, color: number): void {
   const c = new THREE.Color(color);
-  const colors = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
+  for (let i = start; i < start + count; i++) {
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
     colors[i * 3 + 2] = c.b;
   }
-  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return g;
 }
 
 /**
@@ -264,35 +259,42 @@ export interface SpriteMeshOptions {
 const cache = new Map<string, THREE.BufferGeometry>();
 
 /**
- * Build (or fetch) the mesh for a named sprite.
+ * The part of a sprite mesh that a paint job cannot change.
  *
- * Returns null for a name the sprite sheet does not have, so a caller can
- * fall back rather than crash on a vehicle kind that has art coming.
+ * Positions, normals and welded outline normals are identical across a
+ * vehicle's ten colourways — only the `color` attribute differs. This is that
+ * shared half, plus the vertex runs each authored shape occupies, which is
+ * all a variant needs to paint itself.
  */
-export function spriteGeometry(
-  name: string,
-  opts: SpriteMeshOptions = {},
-): THREE.BufferGeometry | null {
+interface Shell {
+  /** Holds `position`, `normal` and `outlineNormal`. No `color`. */
+  geometry: THREE.BufferGeometry;
+  /** One entry per merged part, in vertex order: where it starts and its colour spec. */
+  spans: Array<{ start: number; count: number; color: string }>;
+}
+
+const shells = new Map<string, Shell>();
+
+/**
+ * Build (or fetch) the colour-free half of a sprite mesh.
+ *
+ * Keyed WITHOUT the variant, which is the point: the merge, the vertex
+ * normals and the outline weld are the whole cost of building a body, and a
+ * paint job changes none of them. Ten colourways used to mean ten merges, ten
+ * `computeVertexNormals` and ten position-keyed outline welds — a couple of
+ * milliseconds each, spent the first time a car of that colour drove into
+ * view, which is exactly when the player is least able to spare it.
+ */
+function shellFor(name: string, zScale: number, frame: number): Shell | null {
   const def = DEFS[name];
   if (!def) return null;
-
-  const variant = opts.variant ?? 0;
-  const zScale = opts.zScale ?? 1;
-  const frame = Math.abs(Math.trunc(opts.frame ?? 0)) % Math.max(1, def.frames ?? 1);
-  const key = `${name}|${variant}|${zScale}|${frame}`;
-  const hit = cache.get(key);
+  const key = `${name}|${zScale}|${frame}`;
+  const hit = shells.get(key);
   if (hit) return hit;
 
-  // Resolve `$key` colour substitutions against the sprite's variant lists,
-  // which is where a car's ten paint jobs come from.
-  const resolve = (color: string): number => {
-    if (!color.startsWith('$')) return hexOf(color);
-    const list = def.variants?.[color.slice(1)];
-    if (!list || list.length === 0) return hexOf(color.slice(1));
-    return hexOf(list[variant % list.length] as string);
-  };
-
   const parts: THREE.BufferGeometry[] = [];
+  const spans: Shell['spans'] = [];
+  let start = 0;
   def.shapes.forEach((s, si) => {
     // The frame's offset for this shape, in art px. The mirrored copy takes
     // the same offset with y negated — the arm on the far side swings the
@@ -306,12 +308,18 @@ export function spriteGeometry(
         ]
       : [[s, ox, oy]];
     for (const [c, cx, cy] of copies) {
-      const g = shapeGeometry(c, cx, cy);
+      const g0 = shapeGeometry(c, cx, cy);
+      if (!g0) continue;
       // `ExtrudeGeometry` comes back non-indexed while the box and cylinder
       // primitives are indexed, and `mergeGeometries` requires all or none.
       // Flattening every part is the cheap way to make them compatible, and
-      // it has to happen BEFORE painting because it changes the vertex count.
-      if (g) parts.push(paint(g.index ? g.toNonIndexed() : g, resolve(c.color)));
+      // it has to happen BEFORE the spans are measured, because it changes
+      // the vertex count.
+      const g = g0.index ? g0.toNonIndexed() : g0;
+      const count = (g.attributes['position'] as THREE.BufferAttribute).count;
+      spans.push({ start, count, color: c.color });
+      start += count;
+      parts.push(g);
     }
   });
   if (parts.length === 0) return null;
@@ -327,9 +335,72 @@ export function spriteGeometry(
   merged.scale(1 / SCALE, 1 / SCALE, zScale / SCALE);
   merged.computeVertexNormals();
   addOutlineNormals(merged);
+  // Computed here rather than left to three.js, which would otherwise derive
+  // one per variant off the very buffers the variants are sharing.
+  merged.computeBoundingSphere();
+  merged.computeBoundingBox();
 
-  cache.set(key, merged);
-  return merged;
+  const shell = { geometry: merged, spans };
+  shells.set(key, shell);
+  return shell;
+}
+
+/**
+ * Build (or fetch) the mesh for a named sprite.
+ *
+ * Returns null for a name the sprite sheet does not have, so a caller can
+ * fall back rather than crash on a vehicle kind that has art coming.
+ *
+ * Every variant of one body shares its shell's buffers **by reference**, and
+ * that sharing reaches the GPU: three.js keys its buffer cache on the
+ * `BufferAttribute` object, so ten colourways of a car upload one set of
+ * positions and normals between them and one small colour array each.
+ *
+ * The returned geometries are cached and shared, and their attributes are
+ * shared further still — so no caller may `dispose()` one. Doing so would
+ * delete the buffers out from under every other paint job of the same body.
+ */
+export function spriteGeometry(
+  name: string,
+  opts: SpriteMeshOptions = {},
+): THREE.BufferGeometry | null {
+  const def = DEFS[name];
+  if (!def) return null;
+
+  const variant = opts.variant ?? 0;
+  const zScale = opts.zScale ?? 1;
+  const frame = Math.abs(Math.trunc(opts.frame ?? 0)) % Math.max(1, def.frames ?? 1);
+  const key = `${name}|${variant}|${zScale}|${frame}`;
+  const hit = cache.get(key);
+  if (hit) return hit;
+
+  const shell = shellFor(name, zScale, frame);
+  if (!shell) return null;
+
+  // Resolve `$key` colour substitutions against the sprite's variant lists,
+  // which is where a car's ten paint jobs come from.
+  const resolve = (color: string): number => {
+    if (!color.startsWith('$')) return hexOf(color);
+    const list = def.variants?.[color.slice(1)];
+    if (!list || list.length === 0) return hexOf(color.slice(1));
+    return hexOf(list[variant % list.length] as string);
+  };
+
+  const total = (shell.geometry.attributes['position'] as THREE.BufferAttribute).count;
+  const colors = new Float32Array(total * 3);
+  for (const span of shell.spans) paintSpan(colors, span.start, span.count, resolve(span.color));
+
+  const geom = new THREE.BufferGeometry();
+  for (const attr of ['position', 'normal', 'outlineNormal']) {
+    const shared = shell.geometry.attributes[attr];
+    if (shared) geom.setAttribute(attr, shared);
+  }
+  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geom.boundingSphere = shell.geometry.boundingSphere;
+  geom.boundingBox = shell.geometry.boundingBox;
+
+  cache.set(key, geom);
+  return geom;
 }
 
 /**

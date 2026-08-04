@@ -11,7 +11,7 @@ import {
   playerPose,
   vehicleSpriteVariant,
 } from '../render/renderer.js';
-import { addOutline, toonMaterial } from './toon.js';
+import { addOutline, outlineMaterial, toonMaterial } from './toon.js';
 import { carGeometry, personGeometry } from './models.js';
 import { frameCount, hasSprite, spriteGeometry } from './spriteMesh.js';
 
@@ -271,6 +271,45 @@ class WalkCycle {
   }
 }
 
+/**
+ * The one material every body pool draws with.
+ *
+ * A body's colour comes from its vertex colours and its per-instance tint, so
+ * nothing about the material varies from pool to pool — and giving each pool a
+ * copy meant three.js re-uploaded the same toon uniforms once per pool per
+ * frame, on both the colour pass and the shadow pass.
+ */
+let bodyMaterial: THREE.MeshToonMaterial | null = null;
+function sharedBodyMaterial(): THREE.MeshToonMaterial {
+  if (!bodyMaterial) {
+    bodyMaterial = toonMaterial(0xffffff);
+    bodyMaterial.vertexColors = true;
+  }
+  return bodyMaterial;
+}
+
+/** Outline materials, one per thickness, shared the same way. */
+const outlineMaterials = new Map<number, THREE.ShaderMaterial>();
+function sharedOutlineMaterial(thickness: number): THREE.ShaderMaterial {
+  let mat = outlineMaterials.get(thickness);
+  if (!mat) {
+    // Every body geometry carries welded outline normals (`spriteMesh`), so
+    // the welded variant is the only one these pools ever want.
+    mat = outlineMaterial(thickness, 0x0a0d12, true);
+    outlineMaterials.set(thickness, mat);
+  }
+  return mat;
+}
+
+/**
+ * How long a body pool may draw nothing before it is retired.
+ *
+ * Ten seconds at 60 fps. Long enough that a car leaving the frame and coming
+ * back around the block still has its pool, short enough that a drive across
+ * the city does not leave every colourway it passed in the scene behind it.
+ */
+const POOL_IDLE_FRAMES = 600;
+
 /** A pool of instances of one body kind, grown on demand. */
 class Pool {
   readonly mesh: THREE.InstancedMesh;
@@ -279,6 +318,8 @@ class Pool {
   /** How many instances the buffers hold. `mesh.count` is how many are drawn. */
   private readonly capacity: number;
   private readonly tint = new THREE.Color();
+  /** Frame this pool last held anything, for the idle sweep in `EntityLayer`. */
+  seen = 0;
 
   constructor(
     parent: THREE.Object3D,
@@ -288,8 +329,7 @@ class Pool {
   ) {
     // Vertex colours: the model carries its own paint (dark cabin, glass,
     // black tyres) so the whole thing is one instanced draw.
-    const mat = toonMaterial(0xffffff);
-    mat.vertexColors = true;
+    const mat = sharedBodyMaterial();
     this.capacity = capacity;
     this.mesh = new THREE.InstancedMesh(geometry, mat, capacity);
     // Per-instance tint, multiplied over the model's own paint. White leaves the
@@ -306,12 +346,32 @@ class Pool {
     // vanishes the moment the camera moves away from it.
     this.mesh.frustumCulled = false;
     parent.add(this.mesh);
-    this.outline = addOutline(this.mesh, parent, body.outline);
+    this.outline = addOutline(this.mesh, parent, body.outline, sharedOutlineMaterial(body.outline));
     this.outline.frustumCulled = false;
   }
 
   begin(): void {
     this.used = 0;
+  }
+
+  /** How many instances were placed this frame. */
+  get placed(): number {
+    return this.used;
+  }
+
+  /**
+   * Take this pool out of the scene.
+   *
+   * The geometry is NOT disposed: it is cached in `spriteMesh` and its
+   * buffers are shared with every other paint job of the same body, so
+   * disposing it here would delete them out from under the pools still using
+   * them. Same for the materials, which every pool shares.
+   */
+  retire(parent: THREE.Object3D): void {
+    parent.remove(this.mesh);
+    parent.remove(this.outline);
+    this.mesh.dispose();
+    (this.outline as THREE.InstancedMesh).dispose?.();
   }
 
   /** Place one instance. Silently drops past capacity rather than throwing. */
@@ -352,12 +412,21 @@ export class EntityLayer {
    *
    * Keyed that widely because a pool is a geometry, and all three of those
    * change the geometry: a colourway is baked into the vertex colours, and a
-   * walk frame moves the legs. It sounds expensive and is not — a pool is
-   * created the first time it is asked for and then reused for the rest of the
-   * session, and six shirts times four frames is twenty-four draws for the
-   * entire crowd.
+   * walk frame moves the legs. Six shirts times four frames is twenty-four
+   * draws for the entire crowd.
+   *
+   * What it is NOT is a set that stops growing. Every combination the session
+   * has ever laid eyes on used to stay in the scene for good, drawing nothing:
+   * a car kind has ten colourways, a pedestrian six shirts times four frames,
+   * and driving across the city is a tour of all of them. Measured standing
+   * still at the spawn, the map went 25 pools to 52 in forty seconds and the
+   * frame's draw count went 258 to 289 with it — every one of those a
+   * zero-instance draw call walked twice, once for colour and once for the
+   * shadow map. `sweepPools` is what bounds it.
    */
   private readonly pools = new Map<string, Pool>();
+  /** Frames rendered, for the idle sweep. */
+  private frame = 0;
   /** A marker over somebody you are meant to be protecting. */
   private escorts: Pool | null = null;
   private readonly walk = new WalkCycle();
@@ -596,7 +665,12 @@ export class EntityLayer {
       );
     }
 
-    for (const pool of this.pools.values()) pool.end();
+    this.frame++;
+    for (const pool of this.pools.values()) {
+      if (pool.placed > 0) pool.seen = this.frame;
+      pool.end();
+    }
+    this.sweepPools();
     this.escorts?.end();
     this.walk.sweep(this.seen);
     if (this.copFacing.size >= 256) {
@@ -607,12 +681,40 @@ export class EntityLayer {
   }
 
   /**
+   * Retire pools that have drawn nothing for a while.
+   *
+   * On idleness rather than on a cap, deliberately. A cap has to be set above
+   * the busiest frame or it evicts something in view, and a cap set just above
+   * the busiest frame sweeps on every one of them — the two requirements
+   * fight. An idle window has neither problem: a frame may draw as many pools
+   * as it likes, and what goes is only ever something nothing has drawn for
+   * ten seconds.
+   *
+   * Retiring is cheap to undo now that the paint jobs of a body share its
+   * geometry (`spriteMesh`): a returning pool is a colour array and an
+   * `InstancedMesh`, with the merge, the vertex normals and the outline weld
+   * all already done and cached.
+   */
+  private sweepPools(): void {
+    // Cheap enough to run every frame: the map is tens of entries and this
+    // reads one number off each. The alternative — sweeping every N frames —
+    // buys nothing and adds a phase nobody can see in the numbers.
+    for (const [key, pool] of this.pools) {
+      if (this.frame - pool.seen <= POOL_IDLE_FRAMES) continue;
+      pool.retire(this.group);
+      this.pools.delete(key);
+    }
+  }
+
+  /**
    * The pool for one vehicle's (kind, colourway).
    *
    * Keyed by variant as well as kind because a car's colourway is baked into
    * its vertex colours — which is what keeps a painted car a single instanced
-   * draw. Ten paint jobs is ten pools of the same geometry, and ten draws for
-   * every car in the city is still cheaper than one draw per car.
+   * draw. Ten paint jobs is ten pools, and ten draws for every car in the
+   * city is still cheaper than one draw per car; what they are no longer is
+   * ten separate bodies, since `spriteGeometry` hands every colourway of a
+   * car the same positions and normals with its own colour array over them.
    */
   private vehiclePool(kind: string, id: number, paint: number, gangId: number): Pool {
     const { name, variant } = vehicleSpriteVariant(kind, id, gangId, paint);
