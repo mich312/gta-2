@@ -3,6 +3,7 @@ import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { buildLayout, type StreetCourse } from './layout.js';
+import { buildShore, SHORE_QUANTUM, signedArea, type ShoreRing } from './shore.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
 import {
   T_BANK,
@@ -62,6 +63,13 @@ export interface BakedCity {
    * as one line instead of a staircase of tiles. See WORLDGEN.md §16.
    */
   courses: StreetCourse[];
+  /**
+   * The waterline as closed rings in tile units — the curve the water tiles
+   * rasterise, kept instead of thrown away (WORLDGEN.md §17). Ships beside
+   * the tiles and contradicts none of them: `shore.ts` refuses to emit rings
+   * that do not fill back to the mask they were traced from.
+   */
+  shore: ShoreRing[];
 }
 
 /**
@@ -612,6 +620,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
     landmarks,
     shops: [],
     courses: trimCourses(layout.courses, tiles, W, H),
+    shore: traceWaterSurface(tiles, W, H, layout.field),
   };
   baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles);
   return baked;
@@ -821,6 +830,117 @@ function fromBase64(text: string): Uint8Array {
   return out.subarray(0, at);
 }
 
+/**
+ * The water surface of the FINISHED city, as closed rings.
+ *
+ * Traced from the tile plane rather than from the geography's water mask, and
+ * the difference is the whole point of tracing it here rather than in
+ * `buildLayout`. Three later passes move the waterline after `paintCoast` has
+ * decided where the sea is, and a curve that ignored them would be a
+ * beautiful line in the wrong place:
+ *
+ * - **Ponds.** `fillBlock` carves water into park interiors
+ *   (`buildings.ts:596`). They are not the sea and the coastline knows
+ *   nothing about them, but they are water you cannot drive into, which is
+ *   the only question collision asks.
+ * - **Reclamation.** The shore-finishing pass builds quay and beach out over
+ *   shallow water, so the effective waterline sits inside the geography's by
+ *   up to a tile in a few hundred places.
+ * - **Bridges.** A deck is not water to anything on land, so the rings cut
+ *   round it — which leaves a bridge-shaped hole in the sea, and that hole is
+ *   exactly where the tile plane's inability to hold two levels is hiding.
+ *   §17's sectors close it; until then the honest thing is to draw what the
+ *   tiles say and name the hole.
+ *
+ * The field is still what places each crossing, so the open coast — which is
+ * nearly all of the boundary and all of the visible staircase — gets the true
+ * curve. Around a pond or a reclaimed quay the field has no opinion and the
+ * line falls to the middle of the gap, which is exactly what a tile-resolution
+ * contour would have said.
+ */
+function traceWaterSurface(
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+  field: (x: number, y: number) => number,
+): ShoreRing[] {
+  const dry = new Uint8Array(W * H);
+  for (let i = 0; i < dry.length; i++) dry[i] = tiles[i] === T_WATER ? 0 : 1;
+  return buildShore(dry, W, H, field);
+}
+
+/**
+ * Shore rings, as deltas in sixteenths of a tile.
+ *
+ * The points are already ON a sixteenth grid (`SHORE_QUANTUM`), so they are
+ * integers and the only question is how to spend bytes on them. A coastline
+ * is a walk: consecutive points are a fraction of a tile apart, which is a
+ * small delta, which is one zigzag varint byte nearly every time. Stored as
+ * absolute hundredths the way the courses are, this would be six times the
+ * size for the same curve.
+ */
+function encodeShore(rings: readonly ShoreRing[]): string {
+  const bytes: number[] = [];
+  const varint = (v: number): void => {
+    let n = v >>> 0;
+    while (n >= 0x80) {
+      bytes.push((n & 0x7f) | 0x80);
+      n >>>= 7;
+    }
+    bytes.push(n);
+  };
+  const zigzag = (v: number): void => varint(v < 0 ? -2 * v - 1 : 2 * v);
+  varint(rings.length);
+  for (const ring of rings) {
+    varint(ring.points.length);
+    let px = 0;
+    let py = 0;
+    for (const [x, y] of ring.points) {
+      const qx = Math.round(x / SHORE_QUANTUM);
+      const qy = Math.round(y / SHORE_QUANTUM);
+      zigzag(qx - px);
+      zigzag(qy - py);
+      px = qx;
+      py = qy;
+    }
+  }
+  return toBase64(bytes);
+}
+
+function decodeShore(text: string): ShoreRing[] {
+  const bin = fromBase64(text);
+  let at = 0;
+  const varint = (): number => {
+    let n = 0;
+    let shift = 0;
+    for (;;) {
+      const b = bin[at++] as number;
+      n |= (b & 0x7f) << shift;
+      if ((b & 0x80) === 0) return n >>> 0;
+      shift += 7;
+    }
+  };
+  const zigzag = (): number => {
+    const n = varint();
+    return (n & 1) === 1 ? -(n + 1) / 2 : n / 2;
+  };
+  const rings: ShoreRing[] = [];
+  const count = varint();
+  for (let r = 0; r < count; r++) {
+    const n = varint();
+    const points: Array<readonly [number, number]> = [];
+    let px = 0;
+    let py = 0;
+    for (let i = 0; i < n; i++) {
+      px += zigzag();
+      py += zigzag();
+      points.push([px * SHORE_QUANTUM, py * SHORE_QUANTUM]);
+    }
+    rings.push({ points, area: signedArea(points) });
+  }
+  return rings;
+}
+
 export function encodeBakedCity(city: BakedCity): string {
   return JSON.stringify(
     {
@@ -841,6 +961,7 @@ export function encodeBakedCity(city: BakedCity): string {
         width: c.width,
         kind: c.kind,
       })),
+      shore: encodeShore(city.shore),
     },
     null,
     0,
@@ -866,5 +987,7 @@ export function decodeBakedCity(raw: unknown): BakedCity {
     shops: r['shops'] as Shop[],
     // Absent in a pre-course bake: every road was its tiles and nothing more.
     courses: (r['courses'] as StreetCourse[] | undefined) ?? [],
+    // Absent in a pre-shore bake: the waterline was its staircase.
+    shore: typeof r['shore'] === 'string' ? decodeShore(r['shore']) : [],
   };
 }

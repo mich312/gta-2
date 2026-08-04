@@ -35,6 +35,7 @@ export * from './replay/format.js';
 export * from './world/types.js';
 export * from './world/bevel.js';
 export * from './world/marks.js';
+export * from './world/shore.js';
 export * from './world/heights.js';
 export * from './world/volume.js';
 export * from './world/collide3.js';

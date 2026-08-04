@@ -2460,7 +2460,7 @@ byte-identical.
 
 | # | Step | What lands | What retires |
 |---|---|---|---|
-| 1 | **The soup, derived** | The bake emits V1/V2/V4 *from the finished tile plane* — marching squares to trace each material's boundary, collinear merge, then simplification — and ships them beside it. No consumer changes. | nothing yet |
+| 1 | **The soup, derived** | The bake emits V1/V2/V4 *from the finished tile plane* — marching squares to trace each material's boundary, collinear merge, then simplification — and ships them beside it. No consumer changes. | nothing yet *(superseded: §17.11 replaces this step, and says why)* |
 | 2 | **Collision moves** | `moveWithCollision` clips against edges; `isSolidAtWorld` reads surfaces | the bevel plane (§15); the 45°-only shoreline |
 | 3 | **The network replaces the probes** | `planRoute` and `traffic.ts` on V3; `signals.ts` labels nodes | `MAX_EXPANSIONS`, the 5 MB A* scratch, the bearing plane (120 kB) |
 | 4 | **The bake emits vectors first** | The plan's polygons carried through to V1/V2 instead of recovered from the raster; tiles become an *output* | `trimCourses`' recovery pass; the 880 kB |
@@ -2553,3 +2553,112 @@ practice](https://www.cocos.com/en/post/building-collision-detection-using-signe
 [Shewchuk on robust
 predicates](https://www.cs.cmu.edu/~quake/robust.html) ·
 [floating-point determinism](https://gafferongames.com/post/floating_point_determinism/).
+
+### 17.11 The sequence, corrected — and the first wave, DELIVERED
+
+§17.7 was written before anything had been tried, and its first step was
+wrong in a way worth recording rather than quietly fixing.
+
+**What was wrong with step 1.** "The bake emits V1/V2/V4 *from the finished
+tile plane* — marching squares, collinear merge, simplification" is the safe
+migration step: it cannot disagree with anything, and it delivers a picture
+identical to the one already shipping. That is precisely the problem. Tracing
+a raster gives back the staircase in vector clothing — 23,330 axis-aligned
+segments that are *exactly* as square as the bytes they came from — so the
+step banks the whole cost of a new representation and buys none of its value,
+and it enshrines the raster as the source at the very moment the point is to
+demote it. A migration whose first step is invisible is a migration that gets
+abandoned at step two.
+
+**The correction, in one sentence.** Do not trace the raster; trace **the
+thing the raster was thresholded from**, one material at a time, and make the
+raster the *proof* rather than the source. Every material in this city comes
+from something continuous — the coastline is an implicit field
+(`layout.ts: paintCoast`), the roads are polylines (§16), the buildings are
+rectangles. The vector is upstream in all three cases. The raster's job in the
+migration is not to supply the geometry; it is to **check** it, by being
+reproduced exactly.
+
+That turns §17.7's seven horizontal steps into vertical slices — one material
+carried from field to collision to renderer, then the next — and it moves the
+"tiles are derived, not master" reversal from step 4 to step 1, where it
+belongs.
+
+**Why water first.** It is half the map (49.5% of tiles), it owns the
+boundary the eye is most offended by, §15 spent an entire wave chamfering that
+boundary 45° at a time, and its consumers are few and crisp. It is also the
+only material whose upstream form is a *field* rather than a polyline, so it
+is the hardest of the three — which is the right one to prove the architecture
+on.
+
+---
+
+**DELIVERED — the shore as a curve.** `shared/src/world/shore.ts`, traced in
+the bake, shipped in `city.data.ts`, consumed by nothing yet.
+
+Marching squares over the tile-centre lattice fixes the topology; each
+crossing is then placed along its edge by bisecting the same warped distance
+field the mask was thresholded from (`Coast.field`, exposed for the purpose),
+so the line lands where the water is rather than halfway between two cells.
+The result:
+
+| | |
+|---|---|
+| Rings | **26** — 14 land outlines, 12 holes |
+| Points | **4,088**, mean edge 1.73 tiles, longest 54 |
+| Against | 64,376 land/water tile faces; **4,904** once collinear runs are merged |
+| Cost in the bake | 11.3 kB base64, and 0.4 s of the 7 s bake |
+| Disagreement with the shipped tile plane | **0 of 589,824** |
+
+Two properties do the work, and both are tests (`shore.test.ts`):
+
+- **It cannot contradict the tiles.** A crossing is clamped to the middle 70%
+  of its edge, so the contour never passes through a tile centre; and
+  simplification is verified rather than trusted — the rings are filled back
+  at every tile centre and must reproduce the mask, with the tolerance
+  stepping down a ladder until they do. Zero disagreement is not a measurement
+  of this bake, it is a property of the pass.
+- **It agrees about area.** Segments are directed with the land on their
+  right, so a ring's winding says whether it bounds land or a hole, and the
+  signed areas of all 26 rings sum to **297,744 square tiles against 297,768
+  land tiles — 0.9999**. The vector city and the raster city are measurably
+  the same city.
+
+The tile, district and bearing planes hash **identical** to the previous bake.
+This wave added a curve and moved nothing.
+
+**Evidence: `evidence/city-shore-vector.png`** (`pnpm mapgen --shore
+--scale=20 --crop=600,300,48`, two new review flags). Top left, the tiles
+descend in visible steps while the ring runs as one straight diagonal through
+the middle of them. On the quay at the right the ring hugs the tile edges
+instead — correctly, because that is built ground the coastline field has no
+opinion about, and the crossing falls back to the middle of the gap. Curve
+where nature drew it, square where somebody built it, from one pass with no
+special case for either.
+
+**What the wave found, which is worth more than the curve.** Tracing the
+*finished* tile plane rather than the geography's water mask exposed 2,153
+cells where the two disagree, and every one of them is a thing the tile plane
+cannot say:
+
+- **1,524 bridge decks.** The rings cut round every deck, leaving a
+  bridge-shaped hole in the sea — because to a tile, "road" and "river"
+  are alternatives. That hole is precisely where the missing z-axis is
+  hiding, and §17.5's sectors are what close it.
+- **238 park ponds** (`buildings.ts:596`), carved after the coastline and
+  unknown to it. They are not the sea; they are water you cannot drive into,
+  which is the only question collision asks.
+- **391 reclaimed tiles** where the shore-finishing pass built quay and beach
+  out over shallow water, moving the effective waterline inside the
+  geography's by up to a tile.
+
+The first of those three is a design hole with a known fix. The other two are
+simply the difference between *the coastline* and *the water surface*, and
+naming it is why the artifact is traced where it is.
+
+**Next, in order.** (2) Collision reads the rings: generalise `faceX`'s bevel
+half-plane to an arbitrary edge, index the rings by 128 px block, retire the
+water half of the bevel plane. (3) The same treatment for the road courses,
+which are already polylines and need only widths and junctions to become V3.
+(4) Buildings, which are already rectangles. At that point three of the four
+materials are vectors and the tile plane is a cache.

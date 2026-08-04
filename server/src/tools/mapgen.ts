@@ -30,6 +30,8 @@ import { encodePng, hexToRgb } from './png.js';
  *
  *   pnpm mapgen [--seed=N] [--out=path.png]   whole map, 2 px per tile
  *   pnpm mapgen --crop=x,y,w[,h]              close-up in tiles, scaled to read
+ *   pnpm mapgen --shore                       stroke the shore rings over the tiles
+ *   pnpm mapgen --scale=N                     px per tile for a crop, overriding the fit
  *   pnpm mapgen --sheet[=path.png]            the fabric-review contact sheet
  *   pnpm mapgen --stats                       per-borough fabric numbers
  *
@@ -95,6 +97,7 @@ function render(
   wTiles: number,
   hTiles: number,
   scale: number,
+  shore = false,
 ): Render {
   const W = wTiles * scale;
   const H = hTiles * scale;
@@ -149,6 +152,25 @@ function render(
           const cut =
             oc !== null && inCutHalf(code, ((px + 0.5) / scale) * 16, ((py + 0.5) / scale) * 16);
           put(tx * scale + px, ty * scale + py, cut ? oc : c);
+        }
+      }
+    }
+  }
+
+  // The shore as a curve, over the shore as squares (WORLDGEN.md §17). The
+  // whole review: where the stroke leaves the staircase it is drawn on is
+  // exactly what the tile plane could not say.
+  if (shore && map.shore) {
+    const ink: [number, number, number] = [255, 64, 128];
+    for (const ring of map.shore) {
+      for (let i = 0, j = ring.points.length - 1; i < ring.points.length; j = i++) {
+        const [ax, ay] = ring.points[j] as readonly [number, number];
+        const [bx, by] = ring.points[i] as readonly [number, number];
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) * scale * 2));
+        for (let s = 0; s <= steps; s++) {
+          const px = ax + ((bx - ax) * s) / steps;
+          const py = ay + ((by - ay) * s) / steps;
+          put(Math.round((px - x0) * scale), Math.round((py - y0) * scale), ink);
         }
       }
     }
@@ -481,6 +503,8 @@ function main(): void {
   let crop: [number, number, number, number] | null = null;
   let sheet: string | null = null;
   let stats = false;
+  let shore = false;
+  let scaleArg = 0;
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)(?:=(.+))?$/.exec(a);
     if (!m) continue;
@@ -489,6 +513,8 @@ function main(): void {
     if (key === 'seed' && val) seed = Number.parseInt(val, 10);
     if (key === 'out' && val) out = val;
     if (key === 'stats') stats = true;
+    if (key === 'shore') shore = true;
+    if (key === 'scale' && val) scaleArg = Number.parseInt(val, 10);
     if (key === 'sheet') sheet = val ?? SHEET_OUT;
     if (key === 'crop' && val) {
       const parts = val.split(',').map((v) => Number.parseInt(v, 10));
@@ -518,11 +544,11 @@ function main(): void {
     const [x, y, w, h] = crop;
     // Scaled so a close-up is actually close: a 60-tile crop renders at 8 px
     // per tile, the whole map still at 2.
-    const scale = Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
-    picture = render(map, palette, x, y, w, h, scale);
+    const scale = scaleArg > 0 ? scaleArg : Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
+    picture = render(map, palette, x, y, w, h, scale, shore);
     if (!out) out = `mapgen-crop-${x}-${y}.png`;
   } else {
-    picture = render(map, palette, 0, 0, map.widthTiles, map.heightTiles, 2);
+    picture = render(map, palette, 0, 0, map.widthTiles, map.heightTiles, 2, shore);
     if (!out) out = `mapgen-seed${seed}.png`;
   }
 

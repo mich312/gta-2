@@ -98,6 +98,12 @@ export interface CityLayout {
   bearing: Uint8Array;
   /** The authored roads as carved: the curves the tile bands rasterise. */
   courses: StreetCourse[];
+  /**
+   * The implicit coastline, sampled anywhere: positive on land. Kept so the
+   * bake can trace the waterline as a CURVE once the tiles are finished
+   * (`shore.ts`, WORLDGEN.md §17). See `Coast.field`.
+   */
+  field: (x: number, y: number) => number;
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -251,6 +257,23 @@ interface Coast {
   water: Uint8Array;
   /** Shore normal dotted with the swell: +1 fully exposed, -1 sheltered. */
   exposure: Float32Array;
+  /**
+   * The implicit coastline, sampled anywhere: positive on land, negative at
+   * sea, and the thing the mask above is one-question-per-tile-centre of.
+   *
+   * Kept so the shore can be traced as a CURVE rather than as the staircase
+   * of its own answers (`shore.ts`, WORLDGEN.md §17). It is the same
+   * composition the mask is thresholded from — warped distance field, islets,
+   * spits, the sea margin — with one deliberate difference: the distance
+   * field is sampled bilinearly instead of at the nearest cell, because a
+   * piecewise-constant field has nothing to say between two tile centres and
+   * between two tile centres is the entire question. It therefore does NOT
+   * reproduce the mask exactly, and it is not asked to: the morphological
+   * cleanup below has no implicit form either. `shore.ts` treats every
+   * disagreement as "put the line in the middle", which is what a
+   * tile-resolution contour would have said.
+   */
+  field: (x: number, y: number) => number;
 }
 
 /**
@@ -378,7 +401,57 @@ function paintCoast(plan: CityPlan): Coast {
       water[y * W + x] = edge || land[y * W + x] !== 1 ? 1 : 0;
     }
   }
-  return { water, exposure };
+
+  // The same composition again, this time as a function of a point rather
+  // than a loop over cells: what `shore.ts` bisects to find where between two
+  // tile centres the water line actually falls. Every term above is here —
+  // the warped field, the islets and spits added after it, the sea margin —
+  // and they combine the way the loops did: land is the union of the
+  // landmasses with the small stuff, then the margin overrides it.
+  const bilinear = (f: Float32Array, x: number, y: number): number => {
+    const cx = x < 0 ? 0 : x > W - 1 ? W - 1 : x;
+    const cy = y < 0 ? 0 : y > H - 1 ? H - 1 : y;
+    const x0 = Math.floor(cx);
+    const y0 = Math.floor(cy);
+    const x1 = x0 + 1 > W - 1 ? W - 1 : x0 + 1;
+    const y1 = y0 + 1 > H - 1 ? H - 1 : y0 + 1;
+    const fx = cx - x0;
+    const fy = cy - y0;
+    const a = f[y0 * W + x0] as number;
+    const b = f[y0 * W + x1] as number;
+    const c = f[y1 * W + x0] as number;
+    const d = f[y1 * W + x1] as number;
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+  };
+  const field = (x: number, y: number): number => {
+    let wx = 0;
+    let wy = 0;
+    for (const [lam, amp] of octaves) {
+      wx += (valueNoise(COAST_SEED ^ Math.imul(lam | 0, 2654435761), x / lam, y / lam) - 0.5) * 2 * amp;
+      wy += (valueNoise(COAST_SEED ^ Math.imul(lam | 0, 40503), x / lam + 11.7, y / lam - 4.3) - 0.5) * 2 * amp;
+    }
+    const damp = 1 - 0.55 * Math.max(0, exposureAt(x, y));
+    let v = bilinear(sdf, x + wx * damp, y + wy * damp);
+    for (const islet of g.islets) {
+      v = Math.max(v, islet.radius + fine(x, y, 0x5a17) - Math.hypot(x - islet.at[0], y - islet.at[1]));
+    }
+    for (const s of spits) {
+      const bulge = fine(x, y, 0x2b17);
+      for (let k = 0; k + 1 < s.points.length; k++) {
+        const [ax, ay] = s.points[k] as PlanPoint;
+        const [bx, by] = s.points[k + 1] as PlanPoint;
+        const u = k / Math.max(1, s.points.length - 2);
+        const w = s.w0 + (s.w1 - s.w0) * u + bulge;
+        v = Math.max(v, w / 2 - segmentDistance(x, y, ax, ay, bx, by));
+      }
+    }
+    // The margin is the sea, and it wins: `- 0.5` puts the line down the
+    // middle of the gap between the last land-eligible centre and the first
+    // one the loop above forced to water.
+    return Math.min(v, Math.min(Math.min(x, y), Math.min(W - 1 - x, H - 1 - y)) - margin + 0.5);
+  };
+
+  return { water, exposure, field };
 }
 
 /* ------------------------------------------------------------------ */
@@ -424,7 +497,7 @@ function bridgeable(
 export function buildLayout(plan: CityPlan): CityLayout {
   const W = plan.widthTiles;
   const H = plan.heightTiles;
-  const { water, exposure } = paintCoast(plan);
+  const { water, exposure, field } = paintCoast(plan);
   const tiles = new Uint8Array(W * H);
   const district = new Uint8Array(W * H).fill(DISTRICT_IDX.park);
   const owner = new Int16Array(W * H).fill(-1);
@@ -2150,5 +2223,5 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
-  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing, courses };
+  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing, courses, field };
 }

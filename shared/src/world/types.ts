@@ -261,6 +261,14 @@ export interface CityMap {
     width: number;
     kind: string;
   }>;
+  /**
+   * The waterline as closed rings in tile units, from the bake — the curve
+   * the water tiles rasterise (WORLDGEN.md §17). Typed loosely here for the
+   * same reason `courses` is: `shore.ts` sits above `types.ts` in the import
+   * order. Optional, and absence means "there is no curve, use the tiles",
+   * which is what every consumer did until there was one.
+   */
+  shore?: Array<{ points: Array<readonly [number, number]>; area: number }>;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];
