@@ -42,6 +42,48 @@ describe('street courses', () => {
     }
   });
 
+  it('ships no stub short enough to hide inside a junction', () => {
+    // The trim's old three-tile floor let a course survive on nothing but the
+    // crossroads it happened to cross: a junction is road in all directions,
+    // so every centreline sample lands on carriageway and the test above is
+    // satisfied by a four-tile streak lying at 20° across a square four-way.
+    // Nothing local tells that stub from a road — perpendicular to it the
+    // road runs three tiles either way and its band is fully covered, because
+    // inside a crossroads all of that is true of any direction. Its length is
+    // the whole of what is wrong with it, so its length is what is asserted.
+    // See `MIN_RUN_WIDTHS` in bake.ts.
+    for (const c of city.courses) {
+      let len = 0;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        len += Math.hypot(bx - ax, by - ay);
+      }
+      expect(
+        len,
+        `${c.kind} course of width ${c.width} at ${(c.points[0] as readonly [number, number]).join(',')}`,
+      ).toBeGreaterThanOrEqual(c.width * 3);
+    }
+  });
+
+  it('still ships the long roads the ribbon was drawn for', () => {
+    // The floor above drops stubs, and only stubs. The ring, the avenues and
+    // the borough-length streets are what §16 is FOR, so their survival is
+    // held here rather than left to the eye: dropping a hundred short courses
+    // must not have cost a metre of the curves anybody navigates by.
+    const long = city.courses.filter((c) => {
+      let len = 0;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        len += Math.hypot(bx - ax, by - ay);
+      }
+      return len >= 100;
+    });
+    expect(long.length).toBeGreaterThanOrEqual(90);
+    expect(long.some((c) => c.kind === 'ring')).toBe(true);
+  });
+
   it('round-trips through the wire form unchanged', () => {
     expect(city.courses.length).toBeGreaterThan(0);
     for (const c of city.courses) {

@@ -593,7 +593,7 @@ have cost the one glow that marks a red light at night.
 ## §9 "Houses on roads, black squares, the shore is buggy — and ships sail through land" (fourth pass)
 
 Five complaints, reported together against the 3D renderer. Four of them are
-one bug, and it is one line long.
+one bug, and it is one line long; a fifth turned up while looking.
 
 ### 9.1 The painted ground was mirrored inside every chunk — FIXED
 
@@ -662,25 +662,49 @@ a serious collision fault if it were one. It is not:
 
 What the player hit was the mirrored paint in §9.1, in both directions.
 
-### 9.3 Orphan course ribbons — OPEN
+### 9.3 Orphan course ribbons — FIXED
 
 Not in the report, found while looking. §16's course painter strokes each
 recorded centreline as a ribbon; `bake.ts:trimCourses` keeps only the runs
-whose every half-tile sample lands on carriageway, and drops what is left
-under three tiles. Three tiles is too short: at tile (530, 206) a four-tile,
-two-point street course survives as an isolated ribbon lying at 20° across an
+whose every half-tile sample lands on carriageway, and dropped what was left
+under three tiles. Three tiles was too short: at tile (530, 206) a four-tile,
+two-point street course survived as an isolated ribbon lying at 20° across an
 ordinary square crossroads, kerb casing, edge lines, centre dash and all —
 carriageway painted where no carriageway runs, and where such a stub crosses
-a block it paints road under a house. 65 of the 409 courses are under four
-tiles and 83 under six.
+a block it paints road under a house. 65 of the 409 courses were under four
+tiles, 83 under six.
 
-The tiles under them are right, so this is paint only, and dropping a stub
-costs nothing: the per-tile road painting comes straight back where the
-course's `courseCover` suppression lifts. The fix wants a rule with meaning
-rather than a bigger number — a ribbon that disagrees with the direction the
-road mass under it actually runs is the thing to drop, which is the test
-`bevel.ts` phase 3 already makes for the diagonal kerbs. Left open rather
-than guessed at, because the floor moves what the city looks like.
+**Where the first guess was wrong.** The note left here said the rule wanted
+was a direction test — drop a ribbon that disagrees with the road mass under
+it, as `bevel.ts` phase 3 does for the diagonal kerbs. Measured against the
+actual stub, no local test tells it from a road. The road runs three tiles
+either way perpendicular to it, its band is fully covered, and both ends
+carry on into more road — because it is inside a crossroads, where every one
+of those is true of any direction you pick. What is wrong with it is that it
+is four tiles long: short enough to hide inside the junction it crosses.
+
+So the floor is stated against the thing it has to outgrow, in the ribbon's
+own terms: **three times the course's own carriageway width** — nine tiles
+for a street, twelve for an avenue or the ring. The widest crossing in the
+city is two arterials meeting, about six tiles across the kerbs and eight
+corner to corner, so the floor clears it with room; and a stroke shorter than
+a few times its width reads as a blob rather than a line whatever it is lying
+on.
+
+Re-baked (`pnpm citybake`): **409 courses → 289**, all 120 of them under ten
+tiles. The tile and district planes hash identical to the previous bake and
+every ground statistic is unchanged — nobody's city moved, and the buildings,
+shops and landmarks are the same records. Of the ribbon that anybody can see,
+**97.8%** survives (27,700 → 27,086 tiles of painted centreline); the 25–100
+and 100+ tile courses are untouched, so the ring, the avenues and the
+borough-length streets §16 was written for are all still drawn as one line.
+Dropping a stub costs nothing else: the tiles are untouched, and `courseCover`
+lifts with the course, so the per-tile lane markings come straight back
+underneath.
+
+`courses.test.ts` gained the floor as an invariant, and a second case holding
+the long courses so a future floor cannot quietly eat them. Evidence:
+`evidence/bug-course-stub.png` against `fixed-course-stub.png`.
 
 ---
 
@@ -688,7 +712,7 @@ than guessed at, because the floor moves what the city looks like.
 
 ```bash
 pnpm install && pnpm build
-pnpm test                                   # 829 tests
+pnpm test                                   # 831 tests
 pnpm --filter client dev
 
 # terrain, no player in the way — drive the camera with __city.lookAt(x, y)
