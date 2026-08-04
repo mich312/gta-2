@@ -2003,6 +2003,23 @@ The rest of the orthogonality, ranked as next steps:
    pair (both open, so collision never notices). The carved diagonal
    bands already get their paint from `marks.ts`; their kerb line is
    the last thing about them that stair-steps.
+
+   **DELIVERED** as phase 3 of the derivation: the sidewalk yields its
+   stair corners to the carriageway — never the reverse, because the
+   traffic still drives its tile-grid lanes and a pavement wedge under
+   a moving car reads worse than a square tooth of tarmac. 774 kerb
+   cuts (1,028 bevels total), painted as bare asphalt with the kerb
+   line following the hypotenuse. The gate earned its two stages the
+   hard way: the covariance gate alone (`diagonalRoadDir`) passes at
+   exactly the wrong place, because the road mass visible from a
+   square crossroads corner is an L and an L's principal axis IS the
+   diagonal — so the painter's cardinal run test is asked first, then
+   the covariance, then the cut's hypotenuse must run WITH the band.
+   The gate computes through `atan2`, admissible here and only here
+   because the pair is cosmetic: road and sidewalk are open in the
+   same media, so no host disagreement can ever move a body — only a
+   kerb pixel. Evidence: `evidence/city-kerb-review.png`, against the
+   square-grid boroughs which stay square to the tile.
 2. **The wooded shore** — water↔trees for boats (the cliff face going
    diagonal is pure gain at sea level), once the canopy stops being a
    box in 3D or is allowed to overhang the cut.

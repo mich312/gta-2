@@ -15,7 +15,9 @@ import {
   oppositeHalf,
   T_BANK,
   T_FIELD,
+  T_ROAD,
   T_SAND,
+  T_SIDEWALK,
   T_WATER,
   TILE_SIZE,
   type CityMap,
@@ -148,6 +150,56 @@ describe('deriveBevels', () => {
         expect(bevel[i]).toBe(BEV_SW);
       }
     }
+  });
+
+  it('cuts the sidewalk stair along a diagonal band, hypotenuses running with it', () => {
+    // A 45° carriageway around x = y, sidewalk banding it, field beyond —
+    // the shape a carved diagonal avenue rasterises to (marks.test.ts uses
+    // the same fixture for the centre line).
+    const N = 24;
+    const tiles = new Uint8Array(N * N);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        const d = Math.abs(x - y);
+        tiles[y * N + x] = d <= 1 ? T_ROAD : d <= 3 ? T_SIDEWALK : T_FIELD;
+      }
+    }
+    const bevel = deriveBevels(tiles, N, N);
+    let kerbCuts = 0;
+    for (let i = 0; i < bevel.length; i++) {
+      if (bevel[i] === BEV_NONE) continue;
+      // Every cut on this map is a sidewalk corner yielding to the road,
+      // and its hypotenuse runs NW–SE, the way the band does.
+      expect(tiles[i]).toBe(T_SIDEWALK);
+      expect(bevel[i] === BEV_NE || bevel[i] === BEV_SW).toBe(true);
+      expect(bevelOther(tiles, bevel, N, i % N, Math.floor(i / N))).toBe(T_ROAD);
+      kerbCuts++;
+    }
+    // One cut per stair step on each side of the band's interior.
+    expect(kerbCuts).toBeGreaterThan(10);
+  });
+
+  it('leaves every corner of a square junction square', () => {
+    // A plain orthogonal crossroads with its sidewalk ring: the ungated
+    // corner rule would chamfer all four block corners, and the whole city
+    // is made of these.
+    const N = 24;
+    const tiles = new Uint8Array(N * N).fill(T_FIELD);
+    const road = (x: number, y: number): boolean =>
+      (y >= 10 && y <= 12) || (x >= 10 && x <= 12);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        if (road(x, y)) tiles[y * N + x] = T_ROAD;
+        else if (
+          road(x - 1, y) || road(x + 1, y) || road(x, y - 1) || road(x, y + 1) ||
+          road(x - 1, y - 1) || road(x + 1, y - 1) || road(x - 1, y + 1) || road(x + 1, y + 1)
+        ) {
+          tiles[y * N + x] = T_SIDEWALK;
+        }
+      }
+    }
+    const bevel = deriveBevels(tiles, N, N);
+    expect(bevel.every((b) => b === BEV_NONE)).toBe(true);
   });
 
   it('is a pure function of the tiles: two runs agree byte for byte', () => {

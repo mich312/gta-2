@@ -788,14 +788,31 @@ export class TileLayer {
       case T_PARK:
         this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
         break;
+      case T_ROAD:
+        // Bare asphalt with the carriageway's own grain — no marks and no
+        // patches: a wedge is a kerbside sliver, not a lane.
+        ctx.fillStyle = palette.road;
+        ctx.fillRect(x, y, TD, TD);
+        this.speckle(ctx, tx, ty, x, y, palette.roadDark, 5, 2, 3);
+        this.speckle(ctx, tx, ty, x, y, palette.roadLight, 3, 1, 9);
+        break;
       default:
         this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
     }
     ctx.restore();
 
-    if (other === T_WATER || this.tileAt(tx, ty) === T_WATER) {
-      ctx.strokeStyle = shade(palette.water, 0.3, '#bfe0ef');
-      ctx.lineWidth = Math.max(1, (TD / 14) | 0);
+    // The boundary line along the hypotenuse: the shore lip where the water
+    // is involved, the kerb where the carriageway is — the same lines the
+    // square painters draw on tile edges, following the cut.
+    const line =
+      other === T_WATER || this.tileAt(tx, ty) === T_WATER
+        ? shade(palette.water, 0.3, '#bfe0ef')
+        : other === T_ROAD
+          ? palette.kerb
+          : null;
+    if (line !== null) {
+      ctx.strokeStyle = line;
+      ctx.lineWidth = Math.max(1, other === T_ROAD ? 2 * RENDER_SCALE : (TD / 14) | 0);
       ctx.beginPath();
       if (code === BEV_NE || code === BEV_SW) {
         ctx.moveTo(x, y);

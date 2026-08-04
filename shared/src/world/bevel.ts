@@ -1,4 +1,5 @@
-import { T_FIELD, T_PARK, T_SAND, T_WATER, TILE_SIZE } from './types.js';
+import { diagonalRoadDir } from './marks.js';
+import { T_BRIDGE, T_FIELD, T_PARK, T_ROAD, T_SAND, T_SIDEWALK, T_WATER, TILE_SIZE } from './types.js';
 
 /**
  * Half-tile bevels: the diagonal, finally in the ground itself.
@@ -23,6 +24,12 @@ import { T_FIELD, T_PARK, T_SAND, T_WATER, TILE_SIZE } from './types.js';
  * - **Soft ground only.** Water against sand, meadow and park grass; the
  *   beach's own back line against the grass behind it. These are the edges
  *   nature drew, and nature does not do right angles at 16 px.
+ * - **And one built edge: the kerb of a diagonal avenue.** The carved
+ *   diagonal bands (the ring road, the curved arterials) stair-step, and
+ *   their kerbs stair-step with them; the sidewalk yields its step corners
+ *   to the carriageway wherever `diagonalRoadDir` says the road mass
+ *   genuinely runs at 45° — and nowhere else, so every square junction
+ *   corner in the city stays the square it was drawn as.
  * - **Built and sheer edges stay square.** A quay (`T_BANK`) is coursed
  *   masonry; a bridge is a deck; a cliff (the sheer-shore `T_TREES` wall) is
  *   rock; a building is a building. Squareness is what makes them read as
@@ -182,6 +189,80 @@ export function deriveBevels(tiles: Uint8Array, W: number, H: number): Uint8Arra
 
   scan(P1, P1_ANY, null);
   scan(P2, P2_ANY, bevel.slice());
+
+  // Phase 3 — the kerb along the diagonal avenues (§15.4 step 1). The
+  // sidewalk yields its stair corners to the carriageway exactly as the
+  // water yields to the land, but ONLY where the road mass around the
+  // corner genuinely runs diagonal: ungated, the same corner test fires at
+  // every square junction in the city — a block corner has road on two
+  // orthogonal sides by construction — and chamfers the lot.
+  //
+  // `diagonalRoadDir` is the gate both renderers already trust for the
+  // band's paint, and the cut's own diagonal must run WITH the band (an
+  // 'se' band can only shed NE/SW halves): a corner whose hypotenuse would
+  // cross the band is junction furniture, not a stair step.
+  //
+  // The gate computes through `atan2`, which the exact-op doctrine forbids
+  // anywhere collision can read. It is admissible here and only here
+  // because road and sidewalk are open in the same media — a kerb bevel can
+  // never change a solidity answer, so a (theoretical) one-ulp host
+  // disagreement could move a painted kerb pixel but never a body.
+  //
+  // Only the sidewalk side is cut, ever. Cutting the road's own convex
+  // corners toward the pavement would paint kerbstones where the traffic
+  // still drives its tile-grid lanes — cars clipping the footway is worse
+  // than a square tooth of tarmac.
+  const isRoad = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const t = tiles[y * W + x] as number;
+    return t === T_ROAD || t === T_BRIDGE;
+  };
+  // The painter's cardinal test (RUN_ROAD in the 2D renderer, mirrored by
+  // the 3D builder): a road run this long on either axis is a straight
+  // street, whatever the covariance says. It has to be asked FIRST, because
+  // the covariance gate alone lies at exactly the wrong place — the road
+  // mass visible from a square crossroads corner is an L, and an L's
+  // principal axis IS the diagonal.
+  const CARDINAL_RUN = 8;
+  const runShort = (x: number, y: number): boolean => {
+    let h = 1;
+    for (let s = 1; h < CARDINAL_RUN && isRoad(x - s, y); s++) h++;
+    for (let s = 1; h < CARDINAL_RUN && isRoad(x + s, y); s++) h++;
+    if (h >= CARDINAL_RUN) return false;
+    let v = 1;
+    for (let s = 1; v < CARDINAL_RUN && isRoad(x, y - s); s++) v++;
+    for (let s = 1; v < CARDINAL_RUN && isRoad(x, y + s); s++) v++;
+    return v < CARDINAL_RUN;
+  };
+  const dgx = new Int32Array(4);
+  const dgy = new Int32Array(4);
+  for (let c = 0; c < 4; c++) {
+    const k = CORNERS[c] as ReadonlyArray<number>;
+    dgx[c] = k[4] as number;
+    dgy[c] = k[5] as number;
+  }
+  for (let y = 1; y < H - 1; y++) {
+    const rowEnd = y * W + W - 1;
+    for (let i = y * W + 1; i < rowEnd; i++) {
+      if (bevel[i] !== BEV_NONE || tiles[i] !== T_SIDEWALK) continue;
+      const x = i - y * W;
+      for (let c = 0; c < 4; c++) {
+        if (tiles[i + (n1[c] as number)] !== T_ROAD) continue;
+        if (tiles[i + (n2[c] as number)] !== T_ROAD) continue;
+        if (tiles[i + (dg[c] as number)] !== T_ROAD) continue;
+        if (tiles[i + (o1[c] as number)] === T_ROAD) continue;
+        if (tiles[i + (o2[c] as number)] === T_ROAD) continue;
+        if (!runShort(x + (dgx[c] as number), y + (dgy[c] as number))) continue;
+        const dir = diagonalRoadDir(isRoad, x, y);
+        if (dir === null) continue;
+        // c 0..3 is NE,SE,SW,NW; NE/SW hypotenuses run NW–SE, with an 'se'
+        // band; SE/NW run NE–SW, with an 'ne' band.
+        if (dir === 'se' ? c === 1 || c === 3 : c === 0 || c === 2) continue;
+        bevel[i] = c + 1;
+        break;
+      }
+    }
+  }
 
   return bevel;
 }
