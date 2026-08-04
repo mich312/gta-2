@@ -2100,10 +2100,19 @@ form round-trips at the shipped quantisation). Evidence:
 country as one stroked line, dashes flowing unbroken through the bend,
 beside a straight avenue keeping its per-tile furniture.
 
-What stays for the next wave: the contour and wavy lattice streets are
-carved from field bands and wave functions rather than polylines, so
-they have no course to keep yet — tracing one at carve time is the same
-one-hook change `carveCourse` got. Zebra crossings across a course
+**Second wave, DELIVERED — every street family a course.** The wavy
+crescent lines are analytic, so their centrelines were free: recorded
+whole, drops and all, and the trim pass cuts each recorded line into
+the crescents the drop hash actually built. The straight rotated
+lattice lines record their two endpoints and let the trim clip them to
+the borough. The contour and spine bands have no polyline — they are
+per-tile predicates over a distance field — so the curve is RECOVERED:
+the band's centre iso-tiles are chained by a greedy nearest-unvisited
+walk, relaxed twice with a moving average to shed the chamfer field's
+octagonal facets, and trimmed like everything else. 409 courses,
+10,006 points; the per-tile probes that keep a band off a neighbouring
+road never need re-stating, because the trim clips to what was carved.
+Evidence: `evidence/city-3d-contour.png`, `city-3d-crescent.png`. Zebra crossings across a course
 vanish with the suppressed per-tile marks; crossings that follow the
 curve want course-space placement. And the ribbon's flat asphalt could
 carry grain once the painter can clip to a stroked path.

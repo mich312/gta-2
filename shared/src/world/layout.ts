@@ -79,7 +79,7 @@ export interface LayoutBlock extends BlockRect {
 export interface StreetCourse {
   points: Array<readonly [number, number]>;
   width: number;
-  kind: 'avenue' | 'ring';
+  kind: 'avenue' | 'ring' | 'street';
 }
 
 export interface CityLayout {
@@ -1059,6 +1059,9 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const [x1, y1] = pt(lo);
       const [x2, y2] = pt(hi);
       if (doubledUpCourse(x1, y1, x2, y2)) return;
+      // The line's own geometry, kept (§16): two points suffice — the trim
+      // pass clips it to the stretch the borough actually carved.
+      courses.push({ points: [[x1, y1], [x2, y2]], width, kind: 'street' });
       const x0 = Math.max(0, Math.floor(Math.min(x1, x2) - width));
       const xe = Math.min(W - 1, Math.ceil(Math.max(x1, x2) + width));
       const y0 = Math.max(0, Math.floor(Math.min(y1, y2) - width));
@@ -1116,6 +1119,11 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const [x1, y1] = pt(lo, at);
       const [x2, y2] = pt(hi, at);
       if (doubledUpCourse(x1, y1, x2, y2)) return;
+      // The wave is analytic, so its centreline is free: recorded whole,
+      // drops and all — the trim pass cuts the course at every stretch the
+      // drop hash left uncarved, which is what turns one recorded line
+      // into the crescents the fabric actually built.
+      const coursePts: Array<readonly [number, number]> = [];
       const lam = Math.max(28, pitchX * 2.6);
       const amp = 3;
       const phase = latticeHash(0xc5e5c ^ di, Math.round(at), alongU ? 1 : 0) * Math.PI * 2;
@@ -1127,6 +1135,9 @@ export function buildLayout(plan: CityPlan): CityLayout {
         }
         const off = at + amp * Math.sin(((t - lo) * 2 * Math.PI) / lam + phase);
         const [px, py] = pt(t, off);
+        if (coursePts.length === 0 || t + 0.7 > hi || ((t - lo) / 0.7) % 3 < 1) {
+          coursePts.push([px, py]);
+        }
         // The street's own direction at this point of the wave — the wobble
         // is analytic, so the tangent is too — written into the bearing
         // plane for every tile the line touches. A parked car on the bend
@@ -1149,6 +1160,81 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
         }
       }
+      if (coursePts.length >= 2) courses.push({ points: coursePts, width, kind: 'street' });
+    };
+
+    /**
+     * Trace the centre iso-line of each field band into course polylines
+     * (§16). The bands have no authored polyline — they are per-tile
+     * predicates over a distance field — so the curve is recovered: collect
+     * the tiles within half a tile of each band's centre value, chain them
+     * by a greedy nearest-unvisited walk (Chebyshev ≤ 2, lowest index on a
+     * tie, both directions from the seed), drop chains under six tiles,
+     * and relax each chain twice with a moving average to shed the chamfer
+     * field's octagonal facets. The trim pass then clips every chain to
+     * the tiles the carve actually laid — the probes that kept a band off
+     * a neighbouring coast road never need re-stating here.
+     */
+    const traceBands = (field: Float32Array, base: number): void => {
+      const half = width / 2;
+      const centreTiles: number[] = [];
+      for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+        for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+          const i = ty * W + tx;
+          if (!inThis(tx, ty) || water[i] === 1) continue;
+          const sd = field[i] as number;
+          if (sd < base) continue;
+          const inBand = (sd - base) % pitchX;
+          if (Math.abs(inBand - half) < 0.55) centreTiles.push(i);
+        }
+      }
+      const inChain = new Set<number>();
+      const isCentre = new Set(centreTiles);
+      const step = (from: number): number => {
+        const fx = from % W;
+        const fy = (from - fx) / W;
+        let best = -1;
+        let bestD = Infinity;
+        for (let oy = -2; oy <= 2; oy++) {
+          for (let ox = -2; ox <= 2; ox++) {
+            if (ox === 0 && oy === 0) continue;
+            const j = (fy + oy) * W + (fx + ox);
+            if (!isCentre.has(j) || inChain.has(j)) continue;
+            const d = ox * ox + oy * oy;
+            if (d < bestD || (d === bestD && j < best)) {
+              best = j;
+              bestD = d;
+            }
+          }
+        }
+        return best;
+      };
+      for (const seed of centreTiles) {
+        if (inChain.has(seed)) continue;
+        inChain.add(seed);
+        const fwd: number[] = [seed];
+        for (let at = step(seed); at >= 0; at = step(at)) {
+          inChain.add(at);
+          fwd.push(at);
+        }
+        const back: number[] = [];
+        for (let at = step(seed); at >= 0; at = step(at)) {
+          inChain.add(at);
+          back.push(at);
+        }
+        const chain = [...back.reverse(), ...fwd];
+        if (chain.length < 6) continue;
+        let pts = chain.map((i) => [(i % W) + 0.5, Math.floor(i / W) + 0.5] as [number, number]);
+        for (let r = 0; r < 2; r++) {
+          pts = pts.map((p, i) => {
+            if (i === 0 || i === pts.length - 1) return p;
+            const a = pts[i - 1] as [number, number];
+            const b = pts[i + 1] as [number, number];
+            return [(a[0] + p[0] + b[0]) / 3, (a[1] + p[1] + b[1]) / 3];
+          });
+        }
+        courses.push({ points: pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1), width, kind: 'street' });
+      }
     };
 
     if (contour) {
@@ -1167,6 +1253,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           lay(tx, ty, null);
         }
       }
+      traceBands(shoreDist, 3);
       // The cross streets: straight connectors perpendicular to the shore's
       // mean tangent, `pitchY` apart along it, carved through the same
       // rotated-frame machinery the grid fabric uses.
@@ -1200,6 +1287,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           lay(tx, ty, null);
         }
       }
+      traceBands(spineDist, 6);
       // Straight connectors square to the spine's mean course.
       if (pitchY >= width + 3) {
         for (let u = uMin + pitchY; u < uMax - width; u += pitchY) carveLine(u, false, vMin, vMax);
