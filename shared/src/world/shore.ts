@@ -39,6 +39,8 @@
  * tile (one world px) before anybody looks at them.
  */
 
+import { T_BRIDGE, TILE_SIZE, type ShoreIndex } from './types.js';
+
 /** A closed ring of shoreline, in tile units. The first point is not repeated. */
 export interface ShoreRing {
   points: Array<readonly [number, number]>;
@@ -481,4 +483,189 @@ export function buildShore(
     if (maskDiff(rasteriseRings(rings, W, H), land) === 0) return rings;
   }
   throw new Error('shore: the unsimplified contour disagrees with its own mask');
+}
+
+/* ------------------------------------------------------------------ */
+/* The index: rings as something the solver can ask                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where a ring point sits in world px.
+ *
+ * Ring coordinates are in TILE-INDEX space, where the integer (x, y) is the
+ * CENTRE of tile (x, y) — that is the lattice marching squares runs on. So
+ * the conversion carries a half-tile, and because the points are multiples of
+ * a sixteenth of a tile the result is always a whole number of pixels.
+ */
+function toPx(v: number): number {
+  return (v + 0.5) * TILE_SIZE;
+}
+
+/** Does segment a–b touch the rect? Slab clipping, touching counts. */
+function hitsRect(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): boolean {
+  let lo = 0;
+  let hi = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > hi) return false;
+      if (t > lo) lo = t;
+    } else {
+      if (t < lo) return false;
+      if (t < hi) hi = t;
+    }
+    return true;
+  };
+  const dx = bx - ax;
+  const dy = by - ay;
+  if (!clip(-dx, ax - x0)) return false;
+  if (!clip(dx, x1 - ax)) return false;
+  if (!clip(-dy, ay - y0)) return false;
+  if (!clip(dy, y1 - ay)) return false;
+  return lo <= hi;
+}
+
+/**
+ * Turn the shore rings into a per-tile edge index (`ShoreIndex`).
+ *
+ * Two things happen here that are not bookkeeping.
+ *
+ * **The half-plane.** Each segment becomes the half-plane the water occupies.
+ * Segments run with the land on their right (`CASES`), so the water is on
+ * their left, and the leftward normal of a direction `d` in screen axes
+ * (y downward) is `(d.y, -d.x)`. That is the whole of the geometry: the
+ * solver never looks at a segment again, only at `nx*x + ny*y >= c`.
+ *
+ * **Bridges are dropped.** The rings are traced from the tile plane, where a
+ * deck is not water, so every bridge has a deck-shaped hole punched through
+ * the sea around it (§17.11). Those edges are not shoreline and must not
+ * collide: kept, they would put an invisible wall along the parapet for a car
+ * and a second one across the arch for a boat. An edge with a bridge tile on
+ * either side of it is therefore left out of the index entirely, which makes
+ * the water surface continuous under every deck — the truth the tile plane
+ * cannot hold, and the one place this pass gets to act as though the sectors
+ * of §17.5 already existed.
+ *
+ * Pure function of (rings, tiles): both hosts build the identical index from
+ * bytes they both have, so it never goes on the wire.
+ */
+export function buildShoreIndex(
+  rings: ReadonlyArray<{ points: ReadonlyArray<readonly [number, number]> }>,
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+): ShoreIndex {
+  const ax: number[] = [];
+  const ay: number[] = [];
+  const bx: number[] = [];
+  const by: number[] = [];
+  const nx: number[] = [];
+  const ny: number[] = [];
+  const cs: number[] = [];
+
+  const tileAtPx = (x: number, y: number): number => {
+    const tx = Math.floor(x / TILE_SIZE);
+    const ty = Math.floor(y / TILE_SIZE);
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return -1;
+    return tiles[ty * W + tx] as number;
+  };
+
+  for (const ring of rings) {
+    const pts = ring.points;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const p0 = pts[j] as readonly [number, number];
+      const p1 = pts[i] as readonly [number, number];
+      const x0 = toPx(p0[0]);
+      const y0 = toPx(p0[1]);
+      const x1 = toPx(p1[0]);
+      const y1 = toPx(p1[1]);
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      if (dx === 0 && dy === 0) continue;
+      // Water is to the left of travel; the offset that probes each side is
+      // scaled by the larger component rather than the length, so there is no
+      // square root anywhere in the build.
+      const scale = 4 / Math.max(Math.abs(dx), Math.abs(dy));
+      const mx = (x0 + x1) / 2;
+      const my = (y0 + y1) / 2;
+      const wet = tileAtPx(mx + dy * scale, my - dx * scale);
+      const dry = tileAtPx(mx - dy * scale, my + dx * scale);
+      if (wet === T_BRIDGE || dry === T_BRIDGE) continue;
+      ax.push(x0);
+      ay.push(y0);
+      bx.push(x1);
+      by.push(y1);
+      nx.push(dy);
+      ny.push(-dx);
+      cs.push(dy * x0 - dx * y0);
+    }
+  }
+
+  const n = ax.length;
+  const counts = new Int32Array(W * H);
+  const visit = (k: number, fn: (tile: number) => void): void => {
+    const lox = Math.max(0, Math.floor(Math.min(ax[k] as number, bx[k] as number) / TILE_SIZE));
+    const hix = Math.min(W - 1, Math.floor(Math.max(ax[k] as number, bx[k] as number) / TILE_SIZE));
+    const loy = Math.max(0, Math.floor(Math.min(ay[k] as number, by[k] as number) / TILE_SIZE));
+    const hiy = Math.min(H - 1, Math.floor(Math.max(ay[k] as number, by[k] as number) / TILE_SIZE));
+    for (let ty = loy; ty <= hiy; ty++) {
+      for (let tx = lox; tx <= hix; tx++) {
+        // Only the tiles the segment genuinely crosses. A half-plane is
+        // infinite and the tile is the only thing clipping it, so listing an
+        // edge under a tile it merely passes near would build a wall there.
+        if (
+          !hitsRect(
+            ax[k] as number,
+            ay[k] as number,
+            bx[k] as number,
+            by[k] as number,
+            tx * TILE_SIZE,
+            ty * TILE_SIZE,
+            (tx + 1) * TILE_SIZE,
+            (ty + 1) * TILE_SIZE,
+          )
+        ) {
+          continue;
+        }
+        fn(ty * W + tx);
+      }
+    }
+  };
+  for (let k = 0; k < n; k++) visit(k, (t) => void ((counts[t] as number) += 1));
+
+  const offset = new Int32Array(W * H + 1);
+  for (let i = 0; i < W * H; i++) offset[i + 1] = (offset[i] as number) + (counts[i] as number);
+  const items = new Int32Array(offset[W * H] as number);
+  const at = new Int32Array(W * H);
+  for (let k = 0; k < n; k++) {
+    visit(k, (t) => {
+      items[(offset[t] as number) + (at[t] as number)] = k;
+      (at[t] as number) += 1;
+    });
+  }
+
+  const inv = new Float64Array(n);
+  for (let k = 0; k < n; k++) {
+    inv[k] = 1 / Math.sqrt((nx[k] as number) ** 2 + (ny[k] as number) ** 2);
+  }
+  return {
+    widthTiles: W,
+    heightTiles: H,
+    offset,
+    items,
+    nx: Float64Array.from(nx),
+    ny: Float64Array.from(ny),
+    c: Float64Array.from(cs),
+    inv,
+  };
 }

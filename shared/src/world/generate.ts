@@ -3,6 +3,7 @@ import { deriveBevels } from './bevel.js';
 import { assignTurf, markGangCars } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { decodeBakedCity, type BakedCity } from './bake.js';
+import { buildShoreIndex } from './shore.js';
 import { CITY_DATA } from './city.data.js';
 import type { WorldgenParams } from './params.js';
 import {
@@ -120,6 +121,12 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // bevels can never disagree with the ground they soften. Consumed by
   // collision and both renderers; consumes no rng, so it moves nobody.
   map.bevel = deriveBevels(map.tiles, map.widthTiles, map.heightTiles);
+  // The shore, indexed for the movement solver (WORLDGEN.md §17.11). Derived
+  // here rather than baked for the same reason the junction table is: both
+  // hosts hold the rings and the tiles already, so the index costs one pass
+  // and never goes on the wire. After the carving passes, because which
+  // edges belong to a bridge deck is read off the finished tiles.
+  map.shoreIndex = buildShoreIndex(baked.shore, map.tiles, W, H);
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.

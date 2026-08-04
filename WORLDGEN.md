@@ -2461,7 +2461,7 @@ byte-identical.
 | # | Step | What lands | What retires |
 |---|---|---|---|
 | 1 | **The soup, derived** | The bake emits V1/V2/V4 *from the finished tile plane* — marching squares to trace each material's boundary, collinear merge, then simplification — and ships them beside it. No consumer changes. | nothing yet *(superseded: §17.11 replaces this step, and says why)* |
-| 2 | **Collision moves** | `moveWithCollision` clips against edges; `isSolidAtWorld` reads surfaces | the bevel plane (§15); the 45°-only shoreline |
+| 2 | **Collision moves** | `moveWithCollision` clips against edges; `isSolidAtWorld` reads surfaces | the 45°-only shoreline *(DELIVERED for water: §17.12 — and the bevel plane survives it, see there)* |
 | 3 | **The network replaces the probes** | `planRoute` and `traffic.ts` on V3; `signals.ts` labels nodes | `MAX_EXPANSIONS`, the 5 MB A* scratch, the bearing plane (120 kB) |
 | 4 | **The bake emits vectors first** | The plan's polygons carried through to V1/V2 instead of recovered from the raster; tiles become an *output* | `trimCourses`' recovery pass; the 880 kB |
 | 5 | **The renderer fills polygons** | Ground chunks painted from surfaces; art as tile-space texture | 46 per-tile branches; the staircase kerb |
@@ -2662,3 +2662,109 @@ water half of the bevel plane. (3) The same treatment for the road courses,
 which are already polylines and need only widths and junctions to become V3.
 (4) Buildings, which are already rectangles. At that point three of the four
 materials are vectors and the tile plane is a cache.
+
+### 17.12 The shore stops being squares — collision, DELIVERED
+
+Wave 2 of §17.11's corrected sequence: the rings stop being decoration and
+become what a mover is stopped by.
+
+**What landed.** `buildShoreIndex` (`shore.ts`) turns the rings into a
+per-tile edge index, built at generation time from bytes both hosts already
+have — like `junctions`, never sent. Each segment is stored as the half-plane
+the water occupies, `nx*x + ny*y >= c` in world px; the ring points are
+sixteenths of a tile and a tile is 16 px, so every coordinate is a whole
+number of pixels and `nx`, `ny` and `c` are exact integers. `collide.ts`
+consults it wherever a tile carries edges, and falls back to the tile byte
+everywhere else — which is what lets a bare test fixture with no rings behave
+exactly as it did.
+
+| | |
+|---|---|
+| Edges indexed | **3,829** of 4,088 ring segments |
+| Tiles carrying edges | 7,898 — of them 3,663 carry more than one, max 4 |
+| Sample points in the shore band that changed side | **16.5%** |
+| Tile centres answering differently from the tile plane | **0** of 589,824, in both media |
+| `moveWithCollision` | 194 ns inland, 3.8 µs on a shore tile |
+| Tests | 869 pass; host-parity gate green, Node and browser tick for tick |
+
+The agreement number is the one that matters. The rings reproduce the mask at
+tile centres by construction, so the solver reading them answers exactly what
+the byte answered *there*, in both media — and everything that ever placed
+something on the strength of a byte is therefore undisturbed. No ped spawn, no
+player spawn, no parking spot, no mooring and no vehicle home moved into solid:
+0 of 8,573, 16, 1,514, 460 and 1,514 respectively. The 16.5% is where the two
+differ, and it is all sub-tile: the waterline is now wherever the coastline
+field put it rather than on the nearest tile edge.
+
+**The bridge holes are handled, and named.** The rings are traced from the
+tile plane, where a deck is not water, so the sea carries a deck-shaped hole
+around every bridge (§17.11). 259 of the 4,088 segments bound one, and they
+are dropped from the index outright — kept, they would have walled a car in on
+the parapet and a boat out of the arch. The water surface is therefore
+continuous under every deck, which is the truth the tile plane cannot hold and
+the one place this wave gets to act as though §17.5's sectors already existed.
+
+---
+
+**What it cost, which is the part worth reading.** Three bugs, none of them in
+the geometry and all of them in the assumption that a boundary is square. They
+are recorded because the next material to be vectorised will hit all three.
+
+1. **A tile is no longer uniform, so the solver must sweep.** `moveOnce` tested
+   only the tile the leading edge *lands* in — correct when a tile is all solid
+   or all open, wrong the moment a tile has a wall part-way into it, because a
+   mover standing in such a tile walks into the half of it that is sea. It now
+   tests every tile the leading edge crosses. That guard needs its own guard: a
+   tile you are standing in also holds the face you came past to get there, and
+   without ignoring faces already passed, walking *away* from a shore clamps you
+   back through it. Worse, the ignore has to be applied per EDGE before the
+   edges are combined — a tile where the shore turns holds one edge whose water
+   is ahead and one whose water is behind, and letting the second into the union
+   hides the first. That one cost the longest.
+
+2. **A hull's solid is an intersection, not a union.** Within a tile the water
+   is the union of its edges' half-planes, which any single edge can answer
+   for; the land is the intersection of their complements, which none of them
+   can. Nearly half this city's shore tiles carry more than one edge, so
+   approximating it put invisible walls in open water wherever a coast turned a
+   corner — a boat stopped in clear water. It is computed now, Sutherland–
+   Hodgman, at most four half-planes against a rectangle.
+
+3. **Axis-separated collision cannot hold a sloped face.** x is clamped against
+   the rows the box is in, then y moves it to different rows, and against a
+   slope the wall is somewhere else there. Measured: one move in sixty near a
+   shore finished inside the water, by 0.9 px at the median and **14 px** at the
+   worst — a car's length, and a thing you would see. This is not a bug the
+   tile grid ever had, because a tile's faces are square to the axes and moving
+   along one never changes where the other is; it arrives WITH the vector
+   boundary and has to be answered rather than designed away. `resolveShore`
+   answers it: after each sub-step, push the box out along the deepest violated
+   edge's normal, a few times over because a corner can violate two at once.
+   0.02% remain, and the one that does is 3.4 px.
+
+The general lesson, stated for the waves that follow: **a vector boundary is
+not a drop-in for a square one, and the difference is not in the geometry but
+in the solver.** Everything above was a solver assumption that the tile grid
+had made safe for free.
+
+**What is honestly still owed.**
+
+- **The index is per tile, so its offset table is one `Int32` per tile: 2.4 MB.**
+  That is in line with what `volume.ts` already allocates and it is not what
+  §17.5 designed — a 128 px blockmap holds the same edges in a sixty-fourth of
+  the table. Worth doing when a second material joins.
+- **A move on a shore tile costs 3.8 µs against 194 ns inland**, nineteen times,
+  because `resolveShore` re-scans the touched tiles after every sub-step. Shore
+  tiles are 1.3% of the map so nothing measurable happens today, but the cheap
+  reject (skip the resolve when the step touched no indexed tile) is owed before
+  a second material multiplies the number of indexed tiles.
+- **The bevel plane is still generated and still used.** Collision prefers the
+  rings and reaches for a bevel only where there are none, which on this city
+  means never for water. Retiring the plane is a rendering change, not a
+  collision one, and belongs to the wave that gives the renderer the rings.
+
+**Next.** Wave 3 is the road network: the courses are already polylines and
+need only junctions and widths to become V3, and `planRoute`'s A* over 589,824
+cells with its 60,000-expansion guard becomes a search over some three thousand
+segments. It is the largest single win left for game code, and unlike this wave
+it touches no solver.

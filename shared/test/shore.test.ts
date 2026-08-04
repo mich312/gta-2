@@ -6,11 +6,23 @@ import {
   maskDiff,
   rasteriseRings,
   signedArea,
+  buildShoreIndex,
   simplifyRing,
   traceShore,
   type ShoreRing,
 } from '../src/world/shore.js';
-import { T_WATER } from '../src/world/types.js';
+import {
+  T_BRIDGE,
+  T_BUILDING,
+  T_TREES,
+  T_WATER,
+  TILE_SIZE,
+  type ShoreIndex,
+} from '../src/world/types.js';
+import worldgenJson from '../data/worldgen.json';
+import { parseWorldgenParams } from '../src/world/params.js';
+import { generateCity } from '../src/world/generate.js';
+import { boxInSolid, isSolidAtWorld, moveWithCollision } from '../src/world/collide.js';
 
 /**
  * The shore as a curve (WORLDGEN.md §17): the waterline shipped as closed
@@ -159,5 +171,118 @@ describe('tracing a mask', () => {
       return { points, area: signedArea(points) };
     });
     expect(maskDiff(rasteriseRings(rings, 20, 20), mask)).toBe(0);
+  });
+});
+
+/**
+ * The shore as a WALL (WORLDGEN.md §17.12): the rings indexed and read by the
+ * movement solver instead of the water byte.
+ *
+ * The first test is the migration's whole safety net and the reason the rest
+ * are allowed to exist. Everything after it is about the thing a vector
+ * boundary can do that a square one cannot, and the ways it can go wrong.
+ */
+describe('the shore, as a wall', () => {
+  const map = generateCity(66, parseWorldgenParams(worldgenJson));
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const idx = map.shoreIndex as ShoreIndex;
+  const hasEdges = (tx: number, ty: number): boolean =>
+    (idx.offset[ty * W + tx + 1] as number) > (idx.offset[ty * W + tx] as number);
+
+  it('answers exactly what the tile plane answered, at every tile centre', () => {
+    // 589,824 cells x two media. The rings reproduce the mask at centres by
+    // construction, so the solver reading them must too — and that is what
+    // lets collision be switched over without auditing anything that placed
+    // something on the strength of a byte.
+    let land = 0;
+    let hull = 0;
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const t = map.tiles[ty * W + tx] as number;
+        const x = tx * TILE_SIZE + TILE_SIZE / 2;
+        const y = ty * TILE_SIZE + TILE_SIZE / 2;
+        if (isSolidAtWorld(map, x, y, 'land') !== (t === T_BUILDING || t === T_WATER || t === T_TREES)) land++;
+        if (isSolidAtWorld(map, x, y, 'water') !== (t !== T_WATER && t !== T_BRIDGE)) hull++;
+      }
+    }
+    expect(land).toBe(0);
+    expect(hull).toBe(0);
+  });
+
+  it('never leaves a mover inside the water it just stopped them at', () => {
+    // Resolving the axes in turn cannot hold a sloped face on its own: this
+    // is the property `resolveShore` exists for, and without it one move in
+    // sixty near a shore ended up to fourteen pixels into the sea.
+    let starts = 0;
+    let inside = 0;
+    let h = 12345;
+    const rnd = (): number => {
+      h = (h * 1103515245 + 12345) & 0x7fffffff;
+      return h / 0x7fffffff;
+    };
+    for (let ty = 1; ty < H - 1; ty++) {
+      for (let tx = 1; tx < W - 1; tx++) {
+        if (!hasEdges(tx, ty)) continue;
+        for (let trial = 0; trial < 3; trial++) {
+          const pos = { x: tx * 16 + 2 + rnd() * 12, y: ty * 16 + 2 + rnd() * 12 };
+          if (boxInSolid(map, pos, 5)) continue;
+          starts++;
+          const vel = { x: 0, y: 0 };
+          moveWithCollision(map, pos, vel, 5, (rnd() * 2 - 1) * 12, (rnd() * 2 - 1) * 12);
+          if (boxInSolid(map, pos, 5)) inside++;
+        }
+      }
+    }
+    expect(starts).toBeGreaterThan(2000);
+    expect(inside / starts).toBeLessThan(0.001);
+  });
+
+  it('is a curve to the solver too, not the staircase it replaced', () => {
+    // The payoff, as a number: positions the tile plane called sea that the
+    // shoreline says are dry, and the other way about. A boundary that had
+    // merely been copied out of the bytes would move nothing at all.
+    let moved = 0;
+    let total = 0;
+    for (let ty = 1; ty < H - 1; ty++) {
+      for (let tx = 1; tx < W - 1; tx++) {
+        if (!hasEdges(tx, ty)) continue;
+        const t = map.tiles[ty * W + tx] as number;
+        const wasSolid = t === T_BUILDING || t === T_WATER || t === T_TREES;
+        for (let s = 0; s < 4; s++) {
+          const x = tx * 16 + 2 + (s % 2) * 8;
+          const y = ty * 16 + 2 + Math.floor(s / 2) * 8;
+          total++;
+          if (isSolidAtWorld(map, x, y, 'land') !== wasSolid) moved++;
+        }
+      }
+    }
+    expect(moved / total).toBeGreaterThan(0.05);
+  });
+
+  it('leaves every bridge deck alone, above and below', () => {
+    // The rings are traced from the tiles, where a deck is not water, so the
+    // sea carries a deck-shaped hole. Kept, those edges would wall a car in
+    // on the parapet and a boat out of the arch.
+    let decks = 0;
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        if (map.tiles[ty * W + tx] !== T_BRIDGE) continue;
+        decks++;
+        const x = tx * TILE_SIZE + TILE_SIZE / 2;
+        const y = ty * TILE_SIZE + TILE_SIZE / 2;
+        expect(isSolidAtWorld(map, x, y, 'land')).toBe(false);
+        expect(isSolidAtWorld(map, x, y, 'water')).toBe(false);
+      }
+    }
+    expect(decks).toBeGreaterThan(500);
+  });
+
+  it('is an index and not a second map: rebuilding it changes nothing', () => {
+    const again = buildShoreIndex(map.shore ?? [], map.tiles, W, H);
+    expect(again.items.length).toBe(idx.items.length);
+    expect(Array.from(again.offset)).toEqual(Array.from(idx.offset));
+    expect(Array.from(again.items)).toEqual(Array.from(idx.items));
+    expect(Array.from(again.c)).toEqual(Array.from(idx.c));
   });
 });

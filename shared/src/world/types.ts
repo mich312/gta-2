@@ -60,6 +60,41 @@ export interface SignalHead {
   junctionId: number;
 }
 
+/**
+ * The shoreline, indexed for collision (WORLDGEN.md §17).
+ *
+ * The waterline ships as closed rings (`CityMap.shore`); this is those rings
+ * turned into something the movement solver can ask a question of sixty times
+ * a second. It is Doom's blockmap at a finer pitch: **it holds no truth**.
+ * Rebuild it from the rings and the tiles and you get the same bytes, which
+ * is what keeps the grid an index rather than a second version of the map.
+ *
+ * Each edge is stored as the half-plane the WATER occupies —
+ * `nx*x + ny*y >= c` in world px — because that is the only form the solver
+ * ever wants it in. The normal is the segment's own direction turned to the
+ * left, unnormalised: the ring points are multiples of a sixteenth of a tile
+ * and tiles are 16 px, so every coordinate is a whole number of pixels and
+ * `nx`, `ny` and `c` are exact integers. Nothing in the query but the final
+ * division is inexact, which is what lets this run inside prediction.
+ */
+export interface ShoreIndex {
+  widthTiles: number;
+  heightTiles: number;
+  /** Edges crossing tile i are `items[offset[i] .. offset[i + 1])`. */
+  offset: Int32Array;
+  items: Int32Array;
+  /** Water-side half-plane per edge: `nx*x + ny*y >= c`, world px. */
+  nx: Float64Array;
+  ny: Float64Array;
+  c: Float64Array;
+  /**
+   * `1 / |n|` per edge, so turning a half-plane value into a distance in
+   * pixels is a multiply. The one square root the shore needs, taken once
+   * here rather than in the movement solver.
+   */
+  inv: Float64Array;
+}
+
 /** Junction labelling and signal heads; see sim/signals.ts. */
 export interface JunctionMap {
   /** Junction index per tile, row-major; -1 where there is no junction. */
@@ -269,6 +304,14 @@ export interface CityMap {
    * which is what every consumer did until there was one.
    */
   shore?: Array<{ points: Array<readonly [number, number]>; area: number }>;
+  /**
+   * `shore` indexed by tile, for the movement solver. Derived at generation
+   * time from the rings and the tiles — never sent, because both hosts build
+   * the identical thing from bytes they both already have, exactly like
+   * `junctions`. Absent means "no rings here": collision falls back to the
+   * tile bytes, which is what every host did before there were any.
+   */
+  shoreIndex?: ShoreIndex;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];
