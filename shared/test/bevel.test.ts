@@ -18,6 +18,7 @@ import {
   T_ROAD,
   T_SAND,
   T_SIDEWALK,
+  T_TREES,
   T_WATER,
   TILE_SIZE,
   type CityMap,
@@ -33,6 +34,7 @@ const GLYPH: Record<string, number> = {
   '.': T_SAND,
   ',': T_FIELD,
   q: T_BANK,
+  t: T_TREES,
 };
 
 function grid(rows: string[]): { tiles: Uint8Array; W: number; H: number } {
@@ -150,6 +152,49 @@ describe('deriveBevels', () => {
         expect(bevel[i]).toBe(BEV_SW);
       }
     }
+  });
+
+  it('gives the wooded shore its diagonal — for the boats, and only the boats', () => {
+    // A sheer cliff coast: canopy-painted rock below-left, sea above-right.
+    const rows = [
+      't~~~~~~~',
+      'tt~~~~~~',
+      'ttt~~~~~',
+      'tttt~~~~',
+      'ttttt~~~',
+      'tttttt~~',
+      'ttttttt~',
+      'tttttttt',
+    ];
+    const { tiles, W, H } = grid(rows);
+    const map = {
+      widthTiles: W,
+      heightTiles: H,
+      widthPx: W * TILE_SIZE,
+      heightPx: H * TILE_SIZE,
+      tiles,
+    } as unknown as CityMap;
+    map.bevel = deriveBevels(tiles, W, H);
+    // The water yields its stair corners to the canopy, as on a beach...
+    expect(map.bevel[1 * W + 2]).toBe(BEV_SW);
+    expect(bevelOther(tiles, map.bevel, W, 2, 1)).toBe(T_TREES);
+    // ...but a walker still meets a wall on BOTH halves: trees and water
+    // are both solid on land, so the bevel collapses to a full tile.
+    expect(isSolidAtWorld(map, 34, 30, 'land')).toBe(true);
+    expect(isSolidAtWorld(map, 46, 18, 'land')).toBe(true);
+    // A boat feels the diagonal: cliff wedge solid, open sea open.
+    expect(isSolidAtWorld(map, 34, 30, 'water')).toBe(true);
+    expect(isSolidAtWorld(map, 46, 18, 'water')).toBe(false);
+    // And the hull slides along the 45° face: nosing west from open water,
+    // it is stopped further in the higher up the diagonal it sits.
+    const low = { x: 56, y: 24 };
+    const lowVel = { x: 0, y: 0 };
+    moveWithCollision(map, low, lowVel, 4, -20, 0, 'water');
+    const high = { x: 56, y: 18 };
+    moveWithCollision(map, high, { x: 0, y: 0 }, 4, -20, 0, 'water');
+    expect(low.x).toBeGreaterThan(47.5); // clamped at the wedge's deep end
+    expect(high.x).toBeLessThan(low.x - 4); // a row north, the sea runs deeper
+    expect(lowVel.x).toBe(0);
   });
 
   it('cuts the sidewalk stair along a diagonal band, hypotenuses running with it', () => {

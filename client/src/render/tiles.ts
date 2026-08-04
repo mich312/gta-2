@@ -788,6 +788,11 @@ export class TileLayer {
       case T_PARK:
         this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
         break;
+      case T_TREES:
+        // Canopy overhanging the waterline — same painter the full tile
+        // uses, so the wedge continues the wood beside it.
+        this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true, plants);
+        break;
       case T_ROAD:
         // Bare asphalt with the carriageway's own grain — no marks and no
         // patches: a wedge is a kerbside sliver, not a lane.

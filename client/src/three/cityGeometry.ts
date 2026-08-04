@@ -28,6 +28,7 @@ import {
   BEV_NE,
   BEV_SE,
   BEV_SW,
+  TREE_Z,
   bevelOther,
   oppositeHalf,
 } from 'shared';
@@ -971,15 +972,19 @@ function buildShoreWedges(map: CityMap, group: THREE.Group): number {
       }
 
       color.set((SURFACES[dryMat] ?? DEFAULT_SURFACE).color);
-      // Top face at street level.
-      put(a[0], a[1], 0);
-      put(b[0], b[1], 0);
-      put(c[0], c[1], 0);
+      // Top face at street level — or at canopy height for the wooded
+      // shore, where the wedge is a corner of the cliff the canopy boxes
+      // draw, and a street-level ledge would read as a green skirt at the
+      // cliff's foot.
+      const top = dryMat === T_TREES ? TREE_Z * Z_SCALE : 0;
+      put(a[0], a[1], top);
+      put(b[0], b[1], top);
+      put(c[0], c[1], top);
       // The diagonal face, down past the water surface to the slab bottom.
-      put(a[0], a[1], 0);
-      put(b[0], b[1], 0);
+      put(a[0], a[1], top);
+      put(b[0], b[1], top);
       put(b[0], b[1], -DEPTH);
-      put(a[0], a[1], 0);
+      put(a[0], a[1], top);
       put(b[0], b[1], -DEPTH);
       put(a[0], a[1], -DEPTH);
       wedges++;

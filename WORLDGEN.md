@@ -2023,6 +2023,22 @@ The rest of the orthogonality, ranked as next steps:
 2. **The wooded shore** — water↔trees for boats (the cliff face going
    diagonal is pure gain at sea level), once the canopy stops being a
    box in 3D or is allowed to overhang the cut.
+
+   **DELIVERED** by taking the second branch: the canopy overhangs.
+   The pair is one-directional — the WATER yields — and the direction
+   is the whole trick: cutting the trees toward the water would open
+   ground under a canopy box that draws square in 3D, but the water
+   yielding just puts canopy over the cut, which is what trees do over
+   water anyway. Land movers never notice (both materials are walls,
+   so the bevel collapses to FULL and not one collision answer moves);
+   the boats get a 45° cliff face to slide along, pinned in
+   bevel.test.ts by a hull that noses deeper into the sea the further
+   it sits from the wedge. In 3D the shore wedge for a trees cut rises
+   to canopy height instead of street level — a corner of the cliff,
+   not a green skirt at its foot. 122 wooded-shore cuts (1,150 bevels
+   in all); the cliff's convex headlands stay square, which is the
+   trees-side cut this pair deliberately refuses. Evidence:
+   `evidence/city-cliff-review.png`.
 3. **Chamfered building corners** — the bevel plane extends to
    building↔sidewalk unchanged, but the three renderers do not: a
    chamfered mass needs its roof canvas, its 2D extrusion and its 3D

@@ -1,5 +1,5 @@
 import { diagonalRoadDir } from './marks.js';
-import { T_BRIDGE, T_FIELD, T_PARK, T_ROAD, T_SAND, T_SIDEWALK, T_WATER, TILE_SIZE } from './types.js';
+import { T_BRIDGE, T_FIELD, T_PARK, T_ROAD, T_SAND, T_SIDEWALK, T_TREES, T_WATER, TILE_SIZE } from './types.js';
 
 /**
  * Half-tile bevels: the diagonal, finally in the ground itself.
@@ -89,6 +89,16 @@ const YIELDS_P1: ReadonlyArray<readonly [number, number]> = [
   [T_WATER, T_SAND],
   [T_WATER, T_FIELD],
   [T_WATER, T_PARK],
+  // The wooded shore (§15.4 step 2). One-directional on purpose, and the
+  // direction is the whole trick: the WATER yields, so the canopy simply
+  // overhangs the cut — cutting the trees toward the water instead would
+  // open a hole in the ground under a canopy box that draws square in 3D.
+  // Land movers never notice (trees and water are both walls, so the bevel
+  // collapses to FULL); this pair exists for the boats, which get a 45°
+  // cliff face to slide along instead of a staircase to snag on. The
+  // cliff's own convex headlands stay square — that would need the
+  // trees-side cut this pair deliberately refuses.
+  [T_WATER, T_TREES],
   [T_SAND, T_FIELD],
   [T_SAND, T_PARK],
 ];
