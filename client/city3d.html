@@ -27,6 +27,8 @@
         ?h=      view height, px    ?night=  0 midday, 1 midnight
         ?peds=   crowd size         ?fly=1   circle the city instead of playing
         ?wet=    0 dry, 1 just rained
+        ?at=tx,ty  (with fly=1) hold the flyover over this tile instead of
+                   orbiting — how the shoreline and kerb evidence is retaken
     -->
     <div id="hud">building…</div>
     <canvas id="view"></canvas>
@@ -55,10 +57,28 @@
         // without a player in the way.
         initLocalTuning('normal');
         const map = generateCity(seed, localWorldgenParams());
-        const view = new CityView({ canvas, map, pitch, viewHeight: num('h', 900) });
+        const viewH = num('h', 900);
+        const view = new CityView({ canvas, map, pitch, viewHeight: viewH });
         view.setNight(night);
         const { SceneryLayer } = await import('/src/three/scenery.ts');
         new SceneryLayer(view.world).setMap(map);
+        // The painted ground, exactly as `Live` wires it — without it the
+        // flyover shows the flat instanced slabs, which is a different city
+        // from the one anybody plays in (and shows none of the bevelled
+        // shoreline the painter draws).
+        const { TileLayer } = await import('/src/render/tiles.ts');
+        const { SpriteSheet } = await import('/src/render/sprites.ts');
+        const { GroundLayer } = await import('/src/three/ground.ts');
+        const painter = new TileLayer(new SpriteSheet());
+        painter.setMap(map);
+        const ground = new GroundLayer(view.world, painter);
+        ground.setMap(map);
+        ground.setWeather(wet, night);
+        // Hold over a named tile, or orbit the centre as before.
+        const at = (q.get('at') ?? '').split(',').map((v) => Number.parseFloat(v));
+        const hold = at.length === 2 && at.every(Number.isFinite)
+          ? { x: at[0] * 16, y: at[1] * 16 }
+          : null;
         const cx = (map.widthTiles * 16) / 2;
         const cy = (map.heightTiles * 16) / 2;
         let t = 0;
@@ -67,7 +87,12 @@
         let frames = 0, last = performance.now(), fps = 0;
         const tick = (now) => {
           t += 0.0016;
-          view.lookAt(cx + Math.cos(t) * 500, cy + Math.sin(t) * 500);
+          const fx = hold ? hold.x : cx + Math.cos(t) * 500;
+          const fy = hold ? hold.y : cy + Math.sin(t) * 500;
+          view.lookAt(fx, fy);
+          // Same guess Live makes: the layer only uses the box to decide
+          // which chunks to paint, with a margin either way.
+          ground.update({ x: fx - viewH, y: fy - viewH / 2 }, { w: viewH * 2, h: viewH });
           view.render();
           frames++;
           if (now - last > 500) {
@@ -84,6 +109,10 @@
         };
         requestAnimationFrame(tick);
         globalThis.__city = view;
+        // For the capture harness: painted-chunk residency is the only way
+        // to know the ground has caught up under a software renderer, where
+        // the 2-chunks-a-frame budget can take a minute to fill a view.
+        globalThis.__ground = ground;
       } else {
         const live = new Live({ canvas, seed, pitch, viewHeight, peds, night, wet });
         live.start();
