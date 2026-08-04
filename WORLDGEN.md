@@ -100,7 +100,8 @@ axis-aligned streets, and the traffic lane-follower (`sim/traffic.ts`) and
 tile collision get simple, honest geometry. Fast, deterministic, trivially
 invariant-testable. Its weakness is the one on display in the renders:
 self-similarity at every scale and edge-to-edge uniformity.
-**Verdict: keep as the skeleton.**
+**Verdict: keep as the skeleton.** *(Superseded twice: §13.4 replaced the
+lattice with fabrics, §17 replaces the tile substrate under them.)*
 
 ### 3.2 Voronoi partitions
 
@@ -1275,7 +1276,8 @@ What still binds, because it is about the *product* and not the process:
    and both renderers. Any curve ends as tiles — which the swept-disc carver
    (`carveCourse`, `layout.ts:422`) and the four-direction junction test
    (§12.8) already handle. The ring road proves curvature is compatible with
-   the lane model today.
+   the lane model today. *(§17 withdraws this one: three waves of working
+   around the tile plane are the evidence that it stopped binding here too.)*
 2. **Axis-aligned `Building` records.** The 3D renderer extrudes them
    (`extrude.ts:77`), the volume grid and doorways derive from them. Rotated
    footprints are a renderer-and-collision project, out of scope. Curved
@@ -2129,3 +2131,425 @@ more than the widest crossing in the city measures corner to corner.
 tile and district planes hash identical to the previous bake, so this
 moved paint and nothing else. `courses.test.ts` holds both ends of it:
 no stub under the floor, and the long courses still there.
+
+---
+
+## 17. The grid, thrown away — the city as vector geometry
+
+Fifth wave, and the one this document has been circling since §9.1 named
+tiles "the only shared truth". The brief: **throw the grid-based map away
+and design what replaces it.**
+
+### 17.1 Which grid is meant
+
+Two different things have been called "the grid" here, and only one of them
+is still standing.
+
+The first was the **street lattice** — one screen-aligned plaid over sixteen
+boroughs (§13.1, Finding 1). That grid is already dead: §13.4 replaced it
+with five fabrics, §13.6 delivered them, and the shipped city carries
+rotated grids, shore contours, avenue spines, crescents and meandered rural
+lanes. Nothing below revisits it.
+
+The second is the **substrate**: a 768×768 `Uint8Array` of 16 px cells,
+one material byte per cell, `tileAt` (`types.ts:336`) as the question every
+system asks the world. That is what this section throws away, and it is the
+older and larger of the two — it predates the plan, the bake, the fabrics,
+the bevels and the courses, and every one of those five waves has spent part
+of its budget working around it.
+
+§13.2 listed "the tile substrate" first among the constraints that still
+bind. This section is the argument that it stopped binding and nobody
+noticed.
+
+### 17.2 The review: what the tile plane costs, measured
+
+Numbers from the shipped bake (`city.data.ts`, decoded and walked; the RLE
+codec is `bake.ts:752`):
+
+| Measure | Value |
+|---|---|
+| Tiles | 589,824 |
+| RLE runs in the tile plane | 85,506 |
+| Baked source: tiles / district / bearing | 228 kB / 11 kB / 120 kB base64 |
+| `city.data.ts` on disk | **880 kB** |
+| `city-plan.json` — the thing a human drew | **27.5 kB** |
+| Connected same-material regions (4-connected) | 16,876 |
+| …of them under four tiles | 7,240 |
+| …of them exactly one tile | 2,640 |
+| Material boundary segments (16 px each) | 164,232 |
+| Land-collision boundary segments | 64,376 |
+| …the same boundary, collinear runs merged | **23,330** |
+| Water-collision boundary, merged | 4,904 |
+| `Building` records — already axis-aligned rects | 3,801 (15,204 edges) |
+| Courses — already polylines (§16) | 289 (9,658 points) |
+
+Five readings, in ascending order of how much they should hurt:
+
+**1. The map inflates 32×, and the small version is the readable one.** A
+27.5 kB drawing becomes 880 kB of committed source. The drawing is the
+artifact a person edits, reviews and argues about (§12.10); the 880 kB is
+its shadow.
+
+**2. Two thirds of the regions are rasterisation confetti.** 7,240 of
+16,876 same-material regions are under four tiles and 2,640 are a single
+tile. Those are not places. They are what happens when a curve crosses a
+lattice — the four-tile scrap blocks §13.1 Finding 2 complained about, now
+counted.
+
+**3. The collision surface is small.** The entire land-collision boundary of
+Anywhere City, collinear-merged, is **23,330 line segments** — and 15,204 of
+those are the four sides of building records the bake *already has* as
+vectors and then paints over. Water contributes 4,904. This is Doom-map
+scale (a large Doom II level runs to a few thousand linedefs), against the
+589,824-cell array we carry to express it.
+
+**4. The bearing plane is the confession.** 120 kB — a seventh of the whole
+bake — exists to store, per tile, which way the street runs
+(`types.ts:240`), because the tile plane destroyed the direction the course
+was carved along and downstream passes could not guess it. The courses were
+one field away the whole time; §16 kept them, and the bearing plane is still
+there.
+
+**5. Every wave since §13 has been vector recovery.** Stated as a list,
+because the pattern only shows up as one:
+
+- **§15, bevels.** A byte per tile naming which half of it belongs to the
+  neighbour (`bevel.ts`), so a rasterised 45° shore can be walked along
+  rather than climbed. A diagonal, reconstituted from squares, one half-tile
+  at a time — and only at 45°, because that is all a half-tile can say.
+- **§16, courses.** The polylines the disc was swept along, kept this time
+  instead of thrown away — and where they had not been kept, *recovered*
+  from their own rasterisation by "a greedy nearest-unvisited walk, relaxed
+  twice with a moving average to shed the chamfer field's octagonal facets".
+  That sentence is a raster-to-vector pipeline, written because the vector
+  had been deleted eight passes earlier.
+- **`marks.ts:67`, `diagonalRoadDir`.** Covariance of the road mass in a
+  neighbourhood, to decide whether a band of tiles "genuinely runs at 45°".
+- **`amenities.ts:353`.** "Walk the true line three tiles" — the rotated
+  street's answer to `axisCarriageway`, because the tiles cannot say which
+  way a kerb faces.
+- **`signals.ts:110`.** A junction test that measures narrowness in four
+  directions, because a four-tile carriageway at 45° measures nearly six
+  across an axis (§12.8).
+- **`bake.ts:trimCourses`.** Quantise the polyline, sample every half tile,
+  drop anything under three times its own width — an entire pass devoted to
+  reconciling a curve with its own painting (and BUGS.md §9.3 was the bug in
+  it).
+
+One sentence for all six: **the bake rasterises vectors, and every consumer
+downstream reconstructs vectors from the raster.** The tile plane is a lossy
+intermediate format sitting in the middle of a pipeline whose two ends both
+want geometry.
+
+### 17.3 The consumers, honestly
+
+Nothing above is an argument until the things that read tiles are named and
+asked what they actually need. Thirty-four source files touch `map.tiles`,
+`tileAt` or `TILE_SIZE`, and another thirty tests do. Every one of them, by
+what it is really asking:
+
+| Consumer | Reads tiles for | What it actually needs |
+|---|---|---|
+| `collide.ts` — the live 2D solver, inside prediction | is this cell solid; which face blocks a box | the nearest blocking **face**, at any angle |
+| `volume.ts` / `collide3.ts` — built, **not adopted** (`cityGeometry.ts:131`) | per-tile span stacks | floor/ceiling per **region** |
+| `roadgrid.ts` — A* over 589,824 cells, 5 MB scratch, 60,000-expansion guard | drivable cells | a road **graph**; there are 289 courses |
+| `traffic.ts` — cardinal probes, then a fan of bearings when the cardinals fail (`traffic.ts:560`) | is there road that way | the **lane** the car is in and the next one |
+| `signals.ts` | narrowness in four directions | junction **nodes** of the graph |
+| `amenities.ts` — 45 tile references | kerbs, doorways, perimeters | edges with a **side** and a frontage |
+| `buildings.ts` | block masks, frontage march | polygons |
+| `render/tiles.ts` — 46 references | the painting, per 8×8 chunk | filled polygons + tile-space *art* |
+| `three/cityGeometry.ts` | instanced boxes per span | extruded polygons |
+| `minimap.ts`, `shadows.ts`, `extrude.ts` | silhouette, footprints | polygons |
+| `turf.ts` | coarse ownership cells | **a grid, genuinely** — it is a game rule |
+| `weapons.ts`, `peds.ts`, `police.ts` | line of sight, "can I stand here" | a segment query and a point query |
+
+Exactly one of these wants a grid on its own merits, and it is the one that
+is not geometry: turf ownership at a coarse pitch is a rule about who holds
+what, not a description of the ground. Every other row is asking a vector
+question and being handed a bitmap.
+
+### 17.4 The approaches, surveyed
+
+Same treatment as §3 and §13.3: what the field offers for "a map that is not
+a grid", judged against this codebase.
+
+**17.4.1 Finer or adaptive tiles** — 8 px cells, a quadtree, sub-tile
+occupancy masks. Quadruples the plane to fix nothing: a curve is still a
+staircase, one step smaller, and every re-derivation in §17.2 stays written.
+The bevel plane already *is* the sub-tile mask, and it can only say 45°.
+**Verdict: reject. This is the option that looks like progress and is not.**
+
+**17.4.2 Analytic composition — the plan, evaluated** ([SDF collision as
+practised in games](https://www.cocos.com/en/post/building-collision-detection-using-signed-distance-field)).
+The map is a stack of strokes — roads as capsules along courses, water as
+polygons, buildings as boxes — and a query evaluates the composition in
+paint order. This is *exactly what the bake already does*, minus the
+freezing step, and it is the right model for **authoring**. As a runtime
+query model it fails on cost: the composition is thousands of strokes and
+answering "what is here" needs the ones near the point, which is an index —
+so it converges on 17.4.4 with an extra evaluation per query. **Verdict:
+adopt as the authoring model (it already is); reject as the query model.**
+
+**17.4.3 Planar arrangement / DCEL** — the full computational-geometry
+object: faces, half-edges, twins, point location by trapezoidal map. The
+right *vocabulary* and more machinery than a city with 23,330 collision
+edges justifies; robust construction of an arrangement is where geometry
+libraries go to die, and `boolean-op-on-polygons` bugs are not a class of
+defect this repo wants inside prediction. **Verdict: steal the vocabulary
+(face, edge, side), reject the machinery.**
+
+**17.4.4 Polygon soup with a uniform index — the Doom architecture.** Doom's
+map is [vertices, linedefs, sidedefs and
+sectors](https://doomwiki.org/wiki/Map_format): the world is a 2D vector
+drawing, walls are line segments, floors and ceilings belong to sectors, and
+collision is accelerated by the [blockmap](https://doomwiki.org/wiki/Blockmap)
+— a 128×128-unit grid whose only content is "which linedefs cross this
+block", so a moving thing tests the handful of segments in its own block
+instead of the whole level. Thirty years old, shipped on a 386, and it is
+the shape this problem has: **the truth is vectors, the grid is an index and
+holds nothing.** Rebuild the index and the world is unchanged; that is the
+property the tile plane does not have and cannot be given. **Verdict: adopt.
+This is the design.**
+
+**17.4.5 Navmesh / convex free-space decomposition**
+([Recast](https://deepwiki.com/recast4j/recast4j/2-navigation-mesh-generation)
+is the state of the art, in Unity, Unreal and Godot). A 100×100 m arena is
+40,000 cells at 0.5 m or 50–200 navmesh polygons; A* over 200 nodes against
+40,000 is not an optimisation, it is a different order of problem. Our
+`planRoute` searches 589,824 cells with a `MAX_EXPANSIONS = 60_000` guard
+that exists purely because a route to somewhere unreachable floods the city
+(`roadgrid.ts:236`). **Verdict: adopt for on-foot AI; the guard is a
+symptom, not a design.**
+
+**17.4.6 Network graph — nodes, segments, lanes.** [Cities: Skylines models
+roads as nodes joined by segments, each segment knowing its type, its lanes
+and its neighbours](https://doc.tmpe.me/nodes-segments-lanes.html); lane
+changes happen at nodes. We are two thirds of the way there by accident:
+§16 ships 289 courses with centreline, width and kind, and `laneCentreInTile`
+(`marks.ts:41`) already knows where a lane sits across a carriageway. What
+is missing is the junction nodes, and `signals.ts` computes those from the
+tiles every bake. **Verdict: adopt; it is mostly assembly of parts already
+in the box.**
+
+**17.4.7 An off-the-shelf 2D physics engine** — Box2D, planck.js, Rapier2D.
+Rejected for the reason `volume.ts:40` already rejected the 3D ones, and
+which nothing about being 2D changes: none guarantees bit-identical results
+across platforms, and [floating-point determinism across compilers and
+architectures is not something a library can promise](https://gafferongames.com/post/floating_point_determinism/).
+Replays, the bot harness, the host-parity gate and rewind reconciliation all
+depend on it. **Verdict: reject, permanently.**
+
+### 17.5 The design: the vector city
+
+Five artifacts. The first four are the map; the fifth holds no truth.
+
+**V0 · Vertices, in fixed point.** One unit = 1/16 px = 1/256 tile, stored
+as `Int32Array`. Map coordinates top out near 2^18, so the cross product of
+two edge vectors stays under 2^38 and every orientation test is an exact
+integer computation in a double — no [adaptive-precision
+predicates](https://www.cs.cmu.edu/~quake/robust.html) needed, because the
+inputs are integers and the products fit. This is the single decision that
+makes the whole thing safe inside prediction: **the map's geometry stops
+being a source of order-dependence at all.** Movers stay in floats, as they
+are today; what changes is that the thing they are compared against is
+exact.
+
+**V1 · Surfaces.** A material region: one outer ring, zero or more holes,
+a material, and a floor and ceiling height. Doom's sector, with our
+`T_*` codes as the material. The surfaces partition the plane — no overlaps
+in plan, no gaps — which is a decidable property over integer coordinates
+and therefore a test.
+
+**V2 · Edges.** A segment between two vertices, with the surface on each
+side. Solidity stops being a property of a *cell* and becomes a property of
+a *boundary*: an edge is solid to land movers when the materials either side
+disagree about being walkable, solid to hulls when they disagree about being
+water, and a kerb when they disagree about height by less than the step-up.
+One-sided edges are the map's outer wall. Everything `plainSolid`
+(`collide.ts:28`) decides per cell is decided per edge, once, at bake time.
+
+**V3 · The network.** §16's courses promoted from decoration to truth:
+junction nodes, carriageway segments carrying width, kind, bearing and
+median, lanes as signed offsets. `signals.ts` labels nodes instead of
+scanning tiles for narrowness; `planRoute` searches ~3,000 segments instead
+of 589,824 cells; `traffic.ts` asks which lane it is in instead of probing a
+fan of bearings and taking the longest run.
+
+**V4 · The index.** A uniform block grid — 8 tiles, 128 px, Doom's number by
+coincidence and by the same reasoning — where each block holds the edges
+crossing it and the surface covering it when exactly one does (the
+overwhelming case: a block wholly inside a building, a block of open sea).
+This is the only grid that survives, and it is derived: **rebuilding it from
+V1–V3 must reproduce it byte for byte, or it has become a second truth and
+the design has failed.**
+
+How each query is answered:
+
+- **`isSolidAtWorld`** → index block → its covering surface if it has one,
+  else point-in-ring against the two or three candidates. Common case is one
+  array read, which is what it is today.
+- **`moveWithCollision`** → clip the swept box against the solid edges in
+  the touched blocks. The pleasing part: `faceX` (`collide.ts:122`)
+  *already* evaluates a line at the box's nearest corner — that is what
+  `x0 + yLo` is — for each of the four bevel codes. Generalising a slope-1
+  half-plane to an arbitrary one is the same shape of code with the slope
+  read from the edge instead of switched on a byte. The axis-separated,
+  sub-stepped, clamp-flush structure that makes it exact-op survives intact.
+  **The bevel plane (§15) then deletes itself**, and the shoreline stops
+  being 45°-or-square and becomes whatever angle it was drawn at.
+- **Height.** Floor and ceiling per surface, not spans per tile. `T_BRIDGE`
+  — the one material that means two levels at once, road on the deck and
+  river beneath, and the only such case the tile plane can express
+  (`volume.ts:18`) — becomes two surfaces overlapping in plan at different
+  z, which is what it always was. And then **grade separation, which §12.7 called "the single
+  biggest missing chase primitive" and deferred as a new tile type through
+  collision and both renderers, is an authoring decision**: draw a road over
+  a road. That is the largest single item in this section and it is a
+  consequence, not a feature to be built.
+- **Rendering.** §16's course painter already strokes vectors and the ground
+  chunks already cache the result; the ground becomes filled polygons under
+  the same chunk textures, and `render/tiles.ts`'s forty-six tile branches
+  become fills with tile-space art (grain, joints, manholes, resurfacing
+  patches) as a *texture over* a polygon rather than a decision *per* cell.
+  §16's own closing note — "the ribbon's flat asphalt could carry grain once
+  the painter can clip to a stroked path" — is this, arriving.
+- **Placement.** A doorway is an edge, assigned when the building is placed.
+  `findDoorway` (`amenities.ts:119`) and its water-doorway bug class
+  (`buildings.ts:33`) go the way §9.2's L3 promised and never got.
+
+### 17.6 What it costs, and what breaks
+
+Stated before the sequence, because a section that only lists wins is not
+research:
+
+1. **The tile plane is read in about fifty files.** No step below touches
+   more than a few. The migration is long, and its middle is a period where
+   both representations exist and must agree — which is a cost and also the
+   safety net (§17.8).
+2. **Replays re-record once.** Any change to the collision surface changes
+   trajectories; the diagonal shore becoming truly diagonal is a *better*
+   map and a broken replay corpus. One declared break, at step 2, in
+   `PROGRESS.md`, per the discipline `ROADMAP.md:581` already sets for
+   seed-breaking changes.
+3. **Some art is genuinely tile-shaped.** Kerb shading, paving joints, the
+   per-district pavement tint. These stay; they become a texture in tile
+   space applied over a polygon, which is how they are already being drawn
+   into 8×8-tile chunk canvases.
+4. **Fine geometry is a new failure mode.** Slivers, degenerate rings and
+   near-collinear vertices are to a polygon map what the 2,640 one-tile
+   regions are to this one — except a sliver in a collision mesh is a place
+   a car falls through. Integer coordinates make the checks decidable;
+   §17.8 makes them tests.
+5. **Point-in-polygon is not free at the boundary.** Blocks straddling a
+   coast hold several surfaces. The mitigation is the same one Doom used:
+   the common case is a block with one surface and no edges, and the index
+   is built to make that case an array read.
+6. **`T_FLOOR`, `T_RAMP` and the district plane each need a landing.** Shop
+   interiors become surfaces with their own floor (they already are, in
+   everything but storage); ramps become surfaces with a sloped floor, which
+   is *more* than `RAMP_Z`'s stepped 12 px can say; the district plane
+   becomes a property of the surface, which is where it belonged — 11 kB of
+   the bake is spent painting it per cell.
+
+### 17.7 The sequence
+
+Strangler-fig, per §9.5 and §12.10. Each step ships green, each has the
+picture as its acceptance test, and steps 1–3 leave the shipped map
+byte-identical.
+
+| # | Step | What lands | What retires |
+|---|---|---|---|
+| 1 | **The soup, derived** | The bake emits V1/V2/V4 *from the finished tile plane* — marching squares to trace each material's boundary, collinear merge, then simplification — and ships them beside it. No consumer changes. | nothing yet |
+| 2 | **Collision moves** | `moveWithCollision` clips against edges; `isSolidAtWorld` reads surfaces | the bevel plane (§15); the 45°-only shoreline |
+| 3 | **The network replaces the probes** | `planRoute` and `traffic.ts` on V3; `signals.ts` labels nodes | `MAX_EXPANSIONS`, the 5 MB A* scratch, the bearing plane (120 kB) |
+| 4 | **The bake emits vectors first** | The plan's polygons carried through to V1/V2 instead of recovered from the raster; tiles become an *output* | `trimCourses`' recovery pass; the 880 kB |
+| 5 | **The renderer fills polygons** | Ground chunks painted from surfaces; art as tile-space texture | 46 per-tile branches; the staircase kerb |
+| 6 | **Surfaces get z** | Floor/ceiling per surface; `collide3` adopted against V1 rather than a span grid | `T_BRIDGE` as a material; **the flyover ban** |
+| 7 | **The last readers** | Amenity scans become surface and edge queries | `city.data.ts`'s tile string |
+
+Step 1 is the whole safety net and is pure addition: it can land, be
+measured and be reverted without a single system noticing. It is also where
+the raster-to-vector literature does its work — [marching squares to trace,
+Douglas–Peucker or Visvalingam to
+simplify](https://dyn4j.org/2021/06/2021-06-10-simple-polygon-simplification/),
+which is the standard pipeline for turning a bitmap into a collision mesh —
+and where the simplification tolerance gets chosen by looking at the picture
+rather than argued about.
+
+Step 4 is where the direction of the pipeline finally reverses. Today:
+plan → tiles → (recover vectors). After it: plan → vectors → tiles, and the
+tile plane is a derived cache that any consumer may keep using until step 7
+takes it away.
+
+### 17.8 The invariants
+
+Per §5, every step ships with its check, and the migration's central one is
+the first:
+
+- **Agreement.** Through steps 1–6, the vector city and the tile plane must
+  answer *identically* — solidity at every tile centre and every tile
+  corner, material at every centre, drivability at every centre. 589,824×3
+  assertions, cheap, and the thing that makes a fifty-file migration
+  survivable. Where they disagree deliberately (the diagonal shore, step 2),
+  the disagreement is enumerated and asserted to be exactly the bevelled
+  tiles.
+- **Partition.** Every ring closed, simple and consistently wound; no two
+  surfaces overlapping in plan; no uncovered ground. Decidable over
+  integers, so it is a test and not a hope.
+- **No hair.** No edge under a quarter tile, no ring under one square tile,
+  no interior angle under ~5°. The vector form of the sliver check §13.5
+  already runs on blocks — and the count to beat is on the table in §17.2:
+  2,640 one-tile regions.
+- **The index is a cache.** Rebuild V4 from V1–V3 and get the same bytes.
+  If this ever fails, the index has acquired truth and the design has
+  regressed to the thing it replaced.
+- **Connectivity, stated directly.** Today the reachability check floods
+  tiles. On V3 it is "one connected component per landmass", which is a
+  sentence about the graph rather than a search over half a million cells.
+- **No overlap without separation.** Once step 6 lands: two surfaces
+  overlapping in plan must be separated in z by more than a mover's height —
+  the invariant that keeps a flyover a flyover and not a hole.
+
+### 17.9 What stays a grid, on purpose
+
+Naming these so the next wave does not re-litigate them:
+
+- **The index** (V4). 128 px blocks, no truth, rebuildable.
+- **Turf cells** (`turf.ts`). Ownership at a coarse pitch is a game rule.
+- **Chunk textures.** 8×8-tile canvases are a rendering cache and a good
+  one.
+- **Tile-space art.** Grain, joints, manholes, kerb shading — a texture, not
+  a data structure.
+- **Interest management.** Radius over entities; never touched tiles anyway.
+
+### 17.10 The verdict
+
+The tile grid was the right call when the map was generated on every client
+at connect time and had to be provably identical (§2.1). §12 ended that: the
+bake runs offline, once, and what ships is bytes somebody looked at. §13
+noticed the vetoes had expired for *street layout* and lifted them. This
+section says the same thing has been true of the *substrate* for three waves
+and the evidence is in the codebase — a bearing plane, a bevel plane, a
+course-recovery pass and a covariance test, all of them reconstituting
+geometry the bake had in its hands and painted over.
+
+**The city is a drawing. Ship the drawing.** 27.5 kB of it, indexed, instead
+of 880 kB of its shadow — and the flyover, the true diagonal and a road
+graph arrive with it rather than as three more projects.
+
+Sources: [Doom map
+format](https://doomwiki.org/wiki/Map_format) and
+[blockmap](https://doomwiki.org/wiki/Blockmap) ·
+[Recast navmesh
+generation](https://deepwiki.com/recast4j/recast4j/2-navigation-mesh-generation) ·
+[Cities: Skylines nodes, segments and
+lanes](https://doc.tmpe.me/nodes-segments-lanes.html) ·
+[GTA2's GMP block format, diagonals
+included](https://gtamp.com/gta2/gta2-gmp-map-file-format/) ·
+[polygon simplification](https://dyn4j.org/2021/06/2021-06-10-simple-polygon-simplification/) ·
+[SDF collision in
+practice](https://www.cocos.com/en/post/building-collision-detection-using-signed-distance-field) ·
+[Shewchuk on robust
+predicates](https://www.cs.cmu.edu/~quake/robust.html) ·
+[floating-point determinism](https://gafferongames.com/post/floating_point_determinism/).
