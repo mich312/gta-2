@@ -2581,3 +2581,106 @@ frontage granularity cap gives curved and rotated boroughs small footprints
 where straight ones get terraces — 2.3×2.8 tiles in The Terraces and 2.7×2.9
 in New Suburbs against 3.9×8.4 in Old Suburbs. Small axis-aligned boxes still
 stairstep along a 26° street; they are just a finer staircase.
+
+---
+
+## 20. Which way a building faces
+
+### 20.1 The review
+
+`evidence/city-facing-before.png`: North Point, whose streets run at 26°, with
+every building on them square to the world. It reads as a model somebody
+dropped on the wrong grid — the roads were drawn at an angle over a city that
+was built on the axes, which is exactly what had happened.
+
+§13.2.2 saw this coming and declined it: *"Axis-aligned `Building` records.
+The 3D renderer extrudes them, the volume grid and doorways derive from them.
+Rotated footprints are a renderer-and-collision project, out of scope."* Its
+mitigation — finer rects on curved frontage — is real and measurable (2.3×2.8
+tiles in The Terraces against 3.9×8.4 in Old Suburbs) and it makes a finer
+staircase, not a building that faces its street.
+
+### 20.2 The design
+
+The doctrine that carried the courses, the bevels and the shores carries this
+one too: **the tiles are the truth, and only the drawing changes.**
+
+`Building` gains an `angle`. The FOOTPRINT is the same axis-aligned rect it
+always was — collision, the volume grid, doorways, shopfronts and every
+placement pass read `x, y, w, h` and cannot tell anything happened. What
+rotates is the mass the renderers stand on that footprint. So this is not the
+project §13.2.2 declined; it is the half of it that costs nothing downstream.
+
+- **The angle comes from the bearing plane**, which every fabric has been
+  writing per tile since §13.4 — the borough's own street angle, the shore's
+  tangent in a contour borough, the spine's course in a spine one. Derived
+  once in `bakeCity` rather than at the eight places a building is created,
+  and taken only where the whole footprint agrees on it: a building straddling
+  a seam between two fabrics faces neither, and squaring it is the honest
+  answer there. 43% of the city's buildings face something.
+- **The mass fits back inside its own plot.** Rotating a rectangle grows its
+  bounding box, so `buildingMass` scales it to fit the footprint plus half a
+  tile — enough to lean into its own pavement, where a doorstep is, and not
+  into the carriageway. One helper, three renderers: they must agree on this
+  box to the pixel or a building is in three places depending on who drew it.
+- **A shop keeps its square columns.** A shop is a room punched out of a
+  footprint and open to the sky; one mass over the whole rect would put a lid
+  on it. The same rule `roofCanvasFor` has always applied per tile.
+
+### 20.3 The three renderers, and the two things that broke
+
+- **The 3D instanced city.** Buildings had no atomic existence there: the walk
+  emits one box per TILE column with heights from the volume grid. Now a faced
+  building's tiles are skipped and it is emitted once, rotated. `Boxes` gains
+  a seventh float — a yaw — and `writeTo` composes a scale-rotate-translate
+  instead of a scale-translate, skipping the trigonometry for the zero case,
+  which is every instance in the city bar these.
+- **The 2D chunk painter** draws the mass as the hexagon `paintWall` draws, at
+  the angle, and then blits the SAME baked roof canvas turned — reusing
+  `roofCanvasFor` rather than re-authoring speckle, parapets and clutter
+  against a polygon is what keeps a rotated roof and a square one obviously
+  the same city.
+- **The parallax extrusion** leans the turned mass: `rotatedExtrusionOf`
+  exposes whichever of the four edges the roof moved away from, with the
+  normal off the edge rather than off the axis, so the caller's sun test is
+  unchanged.
+
+Two things broke, and both were the same mistake in different places —
+something that belonged to the mass stayed behind with the tiles:
+
+1. **The parapets floated.** `buildRoofDetail` rings a roof with four lips per
+   tile, and a square ring hanging over a turned roof reads as a picture frame
+   in the air. The lips are now built round the mass and turned with it.
+2. **The plot showed through.** Both chunk builders left the ground under a
+   building unpainted — a flat fill in the 3D texture, nothing at all in the
+   2D one — on the entirely sound grounds that a roof covered its own
+   footprint exactly. A turned mass does not, and the corners it vacates
+   showed the fill as dark squares lying the old way round. The plot is now
+   painted for every building tile with the nearest ground beside it: costs a
+   fill nobody sees in the square case, and saves a branch that could disagree
+   with the mass painter about which buildings are turned.
+
+### 20.4 DELIVERED
+
+Evidence: `evidence/city-facing-before.png` and `evidence/city-facing-3d.png`,
+the same flyover over North Point. 1,624 of 3,801 buildings face a street.
+Instances fell from 649,834 to 619,866 — a rotated mass is one box where a
+footprint was four to twenty-five.
+
+`facing.test.ts` holds the part that matters: every mass inside its own plot
+to within a quarter tile, a square building exactly square, a turned one a
+true rectangle about the footprint centre, every angle equal to the bearing
+its own tiles carry, and every footprint still integral with its centre tile
+still its own ground. `extrude.test.ts` gains the rotated lean: only faces the
+roof moved away from, each built from its own edge, each normal square to it.
+
+What did NOT change is the point: the tile plane, the district plane and the
+bearing plane hash the same as the previous bake, and `city.data.ts` grew only
+by the angles themselves.
+
+**Still square, deliberately.** The footprint, and therefore everything that
+reads it — you still collide with an axis-aligned box, and at 240 px altitude
+doing 300 px/s that is the right trade, because the alternative is oriented
+bounding boxes inside the prediction hot loop. A doorway is still on a tile
+edge. And a building on a seam between two fabrics still faces the world
+rather than picking one of its two streets.

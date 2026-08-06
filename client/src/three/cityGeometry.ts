@@ -17,7 +17,11 @@ import {
   T_TREES,
   T_WATER,
   TILE_SIZE,
+  type Building,
   type CityMap,
+  buildingMass,
+  buildingStoreys,
+  Z_PER_STOREY,
   type Span,
   EARTH,
   districtAt,
@@ -189,18 +193,26 @@ export interface CityBuild {
  * it goes straight into `instanceMatrix` without a `clone()` per span.
  */
 class Boxes {
-  /** sx, sy, sz, x, y, z per instance. */
-  private data = new Float32Array(6 * 256);
+  /**
+   * sx, sy, sz, x, y, z, yaw per instance.
+   *
+   * The seventh float arrived with §20's rotated building masses. It is zero
+   * for everything else in the city and costs a sixth more of a buffer that
+   * was fifteen megabytes, which is the cheap end of the trade — the
+   * alternative was a second mesh and a second material for the one kind of
+   * instance that turns.
+   */
+  private data = new Float32Array(7 * 256);
   /** How many instances are in it. */
   count = 0;
 
-  push(sx: number, sy: number, sz: number, x: number, y: number, z: number): void {
-    if ((this.count + 1) * 6 > this.data.length) {
+  push(sx: number, sy: number, sz: number, x: number, y: number, z: number, yaw = 0): void {
+    if ((this.count + 1) * 7 > this.data.length) {
       const grown = new Float32Array(this.data.length * 2);
       grown.set(this.data);
       this.data = grown;
     }
-    const o = this.count++ * 6;
+    const o = this.count++ * 7;
     const d = this.data;
     d[o] = sx;
     d[o + 1] = sy;
@@ -208,23 +220,36 @@ class Boxes {
     d[o + 3] = x;
     d[o + 4] = y;
     d[o + 5] = z;
+    d[o + 6] = yaw;
   }
 
   /**
    * Expand into an `InstancedMesh`'s transform buffer.
    *
-   * Column-major, and only the seven cells a scale-plus-translation touches:
-   * three.js hands out a zero-filled `Float32Array` and everything else in an
-   * affine transform of this shape is a zero.
+   * Column-major, and only the cells a scale-rotate-translate about Z
+   * touches: three.js hands out a zero-filled `Float32Array` and everything
+   * else in an affine transform of this shape is a zero. The unrotated case
+   * still writes seven cells and skips the trigonometry, which is every
+   * instance in the city bar the buildings that face a street.
    */
   writeTo(mesh: THREE.InstancedMesh): void {
     const a = mesh.instanceMatrix.array as Float32Array;
     const d = this.data;
     for (let i = 0; i < this.count; i++) {
-      const o = i * 6;
+      const o = i * 7;
       const m = i * 16;
-      a[m] = d[o] as number;
-      a[m + 5] = d[o + 1] as number;
+      const yaw = d[o + 6] as number;
+      if (yaw === 0) {
+        a[m] = d[o] as number;
+        a[m + 5] = d[o + 1] as number;
+      } else {
+        const c = Math.cos(yaw);
+        const s = Math.sin(yaw);
+        a[m] = (d[o] as number) * c;
+        a[m + 1] = (d[o] as number) * s;
+        a[m + 4] = -(d[o + 1] as number) * s;
+        a[m + 5] = (d[o + 1] as number) * c;
+      }
       a[m + 10] = d[o + 2] as number;
       a[m + 12] = d[o + 3] as number;
       a[m + 13] = d[o + 4] as number;
@@ -593,6 +618,42 @@ export function buildCity(map: CityMap): CityBuild {
   // once for both the sinking below and the prisms that replace what is sunk.
   const shoreCut = map.shores && map.shores.length > 0 ? shoreChains(map.shores, W, H) : null;
 
+  /**
+   * Which building tiles are drawn as one rotated mass instead of a column of
+   * boxes (§20), and how tall that mass is — the walk below needs both, and
+   * the walk runs first.
+   *
+   * A building only qualifies if it FACES something and its footprint is
+   * solid. The second test is not fussiness: a shop is a room punched out of
+   * a building and open to the sky, and one mass over the whole rect would
+   * put a lid on it. Those keep their per-tile columns, which is exactly what
+   * `roofCanvasFor` does in the 2D painter for the same reason.
+   */
+  const massTiles = new Uint8Array(W * H);
+  const massTop = new Float32Array(W * H);
+  const masses: Array<{ b: Building; top: number }> = [];
+  for (const b of map.buildings) {
+    if ((b.angle ?? 0) === 0) continue;
+    let solid = true;
+    for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H || map.tiles[ty * W + tx] !== T_BUILDING) {
+          solid = false;
+          break;
+        }
+      }
+    }
+    if (!solid) continue;
+    const top = buildingStoreys(b) * Z_PER_STOREY * Z_SCALE;
+    masses.push({ b, top });
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        massTiles[ty * W + tx] = 1;
+        massTop[ty * W + tx] = top;
+      }
+    }
+  }
+
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
@@ -650,6 +711,14 @@ export function buildCity(map: CityMap): CityBuild {
           tile !== T_WATER &&
           bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER);
       if (sunk) surface = SURFACES[T_WATER] as Surface;
+      // A building that faces a street is drawn once, rotated, by
+      // `buildBuildingMasses` — not as a column of square boxes per tile
+      // (§20). Its tiles are skipped here, and only its tiles: everything
+      // else on the map is still one box per tile per span.
+      if (tile === T_BUILDING && massTiles[idx] === 1) {
+        heightAt[idx] = massTop[idx] as number;
+        continue;
+      }
       const list = bucket(tx, ty, surface);
 
       const spans: readonly Span[] = sunk
@@ -692,7 +761,31 @@ export function buildCity(map: CityMap): CityBuild {
     }
   }
 
-  instances += buildRoofDetail(map, group, heightAt);
+  // The rotated masses, filed under the same chunk buckets and the same
+  // per-surface materials the square ones use — a rotated building is the
+  // same building, drawn once.
+  for (const { b, top } of masses) {
+    const m = buildingMass(b);
+    const bi = buildingOf[(b.y + (b.h >> 1)) * W + b.x + (b.w >> 1)] as number;
+    const color = roofColor(map, b.x, b.y, bi - 1);
+    const bottom = -16;
+    const h = Math.max(1, top - bottom);
+    bucket(Math.floor(m.cx), Math.floor(m.cy), {
+      key: `b${color.toString(16)}`,
+      color,
+      solid: true,
+    }).push(
+      m.w * TILE_SIZE + SEAM_OVERLAP,
+      m.h * TILE_SIZE + SEAM_OVERLAP,
+      h,
+      m.cx * TILE_SIZE,
+      m.cy * TILE_SIZE,
+      top - h / 2,
+      m.rad,
+    );
+  }
+
+  instances += buildRoofDetail(map, group, heightAt, masses, massTiles);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
   instances += buildShorePrisms(map, group, shoreCut);
@@ -774,7 +867,13 @@ export function buildCity(map: CityMap): CityBuild {
  * tile by tile. Clutter goes only on interior tiles, which is what stops an
  * air-conditioning unit hanging over the street.
  */
-function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Array): number {
+function buildRoofDetail(
+  map: CityMap,
+  group: THREE.Group,
+  heightAt: Float64Array,
+  masses: ReadonlyArray<{ b: Building; top: number }>,
+  massTiles: Uint8Array,
+): number {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const T = TILE_SIZE;
@@ -786,10 +885,43 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
   const LIP_H = 3.2;
   const LIP_W = 2.4;
 
+  // A rotated mass gets a rotated parapet: four lips round the mass itself,
+  // turned with it. Run first, and its tiles are skipped by the per-tile walk
+  // below — a square ring of lips floating over a turned roof was the first
+  // thing §20 got wrong, and it read as a picture frame hanging in the air.
+  for (const { b, top } of masses) {
+    if (top <= 0) continue;
+    const m = buildingMass(b);
+    const cx = m.cx * T;
+    const cy = m.cy * T;
+    const w = m.w * T;
+    const h = m.h * T;
+    const c = Math.cos(m.rad);
+    const s = Math.sin(m.rad);
+    const lip = (ox: number, oy: number, lw: number, ld: number): void => {
+      intoChunk(
+        parapets,
+        Math.floor(m.cx),
+        Math.floor(m.cy),
+        lw,
+        ld,
+        LIP_H,
+        cx + ox * c - oy * s,
+        cy + ox * s + oy * c,
+        top + LIP_H / 2,
+        m.rad,
+      );
+    };
+    lip(0, -h / 2 + LIP_W / 2, w, LIP_W);
+    lip(0, h / 2 - LIP_W / 2, w, LIP_W);
+    lip(-w / 2 + LIP_W / 2, 0, LIP_W, h);
+    lip(w / 2 - LIP_W / 2, 0, LIP_W, h);
+  }
+
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
-      if (map.tiles[idx] !== T_BUILDING) continue;
+      if (map.tiles[idx] !== T_BUILDING || massTiles[idx] === 1) continue;
       const top = heightAt[idx] as number;
       if (top <= 0) continue;
       const cx = (tx + 0.5) * T;
@@ -1189,11 +1321,12 @@ function intoChunk(
   x: number,
   y: number,
   z: number,
+  yaw = 0,
 ): void {
   const key = chunkKey(tx, ty);
   let list = byChunk.get(key);
   if (!list) byChunk.set(key, (list = new Boxes()));
-  list.push(sx, sy, sz, x, y, z);
+  list.push(sx, sy, sz, x, y, z, yaw);
 }
 
 /**

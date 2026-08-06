@@ -105,3 +105,43 @@ export function parallaxOffset(
     y: ((buildingCentreY - camCentreY) / halfH) * lift,
   };
 }
+
+/**
+ * The same extrusion for a mass that is not square to the world (§20).
+ *
+ * `corners` is the rotated footprint in device pixels, clockwise. Every edge
+ * whose outward normal opposes the displacement is exposed — for a square
+ * base that is the one or two `extrusionOf` finds, and for a turned one it is
+ * whichever two of the four now face the way the roof moved away from. The
+ * normal comes off the edge rather than off the axis, so the sun test the
+ * caller does is unchanged.
+ */
+export function rotatedExtrusionOf(
+  corners: ReadonlyArray<readonly [number, number]>,
+  offX: number,
+  offY: number,
+): { faces: Quad[]; dx: number; dy: number } {
+  const dx = Math.round(offX);
+  const dy = Math.round(offY);
+  const faces: Quad[] = [];
+  if (dx === 0 && dy === 0) return { faces, dx, dy };
+  for (let i = 0; i < corners.length; i++) {
+    const [ax, ay] = corners[i] as readonly [number, number];
+    const [bx, by] = corners[(i + 1) % corners.length] as readonly [number, number];
+    // Clockwise winding on screen (y down) puts the outward normal a quarter
+    // turn anticlockwise from the edge direction.
+    const ex = bx - ax;
+    const ey = by - ay;
+    const len = Math.hypot(ex, ey) || 1;
+    const nx = ey / len;
+    const ny = -ex / len;
+    // Exposed only if the roof moved away from this face.
+    if (nx * dx + ny * dy >= 0) continue;
+    faces.push({
+      pts: [ax, ay, bx, by, bx + dx, by + dy, ax + dx, ay + dy],
+      nx,
+      ny,
+    });
+  }
+  return { faces, dx, dy };
+}

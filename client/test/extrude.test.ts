@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { extrusionOf, parallaxOffset } from '../src/render/extrudeGeom.js';
+import { extrusionOf, parallaxOffset, rotatedExtrusionOf } from '../src/render/extrudeGeom.js';
 import { buildingStoreys } from '../../shared/src/world/heights.js';
 import type { Building } from '../../shared/src/world/types.js';
 
@@ -149,5 +149,49 @@ describe('the flat-centre problem', () => {
     // height, which at 3 px a storey and two storeys is sub-pixel.
     const near = parallaxOffset(550, 500, 500, 500, 500, 500, 2 * 3);
     expect(Math.abs(near.x)).toBeLessThan(1);
+  });
+});
+
+describe('a mass that is not square to the world (§20)', () => {
+  /** A unit square turned 30°, clockwise from the north-west. */
+  const turned = (): Array<[number, number]> => {
+    const c = Math.cos(Math.PI / 6);
+    const s = Math.sin(Math.PI / 6);
+    return ([
+      [-10, -10],
+      [10, -10],
+      [10, 10],
+      [-10, 10],
+    ] as Array<[number, number]>).map(([x, y]) => [100 + x * c - y * s, 100 + x * s + y * c]);
+  };
+
+  it('exposes only the faces the roof moved away from', () => {
+    // Two of four for a diagonal lean, and every exposed face's normal must
+    // oppose the displacement — the same property `extrusionOf` has, which is
+    // the one the first version of that got inside out.
+    const { faces } = rotatedExtrusionOf(turned(), -6, -4);
+    expect(faces.length).toBe(2);
+    for (const f of faces) expect(f.nx * -6 + f.ny * -4).toBeLessThan(0);
+  });
+
+  it('leans nowhere when the roof does not move', () => {
+    expect(rotatedExtrusionOf(turned(), 0, 0).faces).toHaveLength(0);
+  });
+
+  it('builds each face from its own edge and that edge displaced', () => {
+    const corners = turned();
+    const { faces, dx, dy } = rotatedExtrusionOf(corners, 8, 0);
+    for (const f of faces) {
+      const [ax, ay, bx, by, cx, cy, ex, ey] = f.pts as number[] as [
+        number, number, number, number, number, number, number, number,
+      ];
+      expect(cx).toBeCloseTo(bx + dx, 6);
+      expect(cy).toBeCloseTo(by + dy, 6);
+      expect(ex).toBeCloseTo(ax + dx, 6);
+      expect(ey).toBeCloseTo(ay + dy, 6);
+      // And the normal is a unit vector square to that edge.
+      expect(Math.hypot(f.nx, f.ny)).toBeCloseTo(1, 6);
+      expect(f.nx * (bx - ax) + f.ny * (by - ay)).toBeCloseTo(0, 6);
+    }
   });
 });

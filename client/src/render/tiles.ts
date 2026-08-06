@@ -1,4 +1,5 @@
 import {
+  type Building,
   type CityMap,
   type Vec2,
   DISTRICT_TYPES,
@@ -29,6 +30,8 @@ import {
   inCutHalf,
   shoreHalf,
   shoreChains,
+  buildingCorners,
+  buildingMass,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
@@ -792,10 +795,10 @@ export class TileLayer {
           continue;
         }
         if (tile === T_BUILDING) {
-          // Under a building and never seen. Filled rather than left clear so
-          // the chunk can stay opaque.
-          ctx.fillStyle = palette.wallShade ?? palette.road;
-          ctx.fillRect(x, y, TD, TD);
+          // The plot the building stands on. This used to be a flat fill on
+          // the grounds that a roof covered it; a turned mass does not, and
+          // the fill showed through at its corners (§20).
+          this.paintPlot(ctx, tx, ty, x, y, false);
           continue;
         }
         // No flat plants in the 3D ground: the scenery layer stands real
@@ -826,8 +829,8 @@ export class TileLayer {
     for (let ty = ty0; ty < ty0 + CHUNK_TILES; ty++) {
       for (let tx = tx0; tx < tx0 + CHUNK_TILES; tx++) {
         const tile = this.tileAt(tx, ty);
-        if (tile === T_BUILDING) continue;
-        this.paintGround(ctx, tx, ty, ox(tx), oy(ty), tile);
+        if (tile === T_BUILDING) this.paintPlot(ctx, tx, ty, ox(tx), oy(ty), true);
+        else this.paintGround(ctx, tx, ty, ox(tx), oy(ty), tile);
       }
     }
     this.paintCourses(ctx, tx0, ty0);
@@ -843,15 +846,30 @@ export class TileLayer {
     //    masses per frame, and baking a second set underneath them would show
     //    through wherever the two disagree — which is everywhere, by design.
     if (!this.extruded) {
+      // Buildings that face a street are drawn as one rotated mass (§20);
+      // their tiles are skipped by the square walk. Walls for both first, so
+      // a near mass's wall covers the one behind it.
+      const masses = this.massesNear(tx0, ty0);
+      const W = (this.map as CityMap).widthTiles;
+      const massed = new Set<number>();
+      for (const m of masses) {
+        for (let ty = m.b.y; ty < m.b.y + m.b.h; ty++) {
+          for (let tx = m.b.x; tx < m.b.x + m.b.w; tx++) massed.add(ty * W + tx);
+        }
+      }
+      const square = (tx: number, ty: number): boolean =>
+        this.tileAt(tx, ty) === T_BUILDING && !massed.has(ty * W + tx);
+      for (const m of masses) this.paintMassWall(ctx, m, tx0, ty0);
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-          if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+          if (!square(tx, ty)) continue;
           this.paintWall(ctx, tx, ty, ox(tx), oy(ty));
         }
       }
+      for (const m of masses) this.paintMassRoof(ctx, m, tx0, ty0);
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-          if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+          if (!square(tx, ty)) continue;
           this.paintRoof(ctx, tx, ty, ox(tx), oy(ty));
         }
       }
@@ -1877,11 +1895,53 @@ export class TileLayer {
     const dx = SHADOW_DEPTH * SUN_X * RENDER_SCALE;
     const dy = SHADOW_DEPTH * SUN_Y * RENDER_SCALE;
 
+    // A building that faces a street casts a shadow of the mass that is
+    // DRAWN, not of the tiles it is bookkept as (§20). Without this the
+    // rotated block stands on a square shadow, which reads as a second
+    // building underneath it lying the old way round.
+    const map = this.map;
+    const massed = new Set<number>();
+    const rotated: Array<Array<[number, number]>> = [];
+    for (const b of map?.buildings ?? []) {
+      if ((b.angle ?? 0) === 0) continue;
+      if (b.x + b.w < tx0 - 2 || b.x > tx0 + CHUNK_TILES + 1) continue;
+      if (b.y + b.h < ty0 - 2 || b.y > ty0 + CHUNK_TILES + 1) continue;
+      let solid = true;
+      for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) {
+          if (this.tileAt(tx, ty) !== T_BUILDING) {
+            solid = false;
+            break;
+          }
+        }
+      }
+      if (!solid) continue;
+      for (let ty = b.y; ty < b.y + b.h; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) massed.add(ty * (map as CityMap).widthTiles + tx);
+      }
+      rotated.push(
+        buildingCorners(b).map(([cx, cy]) => [(cx - tx0) * TD, (cy - ty0) * TD] as [number, number]),
+      );
+    }
+    const poly = (pts: Array<[number, number]>, ox: number, oy: number): void => {
+      sctx.beginPath();
+      sctx.moveTo((pts[0] as [number, number])[0] + ox, (pts[0] as [number, number])[1] + oy);
+      for (let i = 1; i < pts.length; i++) {
+        sctx.lineTo((pts[i] as [number, number])[0] + ox, (pts[i] as [number, number])[1] + oy);
+      }
+      sctx.closePath();
+      sctx.fill();
+    };
+    const plain = (tx: number, ty: number): boolean =>
+      this.tileAt(tx, ty) === T_BUILDING &&
+      !massed.has(ty * ((map as CityMap).widthTiles ?? 1) + tx);
+
     sctx.fillStyle = palette.shadow;
-    let any = false;
+    let any = rotated.length > 0;
+    for (const pts of rotated) poly(pts, dx, dy);
     for (let ty = ty0 - 2; ty <= ty0 + CHUNK_TILES + 1; ty++) {
       for (let tx = tx0 - 2; tx <= tx0 + CHUNK_TILES + 1; tx++) {
-        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+        if (!plain(tx, ty)) continue;
         any = true;
         sctx.fillRect((tx - tx0) * TD + dx, (ty - ty0) * TD + dy, TD, TD);
       }
@@ -1889,9 +1949,10 @@ export class TileLayer {
     if (!any) return;
 
     sctx.globalCompositeOperation = 'destination-out';
+    for (const pts of rotated) poly(pts, 0, 0);
     for (let ty = ty0 - 2; ty <= ty0 + CHUNK_TILES + 1; ty++) {
       for (let tx = tx0 - 2; tx <= tx0 + CHUNK_TILES + 1; tx++) {
-        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+        if (!plain(tx, ty)) continue;
         sctx.fillRect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
       }
     }
@@ -1900,6 +1961,155 @@ export class TileLayer {
     ctx.globalAlpha = 0.34;
     ctx.drawImage(scratch, 0, 0);
     ctx.restore();
+  }
+
+  /**
+   * The ground a building stands ON, painted under it.
+   *
+   * The square city never needed this: a roof covered its own footprint
+   * exactly, so what was underneath was never seen and both chunk builders
+   * left it as a flat fill. A rotated mass does not cover its footprint —
+   * that is the whole point of it — and the corners it vacates showed the
+   * flat fill as dark squares lying the old way round, which read as a second
+   * building underneath the first.
+   *
+   * Painted for EVERY building tile rather than only the turned ones: the
+   * square case is covered by its own roof a moment later, so it costs a fill
+   * nobody sees and saves a branch that could disagree with the mass painter
+   * about which buildings are turned.
+   */
+  private paintPlot(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    plants: boolean,
+  ): void {
+    let ground = T_SIDEWALK;
+    let best = Infinity;
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        const t = this.tileAt(tx + ox, ty + oy);
+        if (t === T_BUILDING || t === T_WATER || t === T_BRIDGE) continue;
+        const d = ox * ox + oy * oy;
+        if (d < best) {
+          best = d;
+          ground = t;
+        }
+      }
+    }
+    this.paintGround(ctx, tx, ty, x, y, ground, plants);
+  }
+
+  /**
+   * The rotated masses touching a chunk: the buildings that face a street and
+   * whose footprint is solid (a shop is a room punched out of one, and a mass
+   * over the whole rect would put a lid on it — the same rule
+   * `roofCanvasFor` has always applied per tile).
+   */
+  private massesNear(tx0: number, ty0: number): Array<{ b: Building; i: number }> {
+    const map = this.map;
+    if (!map) return [];
+    const out: Array<{ b: Building; i: number }> = [];
+    for (let i = 0; i < map.buildings.length; i++) {
+      const b = map.buildings[i] as Building;
+      if ((b.angle ?? 0) === 0) continue;
+      if (b.x + b.w < tx0 - 2 || b.x > tx0 + CHUNK_TILES + 1) continue;
+      if (b.y + b.h < ty0 - 2 || b.y > ty0 + CHUNK_TILES + 1) continue;
+      let solid = true;
+      for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) {
+          if (this.tileAt(tx, ty) !== T_BUILDING) {
+            solid = false;
+            break;
+          }
+        }
+      }
+      if (solid) out.push({ b, i });
+    }
+    return out;
+  }
+
+  /** The rotated mass's footprint in this chunk's device pixels. */
+  private massPoly(b: Building, tx0: number, ty0: number): Array<[number, number]> {
+    return buildingCorners(b).map(
+      ([cx, cy]) => [(cx - tx0) * TD, (cy - ty0) * TD] as [number, number],
+    );
+  }
+
+  /**
+   * A rotated mass's side, swept sun-away — the hexagon the square painter
+   * draws, at the angle the building faces. Built as the two end quads plus a
+   * face per edge rather than as a hull, because a hull of eight points is
+   * more arithmetic than four fills for the same picture.
+   */
+  private paintMassWall(
+    ctx: CanvasRenderingContext2D,
+    m: { b: Building; i: number },
+    tx0: number,
+    ty0: number,
+  ): void {
+    const dx = WALL_DEPTH * SUN_X * RENDER_SCALE;
+    const dy = WALL_DEPTH * SUN_Y * RENDER_SCALE;
+    const poly = this.massPoly(m.b, tx0, ty0);
+    ctx.fillStyle = shade(this.roofColorOf(m.b), 0.55, palette.wallShade);
+    const fill = (ox: number, oy: number): void => {
+      ctx.beginPath();
+      const p0 = poly[0] as [number, number];
+      ctx.moveTo(p0[0] + ox, p0[1] + oy);
+      for (let i = 1; i < poly.length; i++) {
+        const p = poly[i] as [number, number];
+        ctx.lineTo(p[0] + ox, p[1] + oy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    };
+    fill(0, 0);
+    fill(dx, dy);
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i] as [number, number];
+      const q = poly[(i + 1) % poly.length] as [number, number];
+      ctx.beginPath();
+      ctx.moveTo(p[0], p[1]);
+      ctx.lineTo(q[0], q[1]);
+      ctx.lineTo(q[0] + dx, q[1] + dy);
+      ctx.lineTo(p[0] + dx, p[1] + dy);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /**
+   * A rotated mass's roof: the SAME baked art the square painter makes,
+   * turned. Reusing `roofCanvasFor` rather than re-authoring the speckle, the
+   * parapets and the clutter against a polygon is what keeps a rotated roof
+   * and a square one obviously the same city.
+   */
+  private paintMassRoof(
+    ctx: CanvasRenderingContext2D,
+    m: { b: Building; i: number },
+    tx0: number,
+    ty0: number,
+  ): void {
+    const canvas = this.roofCanvasFor(m.i);
+    const mass = buildingMass(m.b);
+    ctx.save();
+    ctx.translate((mass.cx - tx0) * TD, (mass.cy - ty0) * TD);
+    ctx.rotate(mass.rad);
+    const w = mass.w * TD;
+    const h = mass.h * TD;
+    if (canvas) ctx.drawImage(canvas, -w / 2, -h / 2, w, h);
+    else {
+      ctx.fillStyle = this.roofColorOf(m.b);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+    }
+    ctx.restore();
+  }
+
+  /** A building's roof colour — the same one its own tiles are painted. */
+  private roofColorOf(b: Building): string {
+    return this.roofColor(b.x, b.y);
   }
 
   /**

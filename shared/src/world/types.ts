@@ -159,6 +159,23 @@ export interface Building {
   w: number;
   h: number;
   district: DistrictType;
+  /**
+   * Which way the building FACES, in degrees 0..179 — the bearing of the
+   * street it fronts (WORLDGEN.md §20).
+   *
+   * Read by the three renderers and by nothing else. The footprint stays the
+   * axis-aligned rect it has always been: collision, the volume grid,
+   * doorways, shopfronts and every placement pass go on reading `x,y,w,h`,
+   * because a rotated FOOTPRINT is the renderer-and-collision project
+   * §13.2.2 declined and this is not that. What rotates is the mass that is
+   * drawn standing on the footprint, which is the part that was reading
+   * wrong: a square box beside a 26° street looks like a model somebody
+   * dropped on the wrong grid.
+   *
+   * Optional because bare test fixtures and pre-§20 bakes have none; absent
+   * means square to the world, which is what every grid borough wants anyway.
+   */
+  angle?: number;
 }
 
 export type ShopKind =
