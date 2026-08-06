@@ -124,10 +124,12 @@ weighted Voronoi with a downtown gradient, arterials routed by shortest path
 over the real post-warp land (cheap on ground, dear over water, so a road
 rounds a bay and bridges a strait on its own), streets and blocks and fill
 from the existing pipeline. It generates the PLAN, not the tiles, which is why
-it can be held to the same checker the drawn city passes — 20/20 unseen seeds
-do. It does not touch the shipped city: the way a rolled one would become it is
-the way any city does, by editing the plan and running the bake.
-`WORLDGEN.md` §17.
+it can be held to the same checker the drawn city passes — 44/44 unseen seeds
+do. The leeward coast is handed back to the country as a shore parish, so the
+sand goes where the swell says sand goes and the shoreline bevels into a 45°
+line instead of a staircase. It does not touch the shipped city: the way a
+rolled one would become it is the way any city does, by editing the plan and
+running the bake. `WORLDGEN.md` §17.
 
 ![Anywhere City](evidence/city-anywhere.png)
 
@@ -152,6 +154,8 @@ pnpm citybake --fit                         # for every landmark the plan puts
 pnpm plangen                                # GENERATE a city plan (not the one
                                             #   the game ships), bake it, check
                                             #   it, and render it to PNG
+pnpm plangen --crop=90,216,90               # a close-up, in tiles, scaled up
+                                            #   (bevels only read at this size)
 pnpm plangen --sweep=20                     # twenty cities nobody has looked at,
                                             #   each held to the checker that
                                             #   passes the drawn one

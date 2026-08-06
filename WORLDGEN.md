@@ -2264,6 +2264,73 @@ furniture. What changed is that "roll a city" is now a plan you can open, read
 and edit — the way a generated city would ever become the shipped one is the
 way any city does: somebody looks at the plan, edits it, and runs the bake.
 
+### 17.4 The beaches — what "smooth" turned out to depend on
+
+The question the first wave got asked was simple: are the beaches smooth? The
+answer was no, and the interesting part is why not, because the bevel pass
+(§15) was working perfectly the whole time.
+
+`deriveBevels` is a pure function of the finished tile plane, so it runs on a
+generated city exactly as on the drawn one, and where sand meets water it does
+cut a clean 45°. But it only cuts SOFT ground: a quay is coursed masonry and
+stays square on purpose (§15.2). So "is the coast smooth" is really "how much
+of the coast is beach", and the shore pass lays sand only where the district is
+`park` AND the shore is in the swell's lee (`layout.ts`; everything else is
+quay). Measured on the first draft against the drawn city:
+
+| | quay shore | beach shore | waterline bevelled |
+| --- | --- | --- | --- |
+| Anywhere City (drawn) | 4,409 tiles | 615 | 4.2% |
+| plangen seed 500, first draft | 2,207 tiles | 198 | 3.7% |
+
+The drawn city earns its beaches by hand — Sunridge Shore is a park borough
+somebody put on the south coast because that is where sand belongs. The
+generator had no such step, and worse, §17.2 had actively worked against one:
+the borough cells are deliberately NOT clipped to the land so that an urban
+borough owns its own waterfront and the esplanade pass runs a street along it.
+Owning the waterfront buys esplanades and costs beaches, and nothing in the
+first draft made that trade on purpose.
+
+**Shore parishes.** Every stretch of coast that faces away from the swell and
+belongs to a borough with no business quaying it — downtown and industry are
+exempt, because a city's middle grew round a harbour and docks need deep water
+at a wall — becomes a parish of its own: park, rural, drawn last so it wins the
+seaward lip of whatever it fronts.
+
+The geometry is a ribbon, not a traced region. Candidate shore tiles are
+chained by the greedy nearest-unvisited walk §16 used to recover a contour
+band's centreline (a stretch of coast IS a curve; what a raster of it lacks is
+the order), smoothed, and then offset by the shore normal to both sides — six
+tiles seaward, thirteen to twenty inland. No marching squares, no hole
+handling, and the result is a simple polygon by construction.
+
+One choice is load-bearing: a parish has **no streets at all**. A ribbon of
+rural lanes fifteen tiles wide along a coast would be carved inside the parish,
+touch no arterial, and be a second street network — precisely what the checker
+refuses. The borough behind keeps its streets and its frontage; what is in
+front of them is the beach.
+
+`plangen` now prints the waterfront on every run and every sweep line, because
+it is the number that moved and the number that would quietly go back:
+
+```
+waterline: quay 1559, beach 805, bridge 56, road 1 — 391/2414 tiles bevelled (16.2%)
+```
+
+Measured after: **44/44 seeds at 640 tiles still pass the checker** (100–119 and
+500–523) and 14/14 at the 384 floor, with 4–16% of the waterline bevelled,
+median ~9%, against the drawn city's 4.2%. Seed 500 went from 198 beach shore
+tiles to 365 and from 3.7% to 6.0%; seed 1 reaches 805 and 16.2%. Evidence:
+`evidence/plangen-shore.png`, a long unbroken beach breaking at 45° under a
+crescent suburb, and `evidence/plangen-seed500.png` for the whole coast.
+
+Not fixed: the parish's own interior is bare. The rural ecotone (§14.3 D5)
+takes its depth from the district's street pitch, and a parish's pitch is zero
+by the argument above, so the smallholding band never fires and the strip
+behind the dunes is plain meadow. Separating "how deep is the fringe" from "how
+far apart are the lanes" is a `bake.ts` change, and this was not the wave for
+it.
+
 **What is left out, deliberately.** Islets: a rock in the water is a lovely
 thing and a stranded street network waiting to happen, because the borough
 whose polygon covers it gives it a fabric and the esplanade runs a quay round

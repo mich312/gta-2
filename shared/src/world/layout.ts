@@ -381,10 +381,12 @@ function paintCoast(plan: CityPlan): Coast {
   return { water, exposure };
 }
 
+export type { Coast };
+
 /**
- * The finished land/water plane for a plan's geography ALONE — outlines,
- * bays, rivers, spits, islets, warp and all — without carving a single
- * street.
+ * The finished coast for a plan's geography ALONE — outlines, bays, rivers,
+ * spits, islets, warp and all — without carving a single street: where the
+ * water is, and how each stretch of shore stands to the swell.
  *
  * What it is for: anything that has to decide WHERE to put something must
  * ask the coast that will actually exist, not the one that was drawn. The
@@ -393,9 +395,15 @@ function paintCoast(plan: CityPlan): Coast {
  * can run straight through the real one. `plangen.ts` builds its whole plan
  * against this: geography first, then the land is measured, then everything
  * else is placed on ground that is known to be there.
+ *
+ * The exposure plane comes with it because a generator that wants to put a
+ * beach somewhere has to agree with the shore pass about where sand goes,
+ * and the only way to agree exactly is to read the same numbers. Guessing at
+ * it from a distance field of one's own gets a parish drawn along a shore
+ * the pass then quays.
  */
-export function paintWater(plan: CityPlan): Uint8Array {
-  return paintCoast(plan).water;
+export function paintShore(plan: CityPlan): Coast {
+  return paintCoast(plan);
 }
 
 /* ------------------------------------------------------------------ */

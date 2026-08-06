@@ -23,6 +23,8 @@ import {
  * second or two where the 640-tile default costs eight.
  */
 const SIZE = MIN_MAP_TILES;
+/** What `shoreParishes` names its ribbons. Kept in step with `plangen.ts`. */
+const SHORE_TAILS = ['Sands', 'Dunes', 'Shore', 'Strand', 'Links'] as const;
 const plan = (seed: number): CityPlan =>
   generateCityPlan({ seed, widthTiles: SIZE, heightTiles: SIZE });
 
@@ -93,6 +95,30 @@ describe('generated city plans', () => {
         `${x},${y} belongs to no borough`,
       ).toBe(true);
     }
+  });
+
+  it('give the leeward coast back to the country, with no streets on it', () => {
+    // The shore parishes (§17.4). Two properties, and the second is the one
+    // that keeps the checker happy: a parish is a park so the shore pass lays
+    // sand on it instead of a quay, and it has NO streets, because a ribbon
+    // of rural lanes fifteen tiles wide along a coast would touch no arterial
+    // and be a second street network.
+    let parishes = 0;
+    for (const seed of [1, 3, 500]) {
+      const p = plan(seed);
+      for (const d of p.districts) {
+        if (!SHORE_TAILS.some((tail) => d.name.endsWith(` ${tail}`))) continue;
+        parishes++;
+        expect(d.district, d.name).toBe('park');
+        expect(d.rural, d.name).toBe(true);
+        expect(d.street.pitchX, d.name).toBe(0);
+        expect(d.street.pitchY, d.name).toBe(0);
+      }
+    }
+    // Not every seed has a sheltered coast worth a parish, but three between
+    // them always do — a map with no lee at all would need the swell coming
+    // from every direction at once.
+    expect(parishes).toBeGreaterThan(0);
   });
 
   it('put every landmark on the map, with room round it', () => {

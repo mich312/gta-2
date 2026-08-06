@@ -1,6 +1,6 @@
 import { deriveSeed, nextFloat01 } from '../rng/prng.js';
 import { valueNoise } from './fields.js';
-import { buildLayout, paintWater } from './layout.js';
+import { buildLayout, paintShore } from './layout.js';
 import {
   MAX_CARRIAGEWAY,
   smoothPolyline,
@@ -236,6 +236,8 @@ interface Geo {
   plan: CityPlan;
   /** 1 where the coast pass says water, measured not guessed. */
   water: Uint8Array;
+  /** Shore normal dotted with the swell: +1 fully exposed, -1 sheltered. */
+  exposure: Float32Array;
 }
 
 function drawLand(opts: Required<PlanGenOptions>, name: string): Geo {
@@ -368,7 +370,8 @@ function drawLand(opts: Required<PlanGenOptions>, name: string): Geo {
     shopSpacingTiles: 30,
   };
 
-  return { archetype, plan, water: paintWater(plan) };
+  const coast = paintShore(plan);
+  return { archetype, plan, water: coast.water, exposure: coast.exposure };
 }
 
 function pickName(r: Roll): string {
@@ -1008,6 +1011,175 @@ function buildRoads(
 }
 
 /* ------------------------------------------------------------------ */
+/* Stage 4b — the shore parishes                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The leeward coast, handed back to the country.
+ *
+ * Without this the generated city has almost no beach, and the reason is a
+ * decision made two stages ago: the borough cells are not clipped to the
+ * land, so an urban borough owns its own waterfront — which is exactly what
+ * makes the esplanade pass run a street along it (§13.4). The shore pass then
+ * quays every urban waterline it finds (`layout.ts`: sand needs a `park`
+ * district AND `exposure < -0.15`), and a quay is coursed masonry that stays
+ * square on purpose (§15.2). Measured on the first draft: 2,207 tiles of quay
+ * against 198 of sand, and a waterline 3.7% bevelled. The drawn city is 4.2%,
+ * but it earns its beaches by hand — Sunridge Shore is a park borough somebody
+ * put on the south coast because that is where the sand should be.
+ *
+ * So say it in the plan instead of hoping for it. Every stretch of shore that
+ * (a) faces away from the swell and (b) belongs to a borough that has no
+ * business quaying it becomes a parish of its own: park, rural, no streets.
+ * Dune, meadow and a long unbroken beach — which is also what makes the
+ * bevels work, because a bevel needs a rasterised 45° staircase to cut and a
+ * three-tile scrap of sand has no staircase in it.
+ *
+ * Downtown and industry are exempt, and that is the whole rule stated
+ * properly: a city's middle grew round a harbour and its docks need deep
+ * water at a wall. Beaches belong in front of the houses.
+ */
+const PARISH_TAIL = ['Sands', 'Dunes', 'Shore', 'Strand', 'Links'] as const;
+
+/** Offset a chain sideways by a per-point normal, for a ribbon polygon. */
+function offsetChain(points: PlanPoint[], normals: PlanPoint[], d: number): PlanPoint[] {
+  return points.map((p, i) => {
+    const n = normals[i] as PlanPoint;
+    return [p[0] + n[0] * d, p[1] + n[1] * d] as PlanPoint;
+  });
+}
+
+function shoreParishes(
+  sites: Site[],
+  coastWater: Uint8Array,
+  exposure: Float32Array,
+  fromSea: Int32Array,
+  W: number,
+  H: number,
+  seed: number,
+): PlanDistrict[] {
+  const r = new Roll(deriveSeed(seed, 'plangen.parishes'));
+
+  /** Which cell owns a tile — the same weighted Voronoi the polygons come from. */
+  const ownerAt = (x: number, y: number): number => {
+    let best = -1;
+    let bd = Infinity;
+    for (const [i, s] of sites.entries()) {
+      const d = Math.hypot(x - s.x, y - s.y) / s.weight;
+      if (d < bd) {
+        bd = d;
+        best = i;
+      }
+    }
+    return best;
+  };
+  /** Which way the sea is, from the distance field's own slope. */
+  const outwardAt = (x: number, y: number): PlanPoint => {
+    const at = (px: number, py: number): number =>
+      fromSea[Math.max(0, Math.min(H - 1, py)) * W + Math.max(0, Math.min(W - 1, px))] as number;
+    const gx = at(x + 5, y) - at(x - 5, y);
+    const gy = at(x, y + 5) - at(x, y - 5);
+    const len = Math.hypot(gx, gy) || 1;
+    return [-gx / len, -gy / len];
+  };
+
+  // Candidate shore, sampled on a lattice: leeward, on a borough that would
+  // rather have a beach than a wharf, and enough of a shore to be one.
+  const candidates: PlanPoint[] = [];
+  const owners: number[] = [];
+  for (let y = 4; y < H - 4; y += 3) {
+    for (let x = 4; x < W - 4; x += 3) {
+      const i = y * W + x;
+      if (coastWater[i] === 1 || (fromSea[i] as number) > 3) continue;
+      if ((exposure[i] as number) >= -0.2) continue;
+      const own = ownerAt(x, y);
+      if (own < 0) continue;
+      const s = sites[own] as Site;
+      if (s.district === 'downtown' || s.district === 'industrial') continue;
+      candidates.push([x, y]);
+      owners.push(own);
+    }
+  }
+
+  // Chain them along the shore, greedy nearest-unvisited — the same walk §16
+  // used to recover a contour band's centreline. A stretch of coast IS a
+  // curve; what a raster of it lacks is the order.
+  const used = new Uint8Array(candidates.length);
+  const out: PlanDistrict[] = [];
+  const named = new Set<string>();
+  for (let start = 0; start < candidates.length; start++) {
+    if (used[start] === 1) continue;
+    const chain: PlanPoint[] = [];
+    const chainOwners: number[] = [];
+    let at = start;
+    for (;;) {
+      used[at] = 1;
+      chain.push(candidates[at] as PlanPoint);
+      chainOwners.push(owners[at] as number);
+      const [cx, cy] = candidates[at] as PlanPoint;
+      let next = -1;
+      let bd = Infinity;
+      for (let k = 0; k < candidates.length; k++) {
+        if (used[k] === 1) continue;
+        const [px, py] = candidates[k] as PlanPoint;
+        const d = Math.hypot(px - cx, py - cy);
+        // Six tiles: far enough to step over the lattice's diagonal gap,
+        // near enough that the walk cannot jump a headland and stitch two
+        // unrelated beaches into one ribbon across the bay between them.
+        if (d < 6 && d < bd) {
+          bd = d;
+          next = k;
+        }
+      }
+      if (next < 0) break;
+      at = next;
+    }
+    // A parish is a stretch of coast, not a corner of one.
+    if (chain.length < 14) continue;
+
+    // Smooth before offsetting: the inland edge is the chain pushed back
+    // fifteen-odd tiles, and an unsmoothed chain's kinks become crossings
+    // that the even-odd fill then reads as holes in the beach.
+    let smooth = chain;
+    for (let pass = 0; pass < 3; pass++) {
+      smooth = smooth.map((p, i) => {
+        const a = smooth[Math.max(0, i - 1)] as PlanPoint;
+        const b = smooth[Math.min(smooth.length - 1, i + 1)] as PlanPoint;
+        return [(a[0] + p[0] * 2 + b[0]) / 4, (a[1] + p[1] * 2 + b[1]) / 4] as PlanPoint;
+      });
+    }
+    const normals = smooth.map((p) => outwardAt(Math.round(p[0]), Math.round(p[1])));
+    const depth = r.range(13, 20);
+    const ribbon = [
+      // Seaward edge out past the waterline, so the warp fringe and the
+      // beach's own wet foot are inside the parish rather than left to the
+      // borough behind it.
+      ...offsetChain(smooth, normals, 6),
+      ...offsetChain(smooth, normals, -depth).reverse(),
+    ];
+
+    let name = `${(sites[chainOwners[0] as number] as Site).name} ${r.pick(PARISH_TAIL)}`;
+    while (named.has(name)) name = `${pickName(r)} ${r.pick(PARISH_TAIL)}`;
+    named.add(name);
+    out.push({
+      name,
+      borough: name,
+      district: 'park',
+      area: simplify([...ribbon, ribbon[0] as PlanPoint], 1.5).slice(0, -1),
+      // No streets at all, and this is the load-bearing choice. A ribbon of
+      // rural lanes fifteen tiles wide would be carved inside the parish and
+      // touch no arterial, which is a second street network and exactly what
+      // the checker refuses. The borough behind it keeps its streets and its
+      // frontage; what is in front of them is the beach.
+      street: { pitchX: 0, pitchY: 0, width: 2, alleyOver: 0, angle: 0, fabric: 'grid', spine: '' },
+      rural: true,
+      density: 0.2,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* Stage 5 — the landmarks                                             */
 /* ------------------------------------------------------------------ */
 
@@ -1380,6 +1552,7 @@ export function generateCityPlan(opts: PlanGenOptions): CityPlan {
     },
   ];
 
+  const cells: PlanDistrict[] = [];
   for (const [i, s] of sites.entries()) {
     const stranded = (net[i] as number) !== mainNet;
     const type: DistrictType = stranded ? 'park' : s.district;
@@ -1388,7 +1561,7 @@ export function generateCityPlan(opts: PlanGenOptions): CityPlan {
     const street = stranded
       ? { pitchX: 0, pitchY: 0, width: 2, alleyOver: 0, angle: 0, fabric: 'grid' as const, spine: '' }
       : fabricFor(type, rural, coastal, fabricRoll);
-    districts.push({
+    cells.push({
       name: s.name,
       borough: s.name,
       district: type,
@@ -1407,18 +1580,19 @@ export function generateCityPlan(opts: PlanGenOptions): CityPlan {
                 : 0.2,
     });
   }
-  plan.districts = districts;
 
   // A borough that grew along its high street says so: the spine fabric wants
   // a named road, and the one it wants is the arterial that actually runs
   // through it. Assigned here rather than in `fabricFor` because it is the
-  // only fabric that cannot be chosen without knowing the roads.
+  // only fabric that cannot be chosen without knowing the roads — and over
+  // the CELLS alone, which is why they are still a list of their own: a
+  // parish has no site and no streets to give a spine to.
   const spineRoll = new Roll(deriveSeed(full.seed, 'plangen.spine'));
-  for (const [i, d] of districts.entries()) {
-    if (i === 0 || d.rural || d.street.pitchX === 0) continue;
+  for (const [i, d] of cells.entries()) {
+    if (d.rural || d.street.pitchX === 0) continue;
     if (d.district !== 'commercial' && d.district !== 'residential') continue;
     if (spineRoll.f() > 0.4) continue;
-    const s = sites[i - 1] as Site;
+    const s = sites[i] as Site;
     let best: PlanRoad | null = null;
     let bd = Infinity;
     for (const road of plan.roads) {
@@ -1436,10 +1610,16 @@ export function generateCityPlan(opts: PlanGenOptions): CityPlan {
     }
   }
 
+  // The beaches, last, so they win the ground they cover: a parish is drawn
+  // over the seaward lip of whichever borough it fronts, and the point is
+  // that the borough stops owning it.
+  const parishes = shoreParishes(sites, water, geo.exposure, fromSea, W, H, full.seed);
+  plan.districts = [...districts, ...cells, ...parishes];
+
   // Shops, quota'd off the built area rather than fixed: a small map with the
   // big map's quota puts a gun shop on every corner, and the spacing rule
   // then quietly drops most of them anyway.
-  const builtCells = districts.filter((d, i) => i > 0 && !d.rural && d.street.pitchX > 0).length;
+  const builtCells = cells.filter((d) => !d.rural && d.street.pitchX > 0).length;
   plan.shopQuota = {
     gun: Math.max(3, builtCells * 2),
     clothing: Math.max(3, builtCells * 2),

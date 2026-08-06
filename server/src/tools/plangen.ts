@@ -4,12 +4,15 @@ import {
   deriveBevels,
   generateCityPlan,
   parseCityPlan,
+  T_BANK,
+  T_BRIDGE,
   T_BUILDING,
   T_LOT,
   T_PARK,
   T_ROAD,
   T_SAND,
   T_SIDEWALK,
+  T_TREES,
   T_WATER,
   type CityPlan,
 } from 'shared';
@@ -22,6 +25,7 @@ import { encodePng } from './png.js';
  * checks the drawn city passes (WORLDGEN.md §17).
  *
  *   pnpm plangen [--seed=N] [--size=640] [--png=path] [--json=path]
+ *   pnpm plangen --crop=90,216,90  a close-up on those tiles, scaled to read
  *   pnpm plangen --sweep=20        generate twenty cities, report what failed
  *
  * What this is NOT is a second way to ship a map. It writes a plan and a
@@ -42,10 +46,12 @@ interface Args {
   png: string;
   json: string;
   sweep: number;
+  /** A close-up, in tiles: x,y,w centred on x,y. Scaled up so it reads. */
+  crop: [number, number, number] | null;
 }
 
 function parseArgs(): Args {
-  const out: Args = { seed: 1, size: 640, png: '', json: '', sweep: 0 };
+  const out: Args = { seed: 1, size: 640, png: '', json: '', sweep: 0, crop: null };
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)(?:=(.+))?$/.exec(a);
     if (!m) continue;
@@ -56,8 +62,80 @@ function parseArgs(): Args {
     if (key === 'png') out.png = val;
     if (key === 'json') out.json = val;
     if (key === 'sweep') out.sweep = Number.parseInt(val || '10', 10);
+    if (key === 'crop') {
+      const parts = val.split(',').map((v) => Number.parseInt(v, 10));
+      if (parts.length !== 3 || parts.some((v) => !Number.isFinite(v))) {
+        throw new Error(`--crop wants x,y,w in tiles, got "${val}"`);
+      }
+      out.crop = parts as [number, number, number];
+    }
   }
   return out;
+}
+
+/**
+ * The waterfront, measured.
+ *
+ * What a coast is MADE of decides whether it can be smooth at all: a quay is
+ * coursed masonry and stays square on purpose (WORLDGEN.md §15.2), so the
+ * fraction of the waterline that bevels into a 45° line is capped by the
+ * fraction of it that is beach. This is the number the shore parishes moved
+ * and the number that would quietly go back if they broke, so every run
+ * prints it and every sweep line carries it.
+ */
+interface Waterfront {
+  /** Shore tiles by material, most of it first, already named. */
+  made: string;
+  /** Water tiles against the land, and how many of them the bevel pass cut. */
+  edge: number;
+  cut: number;
+  beach: number;
+}
+
+function waterfront(city: ReturnType<typeof bakeCity>): Waterfront {
+  const W = city.widthTiles;
+  const H = city.heightTiles;
+  const bevel = deriveBevels(city.tiles, W, H);
+  const at = (x: number, y: number): number =>
+    x < 0 || y < 0 || x >= W || y >= H ? T_WATER : (city.tiles[y * W + x] as number);
+  const shore = new Map<number, number>();
+  let edge = 0;
+  let cut = 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (city.tiles[i] === T_WATER) {
+        const dry =
+          at(x + 1, y) !== T_WATER || at(x - 1, y) !== T_WATER ||
+          at(x, y + 1) !== T_WATER || at(x, y - 1) !== T_WATER;
+        if (dry) {
+          edge++;
+          if (bevel[i] !== 0) cut++;
+        }
+        continue;
+      }
+      const wet =
+        at(x + 1, y) === T_WATER || at(x - 1, y) === T_WATER ||
+        at(x, y + 1) === T_WATER || at(x, y - 1) === T_WATER;
+      if (wet) shore.set(city.tiles[i] as number, (shore.get(city.tiles[i] as number) ?? 0) + 1);
+    }
+  }
+  const nameOf: Record<number, string> = {
+    [T_BANK]: 'quay',
+    [T_SAND]: 'beach',
+    [T_TREES]: 'cliff',
+    [T_ROAD]: 'road',
+    [T_BRIDGE]: 'bridge',
+  };
+  return {
+    made: [...shore]
+      .sort((a, b) => b[1] - a[1])
+      .map(([t, n]) => `${nameOf[t] ?? `t${t}`} ${n}`)
+      .join(', '),
+    edge,
+    cut,
+    beach: shore.get(T_SAND) ?? 0,
+  };
 }
 
 interface Outcome {
@@ -71,6 +149,7 @@ interface Outcome {
   shops: number;
   ms: number;
   city: ReturnType<typeof bakeCity>;
+  shore: Waterfront;
 }
 
 /**
@@ -100,6 +179,7 @@ function run(seed: number, size: number): Outcome {
     shops: city.shops.length,
     ms: performance.now() - t0,
     city,
+    shore: waterfront(city),
   };
 }
 
@@ -124,6 +204,11 @@ function report(o: Outcome): void {
     `  road ${pct(T_ROAD)}  pavement ${pct(T_SIDEWALK)}  building ${pct(T_BUILDING)}  ` +
       `lot ${pct(T_LOT)}  park ${pct(T_PARK)}  water ${pct(T_WATER)}  sand ${pct(T_SAND)}`,
   );
+  console.log(
+    `  waterline: ${o.shore.made} — ${o.shore.cut}/${o.shore.edge} tiles bevelled ` +
+      `(${((o.shore.cut / Math.max(1, o.shore.edge)) * 100).toFixed(1)}%)`,
+  );
+
   const fabrics = new Map<string, number>();
   for (const d of o.plan.districts.slice(1)) {
     const key = d.rural ? 'rural' : d.street.pitchX === 0 ? 'park' : d.street.fabric;
@@ -164,7 +249,8 @@ function main(): void {
         console.log(
           `  seed ${String(seed).padEnd(5)} ok     ${o.name.padEnd(16)} ` +
             `${String(o.plan.districts.length - 1).padStart(2)} boroughs, ` +
-            `${String(o.plan.roads.length).padStart(2)} roads, ${String(o.blocks).padStart(4)} blocks` +
+            `${String(o.plan.roads.length).padStart(2)} roads, ${String(o.blocks).padStart(4)} blocks, ` +
+            `${String(Math.round((o.shore.cut / Math.max(1, o.shore.edge)) * 100)).padStart(2)}% shore bevelled` +
             (o.warnings.length > 0 ? `  (${o.warnings.length} warn)` : ''),
         );
       } else {
@@ -190,8 +276,16 @@ function main(): void {
     writeFileSync(args.json, `${JSON.stringify(o.plan, null, 2)}\n`);
     console.log(`  -> ${args.json}`);
   }
-  const png = args.png || `plangen-seed${args.seed}.png`;
   const city = o.city;
+  const png =
+    args.png ||
+    (args.crop
+      ? `plangen-seed${args.seed}-crop${args.crop[0]}-${args.crop[1]}.png`
+      : `plangen-seed${args.seed}.png`);
+  // A close-up gets the bevels: at two pixels a tile a half-tile cut is one
+  // pixel, which is the same as not drawing it, and the shoreline is exactly
+  // what a crop is usually opened to look at.
+  const [cx, cy, cw] = args.crop ?? [0, 0, 0];
   const picture = render(
     {
       widthTiles: city.widthTiles,
@@ -202,11 +296,11 @@ function main(): void {
       shops: city.shops,
     },
     loadPalette(),
-    0,
-    0,
-    city.widthTiles,
-    city.heightTiles,
-    2,
+    args.crop ? cx - (cw >> 1) : 0,
+    args.crop ? cy - (cw >> 1) : 0,
+    args.crop ? cw : city.widthTiles,
+    args.crop ? cw : city.heightTiles,
+    args.crop ? Math.max(2, Math.min(10, Math.floor(900 / cw))) : 2,
   );
   writeFileSync(png, encodePng(picture.w, picture.h, picture.rgba));
   console.log(`  -> ${png}`);
