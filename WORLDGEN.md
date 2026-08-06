@@ -2129,3 +2129,148 @@ more than the widest crossing in the city measures corner to corner.
 tile and district planes hash identical to the previous bake, so this
 moved paint and nothing else. `courses.test.ts` holds both ends of it:
 no stub under the floor, and the long courses still there.
+
+---
+
+## 17. The plan, generated — a city rolled, then held to the drawn one's checks
+
+### 17.1 The question
+
+"Generate the landmass in the sea with polylines, fit roads to it, then fill
+the space between the roads with buildings or nature depending on the biome —
+are there approaches like these?"
+
+Yes, and this is one. It is the mainstream city-generation pipeline, stage for
+stage, and most of it already runs here:
+
+| Stage | The prior art | Where it lives in this repo |
+| --- | --- | --- |
+| Landmass first, as vector geometry, biome from the land | Patel's *Polygonal Map Generation for Games* (2010) and `mapgen4`; mewo2's *Generating fantasy maps* | §12.3's outlines, §12.7's warp |
+| Roads fitted to the land | Parish & Müller, *Procedural Modeling of Cities* (2001); Chen et al.'s tensor fields (2008); Galin et al.'s anisotropic road paths (2010) | §13.4's fabrics, `carveCourse` |
+| Blocks between the roads, filled by land use | Parish & Müller's allotments; weighted straight skeletons; Watabou's ward generator | §13.6's block regions, `fillBlock` |
+
+The failure mode every one of those papers has to work around is the same one
+§13.1 Finding 3 found here by eye: treating the coast as a MASK applied after
+the roads, so the grid is clipped by the water and every shore is a fringe of
+slivers. The fix in the literature and the fix here are the same — make the
+shore GENERATE structure rather than subtract it — and it is already built:
+the esplanade, the contour fabric, the quays.
+
+So stages 2 and 3 of the question were done. Stage 1 was not, because §12.6
+deleted the generator on purpose and replaced it with a drawing.
+
+### 17.2 The design: generate the PLAN, not the tiles
+
+`shared/src/world/plangen.ts`. Its entire output is a `CityPlan` — the schema
+`shared/data/city-plan.json` holds by hand — and every pass downstream of it
+is the authored pipeline, unchanged.
+
+That is the whole idea. The old generator made TILES, which meant the
+expensive question ("is this city playable?") could only be asked at runtime,
+where it was too expensive to ask, so it was never asked. A generator that
+makes a plan inherits the offline bake, the exhaustive checker and the
+`--fit` tooling for nothing, and a generated city that fails the checks is
+rejected before anybody commits it — the same rule a drawn one lives under.
+The plan is also small enough to be a tractable thing to generate: a few
+hundred numbers, not half a million tiles.
+
+The pipeline, and the one step that makes the rest work:
+
+1. **An archetype**, rolled once — `estuary`, `strait` or `archipelago`. §4's
+   last item: the cheapest macro variety there is, because it decides the one
+   thing a player reads off the minimap in a second.
+2. **The land**, as radial loops whose radius wanders with the angle. The
+   noise is sampled on a CIRCLE in noise space, so θ and θ+2π are the same
+   sample and the loop closes without a seam. Bays are bitten out of the rim;
+   a river widens to its mouth or a tideway cuts clean across.
+3. **The coast is then PAINTED AND MEASURED** (`layout.ts:paintWater`).
+   Everything after this point is placed against the shore that will actually
+   exist, not the polygon that was drawn. Without it a borough seeded on the
+   outline lands forty tiles out to sea and a road routed round the drawn bay
+   runs straight through the real one — the warp is ~22 tiles deep, and that
+   is not a detail you can place things through.
+4. **Boroughs**, dart-thrown with a minimum separation, then sorted by
+   distance from the chosen downtown and handed their type in bands: §3.2's
+   concentric-zone gradient, stated as a sort. Industry takes the water far
+   from the middle; the rim is countryside. Each cell is the multiplicatively
+   weighted Voronoi region of its site, extracted by binary search along 72
+   rays — deliberately NOT clipped to the land, so a borough owns its own
+   waterfront and the esplanade pass runs a street along it.
+5. **Arterials by anisotropic shortest path** over that land — cheap on
+   ground, dear over water. That single ratio makes the interesting decision
+   by itself: a road goes the long way round a bay when the detour is cheaper
+   than the crossing, and bridges the strait when it is not. Nothing in the
+   generator says "bridge here". A spanning tree plus the short extra links
+   that make it a network you can make a decision in, and then the plan's
+   `maxBridgeSpan` has the last word — a course that would wade further than
+   a bridge can span is thrown away, measured on the SMOOTHED polyline
+   because smoothing is what the layout will carve.
+6. **Fabric by land use** (§13.4) — the "depending on the biome" half of the
+   question, and one lookup rather than a system, because the fabrics already
+   exist. Downtown gets a tight rotated grid; a seafront borough follows its
+   shore; a suburb wanders and dead-ends; the country gets lanes.
+7. **Landmarks placed against a real layout.** The plan is laid out once,
+   unfinished, purely to ask what `pnpm citybake --fit` exists to answer by
+   hand: which blocks came out, and how big are they. Then turn it, then
+   shrink it, rather than fail to place it — a runway laid north–south is the
+   same runway, and a city with no airfield is refused by the checker.
+
+Two repairs are worth naming because they are what "generated" costs:
+
+- **Every tile has a borough.** One countryside polygon covers the whole map
+  and is drawn FIRST, so every cell overwrites it. What it catches is the
+  fringe the warp raised outside every cell, which would otherwise get no
+  fabric, no invariants and no esplanade — §14.3's D1 problem from the other
+  end.
+- **A borough the arterials cannot reach becomes countryside.** Not deleted:
+  the ground is still there and you can still get to it by boat. What it
+  stops being is a lattice of streets nobody can drive to, which is the
+  precise thing the checker's one-street-network rule refuses.
+
+### 17.3 DELIVERED
+
+`pnpm plangen [--seed=N] [--size=640] [--png=...] [--json=...]`, and
+`pnpm plangen --sweep=N`, which is the deliverable that matters: N cities
+nobody has looked at, each held to `checkCity` — the same function
+`pnpm citybake` runs, extracted to `server/src/tools/cityCheck.ts` and now
+shared by both tools rather than copied.
+
+Measured: **44/44 seeds at 640 tiles pass the checker with no errors**
+(seeds 100–119 and 500–523, two sweeps, neither looked at first), and 16/16 at
+the 384-tile floor. 8–16 boroughs and 150–700 blocks a city, ~10 s each. Most
+carry one or two warnings, which is the band the drawn city sits in — it ships
+one. Evidence: `evidence/plangen-seed500.png`, a nine-borough estuary city with
+the contour fabric plainly following its north shore and a spine borough east
+of the bay.
+
+Two bugs fell out of pointing a generator at the pipeline, and both were
+real:
+
+- `bake.ts:fringeAt` indexed the plane without a bounds check. The drawn city
+  never puts a block against the map edge; a generated one does, and an index
+  off the end reads as `undefined`, which is not less than zero, so the
+  district lookup exploded on a borough that does not exist.
+- Landmark siting asked "is there a road within seventy tiles" with a box
+  scan, which is not the question. A farm on a headland with a trunk road
+  plainly visible across the water passes that test, gets no driveway because
+  there is no ground to cut one through, and fails the checker for having no
+  road to it. Reachability is the property, so a single breadth-first sweep
+  over cuttable ground now measures it.
+
+**What this is not.** It does not touch `shared/data/city-plan.json` and it
+does not write `city.data.ts`. The one city is still the drawn one (§12), for
+all the reasons §12.1 gives, and a session seed still moves only the
+furniture. What changed is that "roll a city" is now a plan you can open, read
+and edit — the way a generated city would ever become the shipped one is the
+way any city does: somebody looks at the plan, edits it, and runs the bake.
+
+**What is left out, deliberately.** Islets: a rock in the water is a lovely
+thing and a stranded street network waiting to happen, because the borough
+whose polygon covers it gives it a fabric and the esplanade runs a quay round
+it. Putting them back means owning each one with countryside, which is a plan
+edit rather than a generator one. Also left out: the dual-carriageway ring
+(the router would have to close a loop, not just span a tree), `byAir`
+islands, squares sited on junctions the traffic model has already labelled,
+and any use of the archetype after the geography — a `strait` city and an
+`estuary` city currently differ in their water and not yet in their street
+hierarchy.

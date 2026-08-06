@@ -118,6 +118,17 @@ depends on a seed: server, client and replay load the same bytes rather than
 running the same algorithm twice. `WORLDGEN.md` §12 is the design, and why the
 generator that used to be here went.
 
+A city can also be **rolled** rather than drawn — `pnpm plangen` writes a
+`city-plan.json` from a seed: coastline as warped outlines, boroughs as a
+weighted Voronoi with a downtown gradient, arterials routed by shortest path
+over the real post-warp land (cheap on ground, dear over water, so a road
+rounds a bay and bridges a strait on its own), streets and blocks and fill
+from the existing pipeline. It generates the PLAN, not the tiles, which is why
+it can be held to the same checker the drawn city passes — 20/20 unseen seeds
+do. It does not touch the shipped city: the way a rolled one would become it is
+the way any city does, by editing the plan and running the bake.
+`WORLDGEN.md` §17.
+
 ![Anywhere City](evidence/city-anywhere.png)
 
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
@@ -138,6 +149,12 @@ pnpm citybake --check                       # check it without writing (CI)
 pnpm citybake --fit                         # for every landmark the plan puts
                                             #   somewhere it will not go, name
                                             #   the nearest block that fits
+pnpm plangen                                # GENERATE a city plan (not the one
+                                            #   the game ships), bake it, check
+                                            #   it, and render it to PNG
+pnpm plangen --sweep=20                     # twenty cities nobody has looked at,
+                                            #   each held to the checker that
+                                            #   passes the drawn one
 pnpm mapgen                                 # render the city to PNG, no game
 pnpm mapgen --crop=475,100,120              # a close-up, in tiles, scaled up
 pnpm mapgen --sheet                         # retake evidence/city-fabric-review.png

@@ -381,6 +381,23 @@ function paintCoast(plan: CityPlan): Coast {
   return { water, exposure };
 }
 
+/**
+ * The finished land/water plane for a plan's geography ALONE — outlines,
+ * bays, rivers, spits, islets, warp and all — without carving a single
+ * street.
+ *
+ * What it is for: anything that has to decide WHERE to put something must
+ * ask the coast that will actually exist, not the one that was drawn. The
+ * warp moves the shore by tens of tiles (§12.7), so a borough seeded on the
+ * authored outline can land in the sea and a road routed round the drawn bay
+ * can run straight through the real one. `plangen.ts` builds its whole plan
+ * against this: geography first, then the land is measured, then everything
+ * else is placed on ground that is known to be there.
+ */
+export function paintWater(plan: CityPlan): Uint8Array {
+  return paintCoast(plan).water;
+}
+
 /* ------------------------------------------------------------------ */
 /* Roads                                                               */
 /* ------------------------------------------------------------------ */

@@ -43,6 +43,7 @@ export * from './world/amenities.js';
 export * from './world/generate.js';
 export * from './world/plan.js';
 export * from './world/layout.js';
+export * from './world/plangen.js';
 export * from './world/bake.js';
 export * from './world/collide.js';
 export * from './economy/catalog.js';

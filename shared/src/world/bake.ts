@@ -379,6 +379,12 @@ export function bakeCity(plan: CityPlan): BakedCity {
     }
   }
   const fringeAt = (tx: number, ty: number): boolean => {
+    // Bounds first. A block's bounding box can reach the map edge — the
+    // drawn city never puts one there, a generated one does — and a tile
+    // index off the end of the plane reads as `undefined`, which is not
+    // less than zero, and the district lookup below then explodes on a
+    // borough that does not exist.
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
     const i = ty * W + tx;
     const own = layout.owner[i] as number;
     if (own < 0) return false;
