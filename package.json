@@ -14,7 +14,8 @@
     "sprites": "pnpm build && node server/dist/tools/sprites.js",
     "parity": "pnpm build && node ci/hostParity.mjs",
     "bench": "node ci/renderBench.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "plangen": "pnpm build && node server/dist/tools/plangen.js"
   },
   "devDependencies": {
     "playwright": "^1.62.0",

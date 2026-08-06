@@ -1,5 +1,6 @@
 import { labelJunctions } from '../sim/signals.js';
 import { deriveBevels } from './bevel.js';
+import { deriveShores } from './shoreline.js';
 import { assignTurf, markGangCars } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { decodeBakedCity, type BakedCity } from './bake.js';
@@ -119,6 +120,12 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // bevels can never disagree with the ground they soften. Consumed by
   // collision and both renderers; consumes no rng, so it moves nobody.
   map.bevel = deriveBevels(map.tiles, map.widthTiles, map.heightTiles);
+  // And the coast as curves (§18), from the same finished tiles for the same
+  // reason: the waterline is a smooth line that only exists here as a
+  // staircase, and both hosts recover the identical one from the identical
+  // bytes. Cosmetic, like the bevels and the courses — collision, traffic and
+  // every placement pass go on reading the tiles.
+  map.shores = deriveShores(map.tiles, map.widthTiles, map.heightTiles);
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.

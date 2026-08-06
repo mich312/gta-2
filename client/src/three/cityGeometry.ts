@@ -17,7 +17,11 @@ import {
   T_TREES,
   T_WATER,
   TILE_SIZE,
+  type Building,
   type CityMap,
+  buildingMass,
+  buildingStoreys,
+  Z_PER_STOREY,
   type Span,
   EARTH,
   districtAt,
@@ -30,6 +34,8 @@ import {
   BEV_SW,
   TREE_Z,
   bevelOther,
+  shoreHalf,
+  shoreChains,
   oppositeHalf,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -187,18 +193,26 @@ export interface CityBuild {
  * it goes straight into `instanceMatrix` without a `clone()` per span.
  */
 class Boxes {
-  /** sx, sy, sz, x, y, z per instance. */
-  private data = new Float32Array(6 * 256);
+  /**
+   * sx, sy, sz, x, y, z, yaw per instance.
+   *
+   * The seventh float arrived with §20's rotated building masses. It is zero
+   * for everything else in the city and costs a sixth more of a buffer that
+   * was fifteen megabytes, which is the cheap end of the trade — the
+   * alternative was a second mesh and a second material for the one kind of
+   * instance that turns.
+   */
+  private data = new Float32Array(7 * 256);
   /** How many instances are in it. */
   count = 0;
 
-  push(sx: number, sy: number, sz: number, x: number, y: number, z: number): void {
-    if ((this.count + 1) * 6 > this.data.length) {
+  push(sx: number, sy: number, sz: number, x: number, y: number, z: number, yaw = 0): void {
+    if ((this.count + 1) * 7 > this.data.length) {
       const grown = new Float32Array(this.data.length * 2);
       grown.set(this.data);
       this.data = grown;
     }
-    const o = this.count++ * 6;
+    const o = this.count++ * 7;
     const d = this.data;
     d[o] = sx;
     d[o + 1] = sy;
@@ -206,23 +220,36 @@ class Boxes {
     d[o + 3] = x;
     d[o + 4] = y;
     d[o + 5] = z;
+    d[o + 6] = yaw;
   }
 
   /**
    * Expand into an `InstancedMesh`'s transform buffer.
    *
-   * Column-major, and only the seven cells a scale-plus-translation touches:
-   * three.js hands out a zero-filled `Float32Array` and everything else in an
-   * affine transform of this shape is a zero.
+   * Column-major, and only the cells a scale-rotate-translate about Z
+   * touches: three.js hands out a zero-filled `Float32Array` and everything
+   * else in an affine transform of this shape is a zero. The unrotated case
+   * still writes seven cells and skips the trigonometry, which is every
+   * instance in the city bar the buildings that face a street.
    */
   writeTo(mesh: THREE.InstancedMesh): void {
     const a = mesh.instanceMatrix.array as Float32Array;
     const d = this.data;
     for (let i = 0; i < this.count; i++) {
-      const o = i * 6;
+      const o = i * 7;
       const m = i * 16;
-      a[m] = d[o] as number;
-      a[m + 5] = d[o + 1] as number;
+      const yaw = d[o + 6] as number;
+      if (yaw === 0) {
+        a[m] = d[o] as number;
+        a[m + 5] = d[o + 1] as number;
+      } else {
+        const c = Math.cos(yaw);
+        const s = Math.sin(yaw);
+        a[m] = (d[o] as number) * c;
+        a[m + 1] = (d[o] as number) * s;
+        a[m + 4] = -(d[o + 1] as number) * s;
+        a[m + 5] = (d[o + 1] as number) * c;
+      }
       a[m + 10] = d[o + 2] as number;
       a[m + 12] = d[o + 3] as number;
       a[m + 13] = d[o + 4] as number;
@@ -587,6 +614,46 @@ export function buildCity(map: CityMap): CityBuild {
   /** Roof height per tile, filled as the grid is walked. */
   const heightAt = new Float64Array(W * H);
 
+  // The coast as curves (§18): which segment cuts each shore tile, computed
+  // once for both the sinking below and the prisms that replace what is sunk.
+  const shoreCut = map.shores && map.shores.length > 0 ? shoreChains(map.shores, W, H) : null;
+
+  /**
+   * Which building tiles are drawn as one rotated mass instead of a column of
+   * boxes (§20), and how tall that mass is — the walk below needs both, and
+   * the walk runs first.
+   *
+   * A building only qualifies if it FACES something and its footprint is
+   * solid. The second test is not fussiness: a shop is a room punched out of
+   * a building and open to the sky, and one mass over the whole rect would
+   * put a lid on it. Those keep their per-tile columns, which is exactly what
+   * `roofCanvasFor` does in the 2D painter for the same reason.
+   */
+  const massTiles = new Uint8Array(W * H);
+  const massTop = new Float32Array(W * H);
+  const masses: Array<{ b: Building; top: number }> = [];
+  for (const b of map.buildings) {
+    if ((b.angle ?? 0) === 0) continue;
+    let solid = true;
+    for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H || map.tiles[ty * W + tx] !== T_BUILDING) {
+          solid = false;
+          break;
+        }
+      }
+    }
+    if (!solid) continue;
+    const top = buildingStoreys(b) * Z_PER_STOREY * Z_SCALE;
+    masses.push({ b, top });
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        massTiles[ty * W + tx] = 1;
+        massTop[ty * W + tx] = top;
+      }
+    }
+  }
+
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
@@ -632,11 +699,26 @@ export function buildCity(map: CityMap): CityBuild {
       // gets its ground back as a shore wedge (`buildShoreWedges`), whose
       // diagonal face is the new waterline.
       const bevCode = map.bevel ? (map.bevel[idx] as number) : 0;
+      // A tile the coast course crosses loses its box entirely: the box is
+      // square and the coast is not, and `buildShorePrisms` puts the dry
+      // part back as a prism cut by the curve. Only ground-level tiles —
+      // a building never stands at the waterline, and sinking one would
+      // drop a tower into the sea.
+      const crossed = shoreCut !== null && shoreCut.has(idx) && GROUND_AT_SEA.has(tile);
       const sunk =
-        bevCode !== 0 &&
-        tile !== T_WATER &&
-        bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER;
+        crossed ||
+        (bevCode !== 0 &&
+          tile !== T_WATER &&
+          bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER);
       if (sunk) surface = SURFACES[T_WATER] as Surface;
+      // A building that faces a street is drawn once, rotated, by
+      // `buildBuildingMasses` — not as a column of square boxes per tile
+      // (§20). Its tiles are skipped here, and only its tiles: everything
+      // else on the map is still one box per tile per span.
+      if (tile === T_BUILDING && massTiles[idx] === 1) {
+        heightAt[idx] = massTop[idx] as number;
+        continue;
+      }
       const list = bucket(tx, ty, surface);
 
       const spans: readonly Span[] = sunk
@@ -679,10 +761,35 @@ export function buildCity(map: CityMap): CityBuild {
     }
   }
 
-  instances += buildRoofDetail(map, group, heightAt);
+  // The rotated masses, filed under the same chunk buckets and the same
+  // per-surface materials the square ones use — a rotated building is the
+  // same building, drawn once.
+  for (const { b, top } of masses) {
+    const m = buildingMass(b);
+    const bi = buildingOf[(b.y + (b.h >> 1)) * W + b.x + (b.w >> 1)] as number;
+    const color = roofColor(map, b.x, b.y, bi - 1);
+    const bottom = -16;
+    const h = Math.max(1, top - bottom);
+    bucket(Math.floor(m.cx), Math.floor(m.cy), {
+      key: `b${color.toString(16)}`,
+      color,
+      solid: true,
+    }).push(
+      m.w * TILE_SIZE + SEAM_OVERLAP,
+      m.h * TILE_SIZE + SEAM_OVERLAP,
+      h,
+      m.cx * TILE_SIZE,
+      m.cy * TILE_SIZE,
+      top - h / 2,
+      m.rad,
+    );
+  }
+
+  instances += buildRoofDetail(map, group, heightAt, masses, massTiles);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
-  instances += buildShoreWedges(map, group);
+  instances += buildShorePrisms(map, group, shoreCut);
+  instances += buildShoreWedges(map, group, shoreCut);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
   // One material per surface, shared by every chunk that has any of it.
@@ -760,7 +867,13 @@ export function buildCity(map: CityMap): CityBuild {
  * tile by tile. Clutter goes only on interior tiles, which is what stops an
  * air-conditioning unit hanging over the street.
  */
-function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Array): number {
+function buildRoofDetail(
+  map: CityMap,
+  group: THREE.Group,
+  heightAt: Float64Array,
+  masses: ReadonlyArray<{ b: Building; top: number }>,
+  massTiles: Uint8Array,
+): number {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const T = TILE_SIZE;
@@ -772,10 +885,43 @@ function buildRoofDetail(map: CityMap, group: THREE.Group, heightAt: Float64Arra
   const LIP_H = 3.2;
   const LIP_W = 2.4;
 
+  // A rotated mass gets a rotated parapet: four lips round the mass itself,
+  // turned with it. Run first, and its tiles are skipped by the per-tile walk
+  // below — a square ring of lips floating over a turned roof was the first
+  // thing §20 got wrong, and it read as a picture frame hanging in the air.
+  for (const { b, top } of masses) {
+    if (top <= 0) continue;
+    const m = buildingMass(b);
+    const cx = m.cx * T;
+    const cy = m.cy * T;
+    const w = m.w * T;
+    const h = m.h * T;
+    const c = Math.cos(m.rad);
+    const s = Math.sin(m.rad);
+    const lip = (ox: number, oy: number, lw: number, ld: number): void => {
+      intoChunk(
+        parapets,
+        Math.floor(m.cx),
+        Math.floor(m.cy),
+        lw,
+        ld,
+        LIP_H,
+        cx + ox * c - oy * s,
+        cy + ox * s + oy * c,
+        top + LIP_H / 2,
+        m.rad,
+      );
+    };
+    lip(0, -h / 2 + LIP_W / 2, w, LIP_W);
+    lip(0, h / 2 - LIP_W / 2, w, LIP_W);
+    lip(-w / 2 + LIP_W / 2, 0, LIP_W, h);
+    lip(w / 2 - LIP_W / 2, 0, LIP_W, h);
+  }
+
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
-      if (map.tiles[idx] !== T_BUILDING) continue;
+      if (map.tiles[idx] !== T_BUILDING || massTiles[idx] === 1) continue;
       const top = heightAt[idx] as number;
       if (top <= 0) continue;
       const cx = (tx + 0.5) * T;
@@ -891,6 +1037,145 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
 }
 
 /**
+ * The surfaces a coastline is allowed to cut through.
+ *
+ * Everything the sea can lap against and nothing that stands up. A shore
+ * tile's box is sunk and replaced by a prism, and sinking a tile with height
+ * on it — a building, a wall — would drop the whole mass to the riverbed.
+ */
+const GROUND_AT_SEA = new Set<number>([
+  T_WATER,
+  T_SAND,
+  T_BANK,
+  T_FIELD,
+  T_PARK,
+  T_LOT,
+  T_ROAD,
+  T_SIDEWALK,
+  T_TREES,
+  T_RUNWAY,
+]);
+
+/**
+ * The dry side of every tile the coast course crosses, as real geometry.
+ *
+ * The generalisation of `buildShoreWedges` below, and the same three
+ * triangles' worth of idea: the painted ground plane draws the coast and its
+ * cutout opens the water beside it, but painted ground floating over a hole
+ * has no sides — from anything but straight overhead you would see water
+ * sliding under the beach's edge. This puts the ground back. What changed is
+ * the shape: a bevel could only cut a tile corner to corner, so the coast in
+ * 3D was a staircase with some of its steps chamfered, and a chord cuts it at
+ * whatever angle the coast actually runs at.
+ *
+ * The tile's own box is gone by the time this runs (`crossed` in the walk
+ * above sinks it to the riverbed), so this prism IS the land there: a top
+ * face at street level, and a vertical face down the chord which is the
+ * waterline.
+ */
+function buildShorePrisms(
+  map: CityMap,
+  group: THREE.Group,
+  cuts: Map<number, Float32Array> | null,
+): number {
+  if (cuts === null) return 0;
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const T = TILE_SIZE;
+  const DEPTH = 16;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  let prisms = 0;
+
+  const put = (x: number, y: number, z: number): void => {
+    positions.push(x, y, z);
+    colors.push(color.r, color.g, color.b);
+  };
+
+  for (const [idx, seg] of cuts) {
+    const tx = idx % W;
+    const ty = (idx - tx) / W;
+    const tile = map.tiles[idx] as number;
+    if (!GROUND_AT_SEA.has(tile)) continue;
+    const dry = shoreHalf(seg, false);
+    if (dry.length < 3) continue;
+
+    // What the dry side is made of: this tile if it is dry land, else the
+    // nearest dry neighbour — a sea tile the curve has made half-dry belongs
+    // to the beach or the quay beside it, not to some default.
+    let mat = tile;
+    if (mat === T_WATER || mat === T_BRIDGE) {
+      let best = Infinity;
+      for (const [dx, dy] of [
+        [1, 0], [-1, 0], [0, 1], [0, -1],
+        [1, 1], [1, -1], [-1, 1], [-1, -1],
+      ] as const) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const t = map.tiles[ny * W + nx] as number;
+        if (t === T_WATER || t === T_BRIDGE || t === T_BUILDING) continue;
+        const d = dx * dx + dy * dy;
+        if (d < best) {
+          best = d;
+          mat = t;
+        }
+      }
+      if (mat === T_WATER || mat === T_BRIDGE) continue;
+    }
+
+    color.set((SURFACES[mat] ?? DEFAULT_SURFACE).color);
+    // Street level, or canopy height on the wooded shore: a cliff's corner,
+    // not a green skirt at its foot (§15.4 item 2).
+    const top = mat === T_TREES ? TREE_Z * Z_SCALE : 0;
+    const px = (p: [number, number]): number => (tx + p[0]) * T;
+    const py = (p: [number, number]): number => (ty + p[1]) * T;
+    // Top face, fanned from the first corner: the half is convex, always.
+    for (let i = 1; i + 1 < dry.length; i++) {
+      put(px(dry[0] as [number, number]), py(dry[0] as [number, number]), top);
+      put(px(dry[i] as [number, number]), py(dry[i] as [number, number]), top);
+      put(px(dry[i + 1] as [number, number]), py(dry[i + 1] as [number, number]), top);
+    }
+    // A wall down EVERY edge of the half, the tile borders included.
+    //
+    // Skipping the borders is the obvious saving and it leaves holes you can
+    // see the sky through. Two neighbouring shore tiles share an edge, but
+    // their dry halves only share the point where the coast crosses it: above
+    // that point one is land and the other is sea, and that stretch of border
+    // is a real cliff with nothing behind it. Where two dry halves DO cover
+    // the same border in full, the pair of walls is interior and invisible,
+    // which is a cheaper thing to be wrong about than a gap.
+    for (let i = 0; i < dry.length; i++) {
+      const p = dry[i] as [number, number];
+      const q = dry[(i + 1) % dry.length] as [number, number];
+      put(px(p), py(p), top);
+      put(px(q), py(q), top);
+      put(px(q), py(q), -DEPTH);
+      put(px(p), py(p), top);
+      put(px(q), py(q), -DEPTH);
+      put(px(p), py(p), -DEPTH);
+    }
+    prisms++;
+  }
+  if (prisms === 0) return 0;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: toonGradient(),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return prisms;
+}
+
+/**
  * The dry halves of the bevelled shoreline, as real geometry.
  *
  * The painted ground plane draws the diagonal beach and its cutout opens the
@@ -905,7 +1190,11 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
  * that is not a box. A few hundred shore tiles at three triangles each is
  * single-digit thousands of vertices — one mesh, one draw.
  */
-function buildShoreWedges(map: CityMap, group: THREE.Group): number {
+function buildShoreWedges(
+  map: CityMap,
+  group: THREE.Group,
+  cuts: Map<number, Float32Array> | null,
+): number {
   const bevel = map.bevel;
   if (!bevel) return 0;
   const W = map.widthTiles;
@@ -928,6 +1217,8 @@ function buildShoreWedges(map: CityMap, group: THREE.Group): number {
       const idx = ty * W + tx;
       const code = bevel[idx] as number;
       if (code === 0) continue;
+      // The chord has already built this one, at a better angle.
+      if (cuts !== null && cuts.has(idx)) continue;
       const tile = map.tiles[idx] as number;
       const other = bevelOther(map.tiles, bevel, W, tx, ty);
       // Only water bevels need geometry: a sand/grass bevel sits on the
@@ -1030,11 +1321,12 @@ function intoChunk(
   x: number,
   y: number,
   z: number,
+  yaw = 0,
 ): void {
   const key = chunkKey(tx, ty);
   let list = byChunk.get(key);
   if (!list) byChunk.set(key, (list = new Boxes()));
-  list.push(sx, sy, sz, x, y, z);
+  list.push(sx, sy, sz, x, y, z, yaw);
 }
 
 /**

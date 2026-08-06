@@ -63,3 +63,52 @@ export function buildingStoreys(b: Building): number {
 export function buildingHeightPx(b: Building, pxPerStorey: number): number {
   return buildingStoreys(b) * pxPerStorey;
 }
+
+/**
+ * The mass a building DRAWS, as a rotated rectangle in tile units.
+ *
+ * The footprint is axis-aligned and stays that way; this is the box the
+ * renderers stand on it. Rotating a rectangle grows its bounding box, so the
+ * mass is scaled to fit back inside its own footprint plus `slack` tiles —
+ * enough to lean into its own pavement and not one tile further, because the
+ * corner of a building in the carriageway is worse than a building that is
+ * square to the world.
+ *
+ * One helper, three renderers. The 2D chunk painter, the parallax extrusion
+ * and the 3D instanced city must agree on this box to the pixel, or a
+ * building is in three places depending on which one drew it.
+ */
+export function buildingMass(
+  b: Building,
+  slack = 0.5,
+): { cx: number; cy: number; w: number; h: number; rad: number } {
+  const rad = ((b.angle ?? 0) * Math.PI) / 180;
+  const cx = b.x + b.w / 2;
+  const cy = b.y + b.h / 2;
+  if (rad === 0) return { cx, cy, w: b.w, h: b.h, rad: 0 };
+  const c = Math.abs(Math.cos(rad));
+  const s = Math.abs(Math.sin(rad));
+  // The rotated box's own bounding extent, per unit of scale.
+  const ax = b.w * c + b.h * s;
+  const ay = b.w * s + b.h * c;
+  const k = Math.min(1, (b.w + slack) / ax, (b.h + slack) / ay);
+  return { cx, cy, w: b.w * k, h: b.h * k, rad };
+}
+
+/** The mass's four corners, in tile units, clockwise from the north-west. */
+export function buildingCorners(
+  b: Building,
+  slack = 0.5,
+): Array<[number, number]> {
+  const { cx, cy, w, h, rad } = buildingMass(b, slack);
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  const hw = w / 2;
+  const hh = h / 2;
+  return ([
+    [-hw, -hh],
+    [hw, -hh],
+    [hw, hh],
+    [-hw, hh],
+  ] as Array<[number, number]>).map(([px, py]) => [cx + px * c - py * s, cy + px * s + py * c]);
+}

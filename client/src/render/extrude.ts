@@ -1,10 +1,10 @@
-import { type CityMap, TILE_SIZE, buildingStoreys } from 'shared';
+import { type CityMap, TILE_SIZE, buildingCorners, buildingMass, buildingStoreys } from 'shared';
 import type { Vec2 } from 'shared';
 import { PARALLAX_PX_PER_STOREY, RENDER_SCALE, SUN_X, SUN_Y } from './config.js';
 import palette from 'shared/data/palette.json';
 import { hash2 } from './noise.js';
 import { viewport } from './viewport.js';
-import { extrusionOf, parallaxOffset } from './extrudeGeom.js';
+import { extrusionOf, parallaxOffset, rotatedExtrusionOf } from './extrudeGeom.js';
 
 /**
  * True parallax extrusion (SHIP.md U2, `GRAPHICS.md` "what's next" #1).
@@ -113,19 +113,46 @@ export class ExtrudeLayer {
       const px1 = originX + Math.round((bx + bw) * RENDER_SCALE);
       const py1 = originY + Math.round((by + bh) * RENDER_SCALE);
 
+      // A building that faces a street leans as the mass it is drawn as
+      // (§20), not as its bookkeeping rect: the wall the lean uncovers is on
+      // the turned edge, and the roof that lands on top of it is turned too.
+      const turned = (b.angle ?? 0) !== 0;
+      const corners = turned
+        ? buildingCorners(b).map(
+            ([cxT, cyT]) =>
+              [
+                originX + Math.round(cxT * TILE_SIZE * RENDER_SCALE),
+                originY + Math.round(cyT * TILE_SIZE * RENDER_SCALE),
+              ] as [number, number],
+          )
+        : null;
+
       const ex = extrusionOf(
         { x: px0, y: py0, w: px1 - px0, h: py1 - py0 },
         off.x * RENDER_SCALE,
         off.y * RENDER_SCALE,
       );
+      const rex = corners
+        ? rotatedExtrusionOf(corners, off.x * RENDER_SCALE, off.y * RENDER_SCALE)
+        : null;
 
       // The mass at ground level. The cached chunk paints no ground under a
       // building — the baked roof used to cover it — so without this the
       // displaced roof uncovers a hole where the footprint was.
       ctx.fillStyle = darkSide;
-      ctx.fillRect(ex.base.x, ex.base.y, ex.base.w, ex.base.h);
+      if (corners) {
+        ctx.beginPath();
+        ctx.moveTo((corners[0] as [number, number])[0], (corners[0] as [number, number])[1]);
+        for (let p = 1; p < corners.length; p++) {
+          ctx.lineTo((corners[p] as [number, number])[0], (corners[p] as [number, number])[1]);
+        }
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        ctx.fillRect(ex.base.x, ex.base.y, ex.base.w, ex.base.h);
+      }
 
-      for (const f of ex.faces) {
+      for (const f of (rex ?? ex).faces) {
         // A face lit by the sun only if its outward normal points into it.
         const lit = f.nx * SUN_X + f.ny * SUN_Y > 0;
         ctx.fillStyle = lit ? sunSide : darkSide;
@@ -139,7 +166,24 @@ export class ExtrudeLayer {
       }
 
       const baked = this.roofCanvas(i);
-      if (baked) {
+      if (corners) {
+        // The roof lands on the leaned mass, turned with it.
+        const mass = buildingMass(b);
+        ctx.save();
+        ctx.translate(
+          originX + mass.cx * TILE_SIZE * RENDER_SCALE + ex.dx,
+          originY + mass.cy * TILE_SIZE * RENDER_SCALE + ex.dy,
+        );
+        ctx.rotate(mass.rad);
+        const mw = mass.w * TILE_SIZE * RENDER_SCALE;
+        const mh = mass.h * TILE_SIZE * RENDER_SCALE;
+        if (baked) ctx.drawImage(baked, -mw / 2, -mh / 2, mw, mh);
+        else {
+          ctx.fillStyle = roof;
+          ctx.fillRect(-mw / 2, -mh / 2, mw, mh);
+        }
+        ctx.restore();
+      } else if (baked) {
         ctx.drawImage(baked, ex.roof.x, ex.roof.y);
       } else {
         ctx.fillStyle = roof;

@@ -19,6 +19,53 @@ describe('street courses', () => {
     expect(city.courses.every((c) => c.width >= 2)).toBe(true);
   });
 
+  it('records a straight street as a straight line, not as jitter', () => {
+    // §19. A recovered course is chained out of TILE CENTRES, so it carries
+    // the lattice's own quantisation — and the painter strokes every point of
+    // it through a spline, which turns that quantisation into a visible waver
+    // along streets whose tiles run dead straight.
+    //
+    // The measure is the sagitta at each interior point over the local point
+    // spacing. A smooth curve sampled at h has sagitta h²/8R, which is small
+    // when the points are close relative to the radius; jitter of amplitude a
+    // has sagitta about a, which is not. Before simplification the spine
+    // fabric measured 0.052 by this and the grid fabric 0.002 — the ceiling
+    // below is set an order of magnitude under the former and well over the
+    // latter, so the noise cannot come back without failing.
+    const wander = (points: ReadonlyArray<readonly [number, number]>): number => {
+      let acc = 0;
+      let n = 0;
+      for (let i = 1; i + 1 < points.length; i++) {
+        const [ax, ay] = points[i - 1] as readonly [number, number];
+        const [px, py] = points[i] as readonly [number, number];
+        const [bx, by] = points[i + 1] as readonly [number, number];
+        const h =
+          (Math.hypot(px - ax, py - ay) + Math.hypot(bx - px, by - py)) / 2;
+        if (h < 1e-6) continue;
+        acc += Math.hypot(px - (ax + bx) / 2, py - (ay + by) / 2) / h;
+        n++;
+      }
+      return n === 0 ? 0 : acc / n;
+    };
+    const all = city.courses
+      .filter((c) => c.points.length >= 5)
+      .map((c) => wander(c.points))
+      .sort((a, b) => a - b);
+    const mean = all.reduce((s, v) => s + v, 0) / all.length;
+    const p95 = all[Math.min(all.length - 1, Math.floor(all.length * 0.95))] as number;
+    // Averaged over every course in the city, and at the 95th percentile so a
+    // handful of short hooks round a headland cannot fail it. Measured 0.019
+    // and 0.098; before simplification the spine fabric alone averaged 0.052.
+    //
+    // Neither floor is zero and neither should be. A contour band's ground is
+    // genuinely faceted — its distance field is a 3x3 chamfer, whose iso-lines
+    // are octagons rather than circles — so the last of it is in the tarmac,
+    // and smoothing it out of the RECORD would only move the drawn road off
+    // the road.
+    expect(mean).toBeLessThan(0.03);
+    expect(p95).toBeLessThan(0.15);
+  });
+
   it('keeps every centreline on the carriageway it was carved as', () => {
     const W = city.widthTiles;
     const on = (x: number, y: number): boolean => {

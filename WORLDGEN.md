@@ -2129,3 +2129,658 @@ more than the widest crossing in the city measures corner to corner.
 tile and district planes hash identical to the previous bake, so this
 moved paint and nothing else. `courses.test.ts` holds both ends of it:
 no stub under the floor, and the long courses still there.
+
+---
+
+## 17. The plan, generated — a city rolled, then held to the drawn one's checks
+
+### 17.1 The question
+
+"Generate the landmass in the sea with polylines, fit roads to it, then fill
+the space between the roads with buildings or nature depending on the biome —
+are there approaches like these?"
+
+Yes, and this is one. It is the mainstream city-generation pipeline, stage for
+stage, and most of it already runs here:
+
+| Stage | The prior art | Where it lives in this repo |
+| --- | --- | --- |
+| Landmass first, as vector geometry, biome from the land | Patel's *Polygonal Map Generation for Games* (2010) and `mapgen4`; mewo2's *Generating fantasy maps* | §12.3's outlines, §12.7's warp |
+| Roads fitted to the land | Parish & Müller, *Procedural Modeling of Cities* (2001); Chen et al.'s tensor fields (2008); Galin et al.'s anisotropic road paths (2010) | §13.4's fabrics, `carveCourse` |
+| Blocks between the roads, filled by land use | Parish & Müller's allotments; weighted straight skeletons; Watabou's ward generator | §13.6's block regions, `fillBlock` |
+
+The failure mode every one of those papers has to work around is the same one
+§13.1 Finding 3 found here by eye: treating the coast as a MASK applied after
+the roads, so the grid is clipped by the water and every shore is a fringe of
+slivers. The fix in the literature and the fix here are the same — make the
+shore GENERATE structure rather than subtract it — and it is already built:
+the esplanade, the contour fabric, the quays.
+
+So stages 2 and 3 of the question were done. Stage 1 was not, because §12.6
+deleted the generator on purpose and replaced it with a drawing.
+
+### 17.2 The design: generate the PLAN, not the tiles
+
+`shared/src/world/plangen.ts`. Its entire output is a `CityPlan` — the schema
+`shared/data/city-plan.json` holds by hand — and every pass downstream of it
+is the authored pipeline, unchanged.
+
+That is the whole idea. The old generator made TILES, which meant the
+expensive question ("is this city playable?") could only be asked at runtime,
+where it was too expensive to ask, so it was never asked. A generator that
+makes a plan inherits the offline bake, the exhaustive checker and the
+`--fit` tooling for nothing, and a generated city that fails the checks is
+rejected before anybody commits it — the same rule a drawn one lives under.
+The plan is also small enough to be a tractable thing to generate: a few
+hundred numbers, not half a million tiles.
+
+The pipeline, and the one step that makes the rest work:
+
+1. **An archetype**, rolled once — `estuary`, `strait` or `archipelago`. §4's
+   last item: the cheapest macro variety there is, because it decides the one
+   thing a player reads off the minimap in a second.
+2. **The land**, as radial loops whose radius wanders with the angle. The
+   noise is sampled on a CIRCLE in noise space, so θ and θ+2π are the same
+   sample and the loop closes without a seam. Bays are bitten out of the rim;
+   a river widens to its mouth or a tideway cuts clean across.
+3. **The coast is then PAINTED AND MEASURED** (`layout.ts:paintWater`).
+   Everything after this point is placed against the shore that will actually
+   exist, not the polygon that was drawn. Without it a borough seeded on the
+   outline lands forty tiles out to sea and a road routed round the drawn bay
+   runs straight through the real one — the warp is ~22 tiles deep, and that
+   is not a detail you can place things through.
+4. **Boroughs**, dart-thrown with a minimum separation, then sorted by
+   distance from the chosen downtown and handed their type in bands: §3.2's
+   concentric-zone gradient, stated as a sort. Industry takes the water far
+   from the middle; the rim is countryside. Each cell is the multiplicatively
+   weighted Voronoi region of its site, extracted by binary search along 72
+   rays — deliberately NOT clipped to the land, so a borough owns its own
+   waterfront and the esplanade pass runs a street along it.
+5. **Arterials by anisotropic shortest path** over that land — cheap on
+   ground, dear over water. That single ratio makes the interesting decision
+   by itself: a road goes the long way round a bay when the detour is cheaper
+   than the crossing, and bridges the strait when it is not. Nothing in the
+   generator says "bridge here". A spanning tree plus the short extra links
+   that make it a network you can make a decision in, and then the plan's
+   `maxBridgeSpan` has the last word — a course that would wade further than
+   a bridge can span is thrown away, measured on the SMOOTHED polyline
+   because smoothing is what the layout will carve.
+6. **Fabric by land use** (§13.4) — the "depending on the biome" half of the
+   question, and one lookup rather than a system, because the fabrics already
+   exist. Downtown gets a tight rotated grid; a seafront borough follows its
+   shore; a suburb wanders and dead-ends; the country gets lanes.
+7. **Landmarks placed against a real layout.** The plan is laid out once,
+   unfinished, purely to ask what `pnpm citybake --fit` exists to answer by
+   hand: which blocks came out, and how big are they. Then turn it, then
+   shrink it, rather than fail to place it — a runway laid north–south is the
+   same runway, and a city with no airfield is refused by the checker.
+
+Two repairs are worth naming because they are what "generated" costs:
+
+- **Every tile has a borough.** One countryside polygon covers the whole map
+  and is drawn FIRST, so every cell overwrites it. What it catches is the
+  fringe the warp raised outside every cell, which would otherwise get no
+  fabric, no invariants and no esplanade — §14.3's D1 problem from the other
+  end.
+- **A borough the arterials cannot reach becomes countryside.** Not deleted:
+  the ground is still there and you can still get to it by boat. What it
+  stops being is a lattice of streets nobody can drive to, which is the
+  precise thing the checker's one-street-network rule refuses.
+
+### 17.3 DELIVERED
+
+`pnpm plangen [--seed=N] [--size=640] [--png=...] [--json=...]`, and
+`pnpm plangen --sweep=N`, which is the deliverable that matters: N cities
+nobody has looked at, each held to `checkCity` — the same function
+`pnpm citybake` runs, extracted to `server/src/tools/cityCheck.ts` and now
+shared by both tools rather than copied.
+
+Measured: **44/44 seeds at 640 tiles pass the checker with no errors**
+(seeds 100–119 and 500–523, two sweeps, neither looked at first), and 16/16 at
+the 384-tile floor. 8–16 boroughs and 150–700 blocks a city, ~10 s each. Most
+carry one or two warnings, which is the band the drawn city sits in — it ships
+one. Evidence: `evidence/plangen-seed500.png`, a nine-borough estuary city with
+the contour fabric plainly following its north shore and a spine borough east
+of the bay.
+
+Two bugs fell out of pointing a generator at the pipeline, and both were
+real:
+
+- `bake.ts:fringeAt` indexed the plane without a bounds check. The drawn city
+  never puts a block against the map edge; a generated one does, and an index
+  off the end reads as `undefined`, which is not less than zero, so the
+  district lookup exploded on a borough that does not exist.
+- Landmark siting asked "is there a road within seventy tiles" with a box
+  scan, which is not the question. A farm on a headland with a trunk road
+  plainly visible across the water passes that test, gets no driveway because
+  there is no ground to cut one through, and fails the checker for having no
+  road to it. Reachability is the property, so a single breadth-first sweep
+  over cuttable ground now measures it.
+
+**What this is not.** It does not touch `shared/data/city-plan.json` and it
+does not write `city.data.ts`. The one city is still the drawn one (§12), for
+all the reasons §12.1 gives, and a session seed still moves only the
+furniture. What changed is that "roll a city" is now a plan you can open, read
+and edit — the way a generated city would ever become the shipped one is the
+way any city does: somebody looks at the plan, edits it, and runs the bake.
+
+### 17.4 The beaches — what "smooth" turned out to depend on
+
+The question the first wave got asked was simple: are the beaches smooth? The
+answer was no, and the interesting part is why not, because the bevel pass
+(§15) was working perfectly the whole time.
+
+`deriveBevels` is a pure function of the finished tile plane, so it runs on a
+generated city exactly as on the drawn one, and where sand meets water it does
+cut a clean 45°. But it only cuts SOFT ground: a quay is coursed masonry and
+stays square on purpose (§15.2). So "is the coast smooth" is really "how much
+of the coast is beach", and the shore pass lays sand only where the district is
+`park` AND the shore is in the swell's lee (`layout.ts`; everything else is
+quay). Measured on the first draft against the drawn city:
+
+| | quay shore | beach shore | waterline bevelled |
+| --- | --- | --- | --- |
+| Anywhere City (drawn) | 4,409 tiles | 615 | 4.2% |
+| plangen seed 500, first draft | 2,207 tiles | 198 | 3.7% |
+
+The drawn city earns its beaches by hand — Sunridge Shore is a park borough
+somebody put on the south coast because that is where sand belongs. The
+generator had no such step, and worse, §17.2 had actively worked against one:
+the borough cells are deliberately NOT clipped to the land so that an urban
+borough owns its own waterfront and the esplanade pass runs a street along it.
+Owning the waterfront buys esplanades and costs beaches, and nothing in the
+first draft made that trade on purpose.
+
+**Shore parishes.** Every stretch of coast that faces away from the swell and
+belongs to a borough with no business quaying it — downtown and industry are
+exempt, because a city's middle grew round a harbour and docks need deep water
+at a wall — becomes a parish of its own: park, rural, drawn last so it wins the
+seaward lip of whatever it fronts.
+
+The geometry is a ribbon, not a traced region. Candidate shore tiles are
+chained by the greedy nearest-unvisited walk §16 used to recover a contour
+band's centreline (a stretch of coast IS a curve; what a raster of it lacks is
+the order), smoothed, and then offset by the shore normal to both sides — six
+tiles seaward, thirteen to twenty inland. No marching squares, no hole
+handling, and the result is a simple polygon by construction.
+
+One choice is load-bearing: a parish has **no streets at all**. A ribbon of
+rural lanes fifteen tiles wide along a coast would be carved inside the parish,
+touch no arterial, and be a second street network — precisely what the checker
+refuses. The borough behind keeps its streets and its frontage; what is in
+front of them is the beach.
+
+`plangen` now prints the waterfront on every run and every sweep line, because
+it is the number that moved and the number that would quietly go back:
+
+```
+waterline: quay 1559, beach 805, bridge 56, road 1 — 391/2414 tiles bevelled (16.2%)
+```
+
+Measured after: **44/44 seeds at 640 tiles still pass the checker** (100–119 and
+500–523) and 14/14 at the 384 floor, with 4–16% of the waterline bevelled,
+median ~9%, against the drawn city's 4.2%. Seed 500 went from 198 beach shore
+tiles to 365 and from 3.7% to 6.0%; seed 1 reaches 805 and 16.2%. Evidence:
+`evidence/plangen-shore.png`, a long unbroken beach breaking at 45° under a
+crescent suburb, and `evidence/plangen-seed500.png` for the whole coast.
+
+Not fixed: the parish's own interior is bare. The rural ecotone (§14.3 D5)
+takes its depth from the district's street pitch, and a parish's pitch is zero
+by the argument above, so the smallholding band never fires and the strip
+behind the dunes is plain meadow. Separating "how deep is the fringe" from "how
+far apart are the lanes" is a `bake.ts` change, and this was not the wave for
+it.
+
+**What is left out, deliberately.** Islets: a rock in the water is a lovely
+thing and a stranded street network waiting to happen, because the borough
+whose polygon covers it gives it a fabric and the esplanade runs a quay round
+it. Putting them back means owning each one with countryside, which is a plan
+edit rather than a generator one. Also left out: the dual-carriageway ring
+(the router would have to close a loop, not just span a tree), `byAir`
+islands, squares sited on junctions the traffic model has already labelled,
+and any use of the archetype after the geography — a `strait` city and an
+`estuary` city currently differ in their water and not yet in their street
+hierarchy.
+
+---
+
+## 18. Every shore a polyline — the coast drawn in one line
+
+### 18.1 The review
+
+§16 gave the roads their curves back and named the reason: the curve EXISTS,
+the bake threw it away, and the renderer spent its life reconstructing curves
+from their own wreckage. The coast is the same complaint with the opposite
+cause. Nobody drew the coastline — it fell out of a warped distance field
+(§12.7) sampled at tile centres — so there is no polyline to keep. The line is
+real, it is smooth, and the only record of it anywhere is a staircase of 16 px
+right angles.
+
+§15's bevels bought back the biggest half-tile of that staircase and could
+never buy back more: a bevel is one 45° cut, and a coast turns through every
+other angle too. Ask the flyover and it shows: `evidence/city-shore-review.png`
+is a beach made of squares with some of its corners chamfered.
+
+### 18.2 The design
+
+`shared/src/world/shoreline.ts`, three steps and no authored input:
+
+1. **Trace.** Every edge between a wet cell and a dry one, directed so the
+   water is on the RIGHT, chained end to end into closed loops — one per
+   island, per lake, per rock. Exact: it is the tile plane's own boundary.
+   The winding is the whole interface: it says which side is sea without
+   anybody having to test a point.
+2. **Round.** Chaikin corner-cutting, twice. A rasterised line's corners are
+   all the same size, so cutting all of them is exactly the right move.
+3. **Thin.** Douglas–Peucker at a third of a tile. Six thousand corners
+   become three thousand points on the shipped city; 33 ms for the whole map.
+
+**Derived, not baked**, and that is the difference from §16. A course had to
+be baked because the carve's polyline was the only copy of it; a shore has no
+source but the tiles, so recovering it costs no wire bytes, no bake format and
+no `city.data.ts` churn — and works identically for a city nobody drew. Like
+the bevel plane it is a pure function of the finished tiles, computed beside
+it in `generateCity`, so both hosts get the same coast from the same bytes
+without sending any of it.
+
+**Cosmetic, like the courses.** Collision still reads `isSolidTile` and the
+bevel plane, traffic drives its lanes, boats moor against `T_BANK`. What moved
+is what the coast LOOKS like. The smoothing is bounded so the two cannot part
+company: `shoreline.test.ts` pins every smoothed point within one tile of the
+raw boundary it came from — about the same licence a half-tile bevel already
+takes.
+
+**Cut per tile, and this is the part that took two tries.** A renderer wants
+the coast tile by tile, and the obvious way to give it that is the nearest
+segment to each tile. It is wrong by a whole tile edge: two neighbouring tiles
+pick two different segments, clip themselves against two different lines, and
+those lines cross the shared edge at two different points — a chain of chords
+that do not meet, which is a staircase again at a jauntier angle. `shoreChains`
+splits the polyline AT the tile boundaries instead, so the entry and exit
+points are shared and what each tile draws joins what its neighbour draws.
+
+`shoreHalf` then cuts a tile square into its dry and wet halves. Also two
+tries: clipping the square by each run's half-plane in turn shaves a sliver
+off BOTH halves at every bend, and the slice that belongs to neither shows as
+a notch. It traces instead — along the chain, then round the square's own
+border back to where the coast entered — which partitions the square exactly
+however the chain wanders. Which half is which is settled at the tile's
+CENTRE: a probe stepped off the coast itself lands outside the square on the
+commonest tile there is, one whose coast runs along its own border.
+
+### 18.3 The three painters
+
+One geometry, three consumers, and they had better agree — a coast in one
+place on the ground plane and another in the mesh standing on it is worse than
+a coast that steps.
+
+- **The 2D chunk painter** (`tiles.ts:paintShoreTile`). The generalisation of
+  `paintBevel`: land on one side of the cut in whatever the land is made of
+  here, sea on the other, and the pale lip stroked along the chain. A tile the
+  coast crosses skips its bevel and its own tile-edge lip, exactly as a tile
+  under a road course skips its per-tile marks (§16).
+- **The 3D ground's cutout mask.** Already eight texels an edge, always built
+  to follow a line finer than the tile; until now the finest line it had was a
+  45° cut. It now asks the chain.
+- **The 3D geometry** (`cityGeometry.ts:buildShorePrisms`). The one that
+  actually shows: the silhouette in 3D is instanced BOXES, so a curved cutout
+  under a square slab changes nothing. A tile the coast crosses now loses its
+  box entirely and gets a prism whose top face is the dry half and whose
+  vertical face down the chain IS the waterline. `buildShoreWedges` stays for
+  the bevels the coast does not reach. Walls go down every edge of the half,
+  the tile borders included — skipping those is the obvious saving and it
+  leaves holes you can see the sky through, because two neighbouring dry
+  halves share only the point where the coast crosses their border.
+
+### 18.4 DELIVERED
+
+3,011 points over 17 loops on the shipped city, 7,079 tiles cut, derived in
+33 ms — the first cut took 98, and the fix was §15.4's lesson a third time: no
+`Math.hypot` in the inner loop of a pass over every corner of every coast.
+~6,700 shore prisms replace the same number of boxes, so the instanced city is
+no bigger.
+
+Evidence: `evidence/city-shore-curve.png` (the same flyover as §15's
+`city-shore-review.png`, retaken), `evidence/city-shore-curve-2d.png` (the
+same crop with and without the curve, side by side) and
+`evidence/plangen-shore.png` (a generated city's beach, which gets this for
+free because nothing about it is authored). `shoreline.test.ts` holds the
+invariants: one closed loop per island, water on the right, a lake wound the
+other way, the coast running UNDER a bridge, no coastline along the edge of
+the world, purity, the one-tile smoothing bound, chains that start and end on
+a tile border, neighbouring tiles agreeing on the crossing point, and the two
+halves of every tile adding up to the tile.
+
+What is still square, and why:
+
+- **The waterline still steps where the tiles do.** The line is smooth to the
+  eye at any zoom the game uses, but a coast that runs nearly east–west across
+  a tile boundary genuinely jogs a tile, and the smoothing is deliberately
+  bounded at one tile so the drawn coast cannot get far from the collision the
+  player feels. Loosening it is a knob, not a design change.
+- **The minimap** paints its own tiles and has not been taught the loops.
+- **Quay coping and bank edges** on tiles the coast does not cross keep their
+  square lip, which is right: a quay is coursed masonry (§15.2).
+
+---
+
+## 19. The waver in a straight street — recovered courses, simplified
+
+### 19.1 The review
+
+Asked why roads are sometimes curvy, the answer turned out to be two answers,
+and only one of them was on purpose.
+
+Measured over every course in the shipped city — mean turn per point, and how
+often that turn reverses direction:
+
+| course group | mean turn/point | turn reversals |
+| --- | --- | --- |
+| The Terraces (contour) | 5.6° | 62% |
+| **Ravenhill (spine)** | **5.0°** | **78%** |
+| The Docks (contour) | 4.6° | 65% |
+| Beachfront (contour) | 3.8° | 58% |
+| New Suburbs (crescent) | 2.8° | 5% |
+| avenues + ring | 0.5° | 53% |
+| every grid borough | 0.1° | — |
+
+A real curve turns the same way for a run: the crescent fabric, which wanders
+sinusoidally because §13.4 says a postwar suburb wanders, reverses on 5% of
+its points. Contour and spine reverse on 58–78%. That is not curvature, it is
+zig-zag — and `paintCourses` strokes every recorded point through a spline, so
+it showed as a visible waver in the ribbon.
+
+The cause is in §16.2's second wave. Those two fabrics have no authored
+polyline — they are per-tile predicates over a distance field — so their
+centreline is RECOVERED: the band's centre iso-tiles are chained by a greedy
+nearest-unvisited walk, relaxed twice with a moving average, and decimated by
+two. The chain is made of TILE CENTRES. A moving average lowers quantisation
+noise and can never remove it, because the signal being filtered is the same
+size as the sample spacing; decimating by two then keeps every second sample
+of it.
+
+### 19.2 What is in the drawing and what is in the ground
+
+The two fabrics are not the same case, which the first diagnosis got wrong:
+
+- **`spine`** builds its field with `segmentDistance` to the avenue's own
+  polyline — exact Euclidean. Its iso-bands are exact offset curves, so the
+  tarmac is smooth and every bit of the waver was in the record.
+- **`contour`** bands the shore distance field, which `layout.ts` deliberately
+  keeps as a raw 3×3 chamfer: blur it and its slope flattens near ridges and
+  bays, so a band of three distance units smears to four or five tiles and
+  stops being a street. A chamfer metric is octagonal, so those iso-lines
+  really are faceted. Some of that waver is in the ground.
+
+### 19.3 The design
+
+`simplifyPolyline` in `plan.ts` — Douglas–Peucker, iterative, beside
+`smoothPolyline` and `meanderPolyline` where the polyline utilities live — and
+`traceBands` relaxes four times instead of two and then simplifies at a third
+of a tile instead of decimating. A third of a tile is under the half-width of
+the narrowest band traced, so a simplified course cannot leave the tarmac it
+records and the trim pass has nothing to drop.
+
+Simplification is what a moving average cannot do: a straight run comes back
+as two points and has nothing left to waver through, while a real bend keeps
+every point it needs.
+
+`plangen.ts` drops its own private copy of the same algorithm.
+
+### 19.4 DELIVERED
+
+The measure is the sagitta at each interior point over the local point
+spacing: a smooth curve sampled at h has sagitta h²/8R, small when the points
+are close relative to the radius; jitter of amplitude a has sagitta about a,
+which is not.
+
+| fabric | wander before | after |
+| --- | --- | --- |
+| **spine** | 0.052 | **0.004** |
+| contour | 0.058 | 0.047 |
+| crescent | 0.036 | 0.036 |
+| avenue/ring | 0.018 | 0.018 |
+| grid | 0.002 | 0.002 |
+
+Which is exactly the split §19.2 predicts. The spine fabric drops to the grid
+fabric's own floor — all of its waver was in the record, and it is gone. The
+contour fabric improves by a fifth and stops there, because the rest of it is
+in the tarmac.
+
+**The ground is byte-identical.** The tile, district and bearing planes hash
+the same as the previous bake, and the city still has 1,132 blocks, 3,801
+buildings and 66 shops. What changed is `courses`: 9,658 points became 8,062,
+street courses fell from 29.0 points each to 22.8, and `city.data.ts` lost
+23 kB. Two more courses survive the trim than before, because a course that
+wavers off its own carriageway is a course the trim drops.
+
+`courses.test.ts` holds it: mean wander under 0.03 and the 95th percentile
+under 0.15, measured at 0.019 and 0.098. Neither floor is zero and neither
+should be — chasing the last of it would mean the drawn road leaving the road.
+
+### 19.5 Not done: the Euclidean field, and rotated houses
+
+**The contour fabric's faceted ground stays.** An exact Euclidean distance
+transform in place of the chamfer would fix it at the source and keep constant
+band width, which is the property blurring was rejected for losing. It is not
+worth it yet: the residual after simplification is 0.047 sagitta over ~2.8
+tiles of spacing, about a tenth of a tile, and buying it means re-cutting every
+street in The Terraces, Beachfront and the Docks and moving every block,
+building and shop behind them.
+
+**Houses on a rotated or curved street still do not face it**, and §13.2.2's
+verdict stands for a reason that is worth restating with evidence: buildings
+have no atomic existence in the 3D city. `cityGeometry.ts` walks TILES and
+emits one box per tile column, with heights from the volume grid — a
+`Building` record is a 2D bookkeeping rect, not a mesh. "Rotate the drawn
+mass" therefore means rebuilding the instanced city around per-building
+geometry, which is the renderer project §13.2.2 declined, not a smaller one.
+
+What §13.4's mitigation does instead is working, and can be measured: the
+frontage granularity cap gives curved and rotated boroughs small footprints
+where straight ones get terraces — 2.3×2.8 tiles in The Terraces and 2.7×2.9
+in New Suburbs against 3.9×8.4 in Old Suburbs. Small axis-aligned boxes still
+stairstep along a 26° street; they are just a finer staircase.
+
+---
+
+## 20. Which way a building faces
+
+### 20.1 The review
+
+`evidence/city-facing-before.png`: North Point, whose streets run at 26°, with
+every building on them square to the world. It reads as a model somebody
+dropped on the wrong grid — the roads were drawn at an angle over a city that
+was built on the axes, which is exactly what had happened.
+
+§13.2.2 saw this coming and declined it: *"Axis-aligned `Building` records.
+The 3D renderer extrudes them, the volume grid and doorways derive from them.
+Rotated footprints are a renderer-and-collision project, out of scope."* Its
+mitigation — finer rects on curved frontage — is real and measurable (2.3×2.8
+tiles in The Terraces against 3.9×8.4 in Old Suburbs) and it makes a finer
+staircase, not a building that faces its street.
+
+### 20.2 The design
+
+The doctrine that carried the courses, the bevels and the shores carries this
+one too: **the tiles are the truth, and only the drawing changes.**
+
+`Building` gains an `angle`. The FOOTPRINT is the same axis-aligned rect it
+always was — collision, the volume grid, doorways, shopfronts and every
+placement pass read `x, y, w, h` and cannot tell anything happened. What
+rotates is the mass the renderers stand on that footprint. So this is not the
+project §13.2.2 declined; it is the half of it that costs nothing downstream.
+
+- **The angle comes from the bearing plane**, which every fabric has been
+  writing per tile since §13.4 — the borough's own street angle, the shore's
+  tangent in a contour borough, the spine's course in a spine one. Derived
+  once in `bakeCity` rather than at the eight places a building is created,
+  and taken only where the whole footprint agrees on it: a building straddling
+  a seam between two fabrics faces neither, and squaring it is the honest
+  answer there. 43% of the city's buildings face something.
+- **The mass fits back inside its own plot.** Rotating a rectangle grows its
+  bounding box, so `buildingMass` scales it to fit the footprint plus half a
+  tile — enough to lean into its own pavement, where a doorstep is, and not
+  into the carriageway. One helper, three renderers: they must agree on this
+  box to the pixel or a building is in three places depending on who drew it.
+- **A shop keeps its square columns.** A shop is a room punched out of a
+  footprint and open to the sky; one mass over the whole rect would put a lid
+  on it. The same rule `roofCanvasFor` has always applied per tile.
+
+### 20.3 The three renderers, and the two things that broke
+
+- **The 3D instanced city.** Buildings had no atomic existence there: the walk
+  emits one box per TILE column with heights from the volume grid. Now a faced
+  building's tiles are skipped and it is emitted once, rotated. `Boxes` gains
+  a seventh float — a yaw — and `writeTo` composes a scale-rotate-translate
+  instead of a scale-translate, skipping the trigonometry for the zero case,
+  which is every instance in the city bar these.
+- **The 2D chunk painter** draws the mass as the hexagon `paintWall` draws, at
+  the angle, and then blits the SAME baked roof canvas turned — reusing
+  `roofCanvasFor` rather than re-authoring speckle, parapets and clutter
+  against a polygon is what keeps a rotated roof and a square one obviously
+  the same city.
+- **The parallax extrusion** leans the turned mass: `rotatedExtrusionOf`
+  exposes whichever of the four edges the roof moved away from, with the
+  normal off the edge rather than off the axis, so the caller's sun test is
+  unchanged.
+
+Two things broke, and both were the same mistake in different places —
+something that belonged to the mass stayed behind with the tiles:
+
+1. **The parapets floated.** `buildRoofDetail` rings a roof with four lips per
+   tile, and a square ring hanging over a turned roof reads as a picture frame
+   in the air. The lips are now built round the mass and turned with it.
+2. **The plot showed through.** Both chunk builders left the ground under a
+   building unpainted — a flat fill in the 3D texture, nothing at all in the
+   2D one — on the entirely sound grounds that a roof covered its own
+   footprint exactly. A turned mass does not, and the corners it vacates
+   showed the fill as dark squares lying the old way round. The plot is now
+   painted for every building tile with the nearest ground beside it: costs a
+   fill nobody sees in the square case, and saves a branch that could disagree
+   with the mass painter about which buildings are turned.
+
+### 20.4 DELIVERED
+
+Evidence: `evidence/city-facing-before.png` and `evidence/city-facing-3d.png`,
+the same flyover over North Point. 1,624 of 3,801 buildings face a street.
+Instances fell from 649,834 to 619,866 — a rotated mass is one box where a
+footprint was four to twenty-five.
+
+`facing.test.ts` holds the part that matters: every mass inside its own plot
+to within a quarter tile, a square building exactly square, a turned one a
+true rectangle about the footprint centre, every angle equal to the bearing
+its own tiles carry, and every footprint still integral with its centre tile
+still its own ground. `extrude.test.ts` gains the rotated lean: only faces the
+roof moved away from, each built from its own edge, each normal square to it.
+
+What did NOT change is the point: the tile plane, the district plane and the
+bearing plane hash the same as the previous bake, and `city.data.ts` grew only
+by the angles themselves.
+
+**Still square, deliberately.** The footprint, and therefore everything that
+reads it — you still collide with an axis-aligned box, and at 240 px altitude
+doing 300 px/s that is the right trade, because the alternative is oriented
+bounding boxes inside the prediction hot loop. A doorway is still on a tile
+edge. And a building on a seam between two fabrics still faces the world
+rather than picking one of its two streets.
+
+---
+
+## 21. Streets on top of one another — the merge, the markings, and the forecourt
+
+### 21.1 The review
+
+Asked why streets look layered on top of each other, the answer was two
+things, one in the ground and one in the paint.
+
+**The ground.** Counting carriageway that is over-wide — more than nine
+continuous tiles of tarmac in ALL FOUR directions, which is
+`signals.isJunctionTile`'s own test (`MAX_LANE_TILES = 4`) and is what makes a
+plaza rather than a crossroads — the city has **490 such tiles, and 441 of
+them lie within eight tiles of an authored avenue**. It is not lattice on
+lattice: it is a borough's street running alongside an avenue and merging with
+it into one sheet. Biggest patches: 13×8 tiles beside The Parade, and 10×14 in
+The Terraces.
+
+There IS a guard, and it is the right idea aimed at the wrong granularity.
+`doubledUp` and `doubledUpCourse` refuse a street that spends MOST of its run
+beside somebody else's road — and their own comments say why the threshold is
+generous: *"a lattice line can brush one for a third of its length while being
+the only street the rest of the borough has."* True, and the consequence is
+that the brushing third gets carved.
+
+The Old Quarter is where it shows, because it is the tightest fabric in the
+city and its lines are closest together. Pitch 11×9 with 3-wide streets is
+**55% road by construction** — 1 − (8/11)(6/9) = 51.5% predicted, 55% measured,
+against 26% in New Suburbs — so an avenue landing between two lattice lines
+merges with both.
+
+**The paint.** `paintCourses` strokes casing for every course and then fill for
+every course, so casings get covered — that ordering is deliberate and is what
+opens a junction (§16). But the edge lines were stroked PER COURSE (pale ring
+at width−2, then the interior repainted at width−4), and the centre dash for
+every course at the end. Where two courses overlap, each left its own markings
+lying across the other's surface: two dashed centre lines and a stray pale edge
+line on one sheet of tarmac. That is what makes a merge read as *layering*
+rather than as width.
+
+### 21.2 DELIVERED: the markings, and the forecourt
+
+**Markings, widest last.** The pale rings still go down in one pass. The
+interior repaint and the centre dash now go down in width order, thinnest
+first: each tier's repaint covers every thinner course's markings it crosses
+before its own dash goes on. An avenue's line carries on through; the street's
+stops where the avenue takes over. The casing and fill stay in one pass each,
+because grouping THOSE by width would draw an avenue's kerb across every
+street that meets it.
+
+**The forecourt turns with the house.** §20 turned the mass and left it
+standing on square paving, which reads as a house somebody rotated after the
+fact — which is what it was. `paintMassApron` lays the apron the building
+would actually have: the mass grown by a tile, at the mass's own angle, with
+the paving slabs painted in the apron's own frame so they run with the
+building. Clipped to the building's own tiles and the ring of soft ground
+beside them, so a doorstep may take a tile of grass and may not take a lane.
+Both chunk builders draw it, so the 2D city and the 3D ground texture agree.
+Evidence: `evidence/city-facing-3d.png`.
+
+### 21.3 NOT DELIVERED: the merge itself, and why
+
+The ground fix was built and taken out again. It is written down here because
+it very nearly works and the next attempt should start from what it cost.
+
+The fix is to move the doubling test from the LINE to the TILE, and to make it
+direction-aware: a field of the nearest authored road per tile and the
+direction it runs, and a lattice tile is not carved when an avenue is within
+half a width plus three AND within 25° of parallel. Direction is the whole of
+it — a street CROSSING an avenue is near it for a few tiles and must still be
+carved, because that crossing is the junction the street exists to make; only
+near-and-parallel is a duplicate.
+
+Measured, it does what it says. Over-wide patches fell from **119 to 73**, the
+worst from **71 tiles to 46**, and the 13×8 sheet beside The Parade became
+three ordinary junctions.
+
+It also broke three tests, and one of them matters: an errand driver stopped
+completing its route. Trimming the middle of a line leaves the ends behind, and
+the city gained **24 dead-end stubs** (195 → 219). A stub is still connected,
+so `checkCity`'s one-street-network rule passes it and the bake's
+scrap-clearing pass — which only takes carriageway off the main network —
+leaves it alone. A cosmetic gain of 0.3% of carriageway is not worth a car
+that cannot finish its journey.
+
+What the next attempt needs is a way to retire the whole of a line that
+conflicts rather than the conflicting stretch of it, or a pass that clears the
+stubs the trim leaves — the shape of `trimCourses`, applied to tiles rather
+than to courses.
+
+And one thing the measurement found that is NOT this bug: **The Terraces is
+51% carriageway**, with a 46-tile sheet down its middle that the avenue guard
+does not touch. Its contour bands are iso-lines of the shore distance field,
+and where that field's wavefronts meet — the medial axis between two stretches
+of water — the bands stop being a pitch apart. A local gradient test was tried
+and rejected: it changed one block and two buildings, so the smearing is not a
+flat gradient but two unrelated band families interleaving. Banding each
+borough against ONE shore rather than against the nearest water is the fix, and
+it is a design change rather than a guard.

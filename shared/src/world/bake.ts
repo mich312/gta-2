@@ -379,6 +379,12 @@ export function bakeCity(plan: CityPlan): BakedCity {
     }
   }
   const fringeAt = (tx: number, ty: number): boolean => {
+    // Bounds first. A block's bounding box can reach the map edge — the
+    // drawn city never puts one there, a generated one does — and a tile
+    // index off the end of the plane reads as `undefined`, which is not
+    // less than zero, and the district lookup below then explodes on a
+    // borough that does not exist.
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
     const i = ty * W + tx;
     const own = layout.owner[i] as number;
     if (own < 0) return false;
@@ -599,6 +605,33 @@ export function bakeCity(plan: CityPlan): BakedCity {
     density: b.density,
     ...(b.rural ? { rural: true } : {}),
   }));
+
+  // Which way each building FACES (§20). Derived here, once, from the bearing
+  // plane rather than at the eight places a building is created: the bearing
+  // is exactly what a borough's fabric already recorded per tile, so every
+  // filler that ever adds a building gets the answer for free.
+  //
+  // Read at the footprint's centre, and taken only where the whole footprint
+  // agrees — a building straddling a seam between two boroughs at different
+  // angles has no one street to face, and squaring it to the world is the
+  // honest answer there.
+  for (const b of buildings) {
+    const cx = Math.min(W - 1, Math.max(0, Math.floor(b.x + b.w / 2)));
+    const cy = Math.min(H - 1, Math.max(0, Math.floor(b.y + b.h / 2)));
+    const deg = layout.bearing[cy * W + cx] as number;
+    if (deg === 0) continue;
+    let agrees = true;
+    for (let ty = b.y; ty < b.y + b.h && agrees; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        if ((layout.bearing[ty * W + tx] as number) !== deg) {
+          agrees = false;
+          break;
+        }
+      }
+    }
+    if (agrees) b.angle = deg;
+  }
 
   const baked: BakedCity = {
     name: plan.name,

@@ -4,6 +4,7 @@ import {
   pointInPoly,
   polyBounds,
   segmentDistance,
+  simplifyPolyline,
   smoothPolyline,
   type CityPlan,
   type PlanDistrict,
@@ -379,6 +380,31 @@ function paintCoast(plan: CityPlan): Coast {
     }
   }
   return { water, exposure };
+}
+
+export type { Coast };
+
+/**
+ * The finished coast for a plan's geography ALONE — outlines, bays, rivers,
+ * spits, islets, warp and all — without carving a single street: where the
+ * water is, and how each stretch of shore stands to the swell.
+ *
+ * What it is for: anything that has to decide WHERE to put something must
+ * ask the coast that will actually exist, not the one that was drawn. The
+ * warp moves the shore by tens of tiles (§12.7), so a borough seeded on the
+ * authored outline can land in the sea and a road routed round the drawn bay
+ * can run straight through the real one. `plangen.ts` builds its whole plan
+ * against this: geography first, then the land is measured, then everything
+ * else is placed on ground that is known to be there.
+ *
+ * The exposure plane comes with it because a generator that wants to put a
+ * beach somewhere has to agree with the shore pass about where sand goes,
+ * and the only way to agree exactly is to read the same numbers. Guessing at
+ * it from a distance field of one's own gets a parish drawn along a shore
+ * the pass then quays.
+ */
+export function paintShore(plan: CityPlan): Coast {
+  return paintCoast(plan);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1170,10 +1196,23 @@ export function buildLayout(plan: CityPlan): CityLayout {
      * the tiles within half a tile of each band's centre value, chain them
      * by a greedy nearest-unvisited walk (Chebyshev ≤ 2, lowest index on a
      * tie, both directions from the seed), drop chains under six tiles,
-     * and relax each chain twice with a moving average to shed the chamfer
-     * field's octagonal facets. The trim pass then clips every chain to
-     * the tiles the carve actually laid — the probes that kept a band off
-     * a neighbouring coast road never need re-stating here.
+     * relax each chain with a moving average, and SIMPLIFY it. The trim
+     * pass then clips every chain to the tiles the carve actually laid —
+     * the probes that kept a band off a neighbouring coast road never need
+     * re-stating here.
+     *
+     * The last step is the one that took a second pass (§19). Relaxing
+     * twice and keeping every other point left the recovered line carrying
+     * the lattice's own quantisation: measured over the shipped city, a
+     * contour or spine course reversed its turn direction on 58–78% of its
+     * points at 4–6° a time, which is not curvature, it is zig-zag — and
+     * the painter strokes every point of it through a spline, so the
+     * ribbon visibly wavered along streets whose TILES run dead straight.
+     * A moving average lowers that noise and can never remove it, because
+     * the signal it is filtering is the same size as the sample spacing.
+     * Simplification removes it: a straight run comes back as two points
+     * and has nothing left to waver through, and a real bend keeps every
+     * point it needs to within a third of a tile.
      */
     const traceBands = (field: Float32Array, base: number): void => {
       const half = width / 2;
@@ -1225,7 +1264,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         const chain = [...back.reverse(), ...fwd];
         if (chain.length < 6) continue;
         let pts = chain.map((i) => [(i % W) + 0.5, Math.floor(i / W) + 0.5] as [number, number]);
-        for (let r = 0; r < 2; r++) {
+        for (let r = 0; r < 4; r++) {
           pts = pts.map((p, i) => {
             if (i === 0 || i === pts.length - 1) return p;
             const a = pts[i - 1] as [number, number];
@@ -1233,7 +1272,10 @@ export function buildLayout(plan: CityPlan): CityLayout {
             return [(a[0] + p[0] + b[0]) / 3, (a[1] + p[1] + b[1]) / 3];
           });
         }
-        courses.push({ points: pts.filter((_, i) => i % 2 === 0 || i === pts.length - 1), width, kind: 'street' });
+        // A third of a tile: under the half-width of the narrowest band this
+        // traces, so a simplified course cannot leave the tarmac it records
+        // and the trim pass has nothing to drop.
+        courses.push({ points: simplifyPolyline(pts, 1 / 3), width, kind: 'street' });
       }
     };
 

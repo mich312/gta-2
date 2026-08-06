@@ -2,28 +2,19 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import {
   DISTRICT_TYPES,
   T_BUILDING,
-  T_FIELD,
-  T_LOT,
-  T_PARK,
   T_ROAD,
   T_WATER,
   T_BRIDGE,
-  T_BANK,
-  T_TREES,
-  T_RUNWAY,
-  T_SAND,
-  T_SIDEWALK,
-  T_FLOOR,
-  bevelOther,
+  deriveShores,
   generateCity,
-  inCutHalf,
   parseCityPlan,
   pointInPoly,
   type CityMap,
   type CityPlan,
 } from 'shared';
 import { loadWorldgenParams } from '../tuning.js';
-import { encodePng, hexToRgb } from './png.js';
+import { encodePng } from './png.js';
+import { loadPalette, render, type PaletteFile, type RenderableMap, type Render } from './mapRender.js';
 
 /**
  * pnpm mapgen — look at the city without launching the game.
@@ -45,25 +36,6 @@ import { encodePng, hexToRgb } from './png.js';
  * shore is from the nearest carriageway.
  */
 
-interface PaletteFile {
-  field: string;
-  road: string;
-  sidewalk: string;
-  park: string;
-  lot: string;
-  building: Record<string, string>;
-  shopGun: string;
-  shopClothing: string;
-  shopFloor: string;
-  water: string;
-  bank: string;
-  sand: string;
-  trees: string;
-  runway: string;
-  kerb: string;
-  uiAccent: string;
-}
-
 /**
  * The three §13.1 review crops, in tiles. Fixed on purpose: the point of the
  * contact sheet is that the same three places are retaken after every fabric
@@ -80,103 +52,8 @@ const SHEET_CROPS: Array<[number, number, number, number]> = [
 ];
 const SHEET_OUT = 'evidence/city-fabric-review.png';
 
-interface Render {
-  rgba: Uint8Array;
-  w: number;
-  h: number;
-}
-
-/** Render a tile rect of the map at `scale` px per tile, markers included. */
-function render(
-  map: CityMap,
-  palette: PaletteFile,
-  x0: number,
-  y0: number,
-  wTiles: number,
-  hTiles: number,
-  scale: number,
-): Render {
-  const W = wTiles * scale;
-  const H = hTiles * scale;
-  const rgba = new Uint8Array(W * H * 4);
-
-  const colors: Record<number, [number, number, number]> = {
-    [T_FIELD]: hexToRgb(palette.field),
-    [T_ROAD]: hexToRgb(palette.road),
-    [T_SIDEWALK]: hexToRgb(palette.sidewalk),
-    [T_PARK]: hexToRgb(palette.park),
-    [T_LOT]: hexToRgb(palette.lot),
-    [T_WATER]: hexToRgb(palette.water),
-    [T_BANK]: hexToRgb(palette.bank),
-    [T_SAND]: hexToRgb(palette.sand),
-    [T_TREES]: hexToRgb(palette.trees),
-    [T_RUNWAY]: hexToRgb(palette.runway),
-    [T_BRIDGE]: hexToRgb(palette.kerb),
-    [T_FLOOR]: hexToRgb(palette.shopFloor),
-  };
-
-  const put = (x: number, y: number, c: [number, number, number]): void => {
-    if (x < 0 || y < 0 || x >= W || y >= H) return;
-    const i = (y * W + x) * 4;
-    rgba[i] = c[0];
-    rgba[i + 1] = c[1];
-    rgba[i + 2] = c[2];
-    rgba[i + 3] = 255;
-  };
-
-  for (let ty = 0; ty < hTiles; ty++) {
-    const my = y0 + ty;
-    if (my < 0 || my >= map.heightTiles) continue;
-    for (let tx = 0; tx < wTiles; tx++) {
-      const mx = x0 + tx;
-      if (mx < 0 || mx >= map.widthTiles) continue;
-      const tile = map.tiles[my * map.widthTiles + mx] as number;
-      let c: [number, number, number];
-      if (tile === T_BUILDING) {
-        const d = DISTRICT_TYPES[map.district[my * map.widthTiles + mx] as number] as string;
-        c = hexToRgb(palette.building[d] ?? '#888888');
-      } else {
-        c = colors[tile] ?? [255, 0, 255];
-      }
-      // The diagonal shoreline, at whatever this render's scale can show of
-      // it: the cut half of a bevelled tile wears the neighbour's colour.
-      const code = map.bevel ? (map.bevel[my * map.widthTiles + mx] as number) : 0;
-      const oc: [number, number, number] | null = code
-        ? (colors[bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, mx, my)] ?? null)
-        : null;
-      for (let py = 0; py < scale; py++) {
-        for (let px = 0; px < scale; px++) {
-          const cut =
-            oc !== null && inCutHalf(code, ((px + 0.5) / scale) * 16, ((py + 0.5) / scale) * 16);
-          put(tx * scale + px, ty * scale + py, cut ? oc : c);
-        }
-      }
-    }
-  }
-
-  // Overlay markers: shops (bright), player spawns (white dots).
-  for (const s of map.shops) {
-    const c = hexToRgb(
-      s.kind === 'gun'
-        ? palette.shopGun
-        : s.kind === 'spray'
-          ? palette.uiAccent
-          : palette.shopClothing,
-    );
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        put((s.doorX - x0) * scale + dx, (s.doorY - y0) * scale + dy, c);
-      }
-    }
-  }
-  for (const p of map.playerSpawns) {
-    put(Math.floor((p.x / 16 - x0) * scale), Math.floor((p.y / 16 - y0) * scale), [255, 255, 255]);
-  }
-  return { rgba, w: W, h: H };
-}
-
 /** The three review crops side by side on a dark ground. */
-function renderSheet(map: CityMap, palette: PaletteFile): Render {
+function renderSheet(map: RenderableMap, palette: PaletteFile): Render {
   const SCALE = 2;
   const MARGIN = 4;
   const crops = SHEET_CROPS.map(([x, y, w, h]) => render(map, palette, x, y, w, h, SCALE));
@@ -502,27 +379,31 @@ function main(): void {
 
   // The city is the same every time; the seed only moves the furniture.
   const params = loadWorldgenParams();
-  const palette = JSON.parse(
-    readFileSync(new URL(import.meta.resolve('shared/data/palette.json')), 'utf8'),
-  ) as PaletteFile;
+  const palette = loadPalette();
 
   const t0 = performance.now();
   const map = generateCity(seed, params);
   const genMs = performance.now() - t0;
+  // The coast as curves (§18), for the painter to shade against instead of
+  // the tile edge. Derived here rather than carried on the map because a
+  // still is the only place it currently shows: the game's own painter
+  // derives its own.
+  const shores = deriveShores(map.tiles, map.widthTiles, map.heightTiles);
+  const drawable = { ...map, shores };
 
   let picture: Render;
   if (sheet !== null) {
-    picture = renderSheet(map, palette);
+    picture = renderSheet(drawable, palette);
     if (!out) out = sheet;
   } else if (crop) {
     const [x, y, w, h] = crop;
     // Scaled so a close-up is actually close: a 60-tile crop renders at 8 px
     // per tile, the whole map still at 2.
     const scale = Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
-    picture = render(map, palette, x, y, w, h, scale);
+    picture = render(drawable, palette, x, y, w, h, scale);
     if (!out) out = `mapgen-crop-${x}-${y}.png`;
   } else {
-    picture = render(map, palette, 0, 0, map.widthTiles, map.heightTiles, 2);
+    picture = render(drawable, palette, 0, 0, map.widthTiles, map.heightTiles, 2);
     if (!out) out = `mapgen-seed${seed}.png`;
   }
 

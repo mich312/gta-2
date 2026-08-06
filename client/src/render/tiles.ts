@@ -1,4 +1,5 @@
 import {
+  type Building,
   type CityMap,
   type Vec2,
   DISTRICT_TYPES,
@@ -27,6 +28,10 @@ import {
   BEV_SW,
   bevelOther,
   inCutHalf,
+  shoreHalf,
+  shoreChains,
+  buildingCorners,
+  buildingMass,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
@@ -177,6 +182,18 @@ interface Chunk {
   touched: number;
 }
 
+/** The eight neighbours, nearest first — for "what is this tile beside". */
+const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+];
+
 function shade(hex: string, amount: number, towards = '#0b111c'): string {
   const a = parseInt(hex.slice(1), 16);
   const b = parseInt(towards.slice(1), 16);
@@ -238,6 +255,17 @@ export class TileLayer {
     maxY: number;
   }> = [];
   private courseCover: Uint8Array | null = null;
+  /**
+   * The coast running through each tile it crosses (§18), in tile-LOCAL
+   * units as a flat polyline — the cut `paintShoreTile` divides that tile
+   * with, sharing its ends with the neighbouring tiles' cuts.
+   *
+   * A map rather than a plane because a coast is a line through a plane: the
+   * shipped city has three thousand segments touching maybe eight thousand
+   * tiles out of half a million, and a Map of the ones that matter is smaller
+   * than a Float32Array of the ones that do not.
+   */
+  private shoreSegs: Map<number, Float32Array> | null = null;
 
   constructor(private readonly sprites: SpriteSheet) {}
 
@@ -250,6 +278,13 @@ export class TileLayer {
     this.indexShops(map);
     this.indexRoadRuns(map);
     this.indexCourses(map);
+    this.indexShores(map);
+  }
+
+  /** The coast running through each shore tile (`shoreChains`, §18). */
+  private indexShores(map: CityMap): void {
+    const loops = map.shores ?? [];
+    this.shoreSegs = loops.length === 0 ? null : shoreChains(loops, map.widthTiles, map.heightTiles);
   }
 
   /** World-px ribbons and the tile cover mask, from the baked courses. */
@@ -372,15 +407,35 @@ export class TileLayer {
       ctx.strokeStyle = palette.roadLane;
       ctx.lineWidth = p.w - 2 * t;
       ctx.stroke(p.path);
-      ctx.strokeStyle = palette.road;
-      ctx.lineWidth = p.w - 4 * t;
-      ctx.stroke(p.path);
     }
-    // The centre line: one dashed curve, flowing through the whole course.
-    ctx.setLineDash([4 * t, 6 * t]);
-    ctx.strokeStyle = palette.roadLane;
-    ctx.lineWidth = t;
-    for (const p of paths) ctx.stroke(p.path);
+
+    // Then the interior repaint and the centre dash, WIDEST LAST (§21).
+    //
+    // Drawn in one pass for every course, a street's lane lines and centre
+    // dash survive on top of an avenue that swallows it — the repaint only
+    // covers a course's own interior, and the dash is drawn last by design.
+    // Where a lattice line runs alongside an avenue that is two sets of
+    // markings on one sheet of tarmac, which is what "the streets are
+    // layered on top of each other" looks like. Going up the widths, each
+    // tier's repaint covers every thinner course's markings it crosses
+    // before its own dash goes on: the avenue's line carries on, the
+    // street's stops where the avenue takes over.
+    //
+    // The casing and the fill above stay in ONE pass each, because their
+    // order is what opens a junction (§16) — grouping those by width would
+    // draw an avenue's kerb across every street that meets it.
+    const tiers = [...new Set(paths.map((p) => p.w))].sort((a, b) => a - b);
+    for (const w of tiers) {
+      const tier = paths.filter((p) => p.w === w);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = palette.road;
+      ctx.lineWidth = w - 4 * t;
+      for (const p of tier) ctx.stroke(p.path);
+      ctx.setLineDash([4 * t, 6 * t]);
+      ctx.strokeStyle = palette.roadLane;
+      ctx.lineWidth = t;
+      for (const p of tier) ctx.stroke(p.path);
+    }
     ctx.setLineDash([]);
     ctx.restore();
   }
@@ -702,10 +757,30 @@ export class TileLayer {
             ? tile
             : bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty);
         const wetHalf = tile === T_WATER || (code !== BEV_NONE && other === T_WATER);
+        // The coast course, where there is one, decides the cutout instead
+        // of the bevel — the same substitution the 2D painter makes, and the
+        // reason the mask is eight texels an edge rather than one: it was
+        // always built to follow a line finer than the tile, and until now
+        // the finest line it had was a 45° cut.
+        const seg = this.shoreSegAt(tx, ty);
         for (let sy = 0; sy < CUT_SUB; sy++) {
           for (let sx = 0; sx < CUT_SUB; sx++) {
             let wet = false;
-            if (wetHalf) {
+            if (seg !== undefined) {
+              // Water on the right of every run of the chain; y down, so the
+              // cross product is positive on the wet side. A texel is wet
+              // when the LAST run that has an opinion says so, which is the
+              // same rule `shoreHalf` clips by.
+              const ux = (sx + 0.5) / CUT_SUB;
+              const uy = (sy + 0.5) / CUT_SUB;
+              for (let k = 0; k + 3 < seg.length; k += 2) {
+                const cax = seg[k] as number;
+                const cay = seg[k + 1] as number;
+                const cvx = (seg[k + 2] as number) - cax;
+                const cvy = (seg[k + 3] as number) - cay;
+                wet = cvx * (uy - cay) - cvy * (ux - cax) > 0;
+              }
+            } else if (wetHalf) {
               if (code === BEV_NONE) {
                 wet = true;
               } else {
@@ -731,16 +806,19 @@ export class TileLayer {
           // towards transparent black was a dark rim around every island.
           ctx.fillStyle = palette.water;
           ctx.fillRect(x, y, TD, TD);
-          // A bevelled water tile is half beach (or bank grass): paint the
-          // dry wedge so the ground plane has something to show there.
-          this.paintBevel(ctx, tx, ty, x, y, false);
+          // A water tile the coast crosses is part beach (or bank, or quay):
+          // paint the dry side so the ground plane has something to show
+          // where the cutout has just decided not to remove it.
+          const dry = this.shoreSegAt(tx, ty);
+          if (dry !== undefined) this.paintShoreTile(ctx, tx, ty, x, y, dry, false);
+          else this.paintBevel(ctx, tx, ty, x, y, false);
           continue;
         }
         if (tile === T_BUILDING) {
-          // Under a building and never seen. Filled rather than left clear so
-          // the chunk can stay opaque.
-          ctx.fillStyle = palette.wallShade ?? palette.road;
-          ctx.fillRect(x, y, TD, TD);
+          // The plot the building stands on. This used to be a flat fill on
+          // the grounds that a roof covered it; a turned mass does not, and
+          // the fill showed through at its corners (§20).
+          this.paintPlot(ctx, tx, ty, x, y, false);
           continue;
         }
         // No flat plants in the 3D ground: the scenery layer stands real
@@ -748,6 +826,10 @@ export class TileLayer {
         this.paintGround(ctx, tx, ty, x, y, tile, false);
       }
     }
+    // The turned forecourts (§21), over the tile ground and under nothing:
+    // in 3D the mass itself is geometry, so the texture only ever shows the
+    // apron round it.
+    for (const m of this.massesNear(tx0, ty0)) this.paintMassApron(ctx, m, tx0, ty0);
     this.paintCourses(ctx, tx0, ty0);
     sctx.putImageData(mask, 0, 0);
     cctx.putImageData(cutMask, 0, 0);
@@ -771,8 +853,8 @@ export class TileLayer {
     for (let ty = ty0; ty < ty0 + CHUNK_TILES; ty++) {
       for (let tx = tx0; tx < tx0 + CHUNK_TILES; tx++) {
         const tile = this.tileAt(tx, ty);
-        if (tile === T_BUILDING) continue;
-        this.paintGround(ctx, tx, ty, ox(tx), oy(ty), tile);
+        if (tile === T_BUILDING) this.paintPlot(ctx, tx, ty, ox(tx), oy(ty), true);
+        else this.paintGround(ctx, tx, ty, ox(tx), oy(ty), tile);
       }
     }
     this.paintCourses(ctx, tx0, ty0);
@@ -788,15 +870,31 @@ export class TileLayer {
     //    masses per frame, and baking a second set underneath them would show
     //    through wherever the two disagree — which is everywhere, by design.
     if (!this.extruded) {
+      // Buildings that face a street are drawn as one rotated mass (§20);
+      // their tiles are skipped by the square walk. Walls for both first, so
+      // a near mass's wall covers the one behind it.
+      const masses = this.massesNear(tx0, ty0);
+      const W = (this.map as CityMap).widthTiles;
+      const massed = new Set<number>();
+      for (const m of masses) {
+        for (let ty = m.b.y; ty < m.b.y + m.b.h; ty++) {
+          for (let tx = m.b.x; tx < m.b.x + m.b.w; tx++) massed.add(ty * W + tx);
+        }
+      }
+      const square = (tx: number, ty: number): boolean =>
+        this.tileAt(tx, ty) === T_BUILDING && !massed.has(ty * W + tx);
+      for (const m of masses) this.paintMassApron(ctx, m, tx0, ty0);
+      for (const m of masses) this.paintMassWall(ctx, m, tx0, ty0);
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-          if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+          if (!square(tx, ty)) continue;
           this.paintWall(ctx, tx, ty, ox(tx), oy(ty));
         }
       }
+      for (const m of masses) this.paintMassRoof(ctx, m, tx0, ty0);
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-          if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+          if (!square(tx, ty)) continue;
           this.paintRoof(ctx, tx, ty, ox(tx), oy(ty));
         }
       }
@@ -871,12 +969,168 @@ export class TileLayer {
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
     }
-    // The diagonal shoreline: where the bevel plane says half this tile is
-    // the neighbour's material, paint that half over the base, clipped to
-    // its triangle. Painted last so it wins over the base painter's own
-    // edge details (a water tile's straight shore lip, say) wherever the
-    // two disagree — which is exactly the half being repainted.
-    this.paintBevel(ctx, tx, ty, x, y, plants);
+    // The shoreline. Two ways of drawing the same line, and the better one
+    // wins where it exists: the coast course (§18) cuts this tile at whatever
+    // angle the coast actually runs at, and the bevel plane (§15) cuts it at
+    // 45° or not at all. A tile the curve passes through is repainted against
+    // the curve and the bevel is skipped, because a half-tile triangle and a
+    // chord disagreeing about where the sea starts is worse than either.
+    const seg = this.shoreSegAt(tx, ty);
+    if (seg !== undefined) this.paintShoreTile(ctx, tx, ty, x, y, seg, plants);
+    else this.paintBevel(ctx, tx, ty, x, y, plants);
+  }
+
+  /** The nearest shore-course segment through a tile, if the coast runs here. */
+  private shoreSegAt(tx: number, ty: number): Float32Array | undefined {
+    const map = this.map;
+    if (this.shoreSegs === null || !map) return undefined;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
+    return this.shoreSegs.get(ty * map.widthTiles + tx);
+  }
+
+  /**
+   * One tile of coast, painted against the CURVE instead of its own edges.
+   *
+   * The generalisation of `paintBevel`, and it is one step: a bevel clips the
+   * tile with a diagonal from corner to corner, this clips it with the chord
+   * the coast course actually cuts through it. Land on one side in whatever
+   * the land is made of here, sea on the other, and the pale lip stroked
+   * along the chord — the same three things the square painter and the
+   * bevelled painter both do, at the angle the coast runs rather than at one
+   * of the five angles a tile grid can say.
+   *
+   * Per tile rather than by filling the whole loop as one path, deliberately.
+   * A chunk is 32 tiles and a coast loop is a thousand points round an
+   * island; filling it per chunk means clipping a path most of which is
+   * somewhere else, and getting the parity right for a chunk that sits INSIDE
+   * a loop with none of it crossing. Locally the curve through one tile is a
+   * chord to well under a pixel, and a chord costs four corners of arithmetic.
+   */
+  private paintShoreTile(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    seg: Float32Array,
+    plants: boolean,
+  ): void {
+    /** The chain, and each half of the square, in this tile's device pixels. */
+    const local = (p: [number, number]): [number, number] => [x + p[0] * TD, y + p[1] * TD];
+    const halfOf = (wantWet: boolean): Array<[number, number]> =>
+      shoreHalf(seg, wantWet).map(local);
+    const square: Array<[number, number]> = [
+      [x, y],
+      [x + TD, y],
+      [x + TD, y + TD],
+      [x, y + TD],
+    ];
+    const clipTo = (poly: Array<[number, number]>): boolean => {
+      if (poly.length < 3) return false;
+      ctx.beginPath();
+      ctx.moveTo((poly[0] as [number, number])[0], (poly[0] as [number, number])[1]);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo((poly[i] as [number, number])[0], (poly[i] as [number, number])[1]);
+      }
+      ctx.closePath();
+      ctx.clip();
+      return true;
+    };
+
+    // What the land is made of here. The tile's own material if it is dry;
+    // otherwise the nearest dry neighbour's, because a sea tile the curve has
+    // just made half-dry belongs to the beach or the quay beside it and not
+    // to some default. Buildings are skipped: a wall does not run into water,
+    // and painting one under the waterline would show as a block in the surf.
+    let landTile = this.tileAt(tx, ty);
+    if (landTile === T_WATER || landTile === T_BRIDGE) {
+      let bd = Infinity;
+      for (const [dx, dy] of NEIGHBOURS) {
+        const t = this.tileAt(tx + dx, ty + dy);
+        if (t === T_WATER || t === T_BRIDGE || t === T_BUILDING) continue;
+        const d = dx * dx + dy * dy;
+        if (d < bd) {
+          bd = d;
+          landTile = t;
+        }
+      }
+      if (landTile === T_WATER || landTile === T_BRIDGE) landTile = T_FIELD;
+    }
+
+    ctx.save();
+    if (clipTo(halfOf(false))) this.paintShoreMaterial(ctx, tx, ty, x, y, landTile, plants);
+    ctx.restore();
+    ctx.save();
+    if (clipTo(halfOf(true))) {
+      // A bridge deck keeps its own painter: the coast runs UNDER it, so the
+      // wet side of a bridge tile is deck, not sea.
+      if (this.tileAt(tx, ty) === T_BRIDGE) this.paintBridge(ctx, tx, ty, x, y);
+      else this.paintWater(ctx, tx, ty, x, y, false);
+    }
+    ctx.restore();
+
+    // The waterline itself, along the chain. Clipped to the tile so the
+    // stroke's width cannot bleed into the neighbour, which paints its own —
+    // and because the chains share their ends, the two strokes join.
+    if (this.tileAt(tx, ty) !== T_BRIDGE && seg.length >= 4) {
+      ctx.save();
+      clipTo(square);
+      ctx.strokeStyle = shade(palette.water, 0.3, '#bfe0ef');
+      ctx.lineWidth = Math.max(1, (TD / 14) | 0);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x + (seg[0] as number) * TD, y + (seg[1] as number) * TD);
+      for (let k = 2; k + 1 < seg.length; k += 2) {
+        ctx.lineTo(x + (seg[k] as number) * TD, y + (seg[k + 1] as number) * TD);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /** The ordinary ground painters, dispatched for a shore tile's dry half. */
+  private paintShoreMaterial(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    tile: number,
+    plants: boolean,
+  ): void {
+    switch (tile) {
+      case T_SAND:
+        this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
+        break;
+      case T_BANK:
+        this.paintBank(ctx, tx, ty, x, y, false);
+        break;
+      case T_PARK:
+        this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
+        break;
+      case T_TREES:
+        this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true, plants);
+        break;
+      case T_ROAD:
+        // Bare asphalt, no marks: a slice of carriageway at the waterline is
+        // a kerbside sliver and never a lane.
+        ctx.fillStyle = palette.road;
+        ctx.fillRect(x, y, TD, TD);
+        this.speckle(ctx, tx, ty, x, y, palette.roadDark, 5, 2, 3);
+        break;
+      case T_SIDEWALK:
+        this.paintSidewalk(ctx, tx, ty, x, y);
+        break;
+      case T_LOT:
+        this.paintLot(ctx, tx, ty, x, y);
+        break;
+      case T_RUNWAY:
+        this.paintRunway(ctx, tx, ty, x, y);
+        break;
+      default:
+        this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
+    }
   }
 
   /** Bevel code at a tile, or BEV_NONE off-map / before the map arrives. */
@@ -993,6 +1247,13 @@ export class TileLayer {
     ty: number,
     x: number,
     y: number,
+    /**
+     * Draw the pale lip along this tile's own dry edges. Off for a tile the
+     * coast course runs through: the curve strokes the waterline where the
+     * water actually starts, and the tile-edge version of the same line
+     * beside it is the staircase the curve exists to replace.
+     */
+    lip = true,
   ): void {
     ctx.fillStyle = palette.water;
     ctx.fillRect(x, y, TD, TD);
@@ -1006,6 +1267,7 @@ export class TileLayer {
       ctx.fillRect(bx | 0, by, bw, Math.max(1, (TD / 12) | 0));
     }
     // Shore lip against any non-water neighbour.
+    if (!lip) return;
     ctx.fillStyle = shade(palette.water, 0.3, '#bfe0ef');
     if (this.tileAt(tx, ty - 1) !== T_WATER && this.tileAt(tx, ty - 1) !== T_BRIDGE) {
       ctx.fillRect(x, y, TD, Math.max(1, (TD / 14) | 0));
@@ -1025,9 +1287,12 @@ export class TileLayer {
     ty: number,
     x: number,
     y: number,
+    /** As `paintWater`: off where the coast course draws the edge instead. */
+    coping = true,
   ): void {
     ctx.fillStyle = palette.bank;
     ctx.fillRect(x, y, TD, TD);
+    if (!coping) return;
     ctx.fillStyle = palette.bankEdge;
     const lip = Math.max(1, (TD / 8) | 0);
     const wet = (nx: number, ny: number): boolean => {
@@ -1655,11 +1920,53 @@ export class TileLayer {
     const dx = SHADOW_DEPTH * SUN_X * RENDER_SCALE;
     const dy = SHADOW_DEPTH * SUN_Y * RENDER_SCALE;
 
+    // A building that faces a street casts a shadow of the mass that is
+    // DRAWN, not of the tiles it is bookkept as (§20). Without this the
+    // rotated block stands on a square shadow, which reads as a second
+    // building underneath it lying the old way round.
+    const map = this.map;
+    const massed = new Set<number>();
+    const rotated: Array<Array<[number, number]>> = [];
+    for (const b of map?.buildings ?? []) {
+      if ((b.angle ?? 0) === 0) continue;
+      if (b.x + b.w < tx0 - 2 || b.x > tx0 + CHUNK_TILES + 1) continue;
+      if (b.y + b.h < ty0 - 2 || b.y > ty0 + CHUNK_TILES + 1) continue;
+      let solid = true;
+      for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) {
+          if (this.tileAt(tx, ty) !== T_BUILDING) {
+            solid = false;
+            break;
+          }
+        }
+      }
+      if (!solid) continue;
+      for (let ty = b.y; ty < b.y + b.h; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) massed.add(ty * (map as CityMap).widthTiles + tx);
+      }
+      rotated.push(
+        buildingCorners(b).map(([cx, cy]) => [(cx - tx0) * TD, (cy - ty0) * TD] as [number, number]),
+      );
+    }
+    const poly = (pts: Array<[number, number]>, ox: number, oy: number): void => {
+      sctx.beginPath();
+      sctx.moveTo((pts[0] as [number, number])[0] + ox, (pts[0] as [number, number])[1] + oy);
+      for (let i = 1; i < pts.length; i++) {
+        sctx.lineTo((pts[i] as [number, number])[0] + ox, (pts[i] as [number, number])[1] + oy);
+      }
+      sctx.closePath();
+      sctx.fill();
+    };
+    const plain = (tx: number, ty: number): boolean =>
+      this.tileAt(tx, ty) === T_BUILDING &&
+      !massed.has(ty * ((map as CityMap).widthTiles ?? 1) + tx);
+
     sctx.fillStyle = palette.shadow;
-    let any = false;
+    let any = rotated.length > 0;
+    for (const pts of rotated) poly(pts, dx, dy);
     for (let ty = ty0 - 2; ty <= ty0 + CHUNK_TILES + 1; ty++) {
       for (let tx = tx0 - 2; tx <= tx0 + CHUNK_TILES + 1; tx++) {
-        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+        if (!plain(tx, ty)) continue;
         any = true;
         sctx.fillRect((tx - tx0) * TD + dx, (ty - ty0) * TD + dy, TD, TD);
       }
@@ -1667,9 +1974,10 @@ export class TileLayer {
     if (!any) return;
 
     sctx.globalCompositeOperation = 'destination-out';
+    for (const pts of rotated) poly(pts, 0, 0);
     for (let ty = ty0 - 2; ty <= ty0 + CHUNK_TILES + 1; ty++) {
       for (let tx = tx0 - 2; tx <= tx0 + CHUNK_TILES + 1; tx++) {
-        if (this.tileAt(tx, ty) !== T_BUILDING) continue;
+        if (!plain(tx, ty)) continue;
         sctx.fillRect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
       }
     }
@@ -1678,6 +1986,226 @@ export class TileLayer {
     ctx.globalAlpha = 0.34;
     ctx.drawImage(scratch, 0, 0);
     ctx.restore();
+  }
+
+  /**
+   * The ground a building stands ON, painted under it.
+   *
+   * The square city never needed this: a roof covered its own footprint
+   * exactly, so what was underneath was never seen and both chunk builders
+   * left it as a flat fill. A rotated mass does not cover its footprint —
+   * that is the whole point of it — and the corners it vacates showed the
+   * flat fill as dark squares lying the old way round, which read as a second
+   * building underneath the first.
+   *
+   * Painted for EVERY building tile rather than only the turned ones: the
+   * square case is covered by its own roof a moment later, so it costs a fill
+   * nobody sees and saves a branch that could disagree with the mass painter
+   * about which buildings are turned.
+   */
+  private paintPlot(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    plants: boolean,
+  ): void {
+    let ground = T_SIDEWALK;
+    let best = Infinity;
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        const t = this.tileAt(tx + ox, ty + oy);
+        if (t === T_BUILDING || t === T_WATER || t === T_BRIDGE) continue;
+        const d = ox * ox + oy * oy;
+        if (d < best) {
+          best = d;
+          ground = t;
+        }
+      }
+    }
+    this.paintGround(ctx, tx, ty, x, y, ground, plants);
+  }
+
+  /**
+   * The paving a turned building stands on, turned with it.
+   *
+   * A building's plot is laid in tiles, so its forecourt is a square ring of
+   * pavement round a mass that is not square — and a turned house on square
+   * paving reads as a house somebody rotated after the fact, which is what it
+   * was. This lays the apron the building would actually have: the mass grown
+   * by a tile, at the mass's own angle, in the pavement the plot is made of.
+   *
+   * Clipped to the building's own footprint and the ring of ground beside it,
+   * and never over carriageway or water — a doorstep may take a tile of grass
+   * and may not take a lane. The mass is drawn on top of this immediately
+   * afterwards, so what shows is the margin between them.
+   */
+  private paintMassApron(
+    ctx: CanvasRenderingContext2D,
+    m: { b: Building; i: number },
+    tx0: number,
+    ty0: number,
+  ): void {
+    const b = m.b;
+    const mass = buildingMass(b);
+    ctx.save();
+    // Only over ground the apron is allowed on: this building's own tiles,
+    // and the pavement or garden immediately round them.
+    ctx.beginPath();
+    for (let ty = b.y - 1; ty <= b.y + b.h; ty++) {
+      for (let tx = b.x - 1; tx <= b.x + b.w; tx++) {
+        const t = this.tileAt(tx, ty);
+        const own = tx >= b.x && tx < b.x + b.w && ty >= b.y && ty < b.y + b.h;
+        const soft =
+          t === T_SIDEWALK || t === T_PARK || t === T_FIELD || t === T_LOT || t === T_BUILDING;
+        if (!own && !soft) continue;
+        ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
+      }
+    }
+    ctx.clip();
+    ctx.translate((mass.cx - tx0) * TD, (mass.cy - ty0) * TD);
+    ctx.rotate(mass.rad);
+    // A tile of forecourt all round, and the paving the plot is made of.
+    const w = (mass.w + 2) * TD;
+    const h = (mass.h + 2) * TD;
+    const cx = Math.floor(mass.cx);
+    const cy = Math.floor(mass.cy);
+    ctx.translate(-w / 2, -h / 2);
+    this.paintApronGround(ctx, cx, cy, w, h);
+    ctx.restore();
+  }
+
+  /** The apron's surface: pavement art, tiled across the turned rectangle. */
+  private paintApronGround(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    w: number,
+    h: number,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.clip();
+    // Painted tile by tile in the apron's OWN frame, so the paving slabs run
+    // with the building rather than with the world.
+    for (let y = 0; y < h; y += TD) {
+      for (let x = 0; x < w; x += TD) {
+        this.paintSidewalk(ctx, tx + Math.round(x / TD), ty + Math.round(y / TD), x, y);
+      }
+    }
+    ctx.restore();
+  }
+
+  /**
+   * The rotated masses touching a chunk: the buildings that face a street and
+   * whose footprint is solid (a shop is a room punched out of one, and a mass
+   * over the whole rect would put a lid on it — the same rule
+   * `roofCanvasFor` has always applied per tile).
+   */
+  private massesNear(tx0: number, ty0: number): Array<{ b: Building; i: number }> {
+    const map = this.map;
+    if (!map) return [];
+    const out: Array<{ b: Building; i: number }> = [];
+    for (let i = 0; i < map.buildings.length; i++) {
+      const b = map.buildings[i] as Building;
+      if ((b.angle ?? 0) === 0) continue;
+      if (b.x + b.w < tx0 - 2 || b.x > tx0 + CHUNK_TILES + 1) continue;
+      if (b.y + b.h < ty0 - 2 || b.y > ty0 + CHUNK_TILES + 1) continue;
+      let solid = true;
+      for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) {
+          if (this.tileAt(tx, ty) !== T_BUILDING) {
+            solid = false;
+            break;
+          }
+        }
+      }
+      if (solid) out.push({ b, i });
+    }
+    return out;
+  }
+
+  /** The rotated mass's footprint in this chunk's device pixels. */
+  private massPoly(b: Building, tx0: number, ty0: number): Array<[number, number]> {
+    return buildingCorners(b).map(
+      ([cx, cy]) => [(cx - tx0) * TD, (cy - ty0) * TD] as [number, number],
+    );
+  }
+
+  /**
+   * A rotated mass's side, swept sun-away — the hexagon the square painter
+   * draws, at the angle the building faces. Built as the two end quads plus a
+   * face per edge rather than as a hull, because a hull of eight points is
+   * more arithmetic than four fills for the same picture.
+   */
+  private paintMassWall(
+    ctx: CanvasRenderingContext2D,
+    m: { b: Building; i: number },
+    tx0: number,
+    ty0: number,
+  ): void {
+    const dx = WALL_DEPTH * SUN_X * RENDER_SCALE;
+    const dy = WALL_DEPTH * SUN_Y * RENDER_SCALE;
+    const poly = this.massPoly(m.b, tx0, ty0);
+    ctx.fillStyle = shade(this.roofColorOf(m.b), 0.55, palette.wallShade);
+    const fill = (ox: number, oy: number): void => {
+      ctx.beginPath();
+      const p0 = poly[0] as [number, number];
+      ctx.moveTo(p0[0] + ox, p0[1] + oy);
+      for (let i = 1; i < poly.length; i++) {
+        const p = poly[i] as [number, number];
+        ctx.lineTo(p[0] + ox, p[1] + oy);
+      }
+      ctx.closePath();
+      ctx.fill();
+    };
+    fill(0, 0);
+    fill(dx, dy);
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i] as [number, number];
+      const q = poly[(i + 1) % poly.length] as [number, number];
+      ctx.beginPath();
+      ctx.moveTo(p[0], p[1]);
+      ctx.lineTo(q[0], q[1]);
+      ctx.lineTo(q[0] + dx, q[1] + dy);
+      ctx.lineTo(p[0] + dx, p[1] + dy);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  /**
+   * A rotated mass's roof: the SAME baked art the square painter makes,
+   * turned. Reusing `roofCanvasFor` rather than re-authoring the speckle, the
+   * parapets and the clutter against a polygon is what keeps a rotated roof
+   * and a square one obviously the same city.
+   */
+  private paintMassRoof(
+    ctx: CanvasRenderingContext2D,
+    m: { b: Building; i: number },
+    tx0: number,
+    ty0: number,
+  ): void {
+    const canvas = this.roofCanvasFor(m.i);
+    const mass = buildingMass(m.b);
+    ctx.save();
+    ctx.translate((mass.cx - tx0) * TD, (mass.cy - ty0) * TD);
+    ctx.rotate(mass.rad);
+    const w = mass.w * TD;
+    const h = mass.h * TD;
+    if (canvas) ctx.drawImage(canvas, -w / 2, -h / 2, w, h);
+    else {
+      ctx.fillStyle = this.roofColorOf(m.b);
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+    }
+    ctx.restore();
+  }
+
+  /** A building's roof colour — the same one its own tiles are painted. */
+  private roofColorOf(b: Building): string {
+    return this.roofColor(b.x, b.y);
   }
 
   /**
