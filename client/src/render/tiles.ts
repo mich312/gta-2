@@ -27,6 +27,8 @@ import {
   BEV_SW,
   bevelOther,
   inCutHalf,
+  shoreHalf,
+  shoreChains,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import {
@@ -177,6 +179,18 @@ interface Chunk {
   touched: number;
 }
 
+/** The eight neighbours, nearest first — for "what is this tile beside". */
+const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+];
+
 function shade(hex: string, amount: number, towards = '#0b111c'): string {
   const a = parseInt(hex.slice(1), 16);
   const b = parseInt(towards.slice(1), 16);
@@ -238,6 +252,17 @@ export class TileLayer {
     maxY: number;
   }> = [];
   private courseCover: Uint8Array | null = null;
+  /**
+   * The coast running through each tile it crosses (§18), in tile-LOCAL
+   * units as a flat polyline — the cut `paintShoreTile` divides that tile
+   * with, sharing its ends with the neighbouring tiles' cuts.
+   *
+   * A map rather than a plane because a coast is a line through a plane: the
+   * shipped city has three thousand segments touching maybe eight thousand
+   * tiles out of half a million, and a Map of the ones that matter is smaller
+   * than a Float32Array of the ones that do not.
+   */
+  private shoreSegs: Map<number, Float32Array> | null = null;
 
   constructor(private readonly sprites: SpriteSheet) {}
 
@@ -250,6 +275,13 @@ export class TileLayer {
     this.indexShops(map);
     this.indexRoadRuns(map);
     this.indexCourses(map);
+    this.indexShores(map);
+  }
+
+  /** The coast running through each shore tile (`shoreChains`, §18). */
+  private indexShores(map: CityMap): void {
+    const loops = map.shores ?? [];
+    this.shoreSegs = loops.length === 0 ? null : shoreChains(loops, map.widthTiles, map.heightTiles);
   }
 
   /** World-px ribbons and the tile cover mask, from the baked courses. */
@@ -702,10 +734,30 @@ export class TileLayer {
             ? tile
             : bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty);
         const wetHalf = tile === T_WATER || (code !== BEV_NONE && other === T_WATER);
+        // The coast course, where there is one, decides the cutout instead
+        // of the bevel — the same substitution the 2D painter makes, and the
+        // reason the mask is eight texels an edge rather than one: it was
+        // always built to follow a line finer than the tile, and until now
+        // the finest line it had was a 45° cut.
+        const seg = this.shoreSegAt(tx, ty);
         for (let sy = 0; sy < CUT_SUB; sy++) {
           for (let sx = 0; sx < CUT_SUB; sx++) {
             let wet = false;
-            if (wetHalf) {
+            if (seg !== undefined) {
+              // Water on the right of every run of the chain; y down, so the
+              // cross product is positive on the wet side. A texel is wet
+              // when the LAST run that has an opinion says so, which is the
+              // same rule `shoreHalf` clips by.
+              const ux = (sx + 0.5) / CUT_SUB;
+              const uy = (sy + 0.5) / CUT_SUB;
+              for (let k = 0; k + 3 < seg.length; k += 2) {
+                const cax = seg[k] as number;
+                const cay = seg[k + 1] as number;
+                const cvx = (seg[k + 2] as number) - cax;
+                const cvy = (seg[k + 3] as number) - cay;
+                wet = cvx * (uy - cay) - cvy * (ux - cax) > 0;
+              }
+            } else if (wetHalf) {
               if (code === BEV_NONE) {
                 wet = true;
               } else {
@@ -731,9 +783,12 @@ export class TileLayer {
           // towards transparent black was a dark rim around every island.
           ctx.fillStyle = palette.water;
           ctx.fillRect(x, y, TD, TD);
-          // A bevelled water tile is half beach (or bank grass): paint the
-          // dry wedge so the ground plane has something to show there.
-          this.paintBevel(ctx, tx, ty, x, y, false);
+          // A water tile the coast crosses is part beach (or bank, or quay):
+          // paint the dry side so the ground plane has something to show
+          // where the cutout has just decided not to remove it.
+          const dry = this.shoreSegAt(tx, ty);
+          if (dry !== undefined) this.paintShoreTile(ctx, tx, ty, x, y, dry, false);
+          else this.paintBevel(ctx, tx, ty, x, y, false);
           continue;
         }
         if (tile === T_BUILDING) {
@@ -871,12 +926,168 @@ export class TileLayer {
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
     }
-    // The diagonal shoreline: where the bevel plane says half this tile is
-    // the neighbour's material, paint that half over the base, clipped to
-    // its triangle. Painted last so it wins over the base painter's own
-    // edge details (a water tile's straight shore lip, say) wherever the
-    // two disagree — which is exactly the half being repainted.
-    this.paintBevel(ctx, tx, ty, x, y, plants);
+    // The shoreline. Two ways of drawing the same line, and the better one
+    // wins where it exists: the coast course (§18) cuts this tile at whatever
+    // angle the coast actually runs at, and the bevel plane (§15) cuts it at
+    // 45° or not at all. A tile the curve passes through is repainted against
+    // the curve and the bevel is skipped, because a half-tile triangle and a
+    // chord disagreeing about where the sea starts is worse than either.
+    const seg = this.shoreSegAt(tx, ty);
+    if (seg !== undefined) this.paintShoreTile(ctx, tx, ty, x, y, seg, plants);
+    else this.paintBevel(ctx, tx, ty, x, y, plants);
+  }
+
+  /** The nearest shore-course segment through a tile, if the coast runs here. */
+  private shoreSegAt(tx: number, ty: number): Float32Array | undefined {
+    const map = this.map;
+    if (this.shoreSegs === null || !map) return undefined;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
+    return this.shoreSegs.get(ty * map.widthTiles + tx);
+  }
+
+  /**
+   * One tile of coast, painted against the CURVE instead of its own edges.
+   *
+   * The generalisation of `paintBevel`, and it is one step: a bevel clips the
+   * tile with a diagonal from corner to corner, this clips it with the chord
+   * the coast course actually cuts through it. Land on one side in whatever
+   * the land is made of here, sea on the other, and the pale lip stroked
+   * along the chord — the same three things the square painter and the
+   * bevelled painter both do, at the angle the coast runs rather than at one
+   * of the five angles a tile grid can say.
+   *
+   * Per tile rather than by filling the whole loop as one path, deliberately.
+   * A chunk is 32 tiles and a coast loop is a thousand points round an
+   * island; filling it per chunk means clipping a path most of which is
+   * somewhere else, and getting the parity right for a chunk that sits INSIDE
+   * a loop with none of it crossing. Locally the curve through one tile is a
+   * chord to well under a pixel, and a chord costs four corners of arithmetic.
+   */
+  private paintShoreTile(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    seg: Float32Array,
+    plants: boolean,
+  ): void {
+    /** The chain, and each half of the square, in this tile's device pixels. */
+    const local = (p: [number, number]): [number, number] => [x + p[0] * TD, y + p[1] * TD];
+    const halfOf = (wantWet: boolean): Array<[number, number]> =>
+      shoreHalf(seg, wantWet).map(local);
+    const square: Array<[number, number]> = [
+      [x, y],
+      [x + TD, y],
+      [x + TD, y + TD],
+      [x, y + TD],
+    ];
+    const clipTo = (poly: Array<[number, number]>): boolean => {
+      if (poly.length < 3) return false;
+      ctx.beginPath();
+      ctx.moveTo((poly[0] as [number, number])[0], (poly[0] as [number, number])[1]);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo((poly[i] as [number, number])[0], (poly[i] as [number, number])[1]);
+      }
+      ctx.closePath();
+      ctx.clip();
+      return true;
+    };
+
+    // What the land is made of here. The tile's own material if it is dry;
+    // otherwise the nearest dry neighbour's, because a sea tile the curve has
+    // just made half-dry belongs to the beach or the quay beside it and not
+    // to some default. Buildings are skipped: a wall does not run into water,
+    // and painting one under the waterline would show as a block in the surf.
+    let landTile = this.tileAt(tx, ty);
+    if (landTile === T_WATER || landTile === T_BRIDGE) {
+      let bd = Infinity;
+      for (const [dx, dy] of NEIGHBOURS) {
+        const t = this.tileAt(tx + dx, ty + dy);
+        if (t === T_WATER || t === T_BRIDGE || t === T_BUILDING) continue;
+        const d = dx * dx + dy * dy;
+        if (d < bd) {
+          bd = d;
+          landTile = t;
+        }
+      }
+      if (landTile === T_WATER || landTile === T_BRIDGE) landTile = T_FIELD;
+    }
+
+    ctx.save();
+    if (clipTo(halfOf(false))) this.paintShoreMaterial(ctx, tx, ty, x, y, landTile, plants);
+    ctx.restore();
+    ctx.save();
+    if (clipTo(halfOf(true))) {
+      // A bridge deck keeps its own painter: the coast runs UNDER it, so the
+      // wet side of a bridge tile is deck, not sea.
+      if (this.tileAt(tx, ty) === T_BRIDGE) this.paintBridge(ctx, tx, ty, x, y);
+      else this.paintWater(ctx, tx, ty, x, y, false);
+    }
+    ctx.restore();
+
+    // The waterline itself, along the chain. Clipped to the tile so the
+    // stroke's width cannot bleed into the neighbour, which paints its own —
+    // and because the chains share their ends, the two strokes join.
+    if (this.tileAt(tx, ty) !== T_BRIDGE && seg.length >= 4) {
+      ctx.save();
+      clipTo(square);
+      ctx.strokeStyle = shade(palette.water, 0.3, '#bfe0ef');
+      ctx.lineWidth = Math.max(1, (TD / 14) | 0);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x + (seg[0] as number) * TD, y + (seg[1] as number) * TD);
+      for (let k = 2; k + 1 < seg.length; k += 2) {
+        ctx.lineTo(x + (seg[k] as number) * TD, y + (seg[k + 1] as number) * TD);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  /** The ordinary ground painters, dispatched for a shore tile's dry half. */
+  private paintShoreMaterial(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    tile: number,
+    plants: boolean,
+  ): void {
+    switch (tile) {
+      case T_SAND:
+        this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
+        break;
+      case T_BANK:
+        this.paintBank(ctx, tx, ty, x, y, false);
+        break;
+      case T_PARK:
+        this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
+        break;
+      case T_TREES:
+        this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true, plants);
+        break;
+      case T_ROAD:
+        // Bare asphalt, no marks: a slice of carriageway at the waterline is
+        // a kerbside sliver and never a lane.
+        ctx.fillStyle = palette.road;
+        ctx.fillRect(x, y, TD, TD);
+        this.speckle(ctx, tx, ty, x, y, palette.roadDark, 5, 2, 3);
+        break;
+      case T_SIDEWALK:
+        this.paintSidewalk(ctx, tx, ty, x, y);
+        break;
+      case T_LOT:
+        this.paintLot(ctx, tx, ty, x, y);
+        break;
+      case T_RUNWAY:
+        this.paintRunway(ctx, tx, ty, x, y);
+        break;
+      default:
+        this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
+    }
   }
 
   /** Bevel code at a tile, or BEV_NONE off-map / before the map arrives. */
@@ -993,6 +1204,13 @@ export class TileLayer {
     ty: number,
     x: number,
     y: number,
+    /**
+     * Draw the pale lip along this tile's own dry edges. Off for a tile the
+     * coast course runs through: the curve strokes the waterline where the
+     * water actually starts, and the tile-edge version of the same line
+     * beside it is the staircase the curve exists to replace.
+     */
+    lip = true,
   ): void {
     ctx.fillStyle = palette.water;
     ctx.fillRect(x, y, TD, TD);
@@ -1006,6 +1224,7 @@ export class TileLayer {
       ctx.fillRect(bx | 0, by, bw, Math.max(1, (TD / 12) | 0));
     }
     // Shore lip against any non-water neighbour.
+    if (!lip) return;
     ctx.fillStyle = shade(palette.water, 0.3, '#bfe0ef');
     if (this.tileAt(tx, ty - 1) !== T_WATER && this.tileAt(tx, ty - 1) !== T_BRIDGE) {
       ctx.fillRect(x, y, TD, Math.max(1, (TD / 14) | 0));
@@ -1025,9 +1244,12 @@ export class TileLayer {
     ty: number,
     x: number,
     y: number,
+    /** As `paintWater`: off where the coast course draws the edge instead. */
+    coping = true,
   ): void {
     ctx.fillStyle = palette.bank;
     ctx.fillRect(x, y, TD, TD);
+    if (!coping) return;
     ctx.fillStyle = palette.bankEdge;
     const lip = Math.max(1, (TD / 8) | 0);
     const wet = (nx: number, ny: number): boolean => {

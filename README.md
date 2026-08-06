@@ -131,7 +131,16 @@ line instead of a staircase. It does not touch the shipped city: the way a
 rolled one would become it is the way any city does, by editing the plan and
 running the bake. `WORLDGEN.md` §17.
 
+The coastline is a polyline, not a staircase: the waterline is traced out of
+the finished tiles as closed loops, rounded, and handed to all three painters —
+the 2D chunk painter cuts each shore tile along it, the 3D ground's cutout
+follows it, and the 3D geometry replaces the tile's box with a prism whose
+vertical face is the water's edge. Derived, never baked, and cosmetic: the
+tiles are still what collision reads. `WORLDGEN.md` §18.
+
 ![Anywhere City](evidence/city-anywhere.png)
+
+![The coast, drawn in one line](evidence/city-shore-curve.png)
 
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,
 weapons, police, peds, ambulance, props, economy, fittings, worldgen, palette,

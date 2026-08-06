@@ -35,6 +35,14 @@ export interface RenderableMap {
   tiles: Uint8Array;
   district: Uint8Array;
   bevel?: Uint8Array | undefined;
+  /**
+   * The coastline as closed polylines (WORLDGEN.md §18). Given, the painter
+   * shades the coast against the CURVE instead of the tile edge, which is
+   * the only way a still can show what the change is for: at two pixels a
+   * tile a half-tile bevel is one pixel, and a smooth coast and a stepped
+   * one are the same picture.
+   */
+  shores?: ReadonlyArray<{ points: Array<readonly [number, number]>; land: boolean }> | undefined;
   shops?: ReadonlyArray<{ kind: string; doorX: number; doorY: number }>;
   playerSpawns?: ReadonlyArray<{ x: number; y: number }>;
 }
@@ -129,6 +137,109 @@ export function render(
             oc !== null && inCutHalf(code, ((px + 0.5) / scale) * 16, ((py + 0.5) / scale) * 16);
           put(tx * scale + px, ty * scale + py, cut ? oc : c);
         }
+      }
+    }
+  }
+
+  // The coast, repainted against the curve.
+  //
+  // Every pixel within about a tile of a shore polyline is re-decided: which
+  // side of the line it falls on says whether it is sea or shore, and the
+  // material it takes is the one belonging to that side. The tile pass above
+  // has already put down a staircase; this walks over the staircase with the
+  // line the tiles were a rasterisation OF.
+  //
+  // Nearest-segment rather than a proper point-in-polygon test, because the
+  // question is only ever asked within a tile of the line, where the two
+  // agree everywhere except inside the turn of a very sharp corner — and the
+  // disagreement there is a fraction of a pixel at any scale a map is drawn
+  // at. The client's painter clips real paths and does not approximate.
+  if (map.shores !== undefined && map.shores.length > 0) {
+    const REACH = 1.1;
+    const best = new Float32Array(W * H).fill(Infinity);
+    const side = new Int8Array(W * H);
+    const water = colors[T_WATER] as [number, number, number];
+    for (const loop of map.shores) {
+      const n = loop.points.length;
+      for (let k = 0; k < n; k++) {
+        const [ax, ay] = loop.points[k] as readonly [number, number];
+        const [bx, by] = loop.points[(k + 1) % n] as readonly [number, number];
+        // Pixel-space endpoints, relative to the crop.
+        const pax = (ax - x0) * scale;
+        const pay = (ay - y0) * scale;
+        const pbx = (bx - x0) * scale;
+        const pby = (by - y0) * scale;
+        const pad = REACH * scale + 1;
+        const lo = Math.max(0, Math.floor(Math.min(pax, pbx) - pad));
+        const hi = Math.min(W - 1, Math.ceil(Math.max(pax, pbx) + pad));
+        const lo2 = Math.max(0, Math.floor(Math.min(pay, pby) - pad));
+        const hi2 = Math.min(H - 1, Math.ceil(Math.max(pay, pby) + pad));
+        const vx = pbx - pax;
+        const vy = pby - pay;
+        const len2 = vx * vx + vy * vy || 1;
+        for (let py = lo2; py <= hi2; py++) {
+          for (let px = lo; px <= hi; px++) {
+            const rx = px + 0.5 - pax;
+            const ry = py + 0.5 - pay;
+            const t = Math.max(0, Math.min(1, (rx * vx + ry * vy) / len2));
+            const dx = rx - t * vx;
+            const dy = ry - t * vy;
+            const d = Math.hypot(dx, dy);
+            const i = py * W + px;
+            if (d >= (best[i] as number)) continue;
+            best[i] = d;
+            // Water is on the right of travel, and with y down the right of
+            // a direction is the direction turned a quarter turn clockwise:
+            // the cross product comes out positive there.
+            side[i] = vx * ry - vy * rx > 0 ? 1 : -1;
+          }
+        }
+      }
+    }
+    /** The material this side of the line is made of, at this pixel. */
+    const landAt = (px: number, py: number): [number, number, number] => {
+      const mx = x0 + Math.floor(px / scale);
+      const my = y0 + Math.floor(py / scale);
+      const sample = (sx: number, sy: number): [number, number, number] | null => {
+        if (sx < 0 || sy < 0 || sx >= map.widthTiles || sy >= map.heightTiles) return null;
+        const t = map.tiles[sy * map.widthTiles + sx] as number;
+        if (t === T_WATER || t === T_BRIDGE) return null;
+        if (t === T_BUILDING) {
+          const d = DISTRICT_TYPES[map.district[sy * map.widthTiles + sx] as number] as string;
+          return hexToRgb(palette.building[d] ?? '#888888');
+        }
+        return colors[t] ?? null;
+      };
+      // Own tile first, then the NEAREST dry one in the ring — nearest by
+      // where the pixel actually is, not by a fixed order. A beach is one
+      // tile of sand with grass behind it, so "first dry neighbour I find"
+      // puts a green notch in the sand every time the search order happens
+      // to look inland before it looks along the shore.
+      const own = sample(mx, my);
+      if (own !== null) return own;
+      let best: [number, number, number] | null = null;
+      let bd = Infinity;
+      for (const [dx, dy] of [
+        [1, 0], [-1, 0], [0, 1], [0, -1],
+        [1, 1], [1, -1], [-1, 1], [-1, -1],
+      ] as const) {
+        const near = sample(mx + dx, my + dy);
+        if (near === null) continue;
+        const cx = (mx + dx + 0.5 - x0) * scale;
+        const cy = (my + dy + 0.5 - y0) * scale;
+        const d = (cx - px) * (cx - px) + (cy - py) * (cy - py);
+        if (d < bd) {
+          bd = d;
+          best = near;
+        }
+      }
+      return best ?? (colors[T_FIELD] as [number, number, number]);
+    };
+    for (let py = 0; py < H; py++) {
+      for (let px = 0; px < W; px++) {
+        const i = py * W + px;
+        if (!Number.isFinite(best[i] as number)) continue;
+        put(px, py, side[i] === 1 ? water : landAt(px, py));
       }
     }
   }

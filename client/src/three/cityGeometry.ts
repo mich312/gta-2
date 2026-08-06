@@ -30,6 +30,8 @@ import {
   BEV_SW,
   TREE_Z,
   bevelOther,
+  shoreHalf,
+  shoreChains,
   oppositeHalf,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -587,6 +589,10 @@ export function buildCity(map: CityMap): CityBuild {
   /** Roof height per tile, filled as the grid is walked. */
   const heightAt = new Float64Array(W * H);
 
+  // The coast as curves (§18): which segment cuts each shore tile, computed
+  // once for both the sinking below and the prisms that replace what is sunk.
+  const shoreCut = map.shores && map.shores.length > 0 ? shoreChains(map.shores, W, H) : null;
+
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
@@ -632,10 +638,17 @@ export function buildCity(map: CityMap): CityBuild {
       // gets its ground back as a shore wedge (`buildShoreWedges`), whose
       // diagonal face is the new waterline.
       const bevCode = map.bevel ? (map.bevel[idx] as number) : 0;
+      // A tile the coast course crosses loses its box entirely: the box is
+      // square and the coast is not, and `buildShorePrisms` puts the dry
+      // part back as a prism cut by the curve. Only ground-level tiles —
+      // a building never stands at the waterline, and sinking one would
+      // drop a tower into the sea.
+      const crossed = shoreCut !== null && shoreCut.has(idx) && GROUND_AT_SEA.has(tile);
       const sunk =
-        bevCode !== 0 &&
-        tile !== T_WATER &&
-        bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER;
+        crossed ||
+        (bevCode !== 0 &&
+          tile !== T_WATER &&
+          bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER);
       if (sunk) surface = SURFACES[T_WATER] as Surface;
       const list = bucket(tx, ty, surface);
 
@@ -682,7 +695,8 @@ export function buildCity(map: CityMap): CityBuild {
   instances += buildRoofDetail(map, group, heightAt);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
-  instances += buildShoreWedges(map, group);
+  instances += buildShorePrisms(map, group, shoreCut);
+  instances += buildShoreWedges(map, group, shoreCut);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
   // One material per surface, shared by every chunk that has any of it.
@@ -891,6 +905,145 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
 }
 
 /**
+ * The surfaces a coastline is allowed to cut through.
+ *
+ * Everything the sea can lap against and nothing that stands up. A shore
+ * tile's box is sunk and replaced by a prism, and sinking a tile with height
+ * on it — a building, a wall — would drop the whole mass to the riverbed.
+ */
+const GROUND_AT_SEA = new Set<number>([
+  T_WATER,
+  T_SAND,
+  T_BANK,
+  T_FIELD,
+  T_PARK,
+  T_LOT,
+  T_ROAD,
+  T_SIDEWALK,
+  T_TREES,
+  T_RUNWAY,
+]);
+
+/**
+ * The dry side of every tile the coast course crosses, as real geometry.
+ *
+ * The generalisation of `buildShoreWedges` below, and the same three
+ * triangles' worth of idea: the painted ground plane draws the coast and its
+ * cutout opens the water beside it, but painted ground floating over a hole
+ * has no sides — from anything but straight overhead you would see water
+ * sliding under the beach's edge. This puts the ground back. What changed is
+ * the shape: a bevel could only cut a tile corner to corner, so the coast in
+ * 3D was a staircase with some of its steps chamfered, and a chord cuts it at
+ * whatever angle the coast actually runs at.
+ *
+ * The tile's own box is gone by the time this runs (`crossed` in the walk
+ * above sinks it to the riverbed), so this prism IS the land there: a top
+ * face at street level, and a vertical face down the chord which is the
+ * waterline.
+ */
+function buildShorePrisms(
+  map: CityMap,
+  group: THREE.Group,
+  cuts: Map<number, Float32Array> | null,
+): number {
+  if (cuts === null) return 0;
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const T = TILE_SIZE;
+  const DEPTH = 16;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  let prisms = 0;
+
+  const put = (x: number, y: number, z: number): void => {
+    positions.push(x, y, z);
+    colors.push(color.r, color.g, color.b);
+  };
+
+  for (const [idx, seg] of cuts) {
+    const tx = idx % W;
+    const ty = (idx - tx) / W;
+    const tile = map.tiles[idx] as number;
+    if (!GROUND_AT_SEA.has(tile)) continue;
+    const dry = shoreHalf(seg, false);
+    if (dry.length < 3) continue;
+
+    // What the dry side is made of: this tile if it is dry land, else the
+    // nearest dry neighbour — a sea tile the curve has made half-dry belongs
+    // to the beach or the quay beside it, not to some default.
+    let mat = tile;
+    if (mat === T_WATER || mat === T_BRIDGE) {
+      let best = Infinity;
+      for (const [dx, dy] of [
+        [1, 0], [-1, 0], [0, 1], [0, -1],
+        [1, 1], [1, -1], [-1, 1], [-1, -1],
+      ] as const) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const t = map.tiles[ny * W + nx] as number;
+        if (t === T_WATER || t === T_BRIDGE || t === T_BUILDING) continue;
+        const d = dx * dx + dy * dy;
+        if (d < best) {
+          best = d;
+          mat = t;
+        }
+      }
+      if (mat === T_WATER || mat === T_BRIDGE) continue;
+    }
+
+    color.set((SURFACES[mat] ?? DEFAULT_SURFACE).color);
+    // Street level, or canopy height on the wooded shore: a cliff's corner,
+    // not a green skirt at its foot (§15.4 item 2).
+    const top = mat === T_TREES ? TREE_Z * Z_SCALE : 0;
+    const px = (p: [number, number]): number => (tx + p[0]) * T;
+    const py = (p: [number, number]): number => (ty + p[1]) * T;
+    // Top face, fanned from the first corner: the half is convex, always.
+    for (let i = 1; i + 1 < dry.length; i++) {
+      put(px(dry[0] as [number, number]), py(dry[0] as [number, number]), top);
+      put(px(dry[i] as [number, number]), py(dry[i] as [number, number]), top);
+      put(px(dry[i + 1] as [number, number]), py(dry[i + 1] as [number, number]), top);
+    }
+    // A wall down EVERY edge of the half, the tile borders included.
+    //
+    // Skipping the borders is the obvious saving and it leaves holes you can
+    // see the sky through. Two neighbouring shore tiles share an edge, but
+    // their dry halves only share the point where the coast crosses it: above
+    // that point one is land and the other is sea, and that stretch of border
+    // is a real cliff with nothing behind it. Where two dry halves DO cover
+    // the same border in full, the pair of walls is interior and invisible,
+    // which is a cheaper thing to be wrong about than a gap.
+    for (let i = 0; i < dry.length; i++) {
+      const p = dry[i] as [number, number];
+      const q = dry[(i + 1) % dry.length] as [number, number];
+      put(px(p), py(p), top);
+      put(px(q), py(q), top);
+      put(px(q), py(q), -DEPTH);
+      put(px(p), py(p), top);
+      put(px(q), py(q), -DEPTH);
+      put(px(p), py(p), -DEPTH);
+    }
+    prisms++;
+  }
+  if (prisms === 0) return 0;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: toonGradient(),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return prisms;
+}
+
+/**
  * The dry halves of the bevelled shoreline, as real geometry.
  *
  * The painted ground plane draws the diagonal beach and its cutout opens the
@@ -905,7 +1058,11 @@ function buildEdgeSkirt(map: CityMap, group: THREE.Group): number {
  * that is not a box. A few hundred shore tiles at three triangles each is
  * single-digit thousands of vertices — one mesh, one draw.
  */
-function buildShoreWedges(map: CityMap, group: THREE.Group): number {
+function buildShoreWedges(
+  map: CityMap,
+  group: THREE.Group,
+  cuts: Map<number, Float32Array> | null,
+): number {
   const bevel = map.bevel;
   if (!bevel) return 0;
   const W = map.widthTiles;
@@ -928,6 +1085,8 @@ function buildShoreWedges(map: CityMap, group: THREE.Group): number {
       const idx = ty * W + tx;
       const code = bevel[idx] as number;
       if (code === 0) continue;
+      // The chord has already built this one, at a better angle.
+      if (cuts !== null && cuts.has(idx)) continue;
       const tile = map.tiles[idx] as number;
       const other = bevelOther(map.tiles, bevel, W, tx, ty);
       // Only water bevels need geometry: a sand/grass bevel sits on the

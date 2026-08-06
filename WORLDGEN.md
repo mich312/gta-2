@@ -2341,3 +2341,123 @@ islands, squares sited on junctions the traffic model has already labelled,
 and any use of the archetype after the geography — a `strait` city and an
 `estuary` city currently differ in their water and not yet in their street
 hierarchy.
+
+---
+
+## 18. Every shore a polyline — the coast drawn in one line
+
+### 18.1 The review
+
+§16 gave the roads their curves back and named the reason: the curve EXISTS,
+the bake threw it away, and the renderer spent its life reconstructing curves
+from their own wreckage. The coast is the same complaint with the opposite
+cause. Nobody drew the coastline — it fell out of a warped distance field
+(§12.7) sampled at tile centres — so there is no polyline to keep. The line is
+real, it is smooth, and the only record of it anywhere is a staircase of 16 px
+right angles.
+
+§15's bevels bought back the biggest half-tile of that staircase and could
+never buy back more: a bevel is one 45° cut, and a coast turns through every
+other angle too. Ask the flyover and it shows: `evidence/city-shore-review.png`
+is a beach made of squares with some of its corners chamfered.
+
+### 18.2 The design
+
+`shared/src/world/shoreline.ts`, three steps and no authored input:
+
+1. **Trace.** Every edge between a wet cell and a dry one, directed so the
+   water is on the RIGHT, chained end to end into closed loops — one per
+   island, per lake, per rock. Exact: it is the tile plane's own boundary.
+   The winding is the whole interface: it says which side is sea without
+   anybody having to test a point.
+2. **Round.** Chaikin corner-cutting, twice. A rasterised line's corners are
+   all the same size, so cutting all of them is exactly the right move.
+3. **Thin.** Douglas–Peucker at a third of a tile. Six thousand corners
+   become three thousand points on the shipped city; 33 ms for the whole map.
+
+**Derived, not baked**, and that is the difference from §16. A course had to
+be baked because the carve's polyline was the only copy of it; a shore has no
+source but the tiles, so recovering it costs no wire bytes, no bake format and
+no `city.data.ts` churn — and works identically for a city nobody drew. Like
+the bevel plane it is a pure function of the finished tiles, computed beside
+it in `generateCity`, so both hosts get the same coast from the same bytes
+without sending any of it.
+
+**Cosmetic, like the courses.** Collision still reads `isSolidTile` and the
+bevel plane, traffic drives its lanes, boats moor against `T_BANK`. What moved
+is what the coast LOOKS like. The smoothing is bounded so the two cannot part
+company: `shoreline.test.ts` pins every smoothed point within one tile of the
+raw boundary it came from — about the same licence a half-tile bevel already
+takes.
+
+**Cut per tile, and this is the part that took two tries.** A renderer wants
+the coast tile by tile, and the obvious way to give it that is the nearest
+segment to each tile. It is wrong by a whole tile edge: two neighbouring tiles
+pick two different segments, clip themselves against two different lines, and
+those lines cross the shared edge at two different points — a chain of chords
+that do not meet, which is a staircase again at a jauntier angle. `shoreChains`
+splits the polyline AT the tile boundaries instead, so the entry and exit
+points are shared and what each tile draws joins what its neighbour draws.
+
+`shoreHalf` then cuts a tile square into its dry and wet halves. Also two
+tries: clipping the square by each run's half-plane in turn shaves a sliver
+off BOTH halves at every bend, and the slice that belongs to neither shows as
+a notch. It traces instead — along the chain, then round the square's own
+border back to where the coast entered — which partitions the square exactly
+however the chain wanders. Which half is which is settled at the tile's
+CENTRE: a probe stepped off the coast itself lands outside the square on the
+commonest tile there is, one whose coast runs along its own border.
+
+### 18.3 The three painters
+
+One geometry, three consumers, and they had better agree — a coast in one
+place on the ground plane and another in the mesh standing on it is worse than
+a coast that steps.
+
+- **The 2D chunk painter** (`tiles.ts:paintShoreTile`). The generalisation of
+  `paintBevel`: land on one side of the cut in whatever the land is made of
+  here, sea on the other, and the pale lip stroked along the chain. A tile the
+  coast crosses skips its bevel and its own tile-edge lip, exactly as a tile
+  under a road course skips its per-tile marks (§16).
+- **The 3D ground's cutout mask.** Already eight texels an edge, always built
+  to follow a line finer than the tile; until now the finest line it had was a
+  45° cut. It now asks the chain.
+- **The 3D geometry** (`cityGeometry.ts:buildShorePrisms`). The one that
+  actually shows: the silhouette in 3D is instanced BOXES, so a curved cutout
+  under a square slab changes nothing. A tile the coast crosses now loses its
+  box entirely and gets a prism whose top face is the dry half and whose
+  vertical face down the chain IS the waterline. `buildShoreWedges` stays for
+  the bevels the coast does not reach. Walls go down every edge of the half,
+  the tile borders included — skipping those is the obvious saving and it
+  leaves holes you can see the sky through, because two neighbouring dry
+  halves share only the point where the coast crosses their border.
+
+### 18.4 DELIVERED
+
+3,011 points over 17 loops on the shipped city, 7,079 tiles cut, derived in
+33 ms — the first cut took 98, and the fix was §15.4's lesson a third time: no
+`Math.hypot` in the inner loop of a pass over every corner of every coast.
+~6,700 shore prisms replace the same number of boxes, so the instanced city is
+no bigger.
+
+Evidence: `evidence/city-shore-curve.png` (the same flyover as §15's
+`city-shore-review.png`, retaken), `evidence/city-shore-curve-2d.png` (the
+same crop with and without the curve, side by side) and
+`evidence/plangen-shore.png` (a generated city's beach, which gets this for
+free because nothing about it is authored). `shoreline.test.ts` holds the
+invariants: one closed loop per island, water on the right, a lake wound the
+other way, the coast running UNDER a bridge, no coastline along the edge of
+the world, purity, the one-tile smoothing bound, chains that start and end on
+a tile border, neighbouring tiles agreeing on the crossing point, and the two
+halves of every tile adding up to the tile.
+
+What is still square, and why:
+
+- **The waterline still steps where the tiles do.** The line is smooth to the
+  eye at any zoom the game uses, but a coast that runs nearly east–west across
+  a tile boundary genuinely jogs a tile, and the smoothing is deliberately
+  bounded at one tile so the drawn coast cannot get far from the collision the
+  player feels. Loosening it is a knob, not a design change.
+- **The minimap** paints its own tiles and has not been taught the loops.
+- **Quay coping and bank edges** on tiles the coast does not cross keep their
+  square lip, which is right: a quay is coursed masonry (§15.2).

@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import {
   bakeCity,
   deriveBevels,
+  deriveShores,
   generateCityPlan,
   parseCityPlan,
   T_BANK,
@@ -293,6 +294,7 @@ function main(): void {
       tiles: city.tiles,
       district: city.district,
       bevel: deriveBevels(city.tiles, city.widthTiles, city.heightTiles),
+      shores: deriveShores(city.tiles, city.widthTiles, city.heightTiles),
       shops: city.shops,
     },
     loadPalette(),

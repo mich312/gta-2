@@ -5,6 +5,7 @@ import {
   T_ROAD,
   T_WATER,
   T_BRIDGE,
+  deriveShores,
   generateCity,
   parseCityPlan,
   pointInPoly,
@@ -13,7 +14,7 @@ import {
 } from 'shared';
 import { loadWorldgenParams } from '../tuning.js';
 import { encodePng } from './png.js';
-import { loadPalette, render, type PaletteFile, type Render } from './mapRender.js';
+import { loadPalette, render, type PaletteFile, type RenderableMap, type Render } from './mapRender.js';
 
 /**
  * pnpm mapgen — look at the city without launching the game.
@@ -52,7 +53,7 @@ const SHEET_CROPS: Array<[number, number, number, number]> = [
 const SHEET_OUT = 'evidence/city-fabric-review.png';
 
 /** The three review crops side by side on a dark ground. */
-function renderSheet(map: CityMap, palette: PaletteFile): Render {
+function renderSheet(map: RenderableMap, palette: PaletteFile): Render {
   const SCALE = 2;
   const MARGIN = 4;
   const crops = SHEET_CROPS.map(([x, y, w, h]) => render(map, palette, x, y, w, h, SCALE));
@@ -383,20 +384,26 @@ function main(): void {
   const t0 = performance.now();
   const map = generateCity(seed, params);
   const genMs = performance.now() - t0;
+  // The coast as curves (§18), for the painter to shade against instead of
+  // the tile edge. Derived here rather than carried on the map because a
+  // still is the only place it currently shows: the game's own painter
+  // derives its own.
+  const shores = deriveShores(map.tiles, map.widthTiles, map.heightTiles);
+  const drawable = { ...map, shores };
 
   let picture: Render;
   if (sheet !== null) {
-    picture = renderSheet(map, palette);
+    picture = renderSheet(drawable, palette);
     if (!out) out = sheet;
   } else if (crop) {
     const [x, y, w, h] = crop;
     // Scaled so a close-up is actually close: a 60-tile crop renders at 8 px
     // per tile, the whole map still at 2.
     const scale = Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
-    picture = render(map, palette, x, y, w, h, scale);
+    picture = render(drawable, palette, x, y, w, h, scale);
     if (!out) out = `mapgen-crop-${x}-${y}.png`;
   } else {
-    picture = render(map, palette, 0, 0, map.widthTiles, map.heightTiles, 2);
+    picture = render(drawable, palette, 0, 0, map.widthTiles, map.heightTiles, 2);
     if (!out) out = `mapgen-seed${seed}.png`;
   }
 
