@@ -407,15 +407,35 @@ export class TileLayer {
       ctx.strokeStyle = palette.roadLane;
       ctx.lineWidth = p.w - 2 * t;
       ctx.stroke(p.path);
-      ctx.strokeStyle = palette.road;
-      ctx.lineWidth = p.w - 4 * t;
-      ctx.stroke(p.path);
     }
-    // The centre line: one dashed curve, flowing through the whole course.
-    ctx.setLineDash([4 * t, 6 * t]);
-    ctx.strokeStyle = palette.roadLane;
-    ctx.lineWidth = t;
-    for (const p of paths) ctx.stroke(p.path);
+
+    // Then the interior repaint and the centre dash, WIDEST LAST (§21).
+    //
+    // Drawn in one pass for every course, a street's lane lines and centre
+    // dash survive on top of an avenue that swallows it — the repaint only
+    // covers a course's own interior, and the dash is drawn last by design.
+    // Where a lattice line runs alongside an avenue that is two sets of
+    // markings on one sheet of tarmac, which is what "the streets are
+    // layered on top of each other" looks like. Going up the widths, each
+    // tier's repaint covers every thinner course's markings it crosses
+    // before its own dash goes on: the avenue's line carries on, the
+    // street's stops where the avenue takes over.
+    //
+    // The casing and the fill above stay in ONE pass each, because their
+    // order is what opens a junction (§16) — grouping those by width would
+    // draw an avenue's kerb across every street that meets it.
+    const tiers = [...new Set(paths.map((p) => p.w))].sort((a, b) => a - b);
+    for (const w of tiers) {
+      const tier = paths.filter((p) => p.w === w);
+      ctx.setLineDash([]);
+      ctx.strokeStyle = palette.road;
+      ctx.lineWidth = w - 4 * t;
+      for (const p of tier) ctx.stroke(p.path);
+      ctx.setLineDash([4 * t, 6 * t]);
+      ctx.strokeStyle = palette.roadLane;
+      ctx.lineWidth = t;
+      for (const p of tier) ctx.stroke(p.path);
+    }
     ctx.setLineDash([]);
     ctx.restore();
   }
@@ -806,6 +826,10 @@ export class TileLayer {
         this.paintGround(ctx, tx, ty, x, y, tile, false);
       }
     }
+    // The turned forecourts (§21), over the tile ground and under nothing:
+    // in 3D the mass itself is geometry, so the texture only ever shows the
+    // apron round it.
+    for (const m of this.massesNear(tx0, ty0)) this.paintMassApron(ctx, m, tx0, ty0);
     this.paintCourses(ctx, tx0, ty0);
     sctx.putImageData(mask, 0, 0);
     cctx.putImageData(cutMask, 0, 0);
@@ -859,6 +883,7 @@ export class TileLayer {
       }
       const square = (tx: number, ty: number): boolean =>
         this.tileAt(tx, ty) === T_BUILDING && !massed.has(ty * W + tx);
+      for (const m of masses) this.paintMassApron(ctx, m, tx0, ty0);
       for (const m of masses) this.paintMassWall(ctx, m, tx0, ty0);
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
@@ -2000,6 +2025,77 @@ export class TileLayer {
       }
     }
     this.paintGround(ctx, tx, ty, x, y, ground, plants);
+  }
+
+  /**
+   * The paving a turned building stands on, turned with it.
+   *
+   * A building's plot is laid in tiles, so its forecourt is a square ring of
+   * pavement round a mass that is not square — and a turned house on square
+   * paving reads as a house somebody rotated after the fact, which is what it
+   * was. This lays the apron the building would actually have: the mass grown
+   * by a tile, at the mass's own angle, in the pavement the plot is made of.
+   *
+   * Clipped to the building's own footprint and the ring of ground beside it,
+   * and never over carriageway or water — a doorstep may take a tile of grass
+   * and may not take a lane. The mass is drawn on top of this immediately
+   * afterwards, so what shows is the margin between them.
+   */
+  private paintMassApron(
+    ctx: CanvasRenderingContext2D,
+    m: { b: Building; i: number },
+    tx0: number,
+    ty0: number,
+  ): void {
+    const b = m.b;
+    const mass = buildingMass(b);
+    ctx.save();
+    // Only over ground the apron is allowed on: this building's own tiles,
+    // and the pavement or garden immediately round them.
+    ctx.beginPath();
+    for (let ty = b.y - 1; ty <= b.y + b.h; ty++) {
+      for (let tx = b.x - 1; tx <= b.x + b.w; tx++) {
+        const t = this.tileAt(tx, ty);
+        const own = tx >= b.x && tx < b.x + b.w && ty >= b.y && ty < b.y + b.h;
+        const soft =
+          t === T_SIDEWALK || t === T_PARK || t === T_FIELD || t === T_LOT || t === T_BUILDING;
+        if (!own && !soft) continue;
+        ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
+      }
+    }
+    ctx.clip();
+    ctx.translate((mass.cx - tx0) * TD, (mass.cy - ty0) * TD);
+    ctx.rotate(mass.rad);
+    // A tile of forecourt all round, and the paving the plot is made of.
+    const w = (mass.w + 2) * TD;
+    const h = (mass.h + 2) * TD;
+    const cx = Math.floor(mass.cx);
+    const cy = Math.floor(mass.cy);
+    ctx.translate(-w / 2, -h / 2);
+    this.paintApronGround(ctx, cx, cy, w, h);
+    ctx.restore();
+  }
+
+  /** The apron's surface: pavement art, tiled across the turned rectangle. */
+  private paintApronGround(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    w: number,
+    h: number,
+  ): void {
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, w, h);
+    ctx.clip();
+    // Painted tile by tile in the apron's OWN frame, so the paving slabs run
+    // with the building rather than with the world.
+    for (let y = 0; y < h; y += TD) {
+      for (let x = 0; x < w; x += TD) {
+        this.paintSidewalk(ctx, tx + Math.round(x / TD), ty + Math.round(y / TD), x, y);
+      }
+    }
+    ctx.restore();
   }
 
   /**

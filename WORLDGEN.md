@@ -2684,3 +2684,103 @@ doing 300 px/s that is the right trade, because the alternative is oriented
 bounding boxes inside the prediction hot loop. A doorway is still on a tile
 edge. And a building on a seam between two fabrics still faces the world
 rather than picking one of its two streets.
+
+---
+
+## 21. Streets on top of one another — the merge, the markings, and the forecourt
+
+### 21.1 The review
+
+Asked why streets look layered on top of each other, the answer was two
+things, one in the ground and one in the paint.
+
+**The ground.** Counting carriageway that is over-wide — more than nine
+continuous tiles of tarmac in ALL FOUR directions, which is
+`signals.isJunctionTile`'s own test (`MAX_LANE_TILES = 4`) and is what makes a
+plaza rather than a crossroads — the city has **490 such tiles, and 441 of
+them lie within eight tiles of an authored avenue**. It is not lattice on
+lattice: it is a borough's street running alongside an avenue and merging with
+it into one sheet. Biggest patches: 13×8 tiles beside The Parade, and 10×14 in
+The Terraces.
+
+There IS a guard, and it is the right idea aimed at the wrong granularity.
+`doubledUp` and `doubledUpCourse` refuse a street that spends MOST of its run
+beside somebody else's road — and their own comments say why the threshold is
+generous: *"a lattice line can brush one for a third of its length while being
+the only street the rest of the borough has."* True, and the consequence is
+that the brushing third gets carved.
+
+The Old Quarter is where it shows, because it is the tightest fabric in the
+city and its lines are closest together. Pitch 11×9 with 3-wide streets is
+**55% road by construction** — 1 − (8/11)(6/9) = 51.5% predicted, 55% measured,
+against 26% in New Suburbs — so an avenue landing between two lattice lines
+merges with both.
+
+**The paint.** `paintCourses` strokes casing for every course and then fill for
+every course, so casings get covered — that ordering is deliberate and is what
+opens a junction (§16). But the edge lines were stroked PER COURSE (pale ring
+at width−2, then the interior repainted at width−4), and the centre dash for
+every course at the end. Where two courses overlap, each left its own markings
+lying across the other's surface: two dashed centre lines and a stray pale edge
+line on one sheet of tarmac. That is what makes a merge read as *layering*
+rather than as width.
+
+### 21.2 DELIVERED: the markings, and the forecourt
+
+**Markings, widest last.** The pale rings still go down in one pass. The
+interior repaint and the centre dash now go down in width order, thinnest
+first: each tier's repaint covers every thinner course's markings it crosses
+before its own dash goes on. An avenue's line carries on through; the street's
+stops where the avenue takes over. The casing and fill stay in one pass each,
+because grouping THOSE by width would draw an avenue's kerb across every
+street that meets it.
+
+**The forecourt turns with the house.** §20 turned the mass and left it
+standing on square paving, which reads as a house somebody rotated after the
+fact — which is what it was. `paintMassApron` lays the apron the building
+would actually have: the mass grown by a tile, at the mass's own angle, with
+the paving slabs painted in the apron's own frame so they run with the
+building. Clipped to the building's own tiles and the ring of soft ground
+beside them, so a doorstep may take a tile of grass and may not take a lane.
+Both chunk builders draw it, so the 2D city and the 3D ground texture agree.
+Evidence: `evidence/city-facing-3d.png`.
+
+### 21.3 NOT DELIVERED: the merge itself, and why
+
+The ground fix was built and taken out again. It is written down here because
+it very nearly works and the next attempt should start from what it cost.
+
+The fix is to move the doubling test from the LINE to the TILE, and to make it
+direction-aware: a field of the nearest authored road per tile and the
+direction it runs, and a lattice tile is not carved when an avenue is within
+half a width plus three AND within 25° of parallel. Direction is the whole of
+it — a street CROSSING an avenue is near it for a few tiles and must still be
+carved, because that crossing is the junction the street exists to make; only
+near-and-parallel is a duplicate.
+
+Measured, it does what it says. Over-wide patches fell from **119 to 73**, the
+worst from **71 tiles to 46**, and the 13×8 sheet beside The Parade became
+three ordinary junctions.
+
+It also broke three tests, and one of them matters: an errand driver stopped
+completing its route. Trimming the middle of a line leaves the ends behind, and
+the city gained **24 dead-end stubs** (195 → 219). A stub is still connected,
+so `checkCity`'s one-street-network rule passes it and the bake's
+scrap-clearing pass — which only takes carriageway off the main network —
+leaves it alone. A cosmetic gain of 0.3% of carriageway is not worth a car
+that cannot finish its journey.
+
+What the next attempt needs is a way to retire the whole of a line that
+conflicts rather than the conflicting stretch of it, or a pass that clears the
+stubs the trim leaves — the shape of `trimCourses`, applied to tiles rather
+than to courses.
+
+And one thing the measurement found that is NOT this bug: **The Terraces is
+51% carriageway**, with a 46-tile sheet down its middle that the avenue guard
+does not touch. Its contour bands are iso-lines of the shore distance field,
+and where that field's wavefronts meet — the medial axis between two stretches
+of water — the bands stop being a pitch apart. A local gradient test was tried
+and rejected: it changed one block and two buildings, so the smearing is not a
+flat gradient but two unrelated band families interleaving. Banding each
+borough against ONE shore rather than against the nearest water is the fix, and
+it is a design change rather than a guard.
