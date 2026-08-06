@@ -2461,3 +2461,123 @@ What is still square, and why:
 - **The minimap** paints its own tiles and has not been taught the loops.
 - **Quay coping and bank edges** on tiles the coast does not cross keep their
   square lip, which is right: a quay is coursed masonry (§15.2).
+
+---
+
+## 19. The waver in a straight street — recovered courses, simplified
+
+### 19.1 The review
+
+Asked why roads are sometimes curvy, the answer turned out to be two answers,
+and only one of them was on purpose.
+
+Measured over every course in the shipped city — mean turn per point, and how
+often that turn reverses direction:
+
+| course group | mean turn/point | turn reversals |
+| --- | --- | --- |
+| The Terraces (contour) | 5.6° | 62% |
+| **Ravenhill (spine)** | **5.0°** | **78%** |
+| The Docks (contour) | 4.6° | 65% |
+| Beachfront (contour) | 3.8° | 58% |
+| New Suburbs (crescent) | 2.8° | 5% |
+| avenues + ring | 0.5° | 53% |
+| every grid borough | 0.1° | — |
+
+A real curve turns the same way for a run: the crescent fabric, which wanders
+sinusoidally because §13.4 says a postwar suburb wanders, reverses on 5% of
+its points. Contour and spine reverse on 58–78%. That is not curvature, it is
+zig-zag — and `paintCourses` strokes every recorded point through a spline, so
+it showed as a visible waver in the ribbon.
+
+The cause is in §16.2's second wave. Those two fabrics have no authored
+polyline — they are per-tile predicates over a distance field — so their
+centreline is RECOVERED: the band's centre iso-tiles are chained by a greedy
+nearest-unvisited walk, relaxed twice with a moving average, and decimated by
+two. The chain is made of TILE CENTRES. A moving average lowers quantisation
+noise and can never remove it, because the signal being filtered is the same
+size as the sample spacing; decimating by two then keeps every second sample
+of it.
+
+### 19.2 What is in the drawing and what is in the ground
+
+The two fabrics are not the same case, which the first diagnosis got wrong:
+
+- **`spine`** builds its field with `segmentDistance` to the avenue's own
+  polyline — exact Euclidean. Its iso-bands are exact offset curves, so the
+  tarmac is smooth and every bit of the waver was in the record.
+- **`contour`** bands the shore distance field, which `layout.ts` deliberately
+  keeps as a raw 3×3 chamfer: blur it and its slope flattens near ridges and
+  bays, so a band of three distance units smears to four or five tiles and
+  stops being a street. A chamfer metric is octagonal, so those iso-lines
+  really are faceted. Some of that waver is in the ground.
+
+### 19.3 The design
+
+`simplifyPolyline` in `plan.ts` — Douglas–Peucker, iterative, beside
+`smoothPolyline` and `meanderPolyline` where the polyline utilities live — and
+`traceBands` relaxes four times instead of two and then simplifies at a third
+of a tile instead of decimating. A third of a tile is under the half-width of
+the narrowest band traced, so a simplified course cannot leave the tarmac it
+records and the trim pass has nothing to drop.
+
+Simplification is what a moving average cannot do: a straight run comes back
+as two points and has nothing left to waver through, while a real bend keeps
+every point it needs.
+
+`plangen.ts` drops its own private copy of the same algorithm.
+
+### 19.4 DELIVERED
+
+The measure is the sagitta at each interior point over the local point
+spacing: a smooth curve sampled at h has sagitta h²/8R, small when the points
+are close relative to the radius; jitter of amplitude a has sagitta about a,
+which is not.
+
+| fabric | wander before | after |
+| --- | --- | --- |
+| **spine** | 0.052 | **0.004** |
+| contour | 0.058 | 0.047 |
+| crescent | 0.036 | 0.036 |
+| avenue/ring | 0.018 | 0.018 |
+| grid | 0.002 | 0.002 |
+
+Which is exactly the split §19.2 predicts. The spine fabric drops to the grid
+fabric's own floor — all of its waver was in the record, and it is gone. The
+contour fabric improves by a fifth and stops there, because the rest of it is
+in the tarmac.
+
+**The ground is byte-identical.** The tile, district and bearing planes hash
+the same as the previous bake, and the city still has 1,132 blocks, 3,801
+buildings and 66 shops. What changed is `courses`: 9,658 points became 8,062,
+street courses fell from 29.0 points each to 22.8, and `city.data.ts` lost
+23 kB. Two more courses survive the trim than before, because a course that
+wavers off its own carriageway is a course the trim drops.
+
+`courses.test.ts` holds it: mean wander under 0.03 and the 95th percentile
+under 0.15, measured at 0.019 and 0.098. Neither floor is zero and neither
+should be — chasing the last of it would mean the drawn road leaving the road.
+
+### 19.5 Not done: the Euclidean field, and rotated houses
+
+**The contour fabric's faceted ground stays.** An exact Euclidean distance
+transform in place of the chamfer would fix it at the source and keep constant
+band width, which is the property blurring was rejected for losing. It is not
+worth it yet: the residual after simplification is 0.047 sagitta over ~2.8
+tiles of spacing, about a tenth of a tile, and buying it means re-cutting every
+street in The Terraces, Beachfront and the Docks and moving every block,
+building and shop behind them.
+
+**Houses on a rotated or curved street still do not face it**, and §13.2.2's
+verdict stands for a reason that is worth restating with evidence: buildings
+have no atomic existence in the 3D city. `cityGeometry.ts` walks TILES and
+emits one box per tile column, with heights from the volume grid — a
+`Building` record is a 2D bookkeeping rect, not a mesh. "Rotate the drawn
+mass" therefore means rebuilding the instanced city around per-building
+geometry, which is the renderer project §13.2.2 declined, not a smaller one.
+
+What §13.4's mitigation does instead is working, and can be measured: the
+frontage granularity cap gives curved and rotated boroughs small footprints
+where straight ones get terraces — 2.3×2.8 tiles in The Terraces and 2.7×2.9
+in New Suburbs against 3.9×8.4 in Old Suburbs. Small axis-aligned boxes still
+stairstep along a 26° street; they are just a finer staircase.

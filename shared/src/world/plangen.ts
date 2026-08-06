@@ -3,6 +3,7 @@ import { valueNoise } from './fields.js';
 import { buildLayout, paintShore } from './layout.js';
 import {
   MAX_CARRIAGEWAY,
+  simplifyPolyline,
   smoothPolyline,
   type CityPlan,
   type PlanDistrict,
@@ -177,43 +178,6 @@ function blobOutline(
     out.push([cx + ca * r * aspect, cy + (sa * r) / aspect]);
   }
   return out;
-}
-
-/** Ramer–Douglas–Peucker. Turns a routed path back into a few corners. */
-function simplify(points: PlanPoint[], eps: number): PlanPoint[] {
-  if (points.length < 3) return points.slice();
-  const first = points[0] as PlanPoint;
-  const last = points[points.length - 1] as PlanPoint;
-  let worst = 0;
-  let at = -1;
-  for (let i = 1; i + 1 < points.length; i++) {
-    const p = points[i] as PlanPoint;
-    const d = pointToSegment(p[0], p[1], first[0], first[1], last[0], last[1]);
-    if (d > worst) {
-      worst = d;
-      at = i;
-    }
-  }
-  if (worst <= eps || at < 0) return [first, last];
-  const head = simplify(points.slice(0, at + 1), eps);
-  const tail = simplify(points.slice(at), eps);
-  head.pop();
-  return head.concat(tail);
-}
-
-function pointToSegment(
-  px: number,
-  py: number,
-  ax: number,
-  ay: number,
-  bx: number,
-  by: number,
-): number {
-  const vx = bx - ax;
-  const vy = by - ay;
-  const len2 = vx * vx + vy * vy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / len2));
-  return Math.hypot(px - (ax + vx * t), py - (ay + vy * t));
 }
 
 /* ------------------------------------------------------------------ */
@@ -638,7 +602,7 @@ function cellPolygon(sites: Site[], me: number, W: number, H: number): PlanPoly 
       Math.max(-40, Math.min(H + 40, self.y + sa * lo)),
     ]);
   }
-  return simplify([...out, out[0] as PlanPoint], 2.5).slice(0, -1);
+  return simplifyPolyline([...out, out[0] as PlanPoint], 2.5).slice(0, -1);
 }
 
 /**
@@ -867,7 +831,7 @@ function routeRoad(
   path.reverse();
   path[0] = [a[0], a[1]];
   path[path.length - 1] = [b[0], b[1]];
-  return simplify(path, 6);
+  return simplifyPolyline(path, 6);
 }
 
 /**
@@ -1165,7 +1129,7 @@ function shoreParishes(
       name,
       borough: name,
       district: 'park',
-      area: simplify([...ribbon, ribbon[0] as PlanPoint], 1.5).slice(0, -1),
+      area: simplifyPolyline([...ribbon, ribbon[0] as PlanPoint], 1.5).slice(0, -1),
       // No streets at all, and this is the load-bearing choice. A ribbon of
       // rural lanes fifteen tiles wide would be carved inside the parish and
       // touch no arterial, which is a second street network and exactly what

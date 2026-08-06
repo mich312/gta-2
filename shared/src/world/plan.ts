@@ -490,6 +490,60 @@ export function meanderPolyline(
 }
 
 /**
+ * Ramer–Douglas–Peucker: drop every point a straight line already accounts
+ * for, to within `eps` tiles.
+ *
+ * The counterpart to `smoothPolyline`, and the thing a RECOVERED course needs
+ * that an authored one does not. A course chained out of tile centres carries
+ * the lattice's own quantisation — a straight run of a hundred tiles arrives
+ * as fifty points that alternate a quarter of a tile either side of the line
+ * they are on — and a moving average lowers that noise without ever removing
+ * it. Simplification does remove it: a straight run comes back as two points,
+ * so the renderer's spline has nothing left to waver through.
+ *
+ * Iterative rather than recursive, for the same reason `shoreline.ts` is: a
+ * traced coast or contour band can arrive with tens of thousands of points,
+ * and the textbook recursion is one stack frame per split.
+ */
+export function simplifyPolyline(points: PlanPoint[], eps: number): PlanPoint[] {
+  const n = points.length;
+  if (n < 3) return points.slice();
+  const keep = new Uint8Array(n);
+  keep[0] = 1;
+  keep[n - 1] = 1;
+  const eps2 = eps * eps;
+  const stack: Array<[number, number]> = [[0, n - 1]];
+  while (stack.length > 0) {
+    const [lo, hi] = stack.pop() as [number, number];
+    if (hi - lo < 2) continue;
+    const [ax, ay] = points[lo] as PlanPoint;
+    const [bx, by] = points[hi] as PlanPoint;
+    const vx = bx - ax;
+    const vy = by - ay;
+    const len2 = vx * vx + vy * vy;
+    let worst = eps2;
+    let at = -1;
+    for (let i = lo + 1; i < hi; i++) {
+      const [px, py] = points[i] as PlanPoint;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / len2));
+      const dx = px - (ax + vx * t);
+      const dy = py - (ay + vy * t);
+      const d = dx * dx + dy * dy;
+      if (d > worst) {
+        worst = d;
+        at = i;
+      }
+    }
+    if (at < 0) continue;
+    keep[at] = 1;
+    stack.push([lo, at], [at, hi]);
+  }
+  const out: PlanPoint[] = [];
+  for (let i = 0; i < n; i++) if (keep[i] === 1) out.push(points[i] as PlanPoint);
+  return out;
+}
+
+/**
  * Chaikin corner-cutting: turns a polyline of straight runs into a curve.
  *
  * Two rounds is enough to read as a curve at tile scale and cheap enough to
