@@ -175,14 +175,28 @@ export class SceneryLayer {
         const z = tile === T_TREES ? TREE_Z * Z_SCALE : 0;
         const roll = hash2(tx, ty, 71);
         if (roll > 0.92) {
+          // Jittered off the tile centre and scaled per tree (§34). Rotation
+          // alone was not enough: a trunk is round, so turning it changes
+          // nothing you can see, and a wood came out as a square lattice of
+          // identical clones — the tile grid showing through the one thing in
+          // the city that has no business admitting it exists. The bushes
+          // beside this branch have had the jitter since they were written;
+          // the trees simply never got it.
+          const jx = tx + 0.2 + hash2(tx, ty, 76) * 0.6;
+          const jy = ty + 0.2 + hash2(tx, ty, 77) * 0.6;
+          const grow = 0.8 + hash2(tx, ty, 78) * 0.45;
+          this.one.set(grow, grow, grow);
           this.m.compose(
-            this.pos.set((tx + 0.5) * TILE_SIZE, (ty + 0.5) * TILE_SIZE, z),
+            this.pos.set(jx * TILE_SIZE, jy * TILE_SIZE, z),
             // Turn each one differently so a wood is not a grid of clones.
             this.q.setFromAxisAngle(this.up, hash2(tx, ty, 74) * Math.PI * 2),
             this.one,
           );
+          this.one.set(1, 1, 1);
           trees.push(this.m.clone());
         } else if (roll > 0.87) {
+          const grow = 0.75 + hash2(tx, ty, 79) * 0.5;
+          this.one.set(grow, grow, grow);
           this.m.compose(
             this.pos.set(
               (tx + 0.3 + hash2(tx, ty, 72) * 0.4) * TILE_SIZE,
@@ -192,6 +206,7 @@ export class SceneryLayer {
             this.q.setFromAxisAngle(this.up, hash2(tx, ty, 75) * Math.PI * 2),
             this.one,
           );
+          this.one.set(1, 1, 1);
           bushes.push(this.m.clone());
         }
       }

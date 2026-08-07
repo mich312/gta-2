@@ -3648,3 +3648,24 @@ line from yielding to a short chained esplanade — which is the right call and
 also the reason this did not move the numbers.
 
 890 tests pass.
+
+---
+
+## 34. A wood that is not a grid
+
+§23.3: trees stood dead on the tile lattice at identical scale, so a dense
+wood showed a visible square grid and diagonal alignments through it — the tile
+grid admitting it exists, in the one thing in the city that has no business
+doing so.
+
+The code had tried. Each tree is rotated by its own hash, with the comment "so
+a wood is not a grid of clones". But **a trunk is round**: turning it changes
+nothing anybody can see, and the position and the size were untouched. The
+bushes on the very next branch had had positional jitter since they were
+written; the trees simply never got it.
+
+Both now jitter off the tile centre and take a per-tree scale, from `hash2`
+with fresh salts — so it stays what scenery has always been, a pure function
+of the tile with no rng and no state, planted identically on every host.
+
+Evidence: `evidence/woodland-jitter.png`.
