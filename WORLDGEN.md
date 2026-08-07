@@ -3700,3 +3700,100 @@ and the doubled roads (§28). It is worth naming as a pattern: **anything that
 depends on how two roads RELATE is a question about the lines, and the tile
 plane cannot answer it,** because rasterising two roads that touch produces
 one region with no record that it was ever two.
+
+---
+
+## 36. VECTOR phase 3 — buildings cut at an angle, not turned afterwards
+
+§20 cut a square footprint and turned a drawing on top of it. Everything since
+has been paying for that: the mass had to shrink to fit its own plot, and
+because collision read the footprint and the renderers drew the mass, the two
+disagreed by up to 3.66 tiles (§22). Three thresholds were thrown at it —
+§20's, §22's, §22.4's — and each moved the number without touching the cause.
+
+The cause is in §1.2 of `VECTOR.md`: **the streets are carved in the borough's
+rotated frame and the plots are cut on the world axes.** A building cut square
+and turned afterwards can only ever approximate the plot it should have had.
+
+### 36.1 It was one function, not seven
+
+`VECTOR.md` §8 Q5 sized this at seven emission sites plus the volume grid,
+`collide3`, doorways and three renderers. It was wrong, and pleasantly so.
+
+`fillRegion` fills every angled and shaped block — **85% of the city's
+buildings** — and it grows its units from a depth-from-kerb BFS, which is
+frame-agnostic already: the depth field runs with the frontage whatever angle
+the frontage is at. So the SIZE the growth picks is right. Only the stamp was
+square.
+
+`stampOriented` takes that size, turns it about the unit's centre to the
+block's own angle (folded to (−45°, 45°], §22.4), and writes the tiles whose
+centres fall inside — the same centre-in-shape rule `rasteriseRings` uses for
+the coast, so a footprint and a coastline round the same way.
+
+And `Building` did not need to become an OBB. It gained `mw`/`mh` — the
+rectangle's own dimensions — while `x, y, w, h` remains the integer bounding
+box that collision, the volume grid, doorways and every placement pass read.
+None of them changed. `buildingMass` simply stops applying a fit factor when
+there is a rectangle to draw:
+
+```ts
+if (b.mw !== undefined && b.mh !== undefined) return { cx, cy, w: b.mw, h: b.mh, rad };
+```
+
+### 36.2 Refusing, not shrinking
+
+`stampOriented` returns false and lets the caller stamp square when the turned
+footprint would land on ground the square one was not allowed: a blocked tile,
+a tile outside the depth band, or **within one tile of an existing building**.
+
+That last one is the §22.4 lesson arriving from a new direction. The caller's
+`nearBuilt` guards the axis-aligned rect the size came from, and a rotated rect
+reaches past it — so two units could end up shoulder to shoulder, closing the
+alley between them. The peds test found it immediately: 200 pedestrians
+wandering a city whose alleys had silently sealed, and one of them inside a
+wall. The gap is now checked against the footprint that is actually stamped.
+
+### 36.3 DELIVERED
+
+| | before | after |
+|---|---|---|
+| buildings cut at an angle | 0 | **2,301** |
+| mean footprint corner outside the drawn mass | 0.593 | **0.301** |
+| fit factor applied to a cut building | — | **none** |
+| interior samples landing off their own wall | — | 1 of 2,301 |
+
+The one is pinned rather than asserted away: a tile is stamped when its centre
+is inside the rectangle, so where the recorded rectangle is a hair larger than
+the tiles it claimed — a small rect at a steep angle, rounding inward at two
+corners — an interior sample can step outside. Asserting zero would mean
+shrinking the record to its own rasterisation, which is the fit factor this
+section exists to delete.
+
+894 tests pass. `facing.test.ts` gains a describe block for cut buildings whose
+central claim is the one that matters: **the ground under the drawn rectangle
+is that building's own wall.**
+
+### 36.4 Two bugs it flushed out
+
+Both were pre-existing, and both only became visible once a building's tiles
+had to agree with its drawing exactly:
+
+- **§30's landmark guard was too broad.** It protected any building
+  overlapping any landmark's rect from the block-clearing pass, including an
+  ordinary house that merely stood in one — whose record then survived while
+  the apron painted `T_LOT` over its tiles. Identified by identity now: a
+  `WeakSet` of the buildings a landmark actually stamped.
+- **A landmark's sidewalk ring painted over walls.** `paintable` allows
+  `T_BUILDING`, which is right for the apron inside the block (the clear pass
+  has already taken those) and wrong for a ring that reaches one tile PAST the
+  landmark, where a neighbouring block's building stands.
+
+### 36.5 What is still not done
+
+`fillBlock` — the square-block filler, the other 15% — keeps the old model, and
+does not need anything else: its blocks have no angle, so there is nothing to
+cut at. Phase 4 (collision reading the geometry) remains blocked on nothing
+now except being wanted: with the tiles finally *being* the rasterisation of
+the drawn rectangle, collision already follows the drawing to within half a
+tile, which was the whole of what phase 4 was for.

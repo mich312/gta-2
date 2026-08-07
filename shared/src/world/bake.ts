@@ -140,15 +140,6 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
  */
 const OPEN_TO_ROAD = new Set<LandmarkKind>(['square', 'green', 'circus']);
 
-/** Does this building sit on any part of that landmark's rect? */
-function overlapsRect(
-  rect: readonly [number, number, number, number],
-  b: { x: number; y: number; w: number; h: number },
-): boolean {
-  const [x, y, w, h] = rect;
-  return b.x < x + w && x < b.x + b.w && b.y < y + h && y < b.y + b.h;
-}
-
 function paintable(t: number): boolean {
   return t !== T_WATER && t !== T_BANK && t !== T_SAND && t !== T_ROAD && t !== T_BRIDGE;
 }
@@ -312,11 +303,23 @@ export function bakeCity(plan: CityPlan): BakedCity {
       }
     }
   };
+  /**
+   * The buildings a LANDMARK stamped, by identity (§36).
+   *
+   * §30 stopped the block-clearing pass deleting these, but identified them by
+   * "overlaps some landmark's rect", which also protects an ordinary house
+   * that happens to stand in one — and the apron then paints `T_LOT` over
+   * tiles whose building record survived. Identity says exactly what was
+   * meant: this building IS a landmark's own stamp.
+   */
+  const landmarkBuilt = new WeakSet<Building>();
   const solid = (x: number, y: number, w: number, h: number, district: DistrictType): void => {
     for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
       for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) tiles[ty * W + tx] = T_BUILDING;
     }
-    buildings.push({ x, y, w, h, district });
+    const rec: Building = { x, y, w, h, district };
+    landmarkBuilt.add(rec);
+    buildings.push(rec);
   };
 
   const stamp = (l: PlanLandmark): void => {
@@ -445,7 +448,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
       // sidewalk ring it had already drawn round an empty field. That is why
       // Marsh Post stood on grass with no building in it and no entry in
       // `buildings` (WORLDGEN.md §30).
-      if (plan.landmarks.some((o) => o !== l && overlapsRect(o.rect, bd))) continue;
+      if (landmarkBuilt.has(bd)) continue;
       for (let ty = bd.y; ty < bd.y + bd.h; ty++) {
         for (let tx = bd.x; tx < bd.x + bd.w; tx++) {
           if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
@@ -459,7 +462,13 @@ export function bakeCity(plan: CityPlan): BakedCity {
       for (let tx = lx - 1; tx <= lx + lw; tx++) {
         const onRing = tx === lx - 1 || ty === ly - 1 || tx === lx + lw || ty === ly + lh;
         if (!onRing || tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
-        if (paintable(tiles[ty * W + tx] as number)) tiles[ty * W + tx] = T_SIDEWALK;
+        // Not over a wall. `paintable` allows `T_BUILDING`, which is right
+        // for the apron inside the block (the clear pass has already taken
+        // those buildings) and wrong for a ring that reaches one tile PAST
+        // the landmark, where a neighbouring block's building may stand —
+        // pavement drawn across it left sidewalk inside a solid mass (§36).
+        const here = tiles[ty * W + tx] as number;
+        if (here !== T_BUILDING && paintable(here)) tiles[ty * W + tx] = T_SIDEWALK;
       }
     }
     stamp(l);

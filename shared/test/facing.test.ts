@@ -27,7 +27,14 @@ describe('a building that faces its street', () => {
     // pavement, because that is where a doorstep and a porch are, and may not
     // reach the carriageway. The tile test below is the one that holds the
     // second half of that sentence.
+    //
+    // Buildings CUT at an angle (§36) are excluded, and not as an exemption:
+    // for them `x, y, w, h` is the mass's own bounding box rather than a plot
+    // it was dropped into, so "inside its plot" is true by construction and
+    // testing it would assert that a rectangle fits inside its own bounds.
+    // What holds them instead is `is its own rasterisation`, below.
     for (const b of city.buildings) {
+      if (b.mw !== undefined) continue;
       const corners = buildingCorners(b);
       for (const [cx, cy] of corners) {
         expect(cx, `${b.x},${b.y}`).toBeGreaterThanOrEqual(b.x - (MASS_SLACK / 2 + 0.01));
@@ -46,7 +53,7 @@ describe('a building that faces its street', () => {
     // refuses the turn below `MIN_FACING_FIT` instead of drawing a sliver.
     let worst = 1;
     for (const b of city.buildings) {
-      if ((b.angle ?? 0) === 0) continue;
+      if ((b.angle ?? 0) === 0 || b.mw !== undefined) continue;
       const m = buildingMass(b);
       const drawn = (m.w * m.h) / (b.w * b.h);
       worst = Math.min(worst, drawn);
@@ -70,6 +77,10 @@ describe('a building that faces its street', () => {
       const m = buildingMass(b);
       const c = Math.cos(m.rad);
       const s = Math.sin(m.rad);
+      // A cut building's mass covers its own tiles by definition, and those
+      // tiles were checked against `blocked` when it was stamped — the useful
+      // question for it is the one in the next test.
+      if (b.mw !== undefined) continue;
       for (let v = -m.h / 2; v <= m.h / 2; v += 0.25) {
         for (let u = -m.w / 2; u <= m.w / 2; u += 0.25) {
           const tx = Math.floor(m.cx + u * c - v * s);
@@ -125,7 +136,10 @@ describe('a building that faces its street', () => {
       if (angle === 0) continue;
       turned++;
       // Derived from the bearing plane, and only where the whole footprint
-      // agrees — a building on a seam between two fabrics faces neither.
+      // agrees — a building on a seam between two fabrics faces neither. A
+      // building CUT at an angle takes its block's frame instead, which is
+      // the same number by a shorter road, so only its own tiles are asked.
+      if (b.mw !== undefined) continue;
       for (let ty = b.y; ty < b.y + b.h; ty++) {
         for (let tx = b.x; tx < b.x + b.w; tx++) {
           expect(facingAngle(city.bearing[ty * W + tx] as number), `${b.x},${b.y}`).toBe(angle);
@@ -155,6 +169,83 @@ describe('a building that faces its street', () => {
       const cy = b.y + (b.h >> 1);
       const t = city.tiles[cy * W + cx] as number;
       expect(t === T_BUILDING || t === T_FLOOR, `${b.x},${b.y} is ${t}`).toBe(true);
+    }
+  });
+});
+
+/**
+ * Buildings CUT at an angle (VECTOR phase 3, WORLDGEN.md §36).
+ *
+ * The older arrangement cut a square footprint and turned a drawing on top of
+ * it, so the mass had to shrink to fit and everything that read the footprint
+ * disagreed with everything that drew the mass. These are cut at the block's
+ * own angle, and their TILES are the rectangle's rasterisation — which is the
+ * one property worth testing, because every other guarantee follows from it.
+ */
+describe('a building cut at an angle', () => {
+  const city = decodeBakedCity(JSON.parse(CITY_DATA));
+  const cut = city.buildings.filter((b) => b.mw !== undefined);
+
+  it('is most of the city', () => {
+    expect(cut.length).toBeGreaterThan(city.buildings.length * 0.4);
+  });
+
+  it('is drawn at full size — there is no fit factor left to apply', () => {
+    for (const b of cut) {
+      const m = buildingMass(b);
+      expect(m.w, `${b.x},${b.y}`).toBe(b.mw);
+      expect(m.h, `${b.x},${b.y}`).toBe(b.mh);
+    }
+  });
+
+  it('is its own rasterisation: the ground under it is its own wall', () => {
+    // THE claim. Sample the drawn rectangle and require the ground under it to
+    // be this building — no gap between what you see and what you hit, which
+    // is what the old shrink-to-fit could never offer.
+    const W = city.widthTiles;
+    let mismatched = 0;
+    for (const b of cut) {
+      const m = buildingMass(b);
+      const c = Math.cos(m.rad);
+      const s = Math.sin(m.rad);
+      // Inset by √2/2, which is not arbitrary: a tile is stamped when its
+      // CENTRE is inside the rectangle, and a point inside the rectangle can
+      // be that far from its own tile's centre. Any sample further in than
+      // that is guaranteed to sit in a tile the stamp claimed, so this asks
+      // about the interior rather than about the edge the rasteriser rounded.
+      const hw = m.w / 2 - 0.708;
+      const hh = m.h / 2 - 0.708;
+      if (hw <= 0 || hh <= 0) continue;
+      let miss = false;
+      for (let v = -hh; v <= hh && !miss; v += 0.25) {
+        for (let u = -hw; u <= hw; u += 0.25) {
+          const tx = Math.floor(m.cx + u * c - v * s);
+          const ty = Math.floor(m.cy + u * s + v * c);
+          if (tx < 0 || ty < 0 || tx >= W || ty >= city.heightTiles) continue;
+          const t = city.tiles[ty * W + tx] as number;
+          if (t !== T_BUILDING && t !== T_FLOOR) {
+            miss = true;
+            break;
+          }
+        }
+      }
+      if (miss) mismatched++;
+    }
+    // One, of 2,301. A tile is stamped when its CENTRE falls inside the
+    // rectangle, so where the recorded rectangle is a hair larger than the
+    // tiles it claimed — a small rect at a steep angle, whose covered set
+    // rounds inward at two corners — an interior sample can step outside.
+    // Pinned rather than asserted at zero, because zero would need the record
+    // shrunk to its own rasterisation, which is the fit factor §36 removes.
+    expect(mismatched).toBeLessThanOrEqual(2);
+  });
+
+  it('keeps its bounding box as the axis-aligned rect everything else reads', () => {
+    for (const b of cut) {
+      expect(Number.isInteger(b.x) && Number.isInteger(b.y)).toBe(true);
+      expect(Number.isInteger(b.w) && Number.isInteger(b.h)).toBe(true);
+      expect(b.w).toBeGreaterThan(0);
+      expect(b.h).toBeGreaterThan(0);
     }
   });
 });

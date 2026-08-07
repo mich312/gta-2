@@ -86,6 +86,13 @@ export function buildingMass(
   const cx = b.x + b.w / 2;
   const cy = b.y + b.h / 2;
   if (rad === 0) return { cx, cy, w: b.w, h: b.h, rad: 0 };
+  // Cut at an angle (§36): the rectangle is given, the tiles under it are its
+  // rasterisation, and there is nothing to fit — no factor, no shrink, and no
+  // gap between the thing you see and the thing you collide with. `x, y, w, h`
+  // is its bounding box, so the centre is still the centre.
+  if (b.mw !== undefined && b.mh !== undefined) {
+    return { cx, cy, w: b.mw, h: b.mh, rad };
+  }
   const k = massFit(b.w, b.h, b.angle ?? 0, slack);
   return { cx, cy, w: b.w * k, h: b.h * k, rad };
 }

@@ -1,5 +1,6 @@
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { latticeHash, valueNoise } from './fields.js';
+import { facingAngle } from './heights.js';
 import {
   coastRings,
   rasteriseRings,
@@ -847,11 +848,104 @@ export function fillRegion(
       }
       if (w < 2 || h < 2) continue;
       if (nearBuilt(tx, ty, w, h)) continue;
-      fill(ctx, tx, ty, w, h, T_BUILDING);
-      buildings.push({ x: tx, y: ty, w, h, district: b.district });
+      // Cut at the block's own angle where it has one (§36). The unit's SIZE
+      // still comes from the axis-aligned growth above — the depth field runs
+      // with the frontage, so the numbers are right — but it is stamped as an
+      // oriented rectangle, and the tiles under it are that rectangle's
+      // rasterisation. Which is the whole of VECTOR phase 3 for this filler:
+      // a building cut at an angle never has to shrink to be drawn at one.
+      if (!stampOriented(ctx, tx, ty, w, h, b, cand)) {
+        fill(ctx, tx, ty, w, h, T_BUILDING);
+        buildings.push({ x: tx, y: ty, w, h, district: b.district });
+      }
     }
   }
   return rng;
+}
+
+/**
+ * Stamp a unit as an oriented rectangle, if the block has an angle and the
+ * turned footprint lands on ground the square one was allowed.
+ *
+ * Returns false when there is nothing to do (a square block) or when the turn
+ * would put a corner somewhere the unit may not go — the caller then stamps
+ * the square footprint, exactly as before. Refusing rather than shrinking is
+ * the §22.4 lesson: a mass that fits by getting smaller is not a fit.
+ */
+function stampOriented(
+  ctx: Ctx,
+  tx: number,
+  ty: number,
+  w: number,
+  h: number,
+  b: BlockRect & { angle?: number },
+  cand: (x: number, y: number) => boolean,
+): boolean {
+  const deg = facingAngle(b.angle ?? 0);
+  if (deg === 0) return false;
+  const rad = (deg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const cx = tx + w / 2;
+  const cy = ty + h / 2;
+  // The tiles the turned rect covers: centre-in-rect, the same rule
+  // `rasteriseRings` uses, so a footprint and a coastline round in the same
+  // direction.
+  const reach = Math.ceil((w + h) / 2) + 1;
+  const hit: number[] = [];
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (let py = Math.floor(cy - reach); py <= Math.ceil(cy + reach); py++) {
+    for (let px = Math.floor(cx - reach); px <= Math.ceil(cx + reach); px++) {
+      const dx = px + 0.5 - cx;
+      const dy = py + 0.5 - cy;
+      const u = dx * cos + dy * sin;
+      const v = -dx * sin + dy * cos;
+      if (Math.abs(u) > w / 2 || Math.abs(v) > h / 2) continue;
+      // Every tile it lands on must be ground the square unit could have had
+      // — AND ground a building may stand on at all. `fill` skips a blocked
+      // tile and paints the rest; this cannot, because the tiles it writes
+      // ARE the drawn rectangle, so a hole in them is a hole in the building.
+      // It refuses the whole turn instead, and the caller stamps square.
+      if (!cand(px, py) || blocked(ctx, px, py)) return false;
+      // And the gap between buildings, checked against the TURNED footprint.
+      // The caller's `nearBuilt` guards the axis-aligned rect this came from,
+      // and a rotated rect reaches past it — so two units could end up
+      // shoulder to shoulder, closing the alley between them. A ped walking
+      // that alley then has nowhere to be, which is how the crowd ended up
+      // inside a wall.
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const nx = px + ox;
+          const ny = py + oy;
+          if (nx < 0 || ny < 0 || nx >= ctx.W || ny >= ctx.H) continue;
+          if (ctx.tiles[ny * ctx.W + nx] === T_BUILDING) return false;
+        }
+      }
+      hit.push(py * ctx.W + px);
+      x0 = Math.min(x0, px);
+      y0 = Math.min(y0, py);
+      x1 = Math.max(x1, px);
+      y1 = Math.max(y1, py);
+    }
+  }
+  if (hit.length < 4) return false;
+  for (const i of hit) ctx.tiles[i] = T_BUILDING;
+  ctx.buildings.push({
+    // The integer bounding box: what collision, the volume grid and every
+    // placement pass read, unchanged in meaning.
+    x: x0,
+    y: y0,
+    w: x1 - x0 + 1,
+    h: y1 - y0 + 1,
+    district: b.district,
+    angle: deg,
+    mw: w,
+    mh: h,
+  });
+  return true;
 }
 
 /**

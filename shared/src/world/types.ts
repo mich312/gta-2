@@ -176,6 +176,22 @@ export interface Building {
    * means square to the world, which is what every grid borough wants anyway.
    */
   angle?: number;
+  /**
+   * The mass's own width and height, in its own turned frame (VECTOR phase 3,
+   * WORLDGEN.md §36).
+   *
+   * Present when the building was CUT at an angle rather than cut square and
+   * turned afterwards. Then `x, y, w, h` is the oriented rect's integer
+   * BOUNDING BOX — still what collision, the volume grid and doorways read,
+   * still axis-aligned — and these are the rectangle itself. The renderers
+   * draw exactly this, with no fit factor, because the tiles under it are its
+   * rasterisation rather than a square somebody rotated a drawing on top of.
+   *
+   * Absent means the older arrangement: the footprint IS the rect, and a mass
+   * turned onto it has to shrink to fit.
+   */
+  mw?: number;
+  mh?: number;
 }
 
 export type ShopKind =

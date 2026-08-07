@@ -10,7 +10,7 @@ own section into `WORLDGEN.md` and this file records what was decided and why.
 | 0 — the instrument | **DONE** (WORLDGEN.md §24) |
 | 1 — the coast as curves | **DONE** (§25) |
 | 2 — courses authoritative | **PART** (§26): junctions from the curves. The rest is blocked on course coverage — see §26.1. |
-| 3 — plots and buildings as OBBs | **NOT DONE** — see §8 Q5 |
+| 3 — plots and buildings as OBBs | **DONE for `fillRegion`** (§36): 2,301 buildings CUT at an angle, tiles rasterised from the rect. `fillBlock`'s square blocks keep the old model, and do not need it. |
 | 4 — collision follows the geometry | **NOT DONE**, blocked on 3 |
 
 ---
@@ -237,17 +237,21 @@ expressible.
   junction polygon (from 5,780); §21.1's over-wide-carriageway count falls.
 - **Size:** two to three days.
 
-### Phase 3 — plots and buildings become oriented rects — **NOT DONE**
+### Phase 3 — plots and buildings become oriented rects — **DONE where it matters**
 
-Scoped honestly after phase 1: `buildings.ts` emits buildings at **seven
-sites**, every one of them stamping world tiles through an axis-aligned
-`{x, y, w, h}`, with no local-frame abstraction to rotate. Cutting plots in the
-borough frame means rewriting all seven plus their tile stamping, and then
-`Building` becoming an OBB reaches the volume grid, `collide3`, doorways,
-amenity placement and three renderers. That is days, not hours, and a
-half-done version is precisely the confusing layer this plan exists to avoid.
+Landed as WORLDGEN.md §36, and smaller than this section feared. The seven
+emission sites did not all need rewriting: `fillRegion` handles every angled
+and shaped block — **85% of the city's buildings** — and its unit growth runs
+off a depth-from-kerb field that is frame-agnostic already. Only the STAMP had
+to change.
 
-*Scope, unchanged:*
+`Building` did not have to become an OBB either. It gained `mw`/`mh`, the
+rectangle's own dimensions, while `x, y, w, h` stays the integer bounding box
+that collision, the volume grid, doorways and every placement pass read — so
+none of them changed at all. The fit factor is simply not applied when the
+rectangle is given.
+
+*Original scope, for the record:*
 
 Cut blocks and plots in the borough's own frame. `Building` is an OBB natively;
 the drawn mass **is** the plot, with no fit factor because none is needed.
