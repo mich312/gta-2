@@ -3011,11 +3011,11 @@ is worth less than one nobody ran.
   VECTOR phase 1 (§25):** 55.1% → 19.7% axial. The diagnosis here was right
   that no smoother could do it — the answer was to stop recovering the curve
   from the raster at all.
-- **Diagonal bridge decks are raw staircases.** §15's bevel plane never
-  touches `T_BRIDGE`. Now the most visible thing about a bridge.
-- **Past the world edge the 3D view is a flat green void** — no sky, no
-  horizon, and the sea ending on a straight line. The margin is 8 tiles at the
-  north and south borders with a beach at (518,8), so a player can reach it.
+- ~~**Diagonal bridge decks are raw staircases.**~~ **FIXED (§31).**
+- ~~**Past the world edge the 3D view is a flat green void.**~~ **FIXED
+  (§32)**, with one caveat recorded there: the flyover clamps its camera into
+  the map, so the vantage this was originally probed from cannot show what it
+  was read as showing.
 - **`?extrude=1` and the 3D ground pass order the apron and the courses
   differently**, and the 2D chunk builder now differs from both.
 - **Lattice-on-lattice merging is worse than §21.1 diagnosed.** At a ≥7×7
@@ -3023,14 +3023,16 @@ is worth less than one nobody ran.
   **1,289 tiles are street-on-street** with no avenue involved, which
   contradicts §21.1's "it is not lattice on lattice". PARTLY addressed by §28
   (over-wide 294 → 276); §28.3 measures why suppression cannot finish it.
-- **Zebra crossings laid as carpet** — 4–7 stacked back to back in open tarmac
-  with no kerb, downstream of the same merged sheets.
-- **Two lighthouses on the same four tiles** (`Gannet Light` and `Old Point
-  Light`, both `653,586 4x4`), and `Marsh Post` standing on an empty field.
+- ~~**Zebra crossings laid as carpet.**~~ **FIXED (§35)** — gated on the
+  course crossings rather than on the tile plane.
+- ~~**Two lighthouses on the same four tiles**, and `Marsh Post` standing on an
+  empty field.~~ **FIXED (§30)** — and Marsh Post was a bake bug, not the
+  authoring slip it looked like.
 - **68 course junctions meet under 30°**, 21 of them under 15° — against
   §13.5's stated invariant. (Was 71/29; §28's suppression took three.)
-- **Trees stand dead on the tile lattice at identical scale**, so a wood shows
-  a visible square grid; woodland is drawn as a 1-tile-high green plinth.
+- ~~**Trees stand dead on the tile lattice at identical scale.**~~ **FIXED
+  (§34).** Woodland is still drawn as a 1-tile-high green plinth — that is the
+  canopy-as-a-box of §15.4 and wants its own change.
 - ~~**`pnpm mapgen` cannot see any of this.**~~ **FIXED by VECTOR phase 0
   (§24).** It draws courses, markings, kerbs, masses and the coast curve, and
   `--tiles` renders the raster alone so the difference between the two
