@@ -17,6 +17,7 @@ import {
   bevelOther,
   inCutHalf,
 } from 'shared';
+import { courseJunctions } from 'shared';
 import { hexToRgb } from './png.js';
 
 /**
@@ -446,10 +447,36 @@ export function render(
     for (const r of ribbons) strokeLine(put, W, H, r.pts, (r.w + 4 * tPx) / 2, kerb);
     for (const r of ribbons) strokeLine(put, W, H, r.pts, r.w / 2, road);
     for (const r of ribbons) strokeLine(put, W, H, r.pts, (r.w - 2 * tPx) / 2, mark);
+    // A junction is bare asphalt (§26): the crossings come from the curves,
+    // and the dash is masked out of them. The tool has to apply the same rule
+    // as the game or it cannot be used to check the game applies it.
+    const discs = courseJunctions(map.courses).map((j) => ({
+      x: (j.x - x0) * scale,
+      y: (j.y - y0) * scale,
+      r2: (j.r * scale) ** 2,
+    }));
+    const bare = (px: number, py: number): boolean => {
+      for (const d of discs) {
+        const dx = px + 0.5 - d.x;
+        const dy = py + 0.5 - d.y;
+        if (dx * dx + dy * dy <= d.r2) return false;
+      }
+      return true;
+    };
     const order = [...ribbons].sort((a, b) => a.w - b.w || a.len - b.len);
     for (const r of order) {
       strokeLine(put, W, H, r.pts, (r.w - 4 * tPx) / 2, road);
-      strokeLine(put, W, H, r.pts, lane / 2, mark, { on: 4 * tPx, period: 10 * tPx });
+      strokeLine(
+        (px, py, c) => {
+          if (bare(px, py)) put(px, py, c);
+        },
+        W,
+        H,
+        r.pts,
+        lane / 2,
+        mark,
+        { on: 4 * tPx, period: 10 * tPx },
+      );
     }
   }
 

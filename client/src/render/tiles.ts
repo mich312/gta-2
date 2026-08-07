@@ -30,6 +30,7 @@ import {
   inCutHalf,
   shoreHalf,
   shoreChains,
+  courseJunctions,
   buildingCorners,
   buildingMass,
 } from 'shared';
@@ -281,6 +282,12 @@ export class TileLayer {
   }> = [];
   private courseCover: Uint8Array | null = null;
   /**
+   * Where the courses cross, from the CURVES (§26). The centre dash is
+   * punched out of these: a junction is bare asphalt, which is the rule the
+   * per-tile painter has always followed and the ribbon painter never did.
+   */
+  private junctionDiscs: Array<{ x: number; y: number; r: number }> = [];
+  /**
    * The coast running through each tile it crosses (§18), in tile-LOCAL
    * units as a flat polyline — the cut `paintShoreTile` divides that tile
    * with, sharing its ends with the neighbouring tiles' cuts.
@@ -316,8 +323,10 @@ export class TileLayer {
   private indexCourses(map: CityMap): void {
     this.ribbons = [];
     this.courseCover = null;
+    this.junctionDiscs = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
+    this.junctionDiscs = courseJunctions(courses);
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);
     for (const c of courses) {
       const pts = new Float64Array(c.points.length * 2);
@@ -484,15 +493,36 @@ export class TileLayer {
     // road is, which is the same seniority a driver reads off the ground: the
     // through road's line carries on, the side road's stops where it joins.
     const order = [...paths].sort((a, b) => a.w - b.w || a.len - b.len);
+    // A junction is bare asphalt. The per-tile painter has said so since the
+    // beginning; the ribbon painter did not, and drew its dash straight
+    // through every crossing — 5,780 junction tiles of it. The crossings are
+    // a property of the CURVES, so they are computed from the curves and
+    // punched out of the dash here: an outer rect plus counter-wound discs,
+    // clipped even-odd, is "everywhere except the junctions".
+    const bare = new Path2D();
+    bare.rect(0, 0, CHUNK_DEVICE, CHUNK_DEVICE);
+    let punched = 0;
+    for (const j of this.junctionDiscs) {
+      const jx = (j.x - tx0) * TD;
+      const jy = (j.y - ty0) * TD;
+      const jr = j.r * TD;
+      if (jx + jr < 0 || jy + jr < 0 || jx - jr > CHUNK_DEVICE || jy - jr > CHUNK_DEVICE) continue;
+      bare.moveTo(jx + jr, jy);
+      bare.arc(jx, jy, jr, 0, Math.PI * 2);
+      punched++;
+    }
     for (const p of order) {
       ctx.setLineDash([]);
       ctx.strokeStyle = palette.road;
       ctx.lineWidth = p.w - 4 * t;
       ctx.stroke(p.path);
+      ctx.save();
+      if (punched > 0) ctx.clip(bare, 'evenodd');
       ctx.setLineDash([4 * t, 6 * t]);
       ctx.strokeStyle = palette.roadLane;
       ctx.lineWidth = t;
       ctx.stroke(p.path);
+      ctx.restore();
     }
     ctx.setLineDash([]);
     ctx.restore();

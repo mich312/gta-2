@@ -512,3 +512,81 @@ export function shoreHalf(chain: Float32Array, wantWet: boolean): Array<[number,
  * same line, or the shore is painted twice by two things that disagree about
  * where it is.
  */
+
+/**
+ * Where the road courses cross each other — junctions, computed from the
+ * CURVES rather than guessed from the tiles.
+ *
+ * The two marking systems disagreed about this. The per-tile painter has
+ * always left a junction bare (`if (horizontal && vertical) return`), while
+ * the ribbon painter stroked its centre dash straight through: 5,780 of
+ * 15,260 junction tiles carried a dash the game's own rule says they should
+ * not (WORLDGEN.md §23.3). A junction is where two centrelines meet, which is
+ * a fact about the lines, so ask the lines.
+ *
+ * Returned as discs — centre and radius — because that is what a painter
+ * needs to punch out of a stroke, and because a junction IS round: it is the
+ * area within half a carriageway of the crossing point.
+ */
+export function courseJunctions(
+  courses: ReadonlyArray<{ points: ReadonlyArray<readonly [number, number]>; width: number }>,
+): Array<{ x: number; y: number; r: number }> {
+  // Bucket every segment by the 8-tile cell it starts in, so a course is only
+  // ever tested against its neighbours. Pairwise over ~7,700 segments would
+  // be thirty million tests for a thing that has to run at load.
+  const CELL = 8;
+  const bucket = new Map<number, Array<{ i: number; k: number }>>();
+  const add = (x: number, y: number, i: number, k: number): void => {
+    const key = (Math.floor(y / CELL) << 12) | Math.floor(x / CELL);
+    const bag = bucket.get(key);
+    if (bag === undefined) bucket.set(key, [{ i, k }]);
+    else bag.push({ i, k });
+  };
+  courses.forEach((c, i) => {
+    for (let k = 0; k + 1 < c.points.length; k++) {
+      const [ax, ay] = c.points[k] as readonly [number, number];
+      const [bx, by] = c.points[k + 1] as readonly [number, number];
+      const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / CELL));
+      for (let s = 0; s <= steps; s++) {
+        add(ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps, i, k);
+      }
+    }
+  });
+
+  const out: Array<{ x: number; y: number; r: number }> = [];
+  const seen = new Set<string>();
+  for (const bag of bucket.values()) {
+    for (let p = 0; p < bag.length; p++) {
+      for (let q = p + 1; q < bag.length; q++) {
+        const A = bag[p] as { i: number; k: number };
+        const B = bag[q] as { i: number; k: number };
+        // A course crossing ITSELF at the next segment along is a bend, not a
+        // junction. Different courses, or the same one doubling back.
+        if (A.i === B.i && Math.abs(A.k - B.k) <= 1) continue;
+        const ca = courses[A.i] as { points: ReadonlyArray<readonly [number, number]>; width: number };
+        const cb = courses[B.i] as { points: ReadonlyArray<readonly [number, number]>; width: number };
+        const [ax, ay] = ca.points[A.k] as readonly [number, number];
+        const [bx, by] = ca.points[A.k + 1] as readonly [number, number];
+        const [cx, cy] = cb.points[B.k] as readonly [number, number];
+        const [dx, dy] = cb.points[B.k + 1] as readonly [number, number];
+        const r1x = bx - ax;
+        const r1y = by - ay;
+        const r2x = dx - cx;
+        const r2y = dy - cy;
+        const den = r1x * r2y - r1y * r2x;
+        if (den === 0) continue; // parallel: a doubled-up line, not a crossing
+        const t = ((cx - ax) * r2y - (cy - ay) * r2x) / den;
+        const u = ((cx - ax) * r1y - (cy - ay) * r1x) / den;
+        if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+        const x = ax + r1x * t;
+        const y = ay + r1y * t;
+        // One disc per crossing, not one per segment pair that finds it.
+        const key = `${Math.round(x * 2)},${Math.round(y * 2)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ x, y, r: Math.max(ca.width, cb.width) / 2 });
+      }
+    }
+  }
+  return out;
+}

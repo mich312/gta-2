@@ -3212,3 +3212,43 @@ claim that makes the tile plane a cache rather than a second opinion.
   redundant, but it also bevels the beach-against-grass line and the kerb of a
   diagonal avenue, and collision reads it. Narrowing it belongs with the road
   work, not here.
+
+---
+
+## 26. VECTOR phase 2 (part) — junctions from the curves
+
+Two marking systems have disagreed about junctions since §16. The per-tile
+painter leaves one bare — `if (horizontal && vertical) return; // junction:
+bare asphalt` — and the ribbon painter stroked its centre dash straight
+through, so **5,780 of 15,260 junction tiles** carried a dash the game's own
+rule says they should not (§23.3).
+
+A junction is where two centrelines meet. That is a fact about the LINES, so
+`courseJunctions` asks the lines: every course segment is bucketed by an
+8-tile cell, near pairs are intersected, and each crossing becomes a disc of
+half the wider carriageway. Both painters punch the dash out of those discs —
+the client with an even-odd clip of a rect minus counter-wound circles, the
+review tool with a per-pixel test. **The tool applies the same rule as the
+game, because a tool that did not could not be used to check that the game
+does.**
+
+Evidence: `evidence/vector-p2-junctions.png`.
+
+### 26.1 NOT DELIVERED, and the measurement that says why
+
+The rest of phase 2 — retiring `trimCourses`, deleting the per-tile marking
+system outright, and deduplicating doubled courses in vector — is **not** in
+this commit, and the reason is a number rather than a judgement.
+
+Courses cover **76.1% of carriageway tiles** (78,127 of 102,719). Deleting the
+per-tile marking system today would leave a quarter of the city's roads
+unmarked. Much of that quarter is junction box and merged sheet, which SHOULD
+be bare — but "much" is not "all", and the honest way to find out is to raise
+coverage first and delete second, not the other way round.
+
+`trimCourses` is the same shape of problem from the other end: it exists
+because passes downstream of the carve REMOVE carriageway (the orphan prune,
+the doubling suppression), leaving a course drawn over ground that is no
+longer road. Inverting it properly means those passes editing the course and
+the carve together, in the vector domain — which is the same work as the
+vector dedup, and wants doing once, deliberately.

@@ -265,3 +265,10 @@ running; the plangen sheets need no server.
 |---|---|
 | `vector-p0-tiles.png` | The same 80-tile crop of the 26° commercial borough drawn from the RASTER ALONE (`--tiles`): staircase roads, no kerbs, no lane markings, square buildings. This is everything `pnpm mapgen` could see before VECTOR phase 0 — and therefore everything three waves of §16/§20/§21 review were judged against. Retake: `node server/dist/tools/mapgen.js --crop=552,32,80 --tiles --out=evidence/vector-p0-tiles.png`. |
 | `vector-p0-curves.png` | The same crop with the curve layer: road courses stroked as curves with kerb casing, edge lines and a centre dash flowing along the bend, and buildings drawn as the turned masses the game draws. **The difference between these two pictures is the curve layer**, and shrinking that difference to nothing is what VECTOR.md's remaining phases do. Retake: drop the `--tiles` flag. |
+
+## VECTOR phases 1–2
+
+| file | what it shows |
+|---|---|
+| `vector-p1-coast.png` | The waterline after the coast became a curve upstream of the raster (§25). The field was always continuous; `Math.round` in its sampler and a threshold to a mask were what stepped it. Contoured by interpolation instead, the share of waterline running within 7.5° of an axis falls from 55.1% to 19.7%, and the same coastline moves 0.3% of the map. Retake: `node server/dist/tools/mapgen.js --crop=470,390,80 --out=evidence/vector-p1-coast.png`. |
+| `vector-p2-junctions.png` | Centre dashes stopping at crossings (§26). The per-tile painter had left junctions bare since the beginning and the ribbon painter drew straight through them — 5,780 junction tiles of contradiction. Junctions are now computed from where the CURVES cross and punched out of the dash, in the game and in this tool, which is the only way the tool can check the game. Retake: `node server/dist/tools/mapgen.js --crop=596,76,70 --out=evidence/vector-p2-junctions.png`. |
