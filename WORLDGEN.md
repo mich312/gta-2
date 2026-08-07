@@ -3252,3 +3252,93 @@ the doubling suppression), leaving a course drawn over ground that is no
 longer road. Inverting it properly means those passes editing the course and
 the carve together, in the vector domain — which is the same work as the
 vector dedup, and wants doing once, deliberately.
+
+---
+
+## 27. Reviewing the VECTOR work
+
+The plan's own §7 says each phase lands with a review. This is that, for
+phases 0–2, done by measuring the claims rather than restating them.
+
+### 27.1 The central claim holds — with two exceptions worth naming
+
+`VECTOR.md` §3.1 promises the tile plane becomes a pure function of the curve.
+Rasterising the nine shipped coast rings and comparing against the shipped
+tiles: **1,775 of 589,824 tiles disagree (0.301%)**, and they fall into two
+groups.
+
+**1,282 are bridge decks** — the ring says wet, the tile says `T_BRIDGE`. That
+is correct and expected: a deck is laid over water after the coast exists, and
+a bridge is not land. Not a disagreement about where the coast is.
+
+**493 are not.** The tiles hold water the rings call land, in 13 clusters up to
+127 tiles across. 486 of them are **enclosed** — and there are **zero lake
+rings among the nine shipped**.
+
+### 27.2 The finding: park ponds are a second water boundary with no curve
+
+`buildings.ts:596` carves ponds into park blocks, in tiles, long after
+`paintCoast` has produced the rings. So the city has water the coast curve
+does not describe: the painters shade the sea against a curve and a park pond
+against the tile edge, which means **a pond has a staircase shore in a city
+whose coastline no longer does**.
+
+This is precisely the defect class this plan exists to remove, reintroduced at
+a smaller scale — and it was invisible until the equality check was run,
+because nothing else asks the rings and the tiles to agree. It is the strongest
+argument in this whole exercise for making that check permanent rather than a
+migration crutch (§3.1 says the crutch gets deleted; on this evidence it
+should be promoted to a test instead).
+
+The fix is not to move pond-carving into `paintCoast` — a pond belongs to the
+park that contains it, and parks are placed much later. It is for the pond to
+be authored as a ring and rasterised, the same way the coast now is, with
+`geometry.ts` doing both.
+
+The remaining **7 tiles** are the pier prune (§23.1) drowning abutment tiles
+that were land before a deck was laid on them. Small, and the same shape of
+bug: a raster pass moving a boundary the curve owns.
+
+### 27.3 The other leftover: bevels still describe the coast too
+
+`bevel.ts` was not deleted, for the stated reason that it also serves the
+beach-against-grass line and diagonal kerbs. But **362 of its 1,208 bevel
+tiles (30%) touch water** — a second, raster-derived description of the very
+edge the rings now own. The painters already reconcile them by hand ("prefer
+the chord and skip the bevel on the same tiles", `tiles.ts:986`), and a
+reconciliation at paint time is the smell this plan is named after.
+
+Narrowing `deriveBevels` to non-water edges is a small, well-defined follow-up
+and should happen before anything else builds on the bevel plane.
+
+### 27.4 What landed, honestly
+
+| phase | state | evidence |
+|---|---|---|
+| 0 — the instrument | done | `--tiles` A/B; the tool now sees courses, markings, kerbs, masses |
+| 1 — coast as curves | done | axial waterline 55.1% → 19.7%; `shoreline.ts` deleted; 3 raster passes deleted |
+| 2 — courses authoritative | **part** | junctions from the curves; the rest blocked on 76.1% course coverage (§26.1) |
+| 3 — plots as OBBs | **not done** | 7 world-axis emission sites in an 870-line file, then the volume grid, `collide3`, doorways and 3 renderers |
+| 4 — collision follows geometry | **not done** | blocked on 3, and wrong to build before it |
+
+Net so far: **−932 lines against +231**, one module added (`geometry.ts`) and
+one deleted (`shoreline.ts`), with `morph`, `despeckle` and `drownSandbars`
+gone from `layout.ts`.
+
+### 27.5 What I would question if I were reviewing this cold
+
+- **The equality check is not a test.** It was run by hand for this review and
+  found a real defect. Nothing runs it in CI. Given §27.2, that is the single
+  most valuable thing to add next, and it contradicts the plan's own decision
+  to treat it as temporary.
+- **`contourRings` truncates silently.** Its ring walk is bounded by
+  `guard < 1e7`; a malformed field would produce a short ring rather than an
+  error. It should throw — a coastline that failed to close is not something
+  to ship quietly.
+- **The bake is 50% slower** (7.0 s → 10.7 s) because the coast field is
+  evaluated at half-tile spacing. Offline, once, and worth it — but it is the
+  kind of cost that compounds if later phases sample more fields.
+- **`shoreHalf` and `shoreChains` now live in `geometry.ts`** with a
+  `ShoreLike` interface invented for them. That is a seam: they were written
+  against `ShoreLoop` and now take a structural type. Fine, but it is the sort
+  of thing that quietly becomes two shapes again.

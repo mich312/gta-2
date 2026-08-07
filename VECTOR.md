@@ -3,7 +3,15 @@
 A plan for review, in the manner of `PLAN.md`. When a phase lands it writes its
 own section into `WORLDGEN.md` and this file records what was decided and why.
 
-**STATUS: approved, full integration. Phase 0 landed (WORLDGEN.md §24).**
+**STATUS: approved, full integration.**
+
+| phase | state |
+|---|---|
+| 0 — the instrument | **DONE** (WORLDGEN.md §24) |
+| 1 — the coast as curves | **DONE** (§25) |
+| 2 — courses authoritative | **PART** (§26): junctions from the curves. The rest is blocked on course coverage — see §26.1. |
+| 3 — plots and buildings as OBBs | **NOT DONE** — see §8 Q5 |
+| 4 — collision follows the geometry | **NOT DONE**, blocked on 3 |
 
 ---
 
@@ -229,7 +237,17 @@ expressible.
   junction polygon (from 5,780); §21.1's over-wide-carriageway count falls.
 - **Size:** two to three days.
 
-### Phase 3 — plots and buildings become oriented rects
+### Phase 3 — plots and buildings become oriented rects — **NOT DONE**
+
+Scoped honestly after phase 1: `buildings.ts` emits buildings at **seven
+sites**, every one of them stamping world tiles through an axis-aligned
+`{x, y, w, h}`, with no local-frame abstraction to rotate. Cutting plots in the
+borough frame means rewriting all seven plus their tile stamping, and then
+`Building` becoming an OBB reaches the volume grid, `collide3`, doorways,
+amenity placement and three renderers. That is days, not hours, and a
+half-done version is precisely the confusing layer this plan exists to avoid.
+
+*Scope, unchanged:*
 
 Cut blocks and plots in the borough's own frame. `Building` is an OBB natively;
 the drawn mass **is** the plot, with no fit factor because none is needed.
@@ -244,7 +262,13 @@ the drawn mass **is** the plot, with no fit factor because none is needed.
   fourth threshold for it.
 - **Size:** two days.
 
-### Phase 4 — collision follows the geometry
+### Phase 4 — collision follows the geometry — **NOT DONE, blocked on 3**
+
+Not merely unbuilt but currently *wrong to build*: without phase 3 a
+building's drawn mass is a shrunken rotated rect while its tiles are the full
+axis-aligned one, so pointing collision at the OBB would make it agree with
+the drawing and disagree with the tiles — trading one representation conflict
+for another. Phase 3 first, or not at all.
 
 **Buildings only. The fine coast mask is cut — see Q1 RESOLVED.**
 
@@ -346,7 +370,14 @@ in the same commit as the code. Each phase lands with:
   benefits for free — but it also exercises the boolean ops on 44 unseen seeds,
   which is either excellent test coverage or a source of Phase 1 rework,
   depending on when it is turned on.
-- **Q4 — Ship the vector document, or rebuild it at load?** ~165 KB shipped
+- **Q5 — Phase 3's cost is now known.** Seven emission sites in an 870-line
+  file, all world-axis, plus the volume grid, `collide3`, doorways and three
+  renderers once `Building` becomes an OBB. Worth doing — it deletes the whole
+  facing apparatus and ends a problem that has now had three thresholds thrown
+  at it — but it wants its own run at it, not a tail-end of this one.
+- **Q4 — Ship the vector document, or rebuild it at load? RESOLVED — shipped.**
+  The coast rings are in `city.data.ts` (782 → 840 kB) and `generateCity` no
+  longer rebuilds them. ~165 KB shipped
   versus a rasterise pass at every client start. Shipping is the obvious
   answer; noted only because `deriveShores` currently rebuilds at load and
   nobody decided that on purpose.
