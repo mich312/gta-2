@@ -3574,3 +3574,77 @@ outside — which is worth knowing, because the audit's original probe used that
 vantage and it cannot show what it was read as showing. What is verified is
 the border seen from within: the sea reaches the frame edge, and nothing green
 lies beyond it.
+
+---
+
+## 33. The esplanade gets a line, and the doubling gets a second measurement
+
+### 33.1 A road with no curve
+
+The waterfront street §13.1 added was carved carriageway and nothing else — no
+course. Two consequences, and the second is the interesting one:
+
+- the renderers drew it per tile, so it was part of the quarter of the city's
+  roads the ribbon painter cannot reach (§26.1);
+- and `doubledAgainstCourses` could not see it, so a lattice line laid
+  alongside it merged into one sheet with nothing to detect the doubling.
+
+It is a road. It gets a line: `chainTiles` — one nearest-neighbour chainer at
+module scope, where the band tracers had each grown their own — turns the
+band's centre into polylines.
+
+**One line, not two.** `shoreDist` is integral, so the middle of a three-wide
+band is sometimes 4 and sometimes 5; taking both chains two lines down one
+road, which the doubling test then reports, rightly, as a road doubled with
+itself — 1,784 samples to 2,675. Take 4 where there is a 4, and 5 only to
+bridge a gap.
+
+### 33.2 What the measurement said about §21.3
+
+Setting out to fix the contour bands, the numbers said something else. Over-wide
+carriageway by fabric:
+
+| fabric | over-wide tiles |
+|---|---|
+| grid | **187** |
+| contour | 89 |
+| spine | 9 |
+| crescent | 0 |
+
+And The Terraces — §21.3's poster child, recorded at **51% carriageway** with a
+46-tile sheet down its middle — is now **38% road with 18 over-wide tiles**.
+§25's coast and §28's suppression between them did most of that without
+touching the band spacing.
+
+So **§21.3's diagnosis is no longer the dominant one.** The largest clusters
+are elongated strips in GRID boroughs — 22×3 at `526,403`, 19×1 at
+`453,290` — which is the doubling signature, not band smearing. And none of it
+is at an authored plaza: 0% of over-wide tiles lie within six tiles of a
+`square`, `green` or `circus`, so the metric is not merely counting the open
+ground §13.6 asks for.
+
+### 33.3 The ceiling, confirmed from a second direction
+
+§28 found that suppressing more doubling costs streets people drive on. This
+found the same wall from the other side. Softening seniority — a line yields to
+any road at least HALF its length rather than one longer than itself — gives
+over-wide 276 → 233 and doubled samples 1,830 → 1,509, and fails the same two
+tests §28 named: long courses drop to 88 against a floor of 90, and an errand
+driver stops completing its route.
+
+Twice now, from unrelated directions, the same boundary. That is no longer a
+tuning accident; it is where "duplicate" stops and "the only street this block
+has" begins. Anything past it has to come from **not generating the duplicate**
+— banding a borough against one stretch of shore, phasing a lattice against its
+neighbour — rather than from deleting lines afterwards.
+
+### 33.4 DELIVERED
+
+The esplanade is a course: drawn as a ribbon like every other road, and
+visible to the doubling test. Course coverage 76.1% → 76.5% (the 81.3% the
+two-line version showed was double-counting one road). Over-wide, doubling and
+block count unchanged, because seniority correctly protects a long lattice
+line from yielding to a short chained esplanade — which is the right call and
+also the reason this did not move the numbers.
+
+890 tests pass.

@@ -215,6 +215,67 @@ function strokeDepth(
 
 
 
+/**
+ * Chain a scattered set of tiles into polylines, nearest-neighbour.
+ *
+ * The band tracers each grew their own copy of this; the esplanade needed a
+ * third and got this one instead. Greedy from an endpoint-ish seed, stepping
+ * to the nearest unused tile within two, which is what turns a one-tile-wide
+ * ribbon of "centre of the band" tiles into a line somebody can stroke.
+ */
+function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>> {
+  const out: Array<Array<[number, number]>> = [];
+  const left = new Set(pool);
+  while (left.size > 0) {
+    // Seed at a tile with the fewest neighbours still free: an end, if there
+    // is one, so the chain runs the length of the ribbon instead of starting
+    // in its middle and stopping half way.
+    let seed = -1;
+    let fewest = 9;
+    for (const i of left) {
+      const x = i % W;
+      const y = (i - x) / W;
+      let n = 0;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if ((ox !== 0 || oy !== 0) && left.has((y + oy) * W + (x + ox))) n++;
+        }
+      }
+      if (n < fewest) {
+        fewest = n;
+        seed = i;
+        if (n <= 1) break;
+      }
+    }
+    if (seed < 0) break;
+    const chain: Array<[number, number]> = [];
+    let at = seed;
+    while (at >= 0) {
+      left.delete(at);
+      const x = at % W;
+      const y = (at - x) / W;
+      chain.push([x + 0.5, y + 0.5]);
+      let best = -1;
+      let bestD = Infinity;
+      for (let oy = -2; oy <= 2; oy++) {
+        for (let ox = -2; ox <= 2; ox++) {
+          if (ox === 0 && oy === 0) continue;
+          const j = (y + oy) * W + (x + ox);
+          if (!left.has(j)) continue;
+          const d = ox * ox + oy * oy;
+          if (d < bestD) {
+            bestD = d;
+            best = j;
+          }
+        }
+      }
+      at = best;
+    }
+    if (chain.length >= 6) out.push(chain);
+  }
+  return out;
+}
+
 interface Coast {
   water: Uint8Array;
   /** Shore normal dotted with the swell: +1 fully exposed, -1 sheltered. */
@@ -800,6 +861,9 @@ export function buildLayout(plan: CityPlan): CityLayout {
     return false;
   };
 
+  const esplanade = new Set<number>();
+  const espBand = new Set<number>();
+
   // Wherever a non-rural borough meets the water, a street runs along the
   // shore at a quay's distance — §13.1's Finding 3, fixed at the source. The
   // dead fringe of bare field between the last street and the sea becomes a
@@ -823,7 +887,48 @@ export function buildLayout(plan: CityPlan): CityLayout {
       if (sd < 3 || sd >= 6) continue;
       if (shoreParallelRoadNear(tx, ty)) continue;
       lay(tx, ty, null);
+      // The esplanade's own centre line, for a course below. ONE distance,
+      // not a window: `shoreDist` is integral, so `|sd - 4.5| < 0.6` picks
+      // both 4 and 5 and the chainer then runs two lines down one road —
+      // which the doubling test correctly reports as a duplicate, of itself.
+      if (sd === 4 || sd === 5) espBand.add(i);
     }
+  }
+
+  // One line down the middle of the band, not two. `shoreDist` is integral,
+  // so the band's middle is sometimes 4 and sometimes 5; taking both chains
+  // two lines down one road, which the doubling test then reports — rightly —
+  // as a road doubled with itself. Take 4 where there is a 4, and 5 only to
+  // bridge the gaps where there is not.
+  for (const i of espBand) {
+    const x = i % W;
+    const y = (i - x) / W;
+    if ((shoreDist[i] as number) === 4) {
+      esplanade.add(i);
+      continue;
+    }
+    let inner = false;
+    for (let oy = -1; oy <= 1 && !inner; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if (espBand.has((y + oy) * W + (x + ox)) && (shoreDist[(y + oy) * W + (x + ox)] as number) === 4) {
+          inner = true;
+          break;
+        }
+      }
+    }
+    if (!inner) esplanade.add(i);
+  }
+
+  // The esplanade as a COURSE (§33).
+  //
+  // It was carriageway with no curve: the renderers drew it per tile, so it
+  // was part of the quarter of the city's roads the ribbon painter cannot
+  // reach — and, worse, `doubledAgainstCourses` could not see it, so a
+  // lattice line laid alongside it merged into one over-wide sheet with
+  // nothing to detect the doubling. It is a road; it gets a line.
+  for (const pts of chainTiles(esplanade, W)) {
+    const line = simplifyPolyline(pts, 1 / 3);
+    if (line.length >= 2) courses.push({ points: line, width: 3, kind: 'street' });
   }
 
   /* ---- seam streets: where two boroughs meet, a street runs -------- */
