@@ -3007,13 +3007,10 @@ course ribbon covered 1,506 of 1,524 deck tiles; fixing the clip surfaced it.
 Written down because an audit whose findings are half-fixed and half-forgotten
 is worth less than one nobody ran.
 
-- **Over half the drawn coastline is still a tile staircase.** Smoothed-to-raw
-  length ratio 0.841 where a genuinely smoothed 45° coast gives 0.71; 55% of
-  the waterline is within 7.5° of an axis. Chaikin×2 with a ⅓-tile
-  Douglas–Peucker straightens a **1:1** staircase and leaves a 2:1 one — which
-  is the common case — with every step intact. §18.4's "smooth to the eye at
-  any zoom the game uses" is not true at flyover height. This wants a
-  different smoother, not a bigger epsilon.
+- ~~**Over half the drawn coastline is still a tile staircase.**~~ **FIXED by
+  VECTOR phase 1 (§25):** 55.1% → 19.7% axial. The diagnosis here was right
+  that no smoother could do it — the answer was to stop recovering the curve
+  from the raster at all.
 - **Diagonal bridge decks are raw staircases.** §15's bevel plane never
   touches `T_BRIDGE`. Now the most visible thing about a bridge.
 - **Past the world edge the 3D view is a flat green void** — no sky, no
@@ -3024,22 +3021,20 @@ is worth less than one nobody ran.
 - **Lattice-on-lattice merging is worse than §21.1 diagnosed.** At a ≥7×7
   solid-tarmac threshold only 58% of merged tiles are near an authored avenue;
   **1,289 tiles are street-on-street** with no avenue involved, which
-  contradicts §21.1's "it is not lattice on lattice". The §21.3 plan is
-  therefore necessary but not sufficient.
+  contradicts §21.1's "it is not lattice on lattice". PARTLY addressed by §28
+  (over-wide 294 → 276); §28.3 measures why suppression cannot finish it.
 - **Zebra crossings laid as carpet** — 4–7 stacked back to back in open tarmac
   with no kerb, downstream of the same merged sheets.
 - **Two lighthouses on the same four tiles** (`Gannet Light` and `Old Point
   Light`, both `653,586 4x4`), and `Marsh Post` standing on an empty field.
-- **71 course junctions meet under 30°**, 29 of them under 15°, worst 2.2° —
-  against §13.5's stated invariant.
+- **68 course junctions meet under 30°**, 21 of them under 15° — against
+  §13.5's stated invariant. (Was 71/29; §28's suppression took three.)
 - **Trees stand dead on the tile lattice at identical scale**, so a wood shows
   a visible square grid; woodland is drawn as a 1-tile-high green plinth.
-- **`pnpm mapgen` cannot see any of this.** The tool WORLDGEN.md points at for
-  reviewing every wave draws no courses, no lane markings, no kerbs and no
-  rotated masses — which is the honest explanation for how §16, §20 and §21
-  defects survived three waves of review. Teaching `mapRender.ts` the ribbons
-  and the masses is the highest-value thing on this list, because it is the
-  one that finds the next list.
+- ~~**`pnpm mapgen` cannot see any of this.**~~ **FIXED by VECTOR phase 0
+  (§24).** It draws courses, markings, kerbs, masses and the coast curve, and
+  `--tiles` renders the raster alone so the difference between the two
+  pictures is the curve layer.
 
 ---
 
