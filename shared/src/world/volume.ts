@@ -6,6 +6,7 @@ import {
   T_TREES,
   T_WATER,
   TILE_SIZE,
+  type Building,
   type CityMap,
 } from './types.js';
 import { buildingStoreys } from './heights.js';
@@ -88,6 +89,146 @@ export interface VolumeGrid {
    * anything that wants "where is the street here" without a query.
    */
   ground: Float64Array;
+  /**
+   * The oriented walls of buildings CUT at an angle (VECTOR phase 4, §37).
+   *
+   * The tile columns above are the rasterisation of these rectangles, so they
+   * already agree to within half a tile — which is exactly the error you feel
+   * driving along a 22° wall: the tiles step, so the car catches on the
+   * corners of its own building. These are the rectangle itself, tested after
+   * the columns and never instead of them, so a wall is at worst what the
+   * tiles said and at best the line the renderer draws.
+   *
+   * Flat numbers rather than objects, in one array, because this is read
+   * inside `step()` and has to stay bit-identical on any host.
+   */
+  obb: ObbIndex;
+}
+
+/**
+ * Oriented rectangles, bucketed by a coarse grid so a query touches a handful
+ * rather than two thousand.
+ */
+export interface ObbIndex {
+  /** Per rectangle: cx, cy, halfW, halfH, cos, sin, top — seven floats. */
+  data: Float64Array;
+  /** Bucket size in world px. */
+  cell: number;
+  cols: number;
+  rows: number;
+  /** Rectangle indices per bucket, flattened. */
+  items: Int32Array;
+  /** Where each bucket's run starts in `items`; `starts[n]` is the end. */
+  starts: Int32Array;
+}
+
+/** Build the oriented-wall index from the buildings that were cut at an angle. */
+export function buildObbIndex(map: CityMap, cell = TILE_SIZE * 4): ObbIndex {
+  const cols = Math.ceil((map.widthTiles * TILE_SIZE) / cell);
+  const rows = Math.ceil((map.heightTiles * TILE_SIZE) / cell);
+  const cut: Building[] = [];
+  for (const b of map.buildings) {
+    if (b.mw === undefined || b.mh === undefined || (b.angle ?? 0) === 0) continue;
+    cut.push(b);
+  }
+  const data = new Float64Array(cut.length * 7);
+  const counts = new Int32Array(cols * rows + 1);
+  const boxes: number[][] = [];
+  for (let i = 0; i < cut.length; i++) {
+    const b = cut[i] as Building;
+    const rad = ((b.angle as number) * Math.PI) / 180;
+    const cx = (b.x + b.w / 2) * TILE_SIZE;
+    const cy = (b.y + b.h / 2) * TILE_SIZE;
+    const hw = ((b.mw as number) / 2) * TILE_SIZE;
+    const hh = ((b.mh as number) / 2) * TILE_SIZE;
+    data[i * 7] = cx;
+    data[i * 7 + 1] = cy;
+    data[i * 7 + 2] = hw;
+    data[i * 7 + 3] = hh;
+    data[i * 7 + 4] = Math.cos(rad);
+    data[i * 7 + 5] = Math.sin(rad);
+    data[i * 7 + 6] = buildingStoreys(b) * Z_PER_STOREY;
+    // Buckets the rectangle's bounding circle touches — cheap and exact
+    // enough, since a miss only costs one SAT test.
+    const r = Math.sqrt(hw * hw + hh * hh);
+    const c0 = Math.max(0, Math.floor((cx - r) / cell));
+    const c1 = Math.min(cols - 1, Math.floor((cx + r) / cell));
+    const r0 = Math.max(0, Math.floor((cy - r) / cell));
+    const r1 = Math.min(rows - 1, Math.floor((cy + r) / cell));
+    const cells: number[] = [];
+    for (let ry = r0; ry <= r1; ry++) {
+      for (let rx = c0; rx <= c1; rx++) {
+        const k = ry * cols + rx;
+        cells.push(k);
+        counts[k + 1] = (counts[k + 1] as number) + 1;
+      }
+    }
+    boxes.push(cells);
+  }
+  const starts = new Int32Array(cols * rows + 1);
+  for (let k = 0; k < cols * rows; k++) starts[k + 1] = (starts[k] as number) + (counts[k + 1] as number);
+  const items = new Int32Array(starts[cols * rows] as number);
+  const fill = new Int32Array(cols * rows);
+  for (let i = 0; i < boxes.length; i++) {
+    for (const k of boxes[i] as number[]) {
+      items[(starts[k] as number) + (fill[k] as number)] = i;
+      fill[k] = (fill[k] as number) + 1;
+    }
+  }
+  return { data, cell, cols, rows, items, starts };
+}
+
+/**
+ * Does an axis-aligned box overlap any oriented wall whose height covers it?
+ *
+ * Separating axes: the box's two and the rectangle's two. Plain arithmetic
+ * throughout — no `hypot`, no trig at query time — because this runs inside
+ * `step()` and has to be bit-identical on every host.
+ */
+export function obbBlocked(
+  ix: ObbIndex,
+  x: number,
+  y: number,
+  half: number,
+  z0: number,
+  z1: number,
+): boolean {
+  const { data, cell, cols, rows, items, starts } = ix;
+  if (items.length === 0) return false;
+  const c0 = Math.max(0, Math.floor((x - half) / cell));
+  const c1 = Math.min(cols - 1, Math.floor((x + half) / cell));
+  const r0 = Math.max(0, Math.floor((y - half) / cell));
+  const r1 = Math.min(rows - 1, Math.floor((y + half) / cell));
+  for (let ry = r0; ry <= r1; ry++) {
+    for (let rx = c0; rx <= c1; rx++) {
+      const k = ry * cols + rx;
+      const from = starts[k] as number;
+      const to = starts[k + 1] as number;
+      for (let s = from; s < to; s++) {
+        const i = (items[s] as number) * 7;
+        const top = data[i + 6] as number;
+        // A wall you are above, or entirely below, is not in the way.
+        if (z0 >= top || z1 <= 0) continue;
+        const dx = x - (data[i] as number);
+        const dy = y - (data[i + 1] as number);
+        const hw = data[i + 2] as number;
+        const hh = data[i + 3] as number;
+        const co = data[i + 4] as number;
+        const si = data[i + 5] as number;
+        // The box's extent projected onto the rectangle's axes, and the
+        // rectangle's onto the world's. Overlap on all four means a hit.
+        const ax = Math.abs(co) * half + Math.abs(si) * half;
+        if (Math.abs(dx * co + dy * si) > hw + ax) continue;
+        if (Math.abs(-dx * si + dy * co) > hh + ax) continue;
+        const wx = hw * Math.abs(co) + hh * Math.abs(si);
+        if (Math.abs(dx) > wx + half) continue;
+        const wy = hw * Math.abs(si) + hh * Math.abs(co);
+        if (Math.abs(dy) > wy + half) continue;
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /** The spans of one tile, in order. Outside the map: one infinite wall. */
@@ -222,7 +363,7 @@ export function buildVolumeGrid(map: CityMap): VolumeGrid {
     }
   }
 
-  return { widthTiles: W, heightTiles: H, offset, count, bottoms, tops, ground };
+  return { widthTiles: W, heightTiles: H, offset, count, bottoms, tops, ground, obb: buildObbIndex(map) };
 }
 
 /**

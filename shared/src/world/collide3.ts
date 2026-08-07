@@ -1,5 +1,5 @@
 import { TILE_SIZE } from './types.js';
-import { blockedAt, ceilingAbove, supportUnder, type VolumeGrid } from './volume.js';
+import { blockedAt, ceilingAbove, obbBlocked, supportUnder, type VolumeGrid } from './volume.js';
 
 const EPS = 0.001;
 
@@ -224,6 +224,52 @@ export function move3(
 }
 
 /** One bounded horizontal sub-step. Returns [hitX, hitY, steppedUp]. */
+/**
+ * The oriented walls, after the tile columns have said yes (§37).
+ *
+ * The columns are the rasterisation of these rectangles, so they agree to
+ * within half a tile — and that half tile is exactly what you feel driving
+ * along a 22° wall, because the tiles step and the car catches on the corners
+ * of its own building. This closes it: where the rectangle blocks and the
+ * tiles did not, the mover stops at the rectangle instead.
+ *
+ * Returns the position to take on this axis. Bisection rather than a
+ * minimum-translation vector, because eight halvings of a sub-step land the
+ * mover flush to well under a pixel using nothing but add and multiply —
+ * which is what `step()` needs to stay bit-identical on every host.
+ *
+ * A body already inside a wall is let through. Nothing should be, but a
+ * spawn point that lands in one must not become a trap.
+ */
+function slideAxis(
+  vg: VolumeGrid,
+  body: Body3,
+  opts: Move3Options,
+  nx: number,
+  ny: number,
+  horizontal: boolean,
+): number {
+  const { half, height } = opts;
+  const z0 = body.z;
+  const z1 = body.z + height;
+  if (!obbBlocked(vg.obb, nx, ny, half, z0, z1)) return horizontal ? nx : ny;
+  const from = horizontal ? body.x : body.y;
+  if (obbBlocked(vg.obb, horizontal ? from : body.x, horizontal ? body.y : from, half, z0, z1)) {
+    return horizontal ? nx : ny;
+  }
+  let free = from;
+  let hit = horizontal ? nx : ny;
+  for (let k = 0; k < 8; k++) {
+    const mid = (free + hit) / 2;
+    if (obbBlocked(vg.obb, horizontal ? mid : body.x, horizontal ? body.y : mid, half, z0, z1)) {
+      hit = mid;
+    } else {
+      free = mid;
+    }
+  }
+  return free;
+}
+
 function moveOnce3(
   vg: VolumeGrid,
   body: Body3,
@@ -239,7 +285,12 @@ function moveOnce3(
   if (dx !== 0) {
     const nx = body.x + dx;
     if (!boxBlocked(vg, nx, body.y, half, body.z, body.z + height)) {
-      body.x = nx;
+      const wasX = body.x;
+      body.x = slideAxis(vg, body, opts, nx, body.y, true);
+      if (body.x !== nx && body.x === wasX) {
+        body.vx = 0;
+        hitX = true;
+      }
     } else {
       const lift = tryStepUp(vg, nx, body.y, opts, body.z);
       if (lift !== null) {
@@ -262,7 +313,12 @@ function moveOnce3(
   if (dy !== 0) {
     const ny = body.y + dy;
     if (!boxBlocked(vg, body.x, ny, half, body.z, body.z + height)) {
-      body.y = ny;
+      const was = body.y;
+      body.y = slideAxis(vg, body, opts, body.x, ny, false);
+      if (body.y !== ny && body.y === was) {
+        body.vy = 0;
+        hitY = true;
+      }
     } else {
       const lift = tryStepUp(vg, body.x, ny, opts, body.z);
       if (lift !== null) {

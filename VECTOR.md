@@ -11,7 +11,7 @@ own section into `WORLDGEN.md` and this file records what was decided and why.
 | 1 — the coast as curves | **DONE** (§25) |
 | 2 — courses authoritative | **PART** (§26): junctions from the curves. The rest is blocked on course coverage — see §26.1. |
 | 3 — plots and buildings as OBBs | **DONE for `fillRegion`** (§36): 2,301 buildings CUT at an angle, tiles rasterised from the rect. `fillBlock`'s square blocks keep the old model, and do not need it. |
-| 4 — collision follows the geometry | **NOT DONE**, blocked on 3 |
+| 4 — collision follows the geometry | **DONE** (§37): buildings only, as Q1 resolved. Host parity green. |
 
 ---
 
@@ -266,13 +266,12 @@ the drawn mass **is** the plot, with no fit factor because none is needed.
   fourth threshold for it.
 - **Size:** two days.
 
-### Phase 4 — collision follows the geometry — **NOT DONE, blocked on 3**
+### Phase 4 — collision follows the geometry — **DONE**
 
-Not merely unbuilt but currently *wrong to build*: without phase 3 a
-building's drawn mass is a shrunken rotated rect while its tiles are the full
-axis-aligned one, so pointing collision at the OBB would make it agree with
-the drawing and disagree with the tiles — trading one representation conflict
-for another. Phase 3 first, or not at all.
+Landed as WORLDGEN.md §37, and phase 3 is why it was safe: the tiles are the
+rasterisation of the drawn rectangle, so pointing collision at that rectangle
+sharpens an agreement rather than creating a disagreement. Before phase 3 this
+would have been wrong to build.
 
 **Buildings only. The fine coast mask is cut — see Q1 RESOLVED.**
 

@@ -3811,3 +3811,75 @@ cut at. Phase 4 (collision reading the geometry) remains blocked on nothing
 now except being wanted: with the tiles finally *being* the rasterisation of
 the drawn rectangle, collision already follows the drawing to within half a
 tile, which was the whole of what phase 4 was for.
+
+---
+
+## 37. VECTOR phase 4 — collision reads the rectangle
+
+The last phase, and phase 3 is what made it safe. Before §36 a building's drawn
+mass was a shrunken rotated rect while its tiles were the full axis-aligned
+one; pointing collision at the mass would have made it agree with the drawing
+and disagree with the tiles — one conflict traded for another. Now the tiles
+ARE the rectangle's rasterisation, so this sharpens an agreement instead of
+inventing a disagreement.
+
+### 37.1 What half a tile feels like
+
+A rasterisation is right to within half a tile, and that half tile is exactly
+what you feel driving along a 22° wall: the tiles step, so the car catches on
+the corners of its own building. Measured over 64,516 probes, the rectangle
+blocks where the tile column did not in **1,425 of 5,116** blocking positions —
+**28% of the wall surface** the rasteriser had rounded away.
+
+### 37.2 Layered, never substituted
+
+`VolumeGrid` gains an `ObbIndex`: seven flat floats per rectangle — centre,
+half-extents, cos, sin, top — bucketed by a 64 px grid, built with the grid
+itself. The mover tests it **after** the tile columns have said yes, never
+instead of them, so a wall is at worst what the tiles said and at best the line
+the renderer draws.
+
+Two details are load-bearing:
+
+- **Bisection, not a minimum-translation vector.** Eight halvings of a
+  sub-step land the mover flush to well under a pixel using nothing but add,
+  multiply and compare. An MTV wants a square root, and this runs inside
+  `step()`.
+- **A body already inside a wall is let through.** Nothing should be, but a
+  spawn that lands in one must not become a trap — the same rule the tile path
+  has always followed.
+
+Query cost: **0.2 µs**, 64,516 of them in 14 ms. The index builds in 129 ms
+beside the volume grid, offline of the tick.
+
+### 37.3 DELIVERED
+
+| | |
+|---|---|
+| oriented walls in the index | 2,301 |
+| wall surface recovered from the rasteriser | 28% |
+| query | 0.2 µs |
+| **host parity** | **green — Node and a browser, tick for tick, 600 ticks** |
+
+That last row is the one that matters. `volume.ts`'s own header records why
+Rapier, Jolt and Ammo were all rejected — none guarantees bit-identical
+results across platforms, and this repo's replays, bot harness and
+prediction reconciliation all depend on it. Oriented-box collision was added
+under that constraint and `ci/hostParity.mjs` passes unchanged: plain
+arithmetic, fixed iteration counts, no square roots, no trigonometry at query
+time.
+
+894 tests pass.
+
+### 37.4 The plan is finished
+
+`VECTOR.md`'s five phases are done. What the city has now is one definition of
+each boundary — the coast and its ponds as rings, the roads as courses, the
+buildings as rectangles — with the tile planes as their rasterisation, and the
+sim still reading a tile plane in one indexed lookup. Vertices own boundaries;
+grids own fields.
+
+What is left is in §23.3 and §26.1, and none of it is a representation
+conflict: course coverage at 76.5% (so the per-tile marking system cannot yet
+be deleted), 68 junctions meeting under 30°, woodland drawn as a box, and the
+apron/course ordering differing between the three renderers.
