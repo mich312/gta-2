@@ -258,3 +258,10 @@ running; the plangen sheets need no server.
 | `city-shore-curve-2d.png` | The same coast in the 2D renderer, where the beach used to be a staircase of whole tiles. The tiles are unchanged; only the drawing is. |
 | `city-facing-before.png` | North Point before §20: every house square to the world in boroughs whose streets run at 12° to it, which is the tell that the buildings were laid on the tile grid and the streets were not. |
 | `city-facing-3d.png` | The same flyover now (§20, §22). Masses turned to the bearing their own tiles carry, standing on aprons turned with them and surfaced in the plot's own material, with the footprints — and therefore collision — untouched underneath. Buildings whose turn would shrink the mass under `MIN_FACING_FIT` stay square rather than draw a sliver. Retake: `WAIT_GROUND=24 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=634,116&h=190&pitch=45" evidence/city-facing-3d.png`. |
+
+## VECTOR phase 0 — the review tool learns the curve layer
+
+| file | what it shows |
+|---|---|
+| `vector-p0-tiles.png` | The same 80-tile crop of the 26° commercial borough drawn from the RASTER ALONE (`--tiles`): staircase roads, no kerbs, no lane markings, square buildings. This is everything `pnpm mapgen` could see before VECTOR phase 0 — and therefore everything three waves of §16/§20/§21 review were judged against. Retake: `node server/dist/tools/mapgen.js --crop=552,32,80 --tiles --out=evidence/vector-p0-tiles.png`. |
+| `vector-p0-curves.png` | The same crop with the curve layer: road courses stroked as curves with kerb casing, edge lines and a centre dash flowing along the bend, and buildings drawn as the turned masses the game draws. **The difference between these two pictures is the curve layer**, and shrinking that difference to nothing is what VECTOR.md's remaining phases do. Retake: drop the `--tiles` flag. |

@@ -3040,3 +3040,72 @@ is worth less than one nobody ran.
   defects survived three waves of review. Teaching `mapRender.ts` the ribbons
   and the masses is the highest-value thing on this list, because it is the
   one that finds the next list.
+
+---
+
+## 24. VECTOR phase 0 — teaching the review tool to see
+
+`VECTOR.md` is the plan to collapse this city's three representations into
+one. Its phase 0 builds no city and changes no pixel of the game: it fixes the
+instrument, because every later phase is judged by eye and the tool the docs
+point at was blind to everything those phases touch.
+
+### 24.1 What the tool could not see
+
+`server/src/tools/mapRender.ts` was a per-tile colour fill. It drew the raster
+of the roads and nothing else: no course curves, no lane markings, no kerb
+casing, and no rotated building masses — so a city where §20 never happened
+and a city where it did produced **the same picture**. §16's stroked courses,
+§21's marking order and §20's turned masses were all invisible to
+`pnpm mapgen`, `--sheet` and `evidence/city-fabric-review.png`, which is the
+loop §13.6 says every wave is judged by.
+
+That is the honest explanation for how the audit's paint findings survived
+three waves of review, and for why §22 shipped a bad threshold: it was chosen
+off a percentile table because there was no picture to choose it from.
+
+### 24.2 What it draws now
+
+- **Course ribbons in the client's own paint order.** Casing for every course,
+  then fill for every course — which is what opens a junction — then edge
+  lines, and last the interior repaint and centre dash course by course,
+  widest last and within a width longest last (§21.2, §23.2). Mirroring the
+  ORDER matters more than mirroring the pixels: a tool that drew each course
+  complete before starting the next would show junctions sealed shut and
+  markings stacked, defects the game does not have, and would hide the ones it
+  does.
+- **Dashes measured in arc length** along the polyline, so the cadence follows
+  a curve instead of being chopped per segment — what `setLineDash` does.
+- **Turned buildings as the mass the game draws**, with the plot beneath
+  painted as plot rather than wall, which is the client's `paintPlot` rule.
+  Without it the square footprint and the turned mass are both drawn in the
+  building's colour and their union is a blob that reads as neither shape.
+
+Implementation note: distance-to-nearest-segment rather than filled quads,
+which is the idiom the shore pass in the same file already uses, and which
+gives round joins and caps for nothing — the equivalent of the client's
+`lineJoin = 'round'`.
+
+### 24.3 `--tiles`, and why it is the point
+
+`pnpm mapgen --tiles` draws the raster ALONE: no coast curve, no courses, no
+masses.
+
+**The difference between that picture and the default one is the curve layer** —
+the second map of this city that nobody owns, which `VECTOR.md` exists to
+delete. It makes the plan's central question visual: where do the two
+representations disagree, and by how much. Every later phase should shrink the
+difference, and when the last one lands the two pictures should differ only in
+the sub-pixel places where a rasteriser must round.
+
+Evidence: `evidence/vector-p0-tiles.png` and `evidence/vector-p0-curves.png`,
+the same 80-tile crop of the 26° commercial borough. The first is everything
+the review loop could see for the whole of §16, §20 and §21.
+
+### 24.4 DELIVERED
+
+~250 lines in `mapRender.ts`, one flag in `mapgen.ts`, no behaviour change to
+the game and nothing deleted — the only phase in `VECTOR.md` of which that is
+true. `RenderableMap` gained `courses` and `buildings`, both optional, both
+already present on `CityMap`, so `mapgen` and `plangen` pick them up without
+changes.

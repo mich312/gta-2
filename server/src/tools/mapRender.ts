@@ -43,6 +43,32 @@ export interface RenderableMap {
    * one are the same picture.
    */
   shores?: ReadonlyArray<{ points: Array<readonly [number, number]>; land: boolean }> | undefined;
+  /**
+   * The authored road centrelines (WORLDGEN.md §16), in tile units.
+   *
+   * Without these the tool draws the RASTER of the roads and nothing else,
+   * which is how every §16/§21 painting defect stayed invisible to the review
+   * loop the docs point at: doubled centre lines, dashes through junctions and
+   * ribbon spilling off the carriageway are all properties of the curve layer,
+   * and a per-tile colour fill cannot show any of them (VECTOR.md §1.1).
+   */
+  courses?: ReadonlyArray<{
+    points: Array<readonly [number, number]>;
+    width: number;
+    kind: string;
+  }>;
+  /**
+   * Buildings, so a turned one is drawn as the mass it is drawn as in the
+   * game (§20) rather than as the square of tiles underneath it.
+   */
+  buildings?: ReadonlyArray<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    angle?: number | undefined;
+    district: string;
+  }>;
   shops?: ReadonlyArray<{ kind: string; doorX: number; doorY: number }>;
   playerSpawns?: ReadonlyArray<{ x: number; y: number }>;
 }
@@ -57,6 +83,7 @@ export interface PaletteFile {
   shopGun: string;
   shopClothing: string;
   shopFloor: string;
+  roadLane: string;
   water: string;
   bank: string;
   sand: string;
@@ -71,6 +98,110 @@ export interface Render {
   rgba: Uint8Array;
   w: number;
   h: number;
+}
+
+/** Where a pixel falls on a polyline: distance from it, and how far along. */
+interface Hit {
+  /** Perpendicular distance in render px. */
+  d: number;
+  /** Arc length from the start of the line, in render px. */
+  s: number;
+}
+
+/**
+ * Stroke a polyline into the buffer, `half` px either side of the centre.
+ *
+ * Distance-to-nearest-segment rather than filled quads, which is the idiom
+ * the shore pass above already uses — and it gives round joins and caps for
+ * nothing, which is what `lineJoin = 'round'` gives the client's painter.
+ *
+ * `dash` is measured in ARC LENGTH along the line, so a dash cadence follows
+ * a curve instead of being chopped per segment. That is the whole point of
+ * drawing the course rather than its tiles: the client's `setLineDash` does
+ * the same thing, and a review tool that dashed per segment would show a
+ * cadence the game does not have.
+ */
+function strokeLine(
+  put: (x: number, y: number, c: [number, number, number]) => void,
+  W: number,
+  H: number,
+  pts: ReadonlyArray<readonly [number, number]>,
+  half: number,
+  color: [number, number, number],
+  dash?: { on: number; period: number },
+): void {
+  if (pts.length < 2) return;
+  const reach = Math.max(half, 0.5) + 1;
+  // One pass per segment, each claiming only the pixels it is nearest to.
+  // `seen` keeps a later segment from repainting a pixel an earlier one owns
+  // with a worse arc length, which would break the dash cadence at a joint.
+  const best = new Map<number, Hit>();
+  let s0 = 0;
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const [ax, ay] = pts[k] as readonly [number, number];
+    const [bx, by] = pts[k + 1] as readonly [number, number];
+    const vx = bx - ax;
+    const vy = by - ay;
+    const len = Math.hypot(vx, vy);
+    const len2 = vx * vx + vy * vy || 1;
+    const lo = Math.max(0, Math.floor(Math.min(ax, bx) - reach));
+    const hi = Math.min(W - 1, Math.ceil(Math.max(ax, bx) + reach));
+    const lo2 = Math.max(0, Math.floor(Math.min(ay, by) - reach));
+    const hi2 = Math.min(H - 1, Math.ceil(Math.max(ay, by) + reach));
+    for (let py = lo2; py <= hi2; py++) {
+      for (let px = lo; px <= hi; px++) {
+        const rx = px + 0.5 - ax;
+        const ry = py + 0.5 - ay;
+        const t = Math.max(0, Math.min(1, (rx * vx + ry * vy) / len2));
+        const d = Math.hypot(rx - t * vx, ry - t * vy);
+        if (d > half) continue;
+        const i = py * W + px;
+        const had = best.get(i);
+        if (had !== undefined && had.d <= d) continue;
+        best.set(i, { d, s: s0 + t * len });
+      }
+    }
+    s0 += len;
+  }
+  for (const [i, hit] of best) {
+    if (dash !== undefined && hit.s % dash.period >= dash.on) continue;
+    const px = i % W;
+    put(px, (i - px) / W, color);
+  }
+}
+
+/** Fill an oriented rectangle given its four corners, in render px. */
+function fillQuad(
+  put: (x: number, y: number, c: [number, number, number]) => void,
+  W: number,
+  H: number,
+  q: ReadonlyArray<readonly [number, number]>,
+  color: [number, number, number],
+): void {
+  let lo = Infinity;
+  let hi = -Infinity;
+  let lo2 = Infinity;
+  let hi2 = -Infinity;
+  for (const [x, y] of q) {
+    lo = Math.min(lo, x);
+    hi = Math.max(hi, x);
+    lo2 = Math.min(lo2, y);
+    hi2 = Math.max(hi2, y);
+  }
+  for (let py = Math.max(0, Math.floor(lo2)); py <= Math.min(H - 1, Math.ceil(hi2)); py++) {
+    for (let px = Math.max(0, Math.floor(lo)); px <= Math.min(W - 1, Math.ceil(hi)); px++) {
+      const x = px + 0.5;
+      const y = py + 0.5;
+      // Convex, wound consistently: inside is the same side of all four edges.
+      let inside = true;
+      for (let k = 0; k < q.length && inside; k++) {
+        const [ax, ay] = q[k] as readonly [number, number];
+        const [bx, by] = q[(k + 1) % q.length] as readonly [number, number];
+        if ((bx - ax) * (y - ay) - (by - ay) * (x - ax) < 0) inside = false;
+      }
+      if (inside) put(px, py, color);
+    }
+  }
 }
 
 /** Render a tile rect of the map at `scale` px per tile, markers included. */
@@ -111,13 +242,52 @@ export function render(
     rgba[i + 3] = 255;
   };
 
+  // Tiles belonging to a building that is drawn as a turned mass. Their
+  // ground is painted as PLOT, not as wall, and the mass goes on top later —
+  // the client's `paintPlot` rule (§20). Without it the square footprint and
+  // the turned mass are both drawn in the building's colour and their union
+  // is a blob, which reads as neither shape.
+  const massTile = new Uint8Array(map.widthTiles * map.heightTiles);
+  for (const b of map.buildings ?? []) {
+    if ((b.angle ?? 0) === 0) continue;
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) continue;
+        massTile[ty * map.widthTiles + tx] = 1;
+      }
+    }
+  }
+  /** The nearest ground a plot could be surfaced with. See `plotGround`. */
+  const plotGround = (mx: number, my: number): number => {
+    let ground = T_SIDEWALK;
+    let bd = Infinity;
+    for (let oy = -2; oy <= 2; oy++) {
+      for (let ox = -2; ox <= 2; ox++) {
+        const sx = mx + ox;
+        const sy = my + oy;
+        if (sx < 0 || sy < 0 || sx >= map.widthTiles || sy >= map.heightTiles) continue;
+        const t = map.tiles[sy * map.widthTiles + sx] as number;
+        if (t === T_BUILDING || t === T_WATER || t === T_BRIDGE || t === T_ROAD) continue;
+        const d = ox * ox + oy * oy;
+        if (d < bd) {
+          bd = d;
+          ground = t;
+        }
+      }
+    }
+    return ground;
+  };
+
   for (let ty = 0; ty < hTiles; ty++) {
     const my = y0 + ty;
     if (my < 0 || my >= map.heightTiles) continue;
     for (let tx = 0; tx < wTiles; tx++) {
       const mx = x0 + tx;
       if (mx < 0 || mx >= map.widthTiles) continue;
-      const tile = map.tiles[my * map.widthTiles + mx] as number;
+      const raw = map.tiles[my * map.widthTiles + mx] as number;
+      const tile = raw === T_BUILDING && massTile[my * map.widthTiles + mx] === 1
+        ? plotGround(mx, my)
+        : raw;
       let c: [number, number, number];
       if (tile === T_BUILDING) {
         const d = DISTRICT_TYPES[map.district[my * map.widthTiles + mx] as number] as string;
@@ -242,6 +412,69 @@ export function render(
         put(px, py, side[i] === 1 ? water : landAt(px, py));
       }
     }
+  }
+
+  // The roads, drawn as the CURVES they are (§16) rather than as the tiles
+  // they were rasterised into — in the client's own paint order, because the
+  // order IS the behaviour under review: casing for every course, then fill
+  // for every course (which is what opens a junction), then edge lines, and
+  // last the interior repaint and centre dash course by course, widest last
+  // and within a width longest last (§21.2, §23.2).
+  //
+  // Mirroring the order matters more than mirroring the pixels. A tool that
+  // drew each course complete before starting the next would show junctions
+  // sealed shut and markings stacked — defects the game does not have — and
+  // would hide the ones it does.
+  const tPx = scale / 16;
+  const lane = Math.max(1, tPx);
+  if (map.courses !== undefined && map.courses.length > 0) {
+    const road = colors[T_ROAD] as [number, number, number];
+    const kerb = hexToRgb(palette.kerb);
+    const mark = hexToRgb(palette.roadLane);
+    const ribbons = map.courses.map((c) => {
+      const pts = c.points.map(
+        ([px, py]) => [(px - x0) * scale, (py - y0) * scale] as readonly [number, number],
+      );
+      let len = 0;
+      for (let k = 1; k < pts.length; k++) {
+        const [ax, ay] = pts[k - 1] as readonly [number, number];
+        const [bx, by] = pts[k] as readonly [number, number];
+        len += Math.hypot(bx - ax, by - ay);
+      }
+      return { pts, w: c.width * scale, len };
+    });
+    for (const r of ribbons) strokeLine(put, W, H, r.pts, (r.w + 4 * tPx) / 2, kerb);
+    for (const r of ribbons) strokeLine(put, W, H, r.pts, r.w / 2, road);
+    for (const r of ribbons) strokeLine(put, W, H, r.pts, (r.w - 2 * tPx) / 2, mark);
+    const order = [...ribbons].sort((a, b) => a.w - b.w || a.len - b.len);
+    for (const r of order) {
+      strokeLine(put, W, H, r.pts, (r.w - 4 * tPx) / 2, road);
+      strokeLine(put, W, H, r.pts, lane / 2, mark, { on: 4 * tPx, period: 10 * tPx });
+    }
+  }
+
+  // Buildings that face a street, drawn as the mass the game draws (§20).
+  // Without this the tool shows a city where §20 never happened, and a plot
+  // cutter that turned the wrong way would look correct here.
+  for (const b of map.buildings ?? []) {
+    const deg = b.angle ?? 0;
+    if (deg === 0) continue;
+    const rad = (deg * Math.PI) / 180;
+    const cx = (b.x + b.w / 2 - x0) * scale;
+    const cy = (b.y + b.h / 2 - y0) * scale;
+    const hw = (b.w / 2) * scale;
+    const hh = (b.h / 2) * scale;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const q = ([
+      [-hw, -hh],
+      [hw, -hh],
+      [hw, hh],
+      [-hw, hh],
+    ] as ReadonlyArray<readonly [number, number]>).map(
+      ([px, py]) => [cx + px * cos - py * sin, cy + px * sin + py * cos] as readonly [number, number],
+    );
+    fillQuad(put, W, H, q, hexToRgb(palette.building[b.district] ?? '#888888'));
   }
 
   // Overlay markers: shops (bright), player spawns (white dots).

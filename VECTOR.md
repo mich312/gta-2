@@ -1,9 +1,9 @@
 # VECTOR — one map, not three
 
-A plan for review, in the manner of `PLAN.md`. **Nothing below gets built
-until this document is approved.** It supersedes nothing yet; when a phase
-lands it writes its own section into `WORLDGEN.md` and this file records what
-was decided and why.
+A plan for review, in the manner of `PLAN.md`. When a phase lands it writes its
+own section into `WORLDGEN.md` and this file records what was decided and why.
+
+**STATUS: approved, full integration. Phase 0 landed (WORLDGEN.md §24).**
 
 ---
 
@@ -172,7 +172,15 @@ Each phase **inverts one derivation arrow and deletes the old direction in the
 same commit.** No phase may end with both paths present. That is the discipline
 that prevents the migration from being the confusing layer.
 
-### Phase 0 — the instrument *(no behaviour change)*
+### Phase 0 — the instrument *(no behaviour change)* — **DONE**
+
+Landed as `WORLDGEN.md` §24. `mapRender.ts` draws course ribbons in the
+client's paint order, arc-length dashes, kerb casing and turned masses; `pnpm
+mapgen --tiles` draws the raster alone, so **the difference between the two
+pictures is the curve layer** and every later phase can be measured by how much
+it shrinks that difference. Evidence: `evidence/vector-p0-{tiles,curves}.png`.
+
+*Original scope, for the record:*
 
 `server/src/tools/mapRender.ts` learns the curve layer: course ribbons, lane
 markings, kerbs, rotated masses, the coast polyline.
@@ -236,16 +244,16 @@ the drawn mass **is** the plot, with no fit factor because none is needed.
   fourth threshold for it.
 - **Size:** two days.
 
-### Phase 4 — collision follows the geometry *(optional, decide later)*
+### Phase 4 — collision follows the geometry
+
+**Buildings only. The fine coast mask is cut — see Q1 RESOLVED.**
 
 - buildings: OBB broadphase inside `collide3.ts`, so collision reads the box
-  you can see;
-- coast: a 1-bit wet mask at 2 world px (**4.7 MB**; 1 px would be 18.9 MB) if
-  you want to walk a coastline that isn't tile-quantised.
+  you can see. The invisible-wall class ends here rather than shrinking.
+- water: nothing. It is a field query, not a boundary.
 
-Everything before this keeps collision on tile columns. This is the only phase
-that changes *how the game plays* rather than what the bake contains, and it
-should be decided on its own merits after Phase 3.
+This is the only phase that changes *how the game plays* rather than what the
+bake contains, and it is much smaller than first scoped.
 
 ---
 
@@ -314,11 +322,22 @@ in the same commit as the code. Each phase lands with:
 
 ## 8. Open questions for review
 
-- **Q1 — Is Phase 4 wanted at all?** If collision stays on tile columns
-  forever, Phases 0–3 still remove every representation conflict in the
-  *drawing*, and the invisible-wall class shrinks to half a tile rather than
-  vanishing. If sub-tile collision matters (hugging a real coastline, clipping
-  a rounded kerb), Phase 4 is the only way there and its cost is real.
+- **Q1 — Is Phase 4 wanted? RESOLVED — yes, but buildings only; the fine coast
+  mask is cut.** The deciding fact is a gameplay one: **the player will be able
+  to swim.** Water that you enter rather than bounce off is not a boundary at
+  all — "am I in water" becomes a state change, and a state that begins half a
+  tile early is imperceptible. That is a *field* question, and §2's rule sends
+  it to the grid at tile resolution.
+
+  So the 1-bit wet mask is not deferred, it is unnecessary: **4.7–18.9 MB
+  removed from the plan**, along with the whole question of rasterising the
+  coast at sub-tile resolution. Phase 4 keeps only the building OBBs, where the
+  boundary genuinely is one you hit.
+
+  Note for whoever builds swimming (a separate feature, not this plan): the
+  thing that *does* stay a boundary at the waterline is the vertical one — a
+  quay is a wall you cannot climb out onto and a beach is a ramp you can. That
+  is the volume grid's business, per tile, and needs nothing from here.
 - **Q2 — Cliff outlines in Phase 1 or later?** `sheerLand` is a flood fill over
   the water mask, so cliff edges are raster today for the same reason coasts
   were. Doing them with the coast is cheaper than doing them twice; doing them

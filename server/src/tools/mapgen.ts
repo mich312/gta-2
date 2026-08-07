@@ -23,6 +23,7 @@ import { loadPalette, render, type PaletteFile, type RenderableMap, type Render 
  *   pnpm mapgen --crop=x,y,w[,h]              close-up in tiles, scaled to read
  *   pnpm mapgen --sheet[=path.png]            the fabric-review contact sheet
  *   pnpm mapgen --stats                       per-borough fabric numbers
+ *   pnpm mapgen --tiles                       the raster alone, no curve layer
  *
  * The ground is the same picture whatever the seed: it comes out of the bake
  * (`pnpm citybake`). What the seed moves is the furniture the render marks —
@@ -358,6 +359,7 @@ function main(): void {
   let crop: [number, number, number, number] | null = null;
   let sheet: string | null = null;
   let stats = false;
+  let rasterOnly = false;
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)(?:=(.+))?$/.exec(a);
     if (!m) continue;
@@ -366,6 +368,7 @@ function main(): void {
     if (key === 'seed' && val) seed = Number.parseInt(val, 10);
     if (key === 'out' && val) out = val;
     if (key === 'stats') stats = true;
+    if (key === 'tiles') rasterOnly = true;
     if (key === 'sheet') sheet = val ?? SHEET_OUT;
     if (key === 'crop' && val) {
       const parts = val.split(',').map((v) => Number.parseInt(v, 10));
@@ -389,7 +392,14 @@ function main(): void {
   // still is the only place it currently shows: the game's own painter
   // derives its own.
   const shores = deriveShores(map.tiles, map.widthTiles, map.heightTiles);
-  const drawable = { ...map, shores };
+  // `--tiles` draws the RASTER alone: no coast curve, no road courses, no
+  // turned masses. The difference between the two pictures IS the curve
+  // layer, which makes it the visual form of the question VECTOR.md asks —
+  // where do the two representations of this city disagree, and by how much.
+  // Every phase of that plan should shrink the difference to nothing.
+  const drawable = rasterOnly
+    ? { ...map, shores: undefined, courses: undefined, buildings: [] }
+    : { ...map, shores };
 
   let picture: Render;
   if (sheet !== null) {
