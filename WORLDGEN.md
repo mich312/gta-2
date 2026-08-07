@@ -3883,3 +3883,65 @@ What is left is in §23.3 and §26.1, and none of it is a representation
 conflict: course coverage at 76.5% (so the per-tile marking system cannot yet
 be deleted), 68 junctions meeting under 30°, woodland drawn as a box, and the
 apron/course ordering differing between the three renderers.
+
+---
+
+## 38. The shore band, measured from the waterline
+
+§25 made the coast a curve. Two world pixels inland, the very next line was
+still a pure staircase — **2,609 unit edges, 100% axis-aligned**, against a
+waterline in front of it running at 19.7%. §25 did not cause that, but it made
+it far more visible: a curve beside a staircase draws the eye to the staircase.
+
+### 38.1 The same mistake, one boundary in
+
+The band was decided by `wetNear` — "is one of my neighbours wet" — which can
+only ever answer in whole tiles. That is the §25.1 diagnosis again at a
+smaller scale, and it had already been patched once: §23.2 widened the test
+from four neighbours to eight because a diagonal coast left a thousand
+one-tile holes of bare grass in the quay. A patch on a test that cannot
+answer the question.
+
+The rings ARE the definition of where the water is, so the band that hugs
+them is measured against them: `ringDistance` gives the exact distance from a
+point to the nearest ring segment — bucketed and searched outward cell-ring by
+cell-ring, so a query is a handful of segment tests — and the band is a
+threshold on THAT.
+
+`QUAY_REACH`, `BEACH_REACH` and `CLIFF_REACH` replace the neighbour tests, and
+they are fractions on purpose: the band's edge is a level set of a smooth
+field now, and a whole number would put it back on the lattice it came from.
+The §23.2 eight-neighbour patch retires with them.
+
+### 38.2 DELIVERED
+
+| | before | after |
+|---|---|---|
+| beach/quay transects one tile wide | 49% | **39%** |
+| band width, median | 1 | **2** |
+| quay holes on a diagonal coast | 78 | 89 (86 of them park lawns, by design) |
+| the §23.2 neighbour patch | in place | **retired** |
+
+894 tests pass.
+
+### 38.3 What this does NOT fix, and what would
+
+**The drawn sand/grass line is still tile edges.** The band is now measured
+from the curve, which makes its width consistent and removes the neighbour-test
+artefacts — but no painter shades against a band CURVE, so the line you see is
+still the boundary between two tiles.
+
+Finishing it needs the other half, and it is a bigger piece than it sounds:
+contour the distance field at the band's reaches to get the line, ship it
+beside `shores`, and teach the painters a SECOND cut per tile. A shore tile
+would then be cut twice — water, then sand, then grass — where `paintShoreTile`
+currently splits it once. Three painters, and a three-way split is not the
+two-way one generalised.
+
+Recorded rather than attempted, because a half-done second cut would look
+worse than the staircase it replaces.
+
+**And the reaches were tuned against tests, not taste.** 1.8 tiles gave a
+visibly better band — one-tile transects down to 27% — and took enough ground
+that three flight tests and an errand route failed. 1.5 is where the band
+improves without the city losing land it was using.

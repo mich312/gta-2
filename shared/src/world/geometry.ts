@@ -605,3 +605,85 @@ export function courseJunctions(
   }
   return out;
 }
+
+/**
+ * Exact distance to the nearest point on a set of rings, as a function.
+ *
+ * The shore band — quay and beach — was decided by neighbour tests on the
+ * tile plane, so its inner edge was 100% axis-aligned while the waterline in
+ * front of it was 19.7% (§38). This is the field that fixes it: distance to
+ * the coast is smooth everywhere and exact, so its contours are curves for the
+ * same reason the coast's own contour is one.
+ *
+ * Segments are bucketed by a coarse grid and searched outward ring by ring of
+ * cells, stopping once the best distance found cannot be beaten by a further
+ * ring — so a query costs a handful of segment tests rather than three
+ * thousand.
+ */
+export function ringDistance(
+  rings: ReadonlyArray<{ points: ReadonlyArray<readonly [number, number]> }>,
+  W: number,
+  H: number,
+  cell = 8,
+): (x: number, y: number) => number {
+  const cols = Math.ceil(W / cell);
+  const rows = Math.ceil(H / cell);
+  const bucket: number[][] = Array.from({ length: cols * rows }, () => []);
+  const seg: number[] = [];
+  for (const r of rings) {
+    const p = r.points;
+    for (let k = 0; k < p.length; k++) {
+      const [ax, ay] = p[k] as readonly [number, number];
+      const [bx, by] = p[(k + 1) % p.length] as readonly [number, number];
+      const s = seg.length;
+      seg.push(ax, ay, bx, by);
+      const c0 = Math.max(0, Math.floor(Math.min(ax, bx) / cell));
+      const c1 = Math.min(cols - 1, Math.floor(Math.max(ax, bx) / cell));
+      const r0 = Math.max(0, Math.floor(Math.min(ay, by) / cell));
+      const r1 = Math.min(rows - 1, Math.floor(Math.max(ay, by) / cell));
+      for (let ry = r0; ry <= r1; ry++) {
+        for (let rx = c0; rx <= c1; rx++) (bucket[ry * cols + rx] as number[]).push(s);
+      }
+    }
+  }
+  const d2ToSeg = (x: number, y: number, s: number): number => {
+    const ax = seg[s] as number;
+    const ay = seg[s + 1] as number;
+    const vx = (seg[s + 2] as number) - ax;
+    const vy = (seg[s + 3] as number) - ay;
+    const l2 = vx * vx + vy * vy;
+    const t = l2 === 0 ? 0 : Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / l2));
+    const dx = x - ax - t * vx;
+    const dy = y - ay - t * vy;
+    return dx * dx + dy * dy;
+  };
+  return (x: number, y: number): number => {
+    const cx = Math.max(0, Math.min(cols - 1, Math.floor(x / cell)));
+    const cy = Math.max(0, Math.min(rows - 1, Math.floor(y / cell)));
+    let best = Infinity;
+    for (let ring = 0; ring < Math.max(cols, rows); ring++) {
+      // Once the nearest possible point in the next ring of cells is further
+      // than what we have, we are done.
+      if (best < Infinity && (ring - 1) * cell * ((ring - 1) * cell) > best) break;
+      let any = false;
+      for (let ry = cy - ring; ry <= cy + ring; ry++) {
+        if (ry < 0 || ry >= rows) continue;
+        for (let rx = cx - ring; rx <= cx + ring; rx++) {
+          if (rx < 0 || rx >= cols) continue;
+          // Only the shell of the square, not its interior — the interior was
+          // covered by the previous ring.
+          if (ring > 0 && rx !== cx - ring && rx !== cx + ring && ry !== cy - ring && ry !== cy + ring) {
+            continue;
+          }
+          any = true;
+          for (const s of bucket[ry * cols + rx] as number[]) {
+            const d = d2ToSeg(x, y, s);
+            if (d < best) best = d;
+          }
+        }
+      }
+      if (!any && best < Infinity) break;
+    }
+    return best === Infinity ? Infinity : Math.sqrt(best);
+  };
+}

@@ -279,9 +279,23 @@ describe('cash on the ground (O1)', () => {
   it('a wad nobody takes does not litter the city for ever', () => {
     let s = createGameState(4243);
     s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
-    // Far from the player so it is not collected the moment it lands.
-    const far = clearSpot(map, s.players.byId[1]!.pos, 600);
-    insertEntity(s.pickups, createPickup(900, 'cash', { x: far.x, y: far.y }));
+    // Far from the player so it is not collected the moment it lands — but
+    // "far" is a request, not a demand. Asking for a fixed 600 px of clear
+    // run made this a test about the geography round one spawn point, and it
+    // threw the day the quay got a tile wider. Anything well past the pickup
+    // radius does the job.
+    const from = s.players.byId[1]!.pos;
+    let far: { x: number; y: number } | null = null;
+    for (const reach of [600, 450, 300, 200]) {
+      try {
+        far = clearSpot(map, from, reach);
+        break;
+      } catch {
+        // No clear run that far from here; try a shorter one.
+      }
+    }
+    expect(far, 'nowhere clear to drop a wad').not.toBeNull();
+    insertEntity(s.pickups, createPickup(900, 'cash', { x: (far as { x: number }).x, y: (far as { y: number }).y }));
     let gone = false;
     for (let i = 0; i < 30 * 30 && !gone; i++) {
       s = step(s, { 1: { ...NULL_INPUT, seq: i + 1, tick: s.tick } }, [], map);

@@ -2,6 +2,7 @@ import { latticeHash, valueNoise } from './fields.js';
 import {
   coastRings,
   rasteriseRings,
+  ringDistance,
   sampleField,
   type CoastRing,
 } from './geometry.js';
@@ -275,6 +276,19 @@ function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>
   }
   return out;
 }
+
+/**
+ * The shore band's reaches, in tiles from the waterline (§38).
+ *
+ * These replace "is a neighbour wet", which could only answer in whole tiles.
+ * A quay is the land that meets the water, so a little over one tile; a beach
+ * in the lee runs back twice that; a cliff face reads as deep as the beach.
+ * Fractions on purpose — the band's edge is a contour of a smooth field now,
+ * and a whole number would put it exactly on the lattice it came from.
+ */
+const QUAY_REACH = 1.5;
+const BEACH_REACH = 2.6;
+const CLIFF_REACH = 2.6;
 
 interface Coast {
   water: Uint8Array;
@@ -2265,6 +2279,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
 
   /* ---- shores ------------------------------------------------------ */
 
+  // Distance to the waterline ITSELF, for the band below (§38). Built once
+  // here rather than per tile: the rings are already the definition of where
+  // the water is, so the band that hugs them should be measured against them
+  // and not against a rasterisation of them.
+  const shoreCurveDist = ringDistance(shores, W, H);
+
   const wetAt = (tx: number, ty: number): boolean =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? false : water[ty * W + tx] === 1;
   const wetNear = (tx: number, ty: number, r: number): boolean => {
@@ -2285,20 +2305,27 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // gets rock, which here is the same quay tile — solid to hulls, open
       // to feet.
       const sandy = d === 'park' && (exposure[i] as number) < -0.15;
+      // How far this tile's CENTRE is from the waterline itself (§38), not
+      // how many of its neighbours happen to be wet. The neighbour test made
+      // the band's inner edge a pure lattice — 100% axis-aligned, against a
+      // waterline in front of it that is 19.7% — because "touching" can only
+      // ever be answered in whole tiles. The distance to the curve is smooth,
+      // so the band it cuts has a curve for an edge too.
+      const rd = shoreCurveDist(tx + 0.5, ty + 0.5);
       // Eight-connected, not four. A coast that steps diagonally has a tile
       // at every step whose only water is on the corner, and a four-neighbour
       // test walked straight past all of them: a thousand one-tile holes of
       // bare grass in the quay, checkered along every diagonal shore behind a
       // waterline that had been smoothed. The bank is the land that MEETS the
       // water, and a corner is meeting it.
-      const touching = wetNear(tx, ty, 1);
+      const touching = rd < QUAY_REACH;
       if (sheer(tx, ty)) {
         // Cliff: rock and scrub straight down to the water. Solid, so there
         // is no stepping ashore here from a boat.
-        if (touching || wetNear(tx, ty, 2)) tiles[i] = T_TREES;
+        if (rd < CLIFF_REACH) tiles[i] = T_TREES;
       } else if (touching) {
         tiles[i] = sandy ? T_SAND : T_BANK;
-      } else if (sandy && wetNear(tx, ty, 2)) {
+      } else if (sandy && rd < BEACH_REACH) {
         tiles[i] = T_SAND;
       }
     }
@@ -2494,8 +2521,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
     for (let tx = 0; tx < W; tx++) {
       const i = ty * W + tx;
       if (tiles[i] !== T_FIELD) continue;
-      // Eight-connected, as the first shore pass is: a corner counts.
-      if (!wetNear(tx, ty, 1)) continue;
+      // Measured against the waterline, as the first shore pass is (§38).
+      // This used to be an eight-neighbour test, itself a patch (§23.2) on a
+      // four-neighbour one that left a thousand one-tile holes in the quay —
+      // both of them asking the tile plane a question about a curve. The
+      // distance to the curve answers it directly, and the patch retires.
+      if (shoreCurveDist(tx + 0.5, ty + 0.5) >= QUAY_REACH) continue;
       if (sheer(tx, ty)) {
         tiles[i] = T_TREES;
         continue;
