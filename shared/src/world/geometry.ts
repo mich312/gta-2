@@ -175,7 +175,22 @@ export function contourRings(f: Field): Ring[] {
         onward.shift();
         next = onward.shift() as readonly [number, number];
         if (onward.length === 0) from.delete(nk);
-        if (key(next[0], next[1]) === key(start[0], start[1])) break;
+        if (key(next[0], next[1]) === key(start[0], start[1])) {
+          ring.push(next);
+          break;
+        }
+      }
+      // A contour of a field is closed or it is nothing. The walk normally
+      // ends by arriving back at the start — either matching it explicitly or
+      // running out of segments there, because the start's own bag emptied
+      // when we took the first one. Anything else means the field disagreed
+      // with itself between two cells, and shipping the fragment would put a
+      // coastline with a hole in it into the bake without a word (§27.5).
+      const last = ring[ring.length - 1] as readonly [number, number];
+      if (key(last[0], last[1]) !== key(start[0], start[1])) {
+        throw new Error(
+          `contourRings: open contour, ${ring.length} points from ${start[0]},${start[1]}`,
+        );
       }
       // Drop zero-length steps: a crossing that lands exactly on a cell
       // corner is emitted by both of the cells that share it, and a repeated

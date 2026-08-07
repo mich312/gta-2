@@ -3308,8 +3308,11 @@ edge the rings now own. The painters already reconcile them by hand ("prefer
 the chord and skip the bevel on the same tiles", `tiles.ts:986`), and a
 reconciliation at paint time is the smell this plan is named after.
 
-Narrowing `deriveBevels` to non-water edges is a small, well-defined follow-up
-and should happen before anything else builds on the bevel plane.
+Narrowing `deriveBevels` to non-water edges looked like a small follow-up
+until §27.2: the bevel is what currently softens a **park pond**, which has no
+ring. So the two findings are ordered — ponds become rings first, and only
+then can the water bevels go. Recorded because doing them the other way round
+would make the ponds visibly worse while looking like a tidy-up.
 
 ### 27.4 What landed, honestly
 
@@ -3327,14 +3330,14 @@ gone from `layout.ts`.
 
 ### 27.5 What I would question if I were reviewing this cold
 
-- **The equality check is not a test.** It was run by hand for this review and
-  found a real defect. Nothing runs it in CI. Given §27.2, that is the single
-  most valuable thing to add next, and it contradicts the plan's own decision
-  to treat it as temporary.
-- **`contourRings` truncates silently.** Its ring walk is bounded by
-  `guard < 1e7`; a malformed field would produce a short ring rather than an
-  error. It should throw — a coastline that failed to close is not something
-  to ship quietly.
+- ~~**The equality check is not a test.**~~ **Fixed in this commit.**
+  `coastCache.test.ts` runs it, and asserts not "no disagreement" but "no
+  disagreement except the two written down": bridge decks, and the 486 pond
+  tiles, both pinned so neither can grow. Nothing may disagree for a reason
+  nobody has recorded.
+- ~~**`contourRings` truncates silently.**~~ **Fixed in this commit.** An open
+  contour now throws. Worth noting that the real city bakes clean under the
+  strict version, which is the evidence that the strictness costs nothing.
 - **The bake is 50% slower** (7.0 s → 10.7 s) because the coast field is
   evaluated at half-tile spacing. Offline, once, and worth it — but it is the
   kind of cost that compounds if later phases sample more fields.
