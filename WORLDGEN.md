@@ -3345,3 +3345,73 @@ gone from `layout.ts`.
   `ShoreLike` interface invented for them. That is a seam: they were written
   against `ShoreLoop` and now take a structural type. Fine, but it is the sort
   of thing that quietly becomes two shapes again.
+
+---
+
+## 28. The doubled road — suppression measured, and its ceiling
+
+You circled two roads that had merged into one over-wide sheet. It is §21.3's
+open item, and VECTOR phase 2 is where it becomes expressible: the test can now
+compare a course to the OTHER COURSES instead of to a snapshot of the tiles.
+
+### 28.1 Why the old test could not see it
+
+`doubledUpCourse` samples `pre` — the tile plane as it stood *before this
+borough's lattice began*. Two consequences, and the picture is both of them:
+
+1. **A lattice line cannot see its own family.** Neither line existed when the
+   other was judged, so two of them are free to merge.
+2. **A raster cannot tell alongside from across.** It infers direction from
+   how often it hits, so a crossing sampled at the wrong phase reads as a
+   conflict — which is why the threshold had to be a lenient "most of the
+   line", which in turn lets a long merge through.
+
+`doubledAgainstCourses` compares curve to curve. Direction is explicit (within
+25° of parallel, so a crossing never counts however close it comes), every
+accepted course is visible including the borough's own, and a failing line is
+retired **whole** — §21.3's trim left 24 stubs because the ends of a trimmed
+line stay behind and stay connected; a line that never existed leaves nothing.
+Dead ends went 184 → 188 rather than 184 → 219.
+
+### 28.2 Three configurations, measured
+
+| | over-wide 7×7 | doubled samples | blocks | tests |
+|---|---|---|---|---|
+| before | 294 | 2,025 | 1,125 | pass |
+| ratio only (>50% of the line) | 272 | 1,761 | 1,102 | pass |
+| + 40-tile continuous run | **233** | **1,463** | 1,046 | **2 fail** |
+| + 24-tile run | **149** | **962** | **926** | fail badly |
+| **shipped: + run + seniority** | 276 | 1,784 | 1,096 | pass |
+
+The 24-tile run halves the problem and guts the city — a rotated borough came
+out with almost no streets, because retiring whole lines **cascades**:
+suppressing one lets the next survive to be judged against a different
+neighbour.
+
+At 40 tiles two tests failed, and they are the two §21.3 already named. One is
+a quality floor — long courses (≥100 tiles) fell to 88 against a floor of 90 —
+and it caught something real: **the rule preferentially retires LONG roads**,
+because a long line has more length in which to acquire a doubled stretch, and
+long lines are exactly the ring, the avenues and the borough-length streets
+everything navigates by. The other was an errand driver that stopped
+completing its route, which is that same loss seen from the sim.
+
+So the shipped rule adds **seniority**: a line yields to a road LONGER than
+itself and never to a shorter one. The through road carries on, the side road
+stops — the same principle the marking tiers use (§23.2).
+
+### 28.3 DELIVERED, and the ceiling
+
+Over-wide carriageway **294 → 276**, doubled course samples **2,025 → 1,784**,
+across 132 → 123 course pairs, at a cost of 29 blocks. 890 tests pass.
+
+That is a 12% dent, and the table above is the honest reason it is not more:
+**suppression cannot fix this.** Every configuration that removes enough
+doubling to be worth seeing also removes streets people drive on. The
+remaining doubling is mostly in the contour and crescent fabrics, which have no
+doubling test at all because their bands are traced from a distance field
+rather than laid as lines — and where that field's wavefronts meet, the bands
+stop being a pitch apart. That is §21.3's diagnosis and it wants §21.3's fix:
+band each borough against ONE shore rather than against the nearest water, so
+the duplicate is never generated. A test that deletes lines after the fact is
+treating the symptom, and the measurements say how far that can go.

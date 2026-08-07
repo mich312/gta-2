@@ -617,6 +617,118 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // was thrown away. Recorded in tile units, exactly as carved — offsets,
   // smoothing and all — so what the painter strokes is what the disc swept.
   const courses: StreetCourse[] = [];
+
+  /**
+   * Is this line a duplicate of a road that already exists? Asked of the
+   * CURVES, not of the raster (§28).
+   *
+   * The raster tests this replaces sample a snapshot of the tiles taken
+   * before a borough's lattice began, so two lines of the same lattice were
+   * free to merge into one over-wide sheet: neither existed when the other
+   * was judged. And a raster cannot distinguish a road this line runs
+   * ALONGSIDE from one it merely crosses, except by how often it hits — so a
+   * crossing sampled at the wrong phase reads as a conflict.
+   *
+   * Comparing course to course fixes both. Direction is explicit — only a
+   * road within 25° of parallel counts, so a crossing never does however
+   * close it comes — and every course accepted so far is visible, including
+   * the borough's own, because they are a list and not a snapshot.
+   *
+   * A line that fails is retired WHOLE. §21.3 recorded the alternative,
+   * trimming the conflicting stretch: measured, better on paper, and
+   * reverted, because the ends of a trimmed line stay behind, stay connected,
+   * and no prune reaches them — 24 dead-end stubs. A line that never existed
+   * leaves nothing behind.
+   */
+  /** A course's own length, memoised: this is asked once per candidate line. */
+  const courseLen = new WeakMap<StreetCourse, number>();
+  const otherLen = (c: StreetCourse): number => {
+    const had = courseLen.get(c);
+    if (had !== undefined) return had;
+    let L = 0;
+    for (let k = 0; k + 1 < c.points.length; k++) {
+      const [ax, ay] = c.points[k] as PlanPoint;
+      const [bx, by] = c.points[k + 1] as PlanPoint;
+      L += Math.hypot(bx - ax, by - ay);
+    }
+    courseLen.set(c, L);
+    return L;
+  };
+
+  const doubledAgainstCourses = (
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    width: number,
+    inside?: (tx: number, ty: number) => boolean,
+  ): boolean => {
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    if (len < 1) return false;
+    const ux = (x2 - x1) / len;
+    const uy = (y2 - y1) / len;
+    const ang = Math.atan2(uy, ux);
+    let n = 0;
+    let conflicts = 0;
+    let run = 0;
+    let longest = 0;
+    for (let s = 0; s <= len; s += 3) {
+      const px = x1 + ux * s;
+      const py = y1 + uy * s;
+      if (inside !== undefined && !inside(Math.round(px), Math.round(py))) continue;
+      n++;
+      let near = false;
+      for (const other of courses) {
+        if (near) break;
+        // Seniority: a line yields to a LONGER road, never to a shorter one.
+        // Without this the rule preferentially retires long courses — they
+        // have more length in which to acquire a doubled stretch — and the
+        // long courses are precisely the ring, the avenues and the
+        // borough-length streets that everything navigates by. The through
+        // road carries on; the side road stops. Same principle as the
+        // markings tiers (§23.2).
+        if (otherLen(other) < len) continue;
+        const reach = (width + other.width) / 2 + 1;
+        for (let k = 0; k + 1 < other.points.length; k++) {
+          const [ax, ay] = other.points[k] as PlanPoint;
+          const [bx, by] = other.points[k + 1] as PlanPoint;
+          const vx = bx - ax;
+          const vy = by - ay;
+          const l2 = vx * vx + vy * vy;
+          if (l2 === 0) continue;
+          const t = Math.max(0, Math.min(1, ((px - ax) * vx + (py - ay) * vy) / l2));
+          const d = Math.hypot(px - ax - t * vx, py - ay - t * vy);
+          if (d > reach) continue;
+          let da = Math.abs(ang - Math.atan2(vy, vx)) % Math.PI;
+          if (da > Math.PI / 2) da = Math.PI - da;
+          if (da < (25 * Math.PI) / 180) {
+            near = true;
+            break;
+          }
+        }
+      }
+      if (near) {
+        conflicts++;
+        run += 3;
+        if (run > longest) longest = run;
+      } else {
+        run = 0;
+      }
+    }
+    // Two ways to be a duplicate, and the second is what the ratio missed.
+    // A line can spend a minority of its length beside an avenue and still
+    // merge with it for forty tiles — which on the ground is one sheet of
+    // tarmac the width of both, whatever fraction of the line it represents.
+    // So: most of the line, OR a long enough continuous stretch of it.
+    //
+    // Forty, and not the twenty-four first tried: retiring whole lines
+    // cascades, because suppressing one lets the next survive to be judged
+    // against a different neighbour. At 24 the city lost 199 blocks and a
+    // rotated borough came out with almost no streets; at 40 it loses 79 and
+    // the over-wide count still falls by a fifth. Measured, not guessed
+    // (§28).
+    return n > 0 && (conflicts * 2 > n || longest >= 40);
+  };
   let carveMark: Uint8Array | null = null;
   const markingLay = (tx: number, ty: number, along: PlanPoint | null): void => {
     lay(tx, ty, along);
@@ -1086,6 +1198,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const [x1, y1] = pt(lo);
       const [x2, y2] = pt(hi);
       if (doubledUpCourse(x1, y1, x2, y2)) return;
+      if (doubledAgainstCourses(x1, y1, x2, y2, width, inThis)) return;
       // The line's own geometry, kept (§16): two points suffice — the trim
       // pass clips it to the stretch the borough actually carved.
       courses.push({ points: [[x1, y1], [x2, y2]], width, kind: 'street' });
@@ -1146,6 +1259,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const [x1, y1] = pt(lo, at);
       const [x2, y2] = pt(hi, at);
       if (doubledUpCourse(x1, y1, x2, y2)) return;
+      if (doubledAgainstCourses(x1, y1, x2, y2, width, inThis)) return;
       // The wave is analytic, so its centreline is free: recorded whole,
       // drops and all — the trim pass cuts the course at every stretch the
       // drop hash left uncarved, which is what turns one recorded line
@@ -1376,6 +1490,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       };
       for (const x of xs) {
         if (doubledUp(x, ry, ry + rh, width, true)) continue;
+        if (doubledAgainstCourses(x + width / 2, ry, x + width / 2, ry + rh, width)) continue;
         lane(
           [
             [x + width / 2, ry],
@@ -1386,6 +1501,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       }
       for (const y of ys) {
         if (doubledUp(y, rx, rx + rw, width, false)) continue;
+        if (doubledAgainstCourses(rx, y + width / 2, rx + rw, y + width / 2, width)) continue;
         lane(
           [
             [rx, y + width / 2],
@@ -1395,8 +1511,16 @@ export function buildLayout(plan: CityPlan): CityLayout {
         );
       }
     } else if (axisGrid) {
-      for (const x of xs) if (!doubledUp(x, ry, ry + rh, width, true)) line(x, ry, width, rh);
-      for (const y of ys) if (!doubledUp(y, rx, rx + rw, width, false)) line(rx, y, rw, width);
+      for (const x of xs) {
+        if (doubledUp(x, ry, ry + rh, width, true)) continue;
+        if (doubledAgainstCourses(x + width / 2, ry, x + width / 2, ry + rh, width)) continue;
+        line(x, ry, width, rh);
+      }
+      for (const y of ys) {
+        if (doubledUp(y, rx, rx + rw, width, false)) continue;
+        if (doubledAgainstCourses(rx, y + width / 2, rx + rw, y + width / 2, width)) continue;
+        line(rx, y, rw, width);
+      }
     } else {
       if (pitchX >= width + 3) {
         for (let u = uMin + pitchX; u < uMax - width; u += pitchX) carveLine(u, false, vMin, vMax);
