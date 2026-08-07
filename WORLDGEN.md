@@ -3467,3 +3467,53 @@ so the water bevels are load-bearing: remove them and the waterline is drawn as
 a curve and collided as square tiles — a worse mismatch than the one being
 tidied. They can go when water stops being a wall, which is what swimming does
 (`VECTOR.md` Q1), and not before.
+
+---
+
+## 30. Two landmarks that were not there
+
+Both from the audit's minor list (§23.3), and one of them turned out not to be
+an authoring slip at all.
+
+### 30.1 The duplicate lighthouse
+
+`Gannet Light` and `Old Point Light` were both authored at `653,586 4x4` — one
+building, two names, a doubled minimap marker and an ambiguous "you are at".
+`Old Point Light` moves to `512,676`, a headland 167 tiles away on the south
+coast.
+
+Finding it took four attempts, and each failure was a rule this city already
+had written down: a lighthouse needs **water nearby** (or it is not a
+lighthouse), a **dry ring round its footprint** (nothing may be built against
+open water — `water.test`'s quay invariant), and **a road within six tiles of
+its door** (`city.test`'s access rule, which the driveway pass cannot always
+satisfy on a headland). The site search now applies all three, which is why
+the fourth attempt was the last.
+
+### 30.2 `Marsh Post` was a bug in the bake, not in the plan
+
+The audit reported it "standing on an empty field", and it was: every tile of
+its 7×7 was field or park, and **no building overlapped it at all**. But its
+sidewalk ring was there, which is drawn by the same pass that stamps it — so
+the stamp had run and something afterwards had removed the result.
+
+A landmark that claims a city block first clears the buildings already in that
+block, so the block's ordinary houses do not survive inside a stadium. Country
+landmarks are stamped EARLY, before anything is built (`§bake`: "because the
+meadow…"). Where the two overlap, the second landmark's clear pass took the
+first landmark's own building with it — leaving the ring it had already drawn
+round nothing.
+
+The clear pass now skips buildings that overlap another landmark's rect. Marsh
+Post has its building back.
+
+Worth stating: a placement fix would have moved the symptom to whatever site
+was tried next. It looked like an authoring slip and it was a pass deleting
+its own work.
+
+### 30.3 DELIVERED
+
+29 landmarks, none sharing a position, all with a way in. 890 tests pass, and
+the two that caught the bad lighthouse sites (`water.test`'s quay invariant and
+`city.test`'s access rule) are the reason the shipped one is right rather than
+merely different.

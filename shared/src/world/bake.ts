@@ -140,6 +140,15 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
  */
 const OPEN_TO_ROAD = new Set<LandmarkKind>(['square', 'green', 'circus']);
 
+/** Does this building sit on any part of that landmark's rect? */
+function overlapsRect(
+  rect: readonly [number, number, number, number],
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  const [x, y, w, h] = rect;
+  return b.x < x + w && x < b.x + b.w && b.y < y + h && y < b.y + b.h;
+}
+
 function paintable(t: number): boolean {
   return t !== T_WATER && t !== T_BANK && t !== T_SAND && t !== T_ROAD && t !== T_BRIDGE;
 }
@@ -430,6 +439,13 @@ export function bakeCity(plan: CityPlan): BakedCity {
     for (let bi = buildings.length - 1; bi >= 0; bi--) {
       const bd = buildings[bi] as Building;
       if (bd.x >= x1 || bd.x + bd.w <= x0 || bd.y >= y1 || bd.y + bd.h <= y0) continue;
+      // ...but never another LANDMARK's. Country landmarks are stamped first,
+      // before anything is built, and a landmark that later claims a block
+      // overlapping one was clearing it away — building and all — leaving the
+      // sidewalk ring it had already drawn round an empty field. That is why
+      // Marsh Post stood on grass with no building in it and no entry in
+      // `buildings` (WORLDGEN.md §30).
+      if (plan.landmarks.some((o) => o !== l && overlapsRect(o.rect, bd))) continue;
       for (let ty = bd.y; ty < bd.y + bd.h; ty++) {
         for (let tx = bd.x; tx < bd.x + bd.w; tx++) {
           if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
