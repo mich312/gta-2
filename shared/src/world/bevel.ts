@@ -99,6 +99,14 @@ const YIELDS_P1: ReadonlyArray<readonly [number, number]> = [
   // cliff's own convex headlands stay square — that would need the
   // trees-side cut this pair deliberately refuses.
   [T_WATER, T_TREES],
+  // The bridge deck (§31). Same one-directional trick as the wooded shore:
+  // the WATER yields, so the deck overhangs its own cut and a diagonal
+  // crossing reads as a ramp rather than a flight of stairs. Cutting the deck
+  // instead would open a hole in a carriageway. This is the one BUILT edge
+  // the pass bevels besides a diagonal avenue's kerb, and for the same
+  // reason — the thing is genuinely running at 45° and its rasterisation is
+  // the only reason it steps.
+  [T_WATER, T_BRIDGE],
   [T_SAND, T_FIELD],
   [T_SAND, T_PARK],
 ];

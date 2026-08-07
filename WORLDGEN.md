@@ -3517,3 +3517,28 @@ its own work.
 the two that caught the bad lighthouse sites (`water.test`'s quay invariant and
 `city.test`'s access rule) are the reason the shipped one is right rather than
 merely different.
+
+---
+
+## 31. The bridge deck, bevelled
+
+§23.3 listed diagonal bridge decks as raw staircases, and after §25 smoothed
+the coast they became the most obvious edge in the city: a 45° causeway
+crossing a smooth waterline as a flight of stairs.
+
+The cause was an omission rather than a decision. §15 bevels the edges nature
+drew and one built edge — a diagonal avenue's kerb — on the stated grounds
+that squareness is what makes a thing read as *built*. A bridge was left with
+the quays and the buildings. But a deck is not square by intent: it is a
+straight line at 45°, and it steps for exactly the reason the ring road's kerb
+steps — its rasterisation.
+
+`[T_WATER, T_BRIDGE]`, one-directional, and the direction is the same trick
+the wooded shore uses: the **water** yields, so the deck overhangs its own cut.
+Cutting the deck instead would open a hole in a carriageway.
+
+Bevelled tiles 1,208 → 1,363. Collision reads the bevel plane, so a boat now
+gets a 45° face to slide along under a diagonal crossing instead of a
+staircase to snag on — the same gain §15.4 records for the wooded shore.
+
+Evidence: `evidence/bridge-bevel.png`.
