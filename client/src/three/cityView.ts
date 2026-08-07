@@ -114,6 +114,16 @@ const AMBIENT_NIGHT = new THREE.Color(
   GRADE_NIGHT.b / 255,
 );
 const SKY_DAY = new THREE.Color(0x9fc4dd);
+/** The map's own size in world px, for the backdrop that outlives it. */
+const MAP_PX = 768 * 16;
+/**
+ * How far below sea level the backdrop sits, in world px.
+ *
+ * Under the shore prisms and the water slabs so it never z-fights them, and
+ * shallow enough that it is still the sea rather than a hole: what shows of
+ * it is only ever the part beyond the map.
+ */
+const OCEAN_DROP = 2;
 const SKY_NIGHT = new THREE.Color(0x0a1020);
 
 /**
@@ -236,11 +246,42 @@ export class CityView {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
 
-    this.scene.background = new THREE.Color(hex(palette.field ?? '#1a2a1a'));
+    // Sky, not field. This was `palette.field` — a leftover from before there
+    // was a sky at all — and although `setNight` overwrites it on the first
+    // frame, the value here is what any path that renders before that shows.
+    // A city whose horizon is grass is the §23.3 "green void" (§32).
+    this.scene.background = SKY_DAY.clone();
 
     // World space -> scene space. See the note on `world`.
     this.world.scale.set(WORLD_TO_SCENE.x, WORLD_TO_SCENE.y, WORLD_TO_SCENE.z);
     this.scene.add(this.world);
+
+    // The open sea, past the edge of the map (§32).
+    //
+    // The city is 768 tiles of ground and then nothing: stand on the north
+    // beach and the water stopped dead on the straight line x = 768, with the
+    // background behind it. The plan keeps a margin of open sea round the
+    // whole map precisely so the edge is never reachable, and this is the
+    // other half of that promise — the sea runs to the horizon, so the margin
+    // reads as ocean rather than as the end of the world.
+    //
+    // Twenty times the map, one plane, no lighting: it is the backdrop, and
+    // anything that shades it would make the seam it exists to hide.
+    const ocean = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      // DoubleSide: `world` is scaled (1, -1, 1) to put the city the right
+      // way up, which flips every face's winding — a single-sided plane comes
+      // out facing away from the camera and is culled, leaving exactly the
+      // void this exists to fill.
+      new THREE.MeshBasicMaterial({
+        color: hex(palette.water ?? '#1a3749'),
+        side: THREE.DoubleSide,
+      }),
+    );
+    ocean.scale.set(MAP_PX * 20, MAP_PX * 20, 1);
+    ocean.position.set(MAP_PX / 2, MAP_PX / 2, -OCEAN_DROP);
+    ocean.renderOrder = -1;
+    this.world.add(ocean);
 
     // PERSPECTIVE, looking straight down. This is the original GTA camera and
     // the earlier orthographic one was wrong for it.

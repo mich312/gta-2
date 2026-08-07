@@ -3542,3 +3542,35 @@ gets a 45° face to slide along under a diagonal crossing instead of a
 staircase to snag on — the same gain §15.4 records for the wooded shore.
 
 Evidence: `evidence/bridge-bevel.png`.
+
+---
+
+## 32. The sea runs to the horizon
+
+§23.3: past the world edge the 3D view was a flat void and the sea ended on a
+razor-straight line. Two causes, one of them embarrassing.
+
+**The background was green.** `cityView`'s constructor set
+`scene.background` to `palette.field`, from before there was a sky at all.
+`setNight` overwrites it on the first frame, so it only showed on paths that
+render before that — but "only sometimes" is how it survived.
+
+**And nothing was behind the map.** The city is 768 tiles of ground and then
+the end of the scene. The plan keeps a margin of open sea round the whole map
+so the edge can never be reached; this is the other half of that promise. One
+unlit plane, twenty times the map, two world px below sea level, under the
+water slabs and the shore prisms so it can never z-fight them.
+
+`side: DoubleSide` on it, and the reason is worth writing down: `world` is
+scaled `(1, -1, 1)` to put the city the right way up, which flips the winding
+of every face in it. A single-sided plane in that group faces AWAY from the
+camera and is culled — leaving exactly the void it was added to fill.
+
+Evidence: `evidence/world-edge-ocean.png`.
+
+**One thing this does not prove.** The flyover clamps its camera into the map,
+so `?at=900,400` renders ordinary field from inside rather than the view from
+outside — which is worth knowing, because the audit's original probe used that
+vantage and it cannot show what it was read as showing. What is verified is
+the border seen from within: the sea reaches the frame edge, and nothing green
+lies beyond it.
