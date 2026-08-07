@@ -859,6 +859,15 @@ export class TileLayer {
     }
     this.paintCourses(ctx, tx0, ty0);
 
+    // 1b. The turned forecourt each facing building stands on (§21). Outside
+    //     the `extruded` branch below, because the apron is GROUND: the
+    //     parallax renderer redraws the masses per frame but not the paving
+    //     under them, and baking square paving under a turned house was the
+    //     same dark-corner tell the plot fill had. Before the shadows, too —
+    //     a neighbour's shadow crosses a doorstep like any other pavement.
+    const masses = this.massesNear(tx0, ty0);
+    for (const m of masses) this.paintMassApron(ctx, m, tx0, ty0);
+
     // 2. Building shadows, built as one opaque mask so overlapping tiles do not
     //    double-darken, then laid down translucent in a single blit.
     this.paintBuildingShadows(ctx, tx0, ty0);
@@ -873,7 +882,6 @@ export class TileLayer {
       // Buildings that face a street are drawn as one rotated mass (§20);
       // their tiles are skipped by the square walk. Walls for both first, so
       // a near mass's wall covers the one behind it.
-      const masses = this.massesNear(tx0, ty0);
       const W = (this.map as CityMap).widthTiles;
       const massed = new Set<number>();
       for (const m of masses) {
@@ -883,7 +891,6 @@ export class TileLayer {
       }
       const square = (tx: number, ty: number): boolean =>
         this.tileAt(tx, ty) === T_BUILDING && !massed.has(ty * W + tx);
-      for (const m of masses) this.paintMassApron(ctx, m, tx0, ty0);
       for (const m of masses) this.paintMassWall(ctx, m, tx0, ty0);
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
@@ -2011,6 +2018,19 @@ export class TileLayer {
     y: number,
     plants: boolean,
   ): void {
+    this.paintGround(ctx, tx, ty, x, y, this.plotGround(tx, ty), plants);
+  }
+
+  /**
+   * What a building's plot is surfaced with: the nearest tile round it that a
+   * building could stand on. Pavement in town, grass in a garden suburb, dirt
+   * on a lot — whatever the ground beside the house already is.
+   *
+   * Both the plot fill and the turned forecourt ask this, so a house cannot
+   * end up standing on a square of grass with a rotated slab of pavement laid
+   * over it.
+   */
+  private plotGround(tx: number, ty: number): number {
     let ground = T_SIDEWALK;
     let best = Infinity;
     for (let oy = -2; oy <= 2; oy++) {
@@ -2024,7 +2044,7 @@ export class TileLayer {
         }
       }
     }
-    this.paintGround(ctx, tx, ty, x, y, ground, plants);
+    return ground;
   }
 
   /**
@@ -2072,27 +2092,32 @@ export class TileLayer {
     const cx = Math.floor(mass.cx);
     const cy = Math.floor(mass.cy);
     ctx.translate(-w / 2, -h / 2);
-    this.paintApronGround(ctx, cx, cy, w, h);
+    this.paintApronGround(ctx, cx, cy, w, h, this.plotGround(cx, cy));
     ctx.restore();
   }
 
-  /** The apron's surface: pavement art, tiled across the turned rectangle. */
+  /** The apron's surface, tiled across the turned rectangle. */
   private paintApronGround(
     ctx: CanvasRenderingContext2D,
     tx: number,
     ty: number,
     w: number,
     h: number,
+    ground: number,
   ): void {
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, w, h);
     ctx.clip();
     // Painted tile by tile in the apron's OWN frame, so the paving slabs run
-    // with the building rather than with the world.
+    // with the building rather than with the world. In the plot's own
+    // material, not pavement: a farmhouse's forecourt is the field it stands
+    // in, and a slab of city paving under it in the middle of the country was
+    // the tell that this pass was guessing. Never with plants — a tree baked
+    // into a doorstep is a tree the house is standing on.
     for (let y = 0; y < h; y += TD) {
       for (let x = 0; x < w; x += TD) {
-        this.paintSidewalk(ctx, tx + Math.round(x / TD), ty + Math.round(y / TD), x, y);
+        this.paintGround(ctx, tx + Math.round(x / TD), ty + Math.round(y / TD), x, y, ground, false);
       }
     }
     ctx.restore();

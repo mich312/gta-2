@@ -86,14 +86,43 @@ export function buildingMass(
   const cx = b.x + b.w / 2;
   const cy = b.y + b.h / 2;
   if (rad === 0) return { cx, cy, w: b.w, h: b.h, rad: 0 };
+  const k = massFit(b.w, b.h, b.angle ?? 0, slack);
+  return { cx, cy, w: b.w * k, h: b.h * k, rad };
+}
+
+/**
+ * How far a `w`×`h` footprint has to shrink to be turned `deg` degrees and
+ * still sit inside its own plot plus `slack`.
+ *
+ * A rotated rectangle's bounding box grows, and the mass keeps its aspect
+ * ratio, so the scale is set by whichever side overflows worse. For a nearly
+ * square footprint at a shallow angle that is a few percent; for an elongated
+ * one turned across its long axis it is brutal — a 2×4 shed at 112° has to
+ * come down to 0.56, drawing under a third of its own area.
+ *
+ * Which is why this is a public number rather than an implementation detail
+ * of `buildingMass`: `bakeCity` asks it BEFORE recording a facing, and leaves
+ * a building square when the turn would cost more than `MIN_FACING_FIT`.
+ */
+export function massFit(w: number, h: number, deg: number, slack = 0.5): number {
+  const rad = (deg * Math.PI) / 180;
+  if (rad === 0) return 1;
   const c = Math.abs(Math.cos(rad));
   const s = Math.abs(Math.sin(rad));
   // The rotated box's own bounding extent, per unit of scale.
-  const ax = b.w * c + b.h * s;
-  const ay = b.w * s + b.h * c;
-  const k = Math.min(1, (b.w + slack) / ax, (b.h + slack) / ay);
-  return { cx, cy, w: b.w * k, h: b.h * k, rad };
+  return Math.min(1, (w + slack) / (w * c + h * s), (h + slack) / (w * s + h * c));
 }
+
+/**
+ * The least a mass may shrink and still be worth turning (§20).
+ *
+ * Linear, so it costs the drawn area its square: 0.85 means a turned building
+ * always draws at least 72% of its footprint. Below that the mass stops
+ * reading as the building the tiles describe and starts being an invisible
+ * wall — collision reads the full rect, and a corner of it standing well
+ * outside the thing you can see is worse than a house square to the world.
+ */
+export const MIN_FACING_FIT = 0.85;
 
 /** The mass's four corners, in tile units, clockwise from the north-west. */
 export function buildingCorners(

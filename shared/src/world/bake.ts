@@ -2,6 +2,7 @@ import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
+import { MIN_FACING_FIT, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
 import {
@@ -615,11 +616,17 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // agrees — a building straddling a seam between two boroughs at different
   // angles has no one street to face, and squaring it to the world is the
   // honest answer there.
+  //
+  // And only where the turn is affordable: the mass keeps its aspect ratio
+  // and has to fit back inside the plot, so an elongated footprint turned
+  // across its long axis shrinks to a sliver. `MIN_FACING_FIT` is where that
+  // stops being a facing and starts being a hole in the street (§20).
   for (const b of buildings) {
     const cx = Math.min(W - 1, Math.max(0, Math.floor(b.x + b.w / 2)));
     const cy = Math.min(H - 1, Math.max(0, Math.floor(b.y + b.h / 2)));
     const deg = layout.bearing[cy * W + cx] as number;
     if (deg === 0) continue;
+    if (massFit(b.w, b.h, deg) < MIN_FACING_FIT) continue;
     let agrees = true;
     for (let ty = b.y; ty < b.y + b.h && agrees; ty++) {
       for (let tx = b.x; tx < b.x + b.w; tx++) {

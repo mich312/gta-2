@@ -244,3 +244,17 @@ sharing one body.
 |---|---|
 | `lights-handover-night.png` | Seed 7 at `night=0.9`, ninety seconds in. Sixteen point slots and four spots against 55 asked for, the lamp pools on the road, the traffic lit and the shop signs on. Nothing about the scene changed with the crossfade — what changed is that no slot in it arrives or leaves in one frame. |
 | `pool-sweep-day.png` | Seed 7 at midday with the proving ground on, a hundred seconds in — long enough for the pool sweep to have run several times. The distinct car colourways are the check that matters: variants now share one set of position and normal buffers between them, and a bug there would show as a street of identically painted cars. |
+
+## Map generation, the coast as polylines, and buildings that face their streets
+
+WORLDGEN.md §17–§22. Retake the flyovers with `pnpm --filter client dev`
+running; the plangen sheets need no server.
+
+| file | what it shows |
+|---|---|
+| `plangen-seed500.png` | A city nobody authored (§17): `generateCityPlan` rolls the land as polylines in an open sea, cuts boroughs out of a weighted Voronoi, routes the arterials with A* over an anisotropic cost, and hands the result to the same `bakeCity` and the same `checkCity` the drawn plan goes through. Retake: `pnpm plangen --seed 500 --png evidence/plangen-seed500.png`. |
+| `plangen-shore.png` | The shore parishes (§17.4). The leeward coast is a park borough with no streets in it, which is what lets the shore pass lay sand instead of a quay — before it, a generated city had a wall of harbour wherever a street reached the water. Retake: `pnpm plangen --seed 3 --png evidence/plangen-shore.png --crop`. |
+| `city-shore-curve.png` | The coastline as one line (§18): `deriveShores` traces the water boundary, smooths it and thins it to polylines, and all three painters cut against the same curve — the 2D tile art, the 3D cutout mask and the wedges that give the sand a real edge. Retake: `WAIT_GROUND=24 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=700,608&h=260&pitch=45&night=0" evidence/city-shore-curve.png`. |
+| `city-shore-curve-2d.png` | The same coast in the 2D renderer, where the beach used to be a staircase of whole tiles. The tiles are unchanged; only the drawing is. |
+| `city-facing-before.png` | North Point before §20: every house square to the world in boroughs whose streets run at 12° to it, which is the tell that the buildings were laid on the tile grid and the streets were not. |
+| `city-facing-3d.png` | The same flyover now (§20, §22). Masses turned to the bearing their own tiles carry, standing on aprons turned with them and surfaced in the plot's own material, with the footprints — and therefore collision — untouched underneath. Buildings whose turn would shrink the mass under `MIN_FACING_FIT` stay square rather than draw a sliver. Retake: `WAIT_GROUND=24 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=634,116&h=190&pitch=45" evidence/city-facing-3d.png`. |

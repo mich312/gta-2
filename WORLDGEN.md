@@ -2784,3 +2784,87 @@ and rejected: it changed one block and two buildings, so the smearing is not a
 flat gradient but two unrelated band families interleaving. Banding each
 borough against ONE shore rather than against the nearest water is the fix, and
 it is a design change rather than a guard.
+
+---
+
+## 22. The sliver — when a house should refuse to turn
+
+### 22.1 The review
+
+§20 turned 1,624 buildings and held them to one invariant: the mass stays
+inside the plot the footprint claims. It does. What the test never asked is
+whether anything is left of it.
+
+The mass keeps its aspect ratio and scales to fit its own rotated bounding
+box, so the cost of a turn depends on the footprint's shape. A square at a
+shallow angle pays a few percent. An elongated one turned across its long axis
+pays everything: measured over the turned buildings, the drawn area was p50
+0.84 of the footprint but **410 buildings under 70%**, **70 under 50%**, and
+the worst a 2×4 shed at 112° drawn at 0.35 scale — **12% of its own plot**.
+
+Which is not a cosmetic complaint, because collision reads the FOOTPRINT. A
+mass shrunk to a third of its rect leaves the rest of the rect standing there
+invisible: footprint corners sat outside the drawn mass by a mean of 0.56 tiles
+and up to **3.66 tiles — 58 px of wall you cannot see**. The §20 test passed
+throughout. "Inside its own plot" is satisfied perfectly by a mass that shrinks
+to nothing, and a one-sided invariant is how that got shipped.
+
+### 22.2 The design: a floor, and refusal
+
+`massFit(w, h, deg, slack)` is lifted out of `buildingMass` and made public,
+because the decision belongs BEFORE the drawing. `bakeCity` asks it while
+deriving the facing and simply does not record an angle when the fit falls
+below `MIN_FACING_FIT = 0.85` — linear, so the drawn area is never under 72%.
+
+Refusing rather than fudging, for the same reason §20 derived the angle from
+the bearing plane in the first place: an angle on a building means "this is
+the street it fronts", and the two alternatives both break that. Scaling only
+the overflowing axis keeps the area by lying about the building's proportions —
+a 7×2 shed becomes a 4×3 one. Easing the angle back until it fits keeps the
+shape by lying about the bearing, and `facing.test.ts` asserts the angle equals
+the bearing its own tiles carry, which is a rule worth more than the turn.
+
+The honest answer for a footprint that cannot afford its street is that the
+footprint was cut to the wrong grid, and until the plot cutter is the thing
+that changes, such a building is square to the world.
+
+The test gains the missing half: the drawn area of every turned mass is at
+least `MIN_FACING_FIT²` of its footprint — and, so the floor cannot pass by
+being vacuous, at least one mass must actually be scaled down.
+
+### 22.3 DELIVERED
+
+| | before | after |
+|---|---|---|
+| buildings that face a street | 1,624 (43%) | 1,188 (31%) |
+| drawn area, p50 | 0.84 | 0.89 |
+| drawn area, worst | **0.12** | **0.73** |
+| footprint corner outside the mass, mean | 0.56 tiles | 0.42 tiles |
+| footprint corner outside the mass, worst | **3.66 tiles** | **1.35 tiles** |
+| 3D instances over North Point | 619,866 | 628,532 |
+
+436 buildings gave up their turn — and cost 8,666 instances back, because a
+building that stays square is one box per tile column again. That is the price
+of the rule and it is worth it; the §20 saving was partly a saving on drawing
+less of the city than the city has. The city's angles are mostly ±12–26° off the
+axes, where the floor costs nothing; what it takes out is exactly the elongated
+sheds turned across themselves.
+
+Two smaller things from the same review, both in `TileRenderer`:
+
+- **The forecourt is the plot's own material.** `paintApronGround` always laid
+  pavement, so a farmhouse in a field stood on a turned slab of city paving.
+  The nearest-ground pick that `paintPlot` already did is now `plotGround`, and
+  both call it — a plot and the apron on it cannot disagree about what the
+  ground is. Never with plants, either: a tree baked into a doorstep is a tree
+  the house is standing on.
+- **The apron is ground, so it is painted like ground.** It sat inside
+  `if (!this.extruded)` with the walls and roofs, which meant `?extrude=1`
+  turned the masses per frame over square paving — the §20 bug again, one layer
+  down. It now runs in the chunk's ground pass, before the shadows, so a
+  neighbour's shadow crosses a doorstep like it crosses any other pavement.
+
+**Not done, and known.** `massesNear` still scans every building in the city
+per chunk; it wants the block index the shops pass uses. `shoreCover` in
+`shoreline.ts` is dead since the chains landed. And the evidence PNGs are 5 MB
+of the repository.

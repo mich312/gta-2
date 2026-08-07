@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CITY_DATA } from '../src/world/city.data.js';
 import { decodeBakedCity } from '../src/world/bake.js';
-import { buildingCorners, buildingMass } from '../src/world/heights.js';
+import { MIN_FACING_FIT, buildingCorners, buildingMass } from '../src/world/heights.js';
 import { T_BUILDING, T_FLOOR, type Building } from '../src/world/types.js';
 
 /**
@@ -31,6 +31,27 @@ describe('a building that faces its street', () => {
     }
   });
 
+  it('still fills the plot it claims', () => {
+    // The other end of the same invariant, and the one that was missing: a
+    // mass that stays inside its plot by shrinking to nothing is inside it.
+    // Collision reads the FOOTPRINT, so a footprint corner standing far
+    // outside the drawn mass is a wall you cannot see — which is why the bake
+    // refuses the turn below `MIN_FACING_FIT` instead of drawing a sliver.
+    let worst = 1;
+    for (const b of city.buildings) {
+      if ((b.angle ?? 0) === 0) continue;
+      const m = buildingMass(b);
+      const drawn = (m.w * m.h) / (b.w * b.h);
+      worst = Math.min(worst, drawn);
+      expect(drawn, `${b.x},${b.y} ${b.w}x${b.h} @${b.angle}`).toBeGreaterThanOrEqual(
+        MIN_FACING_FIT * MIN_FACING_FIT - 1e-9,
+      );
+    }
+    // And the floor is a floor, not a ceiling nothing reaches: if every mass
+    // were drawn whole this test would pass while saying nothing.
+    expect(worst).toBeLessThan(1);
+  });
+
   it('leaves a square building exactly square', () => {
     const b: Building = { x: 10, y: 20, w: 4, h: 6, district: 'downtown' };
     const m = buildingMass(b);
@@ -44,7 +65,10 @@ describe('a building that faces its street', () => {
   });
 
   it('turns about the footprint centre, keeping its area in proportion', () => {
-    const b: Building = { x: 0, y: 0, w: 6, h: 4, district: 'downtown', angle: 30 };
+    // Twelve degrees, not thirty: a 6×4 at thirty would have to shrink to
+    // 0.70 to fit its plot, which is under `MIN_FACING_FIT` and so a turn the
+    // bake would refuse outright.
+    const b: Building = { x: 0, y: 0, w: 6, h: 4, district: 'downtown', angle: 12 };
     const m = buildingMass(b);
     expect(m.cx).toBe(3);
     expect(m.cy).toBe(2);
