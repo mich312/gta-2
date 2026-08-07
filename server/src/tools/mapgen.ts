@@ -395,7 +395,7 @@ function main(): void {
   // where do the two representations of this city disagree, and by how much.
   // Every phase of that plan should shrink the difference to nothing.
   const drawable = rasterOnly
-    ? { ...map, shores: undefined, courses: undefined, buildings: [] }
+    ? { ...map, shores: undefined, banks: undefined, courses: undefined, buildings: [] }
     : map;
 
   let picture: Render;

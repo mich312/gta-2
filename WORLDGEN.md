@@ -3941,7 +3941,124 @@ two-way one generalised.
 Recorded rather than attempted, because a half-done second cut would look
 worse than the staircase it replaces.
 
+> Done in §39, and the fear above was misplaced in one specific way: the two
+> lines are never in the same tile, because the band's inner edge is at least
+> `QUAY_REACH` from the waterline. There is no three-way split. Each painter
+> cuts a tile once and only chooses which line is cutting it. What the work
+> actually turned up was a sawtooth from the 45° bevel and a pass-ordering
+> bug in the server render — neither of them the hard part it was braced for.
+
 **And the reaches were tuned against tests, not taste.** 1.8 tiles gave a
 visibly better band — one-tile transects down to 27% — and took enough ground
 that three flight tests and an errand route failed. 1.5 is where the band
 improves without the city losing land it was using.
+
+## 39. The band's inner edge, as a curve
+
+§38 finished with a note saying what it had *not* done, and this is that half.
+
+The band was measured from the waterline, so its width was even and the
+neighbour-test artefacts were gone. But no painter had a band CURVE to shade
+against, so the line you actually saw where the sand stopped was still the
+boundary between two tiles: 2,609 unit edges, **100% axis-aligned**, a tile and
+a half behind a waterline running at 19.7%. §25 had made that line *more*
+visible, not less — a curve beside a staircase draws the eye to the staircase.
+
+### 39.1 One field, two contours
+
+The plan §38 recorded feared a three-way split: a shore tile cut twice, water
+then sand then grass, in three painters. It is not that, because the two lines
+are never in the same tile. `QUAY_REACH` is 1.5, so the band's inner edge is at
+least a tile and a half from the waterline; a tile the coast crosses cannot
+also hold the band's edge except at a very tight corner. Each painter cuts a
+tile ONCE, and only picks which of the two lines is cutting it.
+
+What the band's edge is, is the zero contour of
+
+```
+inland(x, y) = ±dist(x, y, shores) − reach(x, y)
+```
+
+— the same `sampleField` / `contourRings` the coast is built with, one level
+further out. `reach` is a field (quay 1.5, beach 2.6, cliff 2.6, bilinear
+between tile centres, so its own steps never reach the curve); `dist` is
+§38's `ringDistance`. Stated inland-positive on purpose: a contour is a closed
+ring or it is nothing, and the band-positive region contains the whole sea,
+which runs off every edge of the map.
+
+Then the three reach comparisons the shore pass used to make collapse into one
+mask lookup, and the SECOND shore pass — which had its own copy of the sand
+rule — reads the same mask instead of repeating it.
+
+The rasterisation is unchanged tile for tile. That is not luck: bilinear
+interpolation at a tile centre returns that tile's own sample, so
+`inland(centre) < 0` is exactly the test `rd < reach` was. The bake is
+byte-identical apart from the new rings. A curve was added and nothing moved.
+
+### 39.2 What a painter needs, and what it must not be told
+
+Both halves of a band tile are dry, so neither can be a fixed colour the way
+the sea is. The obvious rule — sand and bank are shore, grass is not — is
+wrong on the one case that matters: a wooded cliff foot and the wood behind it
+are both `T_TREES`, and the line between them is the whole point.
+
+So each half takes the material of the nearest tile centre that the LINE puts
+on that half, which is `chainSide` — `shoreHalf`'s companion, and the same
+nearest-segment test the server renderer already made. No material
+classification anywhere.
+
+Three painters, three shapes of the same idea:
+
+- **2D chunk painter** — `paintBandTile`, `shoreHalf` clipped twice, exactly
+  as `paintShoreTile` does it minus the water and the stroked lip. Sand
+  meeting grass is not an edge you draw a line along.
+- **3D city** — the tile keeps its box and the other half is laid over it as a
+  flat patch, a hair above street level. Splitting the box would mean
+  re-meshing every shore tile in the map for a line you see from above.
+  10,029 triangles.
+- **Server render** — the same pixel sweep as the waterline, run second and
+  skipping whatever the waterline called sea.
+
+### 39.3 Two defects the work turned up
+
+**The bevel fights the chord.** §18 already knew that a tile the coast crosses
+must not also get its 45° bevel, and the band's edge needed the same rule and
+did not have it. The result was a sawtooth: a smooth chord, then every three
+or four tiles a triangle of grass driven up through the beach. Worse than the
+staircase both were replacing, and invisible in the tile numbers — it took a
+6× zoom on one tile to see what it was.
+
+**Order is behaviour.** The server's waterline pass reaches 1.1 tiles inland
+and repaints each pixel as the TILE it sits in. A quay is 1.5 tiles wide and a
+pond's beach 1.4, so running the band pass first meant the coast pass walked
+straight back over its outer edge and put the steps back. Second, and gated on
+what the coast pass called sea.
+
+### 39.4 The pond gets its beach
+
+The last four-neighbour band in the city was a park pond's sand ring — §29
+gave the pond a waterline and left its beach a lattice, which is §38's defect
+in miniature. A pond's shape is already a field, so its beach is that field
+contoured `POND_BEACH` further out: six more rings, shipped in `banks` beside
+the coast's ten.
+
+### 39.5 Measured
+
+| | before | after |
+|---|---|---|
+| drawn sand-against-grass line, axis-aligned | 100% | 16.8% |
+| band-material tile edges the curve passes through | — | 98.4% |
+| shipped band rings | — | 16 |
+| tiles moved | — | 0 |
+
+The 1.6% the curve does not describe is band material a LATER pass put down —
+a street that ran into the sea and was turned to quay, a landmark's apron. The
+band curve was not cut from those and does not claim them.
+
+### 39.6 What is still a lattice here
+
+The boundary between sand and quay, and between either and a wooded cliff
+foot. Those are *material* changes WITHIN the band, decided per tile by
+district and exposure — a field, correctly — and where two of them meet along
+the shore the change is a tile edge. It is a short line and a small tonal step
+next to sand-against-grass, which is why it is recorded rather than fixed.

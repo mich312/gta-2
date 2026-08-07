@@ -299,14 +299,19 @@ export function rasteriseRings(rings: readonly Ring[], W: number, H: number): Ui
 }
 
 /**
- * The finished coast: contour a field, tidy the rings, and say which enclose
- * land. One call, so nobody assembles this sequence twice and differently.
+ * A field's zero contour, tidied: contour, simplify, measure, and say which
+ * way each ring is wound. One call, so nobody assembles this sequence twice
+ * and differently.
  *
- * `minArea` drops puddles and pebbles — the despeckle the mask pass used to
- * do, expressed on the shape rather than on its rasterisation. `eps` is the
- * simplification tolerance in tiles; a quarter of a world pixel is 1/64.
+ * `minArea` drops specks in square tiles. `eps` is the simplification
+ * tolerance in tiles; a quarter of a world pixel is 1/64.
+ *
+ * `land` here means "wound the way a ring enclosing POSITIVE field is wound",
+ * which for the coast field is land and for the shore band's field is the
+ * grass behind it. The name is the coast's because the coast is what the
+ * convention was fixed by; what it always means is the sign of the area.
  */
-export function coastRings(f: Field, minArea = 120, eps = 1 / 64): CoastRing[] {
+export function levelRings(f: Field, minArea = 0, eps = 1 / 64): CoastRing[] {
   const out: CoastRing[] = [];
   for (const raw of contourRings(f)) {
     const points = simplifyPolyline(raw.map(([x, y]) => [x, y]), eps) as Ring;
@@ -316,10 +321,24 @@ export function coastRings(f: Field, minArea = 120, eps = 1 / 64): CoastRing[] {
     if (area < minArea) continue;
     // Water on the right in a y-down plane makes a land ring's signed area
     // negative; a lake, wound the other way round, comes out positive.
-    if (a2 < 0 && !ringHasInterior(points)) continue;
     out.push({ points, land: a2 < 0, area });
   }
   return out;
+}
+
+/**
+ * The finished coast: `levelRings` plus the rule that an island has to have
+ * an interior.
+ *
+ * `minArea` drops puddles and pebbles — the despeckle the mask pass used to
+ * do, expressed on the shape rather than on its rasterisation. A ribbon four
+ * tiles wide and fifty long has an island's AREA and no interior, so the
+ * hydraulic-radius test drowns it; that rule is right for a coast and wrong
+ * for anything else, which is why it lives here and not in `levelRings`. The
+ * shore band IS a ribbon by construction.
+ */
+export function coastRings(f: Field, minArea = 120, eps = 1 / 64): CoastRing[] {
+  return levelRings(f, minArea, eps).filter((r) => !r.land || ringHasInterior(r.points));
 }
 
 /* ------------------------------------------------------------------ */
@@ -418,6 +437,48 @@ export function shoreChains(
   const out = new Map<number, Float32Array>();
   for (const [tile, pts] of best) out.set(tile, Float32Array.from(pts));
   return out;
+}
+
+/**
+ * Which side of a tile's chain a point falls on: −1 to the right of travel,
+ * +1 to the left, in the same tile-local coordinates the chain is in.
+ *
+ * The companion of `shoreHalf`, and it answers for points the chain does not
+ * pass through. A painter cutting a tile in two needs to know what each half
+ * is MADE of, and the honest answer is "whatever the nearest ground on that
+ * side is made of" — which needs a side test for the neighbours, not just for
+ * the tile being cut. Classifying materials instead (sand and bank are shore,
+ * grass is not) gets the cliff wrong, because a wooded cliff foot and the
+ * wood behind it are the same tile type on opposite sides of the line.
+ *
+ * Nearest-segment rather than winding, because a chain is a fragment: it has
+ * ends, and the question is only ever asked within a tile or so of it, where
+ * the two agree except inside the turn of a very sharp corner.
+ */
+export function chainSide(chain: Float32Array, x: number, y: number): number {
+  const n = chain.length / 2;
+  let best = Infinity;
+  let side = 1;
+  for (let k = 0; k + 1 < n; k++) {
+    const ax = chain[k * 2] as number;
+    const ay = chain[k * 2 + 1] as number;
+    const vx = (chain[k * 2 + 2] as number) - ax;
+    const vy = (chain[k * 2 + 3] as number) - ay;
+    const l2 = vx * vx + vy * vy;
+    if (l2 === 0) continue;
+    const rx = x - ax;
+    const ry = y - ay;
+    const t = Math.max(0, Math.min(1, (rx * vx + ry * vy) / l2));
+    const dx = rx - t * vx;
+    const dy = ry - t * vy;
+    const d = dx * dx + dy * dy;
+    if (d >= best) continue;
+    best = d;
+    // With y down, the right of a direction is that direction turned a
+    // quarter turn clockwise, where the cross product comes out positive.
+    side = vx * ry - vy * rx > 0 ? -1 : 1;
+  }
+  return side;
 }
 
 /** Where a point on the unit square's border sits along its perimeter, 0..4. */

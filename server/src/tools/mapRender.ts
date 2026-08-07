@@ -44,6 +44,7 @@ export interface RenderableMap {
    * one are the same picture.
    */
   shores?: ReadonlyArray<{ points: Array<readonly [number, number]>; land: boolean }> | undefined;
+  banks?: ReadonlyArray<{ points: Array<readonly [number, number]>; land: boolean }> | undefined;
   /**
    * The authored road centrelines (WORLDGEN.md §16), in tile units.
    *
@@ -312,25 +313,25 @@ export function render(
     }
   }
 
-  // The coast, repainted against the curve.
-  //
-  // Every pixel within about a tile of a shore polyline is re-decided: which
-  // side of the line it falls on says whether it is sea or shore, and the
-  // material it takes is the one belonging to that side. The tile pass above
-  // has already put down a staircase; this walks over the staircase with the
-  // line the tiles were a rasterisation OF.
+  // Which side of a set of closed rings each pixel falls on, and against
+  // which segment. Shared by the two lines below — the waterline and the
+  // shore band's inner edge — because they are the same kind of thing asked
+  // the same question.
   //
   // Nearest-segment rather than a proper point-in-polygon test, because the
   // question is only ever asked within a tile of the line, where the two
   // agree everywhere except inside the turn of a very sharp corner — and the
   // disagreement there is a fraction of a pixel at any scale a map is drawn
   // at. The client's painter clips real paths and does not approximate.
-  if (map.shores !== undefined && map.shores.length > 0) {
-    const REACH = 1.1;
+  const sidesOf = (
+    rings: ReadonlyArray<{ points: Array<readonly [number, number]> }>,
+    reach: number,
+  ): { side: Int8Array; seg: Int32Array; flat: Float64Array } => {
     const best = new Float32Array(W * H).fill(Infinity);
     const side = new Int8Array(W * H);
-    const water = colors[T_WATER] as [number, number, number];
-    for (const loop of map.shores) {
+    const seg = new Int32Array(W * H).fill(-1);
+    const flat: number[] = [];
+    for (const loop of rings) {
       const n = loop.points.length;
       for (let k = 0; k < n; k++) {
         const [ax, ay] = loop.points[k] as readonly [number, number];
@@ -340,7 +341,9 @@ export function render(
         const pay = (ay - y0) * scale;
         const pbx = (bx - x0) * scale;
         const pby = (by - y0) * scale;
-        const pad = REACH * scale + 1;
+        const at = flat.length;
+        flat.push(pax, pay, pbx, pby);
+        const pad = reach * scale + 1;
         const lo = Math.max(0, Math.floor(Math.min(pax, pbx) - pad));
         const hi = Math.min(W - 1, Math.ceil(Math.max(pax, pbx) + pad));
         const lo2 = Math.max(0, Math.floor(Math.min(pay, pby) - pad));
@@ -359,6 +362,7 @@ export function render(
             const i = py * W + px;
             if (d >= (best[i] as number)) continue;
             best[i] = d;
+            seg[i] = at;
             // Water is on the right of travel, and with y down the right of
             // a direction is the direction turned a quarter turn clockwise:
             // the cross product comes out positive there.
@@ -367,26 +371,45 @@ export function render(
         }
       }
     }
+    return { side, seg, flat: Float64Array.from(flat) };
+  };
+
+  /** A tile's colour, or null where it is not ground at all. */
+  const groundOf = (sx: number, sy: number): [number, number, number] | null => {
+    if (sx < 0 || sy < 0 || sx >= map.widthTiles || sy >= map.heightTiles) return null;
+    const t = map.tiles[sy * map.widthTiles + sx] as number;
+    if (t === T_WATER || t === T_BRIDGE) return null;
+    if (t === T_BUILDING) {
+      const d = DISTRICT_TYPES[map.district[sy * map.widthTiles + sx] as number] as string;
+      return hexToRgb(palette.building[d] ?? '#888888');
+    }
+    return colors[t] ?? null;
+  };
+
+  // The coast, repainted against the curve.
+  //
+  // Every pixel within about a tile of a shore polyline is re-decided: which
+  // side of the line it falls on says whether it is sea or shore, and the
+  // material it takes is the one belonging to that side. The tile pass above
+  // has already put down a staircase; this walks over the staircase with the
+  // line the tiles were a rasterisation OF.
+  //
+  // Which pixels this pass turned into sea, for the band pass below.
+  let wetPixel: Uint8Array | null = null;
+  if (map.shores !== undefined && map.shores.length > 0) {
+    const { side, seg } = sidesOf(map.shores, 1.1);
+    const water = colors[T_WATER] as [number, number, number];
+    wetPixel = new Uint8Array(W * H);
     /** The material this side of the line is made of, at this pixel. */
     const landAt = (px: number, py: number): [number, number, number] => {
       const mx = x0 + Math.floor(px / scale);
       const my = y0 + Math.floor(py / scale);
-      const sample = (sx: number, sy: number): [number, number, number] | null => {
-        if (sx < 0 || sy < 0 || sx >= map.widthTiles || sy >= map.heightTiles) return null;
-        const t = map.tiles[sy * map.widthTiles + sx] as number;
-        if (t === T_WATER || t === T_BRIDGE) return null;
-        if (t === T_BUILDING) {
-          const d = DISTRICT_TYPES[map.district[sy * map.widthTiles + sx] as number] as string;
-          return hexToRgb(palette.building[d] ?? '#888888');
-        }
-        return colors[t] ?? null;
-      };
       // Own tile first, then the NEAREST dry one in the ring — nearest by
       // where the pixel actually is, not by a fixed order. A beach is one
       // tile of sand with grass behind it, so "first dry neighbour I find"
       // puts a green notch in the sand every time the search order happens
       // to look inland before it looks along the shore.
-      const own = sample(mx, my);
+      const own = groundOf(mx, my);
       if (own !== null) return own;
       let best: [number, number, number] | null = null;
       let bd = Infinity;
@@ -394,7 +417,7 @@ export function render(
         [1, 0], [-1, 0], [0, 1], [0, -1],
         [1, 1], [1, -1], [-1, 1], [-1, -1],
       ] as const) {
-        const near = sample(mx + dx, my + dy);
+        const near = groundOf(mx + dx, my + dy);
         if (near === null) continue;
         const cx = (mx + dx + 0.5 - x0) * scale;
         const cy = (my + dy + 0.5 - y0) * scale;
@@ -409,11 +432,71 @@ export function render(
     for (let py = 0; py < H; py++) {
       for (let px = 0; px < W; px++) {
         const i = py * W + px;
-        if (!Number.isFinite(best[i] as number)) continue;
-        put(px, py, side[i] === 1 ? water : landAt(px, py));
+        if ((seg[i] as number) < 0) continue;
+        const wet = side[i] === 1;
+        if (wet) (wetPixel as Uint8Array)[i] = 1;
+        put(px, py, wet ? water : landAt(px, py));
       }
     }
   }
+
+  // The shore band's inner edge, repainted against the curve (§39), and
+  // AFTER the waterline so it can be told where the sea now is.
+  //
+  // Order was the whole difficulty. The waterline's own pass reaches 1.1
+  // tiles inland and repaints each pixel as the TILE it sits in, which is a
+  // staircase again — and a quay is 1.5 tiles wide, a pond's beach 1.4, so
+  // running the band first meant the coast pass walked back over its outer
+  // edge and put the steps straight back. Running it second, and skipping
+  // whatever the coast pass called sea, leaves each line drawn by the pass
+  // that owns it.
+  //
+  // Both halves are dry here, so neither can be a fixed colour the way the
+  // sea is: each takes the nearest tile centre that falls on its own side of
+  // the line. That is the same test the client's `paintBandTile` makes, for
+  // the same reason — a wooded cliff foot and the wood behind it are the same
+  // tile type, so only the line can say which is which.
+  if (map.banks !== undefined && map.banks.length > 0) {
+    const { side, seg, flat } = sidesOf(map.banks, 1.6);
+    const sideAt = (at: number, px: number, py: number): number => {
+      const ax = flat[at] as number;
+      const ay = flat[at + 1] as number;
+      const vx = (flat[at + 2] as number) - ax;
+      const vy = (flat[at + 3] as number) - ay;
+      return vx * (py - ay) - vy * (px - ax) > 0 ? 1 : -1;
+    };
+    for (let py = 0; py < H; py++) {
+      for (let px = 0; px < W; px++) {
+        const i = py * W + px;
+        const at = seg[i] as number;
+        if (at < 0) continue;
+        if (wetPixel !== null && wetPixel[i] === 1) continue;
+        const want = side[i] as number;
+        const mx = x0 + Math.floor(px / scale);
+        const my = y0 + Math.floor(py / scale);
+        let bd = Infinity;
+        let c: [number, number, number] | null = null;
+        for (const [dx, dy] of [
+          [0, 0],
+          [1, 0], [-1, 0], [0, 1], [0, -1],
+          [1, 1], [1, -1], [-1, 1], [-1, -1],
+        ] as const) {
+          const near = groundOf(mx + dx, my + dy);
+          if (near === null) continue;
+          const cx = (mx + dx + 0.5 - x0) * scale;
+          const cy = (my + dy + 0.5 - y0) * scale;
+          if (sideAt(at, cx, cy) !== want) continue;
+          const d = (cx - px) * (cx - px) + (cy - py) * (cy - py);
+          if (d < bd) {
+            bd = d;
+            c = near;
+          }
+        }
+        if (c !== null) put(px, py, c);
+      }
+    }
+  }
+
 
   // The roads, drawn as the CURVES they are (§16) rather than as the tiles
   // they were rasterised into — in the client's own paint order, because the

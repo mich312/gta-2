@@ -34,6 +34,7 @@ import {
   BEV_SW,
   TREE_Z,
   bevelOther,
+  chainSide,
   shoreHalf,
   shoreChains,
   oppositeHalf,
@@ -798,6 +799,7 @@ export function buildCity(map: CityMap): CityBuild {
   instances += buildRoofDetail(map, group, heightAt, masses, massTiles);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
+  instances += buildBandPatches(map, group, shoreCut);
   instances += buildShorePrisms(map, group, shoreCut);
   instances += buildShoreWedges(map, group, shoreCut);
 
@@ -1065,6 +1067,105 @@ const GROUND_AT_SEA = new Set<number>([
   T_TREES,
   T_RUNWAY,
 ]);
+
+/**
+ * The shore band's inner edge, laid over the ground as flat patches (§39).
+ *
+ * The 2D painter cuts a band tile in two and paints each half as what that
+ * side is made of; the 3D city cannot do that as cheaply, because its ground
+ * is one box per tile and splitting the box would mean re-meshing every
+ * shore tile in the map. What it does instead is leave the box and lay the
+ * OTHER half over it as a flat patch, a hair above street level so it wins
+ * the depth test. Same line, same two materials, one draw call.
+ *
+ * Tiles topped at canopy height are skipped, both as the box and as the
+ * patch: a wooded cliff foot's box stands at `TREE_Z`, so a patch at street
+ * level would be under it and a patch at canopy height would be a green
+ * shelf hanging over the beach. That is the woodland-as-a-box defect §15.4
+ * already records, and it wants the canopy, not a second patch.
+ */
+function buildBandPatches(
+  map: CityMap,
+  group: THREE.Group,
+  shoreCut: Map<number, Float32Array> | null,
+): number {
+  const banks = map.banks ?? [];
+  if (banks.length === 0) return 0;
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const T = TILE_SIZE;
+  const cuts = shoreChains(banks, W, H);
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  let patches = 0;
+
+  /** Just clear of the ground plane, and far under anything you can see. */
+  const LIFT = 0.05;
+
+  for (const [idx, seg] of cuts) {
+    // The waterline owns any tile it also runs through: that tile's box is
+    // already sunk and rebuilt as a prism, and a patch would float over the
+    // sea beside it.
+    if (shoreCut !== null && shoreCut.has(idx)) continue;
+    const tx = idx % W;
+    const ty = (idx - tx) / W;
+    const own = map.tiles[idx] as number;
+    if (!GROUND_AT_SEA.has(own) || own === T_WATER || own === T_TREES) continue;
+
+    // What the far side of the line is made of: the nearest tile centre the
+    // line puts over there. Asking the line and not the tile types, because
+    // sand and the grass behind it are told apart by the curve alone.
+    const want = -chainSide(seg, 0.5, 0.5);
+    let best = Infinity;
+    let other = -1;
+    for (const [dx, dy] of [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+      [1, 1], [1, -1], [-1, 1], [-1, -1],
+    ] as const) {
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const t = map.tiles[ny * W + nx] as number;
+      if (!GROUND_AT_SEA.has(t) || t === T_WATER || t === T_TREES) continue;
+      if (chainSide(seg, dx + 0.5, dy + 0.5) !== want) continue;
+      const d = dx * dx + dy * dy;
+      if (d < best) {
+        best = d;
+        other = t;
+      }
+    }
+    if (other < 0 || other === own) continue;
+
+    const half = shoreHalf(seg, want < 0);
+    if (half.length < 3) continue;
+    color.set((SURFACES[other] ?? DEFAULT_SURFACE).color);
+    // Fanned from the first corner: `shoreHalf` returns a simple polygon,
+    // and one that a chord through a square makes convex.
+    for (let i = 1; i + 1 < half.length; i++) {
+      for (const p of [half[0], half[i], half[i + 1]] as Array<[number, number]>) {
+        positions.push((tx + p[0]) * T, (ty + p[1]) * T, LIFT);
+        colors.push(color.r, color.g, color.b);
+      }
+    }
+    patches++;
+  }
+  if (patches === 0) return 0;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: toonGradient(),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  return 1;
+}
 
 /**
  * The dry side of every tile the coast course crosses, as real geometry.

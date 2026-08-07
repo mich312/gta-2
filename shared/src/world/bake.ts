@@ -1,6 +1,6 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { fillBlock, fillRegion, takePondRings } from './buildings.js';
+import { fillBlock, fillRegion, takePondBankRings, takePondRings } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
@@ -72,6 +72,17 @@ export interface BakedCity {
    * and no amount of smoothing could beat the staircase it started from.
    */
   shores: Array<{ points: Array<readonly [number, number]>; land: boolean; area: number }>;
+  /**
+   * The shore band's inner edge as closed rings (§39): where the quay, the
+   * beach and the cliff foot give way to the ground behind them.
+   *
+   * The sibling of `shores`, shipped for the same reason. The sand and bank
+   * tiles are its rasterisation, and the painters cut a tile against it the
+   * same way they cut one against the waterline — so the line between sand
+   * and grass runs at the angle the shore does, not at one of the five
+   * angles a tile grid can say.
+   */
+  banks: Array<{ points: Array<readonly [number, number]>; land: boolean; area: number }>;
 }
 
 /**
@@ -691,6 +702,10 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // is the same kind of thing, and joining the two here is what keeps ONE
     // answer to "where is the water" instead of two.
     shores: [...layout.shores, ...takePondRings()],
+    // The coast band, plus every park pond's beach (§39). Same joining as
+    // `shores` above, and for the same reason: one answer to where the shore
+    // band ends, not two.
+    banks: [...layout.banks, ...takePondBankRings()],
     blocks,
     buildings,
     landmarks,
@@ -932,6 +947,12 @@ export function encodeBakedCity(city: BakedCity): string {
         land: r.land,
         area: Math.round(r.area),
       })),
+      // And the band's inner edge, to the same hundredth of a tile.
+      banks: city.banks.map((r) => ({
+        points: r.points.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100]),
+        land: r.land,
+        area: Math.round(r.area),
+      })),
     },
     null,
     0,
@@ -954,6 +975,9 @@ export function decodeBakedCity(raw: unknown): BakedCity {
     blocks: r['blocks'] as BlockRect[],
     // Absent in a pre-VECTOR bake, where the coast was recovered at load.
     shores: (r['shores'] ?? []) as BakedCity['shores'],
+    // Absent in a pre-§39 bake, where the shore band's inner edge was a
+    // staircase and there was no curve to ship.
+    banks: (r['banks'] ?? []) as BakedCity['banks'],
     buildings: r['buildings'] as Building[],
     landmarks: r['landmarks'] as Landmark[],
     shops: r['shops'] as Shop[],

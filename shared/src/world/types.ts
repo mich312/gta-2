@@ -305,6 +305,16 @@ export interface CityMap {
    * Optional only so a bare fixture can omit it.
    */
   shores?: Array<{ points: Array<readonly [number, number]>; land: boolean }>;
+  /**
+   * The shore band's inner edge as closed rings: where the quay, the beach
+   * and the cliff foot give way to what is behind them (WORLDGEN.md §39).
+   *
+   * `shores` above is the OUTER edge of the same band. Together they are the
+   * two cuts a shore tile gets — water, then shore, then the town — and the
+   * reason the sand no longer ends in a staircase a tile and a half behind a
+   * smooth waterline. Optional only so a bare fixture can omit it.
+   */
+  banks?: Array<{ points: Array<readonly [number, number]>; land: boolean }>;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];

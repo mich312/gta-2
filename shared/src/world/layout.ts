@@ -1,6 +1,7 @@
 import { latticeHash, valueNoise } from './fields.js';
 import {
   coastRings,
+  levelRings,
   rasteriseRings,
   ringDistance,
   sampleField,
@@ -113,6 +114,17 @@ export interface CityLayout {
    * back out of a raster can never be smoother than the raster.
    */
   shores: CoastRing[];
+  /**
+   * The shore band's INNER edge as closed rings — where quay, beach and cliff
+   * foot give way to what is behind them (§39).
+   *
+   * The sibling of `shores`, and shipped for the same reason: it is a
+   * boundary, so a curve owns it and the sand and bank tiles are its
+   * rasterisation. Without it the drawn waterline was a curve with a
+   * staircase a tile and a half behind it, which made the staircase MORE
+   * visible rather than less.
+   */
+  banks: CoastRing[];
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -2287,47 +2299,82 @@ export function buildLayout(plan: CityPlan): CityLayout {
 
   const wetAt = (tx: number, ty: number): boolean =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? false : water[ty * W + tx] === 1;
-  const wetNear = (tx: number, ty: number, r: number): boolean => {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if ((dx !== 0 || dy !== 0) && wetAt(tx + dx, ty + dy)) return true;
-      }
+
+  // What the shore is MADE OF here, and how far back it runs. Both are
+  // fields — you ask them at a point and never collide with them — so both
+  // are grids, and the boundary they imply is a curve. That split is the
+  // whole of §39.
+  //
+  // Sand is a low-energy deposit: it collects in the lee, and the town walls
+  // its own waterfront whatever the weather. An exposed headland gets rock,
+  // which here is the same quay tile — solid to hulls, open to feet. A cliff
+  // gets scrub straight down to the water, and no stepping ashore.
+  const bandReach = new Float32Array(W * H);
+  const bandMaterial = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const d = DISTRICT_TYPES[district[i] as number] as DistrictType;
+    const sandy = d === 'park' && (exposure[i] as number) < -0.15;
+    if (sheerLand[i] === 1) {
+      bandReach[i] = CLIFF_REACH;
+      bandMaterial[i] = T_TREES;
+    } else if (sandy) {
+      bandReach[i] = BEACH_REACH;
+      bandMaterial[i] = T_SAND;
+    } else {
+      bandReach[i] = QUAY_REACH;
+      bandMaterial[i] = T_BANK;
     }
-    return false;
+  }
+  /** The reach between tile centres, so its own steps never reach the curve. */
+  const reachAt = (x: number, y: number): number => {
+    const fx = Math.max(0, Math.min(W - 1.0001, x - 0.5));
+    const fy = Math.max(0, Math.min(H - 1.0001, y - 0.5));
+    const x0 = Math.floor(fx);
+    const y0 = Math.floor(fy);
+    const u = fx - x0;
+    const v = fy - y0;
+    const g = (gx: number, gy: number): number => bandReach[gy * W + gx] as number;
+    const a = g(x0, y0) * (1 - u) + g(x0 + 1, y0) * u;
+    const b = g(x0, y0 + 1) * (1 - u) + g(x0 + 1, y0 + 1) * u;
+    return a * (1 - v) + b * v;
   };
+  /**
+   * Positive on the ground BEHIND the band, negative on the band and at sea
+   * — so its zero contour is the band's inner edge (§39).
+   *
+   * Stated inland-positive rather than band-positive on purpose. A contour is
+   * a closed ring or it is nothing (`contourRings` throws otherwise), and the
+   * band-positive region includes the whole sea, which runs off every edge of
+   * the map; the inland region is enclosed by construction, because the coast
+   * field puts an ocean margin round the whole world.
+   *
+   * The sign of the distance is taken from the water MASK, which is a lattice
+   * — and cannot matter, because it only flips within half a tile of the
+   * waterline, where the field is `something under 0.71 − reach` and `reach`
+   * is at least 1.5 either way: negative, correctly, whichever sign it took.
+   * The contour is a tile and a half inland of anywhere the sign is in doubt.
+   */
+  const inlandField = (x: number, y: number): number => {
+    const tx = Math.max(0, Math.min(W - 1, Math.floor(x)));
+    const ty = Math.max(0, Math.min(H - 1, Math.floor(y)));
+    const sign = water[ty * W + tx] === 1 ? -1 : 1;
+    return sign * shoreCurveDist(x, y) - reachAt(x, y);
+  };
+  // The band's inner edge, and the tiles it claims: the curve first, the
+  // rasterisation second, exactly as the coast does it. `levelRings` and not
+  // `coastRings` because a band IS a ribbon — it has an island's area and no
+  // interior, and the sandbar rule that is right for a coast would drown
+  // every yard of shore in the city.
+  const bandInner = levelRings(sampleField(inlandField, W, H, 0.5), 1);
+  const inlandMask = rasteriseRings(bandInner.map((r) => r.points), W, H);
+  /** Dry land OUTSIDE the inland region: a quay, a beach, or a cliff foot. */
+  const banded = (i: number): boolean => inlandMask[i] === 0 && water[i] === 0;
+
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const i = ty * W + tx;
       if (tiles[i] !== T_FIELD) continue;
-      const d = DISTRICT_TYPES[district[i] as number] as DistrictType;
-      // Sand is a low-energy deposit: it collects in the lee, and the town
-      // walls its own waterfront whatever the weather. An exposed headland
-      // gets rock, which here is the same quay tile — solid to hulls, open
-      // to feet.
-      const sandy = d === 'park' && (exposure[i] as number) < -0.15;
-      // How far this tile's CENTRE is from the waterline itself (§38), not
-      // how many of its neighbours happen to be wet. The neighbour test made
-      // the band's inner edge a pure lattice — 100% axis-aligned, against a
-      // waterline in front of it that is 19.7% — because "touching" can only
-      // ever be answered in whole tiles. The distance to the curve is smooth,
-      // so the band it cuts has a curve for an edge too.
-      const rd = shoreCurveDist(tx + 0.5, ty + 0.5);
-      // Eight-connected, not four. A coast that steps diagonally has a tile
-      // at every step whose only water is on the corner, and a four-neighbour
-      // test walked straight past all of them: a thousand one-tile holes of
-      // bare grass in the quay, checkered along every diagonal shore behind a
-      // waterline that had been smoothed. The bank is the land that MEETS the
-      // water, and a corner is meeting it.
-      const touching = rd < QUAY_REACH;
-      if (sheer(tx, ty)) {
-        // Cliff: rock and scrub straight down to the water. Solid, so there
-        // is no stepping ashore here from a boat.
-        if (rd < CLIFF_REACH) tiles[i] = T_TREES;
-      } else if (touching) {
-        tiles[i] = sandy ? T_SAND : T_BANK;
-      } else if (sandy && rd < BEACH_REACH) {
-        tiles[i] = T_SAND;
-      }
+      if (banded(i)) tiles[i] = bandMaterial[i] as number;
     }
   }
 
@@ -2521,20 +2568,26 @@ export function buildLayout(plan: CityPlan): CityLayout {
     for (let tx = 0; tx < W; tx++) {
       const i = ty * W + tx;
       if (tiles[i] !== T_FIELD) continue;
-      // Measured against the waterline, as the first shore pass is (§38).
-      // This used to be an eight-neighbour test, itself a patch (§23.2) on a
-      // four-neighbour one that left a thousand one-tile holes in the quay —
-      // both of them asking the tile plane a question about a curve. The
-      // distance to the curve answers it directly, and the patch retires.
-      if (shoreCurveDist(tx + 0.5, ty + 0.5) >= QUAY_REACH) continue;
-      if (sheer(tx, ty)) {
-        tiles[i] = T_TREES;
-        continue;
-      }
-      const d = DISTRICT_TYPES[district[i] as number] as DistrictType;
-      tiles[i] = d === 'park' && (exposure[i] as number) < -0.15 ? T_SAND : T_BANK;
+      // The same band, asked the same way. This used to repeat the reach
+      // tests with its own copy of the sand rule, which is two places to
+      // change and one of them always gets forgotten; now both passes read
+      // the one mask the band curve rasterises to (§39).
+      if (banded(i)) tiles[i] = bandMaterial[i] as number;
     }
   }
 
-  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing, courses, shores };
+  return {
+    widthTiles: W,
+    heightTiles: H,
+    tiles,
+    district,
+    blocks,
+    water,
+    owner,
+    sheer: sheerLand,
+    bearing,
+    courses,
+    shores,
+    banks: bandInner,
+  };
 }

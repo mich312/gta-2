@@ -3,6 +3,7 @@ import { latticeHash, valueNoise } from './fields.js';
 import { facingAngle } from './heights.js';
 import {
   coastRings,
+  levelRings,
   rasteriseRings,
   sampleField,
   type CoastRing,
@@ -42,9 +43,33 @@ import {
  */
 const pondRings: CoastRing[] = [];
 
+/**
+ * And the outer edge of each pond's beach (§39): the same curve treatment for
+ * the same reason, one level further out.
+ *
+ * A pond's sand used to be a four-neighbour ring round the wet tiles, which
+ * is the exact defect §38 removed from the coast — a lattice band drawn
+ * against a curved waterline. The shape was a continuous field all along, so
+ * the beach is a second contour of it rather than a scan of its rasterisation.
+ */
+const pondBankRings: CoastRing[] = [];
+
+/**
+ * How far a park pond's beach runs back from its waterline, in tiles.
+ *
+ * A shade under the coast's `QUAY_REACH`, because a pond is a tenth of the
+ * size of a bay and a beach in proportion to the sea would swallow it.
+ */
+const POND_BEACH = 1.4;
+
 /** Take the ponds cut since the last call. The bake drains this once. */
 export function takePondRings(): CoastRing[] {
   return pondRings.splice(0, pondRings.length);
+}
+
+/** Take the pond beaches cut since the last call, for `banks`. */
+export function takePondBankRings(): CoastRing[] {
+  return pondBankRings.splice(0, pondBankRings.length);
 }
 
 export interface Ctx {
@@ -661,17 +686,38 @@ function fillPark(
     // the city's standing rule for where land is allowed to touch water
     // (`water.test`'s quay invariant), and a small beach is also simply
     // what a park pond has.
-    for (let ty = py - pr - 1; ty <= py + pr + 1; ty++) {
-      for (let tx = px - pr - 1; tx <= px + pr + 1; tx++) {
+    //
+    // Its OUTER edge is a curve too (§39), and by the cheapest possible
+    // route: the pond's shape is already a field, so the beach is the same
+    // field contoured `POND_BEACH` further out. This used to be a
+    // four-neighbour scan of the wet tiles — the same lattice band against a
+    // curved waterline that §38 took off the coast, in miniature.
+    const beach = levelRings(
+      sampleField((lx, ly) => pondLand(lx, ly) - POND_BEACH, span, span, 0.5),
+      4,
+    ).filter((r) => !r.land);
+    for (const r of beach) {
+      pondBankRings.push({
+        points: r.points.map(([lx, ly]) => [lx + ox, ly + oy] as readonly [number, number]),
+        land: false,
+        area: r.area,
+      });
+    }
+    const beachMask = rasteriseRings(
+      beach.map((r) => r.points),
+      span,
+      span,
+    );
+    for (let ly = 0; ly < span; ly++) {
+      for (let lx = 0; lx < span; lx++) {
+        // Enclosed by the beach ring and not the pond itself: the sand.
+        if (beachMask[ly * span + lx] !== 1) continue;
+        const tx = ox + lx;
+        const ty = oy + ly;
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        if (tiles[ty * W + tx] === T_WATER) continue;
         if (!parkAt(tx, ty)) continue;
-        if (
-          tiles[ty * W + tx + 1] === T_WATER ||
-          tiles[ty * W + tx - 1] === T_WATER ||
-          tiles[(ty + 1) * W + tx] === T_WATER ||
-          tiles[(ty - 1) * W + tx] === T_WATER
-        ) {
-          tiles[ty * W + tx] = T_SAND;
-        }
+        tiles[ty * W + tx] = T_SAND;
       }
     }
     ponds++;

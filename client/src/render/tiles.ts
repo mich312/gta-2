@@ -28,6 +28,7 @@ import {
   BEV_SW,
   bevelOther,
   inCutHalf,
+  chainSide,
   shoreHalf,
   shoreChains,
   courseJunctions,
@@ -320,6 +321,16 @@ export class TileLayer {
    * than a Float32Array of the ones that do not.
    */
   private shoreSegs: Map<number, Float32Array> | null = null;
+  /**
+   * The shore band's INNER edge through each tile it crosses (§39), indexed
+   * exactly as `shoreSegs` is and cut with the same two functions.
+   *
+   * The waterline was made a curve first, and that made the line a tile and a
+   * half behind it — sand against grass, 100% axis-aligned against a
+   * waterline at 19.7% — the most obviously stepped thing on the map. It is
+   * the same kind of line and it gets the same treatment.
+   */
+  private bandSegs: Map<number, Float32Array> | null = null;
 
   constructor(private readonly sprites: SpriteSheet) {}
 
@@ -335,10 +346,12 @@ export class TileLayer {
     this.indexShores(map);
   }
 
-  /** The coast running through each shore tile (`shoreChains`, §18). */
+  /** The coast and the band's inner edge, per tile (`shoreChains`, §18/§39). */
   private indexShores(map: CityMap): void {
     const loops = map.shores ?? [];
     this.shoreSegs = loops.length === 0 ? null : shoreChains(loops, map.widthTiles, map.heightTiles);
+    const banks = map.banks ?? [];
+    this.bandSegs = banks.length === 0 ? null : shoreChains(banks, map.widthTiles, map.heightTiles);
   }
 
   /** World-px ribbons and the tile cover mask, from the baked courses. */
@@ -1093,8 +1106,100 @@ export class TileLayer {
     // the curve and the bevel is skipped, because a half-tile triangle and a
     // chord disagreeing about where the sea starts is worse than either.
     const seg = this.shoreSegAt(tx, ty);
+    //
+    // The band's inner edge is the same choice one line further in: where it
+    // cuts a tile, the bevel is skipped for the same reason. A 45° triangle
+    // laid over a chord put a wedge of grass through the beach every few
+    // tiles — a sawtooth along an otherwise smooth line, which is worse than
+    // the staircase both of them were trying to replace.
+    //
+    // The waterline wins a tile that holds both. They are a tile and a half
+    // apart by construction (`QUAY_REACH`), so that is a degenerate case at a
+    // tight corner rather than the ordinary shape.
     if (seg !== undefined) this.paintShoreTile(ctx, tx, ty, x, y, seg, plants);
-    else this.paintBevel(ctx, tx, ty, x, y, plants);
+    else if (!this.paintBandTile(ctx, tx, ty, x, y, plants)) {
+      this.paintBevel(ctx, tx, ty, x, y, plants);
+    }
+  }
+
+  /**
+   * One tile of the shore band's inner edge, cut against the CURVE (§39).
+   *
+   * `paintShoreTile` without the water: the same chain-and-two-halves, the
+   * same `paintShoreMaterial` for each half, and no stroked lip because sand
+   * meeting grass is not an edge you draw a line along. What it does not
+   * share is how it decides what each half is made of. The waterline can say
+   * "wet side is sea, dry side is the nearest dry tile"; here BOTH sides are
+   * dry, and a wooded cliff foot and the wood behind it are the same tile
+   * type — so each half takes the material of the nearest tile centre that
+   * `chainSide` puts on that half, which asks the line itself.
+   *
+   * Returns whether it cut, so the caller knows to leave the bevel alone.
+   */
+  private paintBandTile(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    plants: boolean,
+  ): boolean {
+    const map = this.map;
+    if (this.bandSegs === null || !map) return false;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+    const seg = this.bandSegs.get(ty * map.widthTiles + tx);
+    if (seg === undefined || seg.length < 4) return false;
+    // A wall is not shaded by the beach it stands behind, and a deck is not
+    // ground at all.
+    const own = this.tileAt(tx, ty);
+    if (own === T_BUILDING || own === T_WATER || own === T_BRIDGE) return false;
+
+    /** The nearest ground on one side of the line, as a tile type. */
+    const materialOn = (want: number): number => {
+      if (chainSide(seg, 0.5, 0.5) === want) return own;
+      let best = Infinity;
+      let mat = -1;
+      for (const [dx, dy] of NEIGHBOURS) {
+        const t = this.tileAt(tx + dx, ty + dy);
+        if (t === T_WATER || t === T_BRIDGE || t === T_BUILDING) continue;
+        if (chainSide(seg, dx + 0.5, dy + 0.5) !== want) continue;
+        const d = dx * dx + dy * dy;
+        if (d < best) {
+          best = d;
+          mat = t;
+        }
+      }
+      return mat;
+    };
+    const shoreward = materialOn(-1);
+    const inland = materialOn(1);
+    // Nothing to say if both halves are the same stuff, which is most of the
+    // band's length wherever it runs behind a quay into more of the same.
+    if (shoreward === inland || shoreward < 0 || inland < 0) return false;
+
+    const local = (p: [number, number]): [number, number] => [x + p[0] * TD, y + p[1] * TD];
+    const clipTo = (poly: Array<[number, number]>): boolean => {
+      if (poly.length < 3) return false;
+      ctx.beginPath();
+      ctx.moveTo((poly[0] as [number, number])[0], (poly[0] as [number, number])[1]);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo((poly[i] as [number, number])[0], (poly[i] as [number, number])[1]);
+      }
+      ctx.closePath();
+      ctx.clip();
+      return true;
+    };
+    ctx.save();
+    if (clipTo(shoreHalf(seg, true).map(local))) {
+      this.paintShoreMaterial(ctx, tx, ty, x, y, shoreward, plants);
+    }
+    ctx.restore();
+    ctx.save();
+    if (clipTo(shoreHalf(seg, false).map(local))) {
+      this.paintShoreMaterial(ctx, tx, ty, x, y, inland, plants);
+    }
+    ctx.restore();
+    return true;
   }
 
   /** The nearest shore-course segment through a tile, if the coast runs here. */

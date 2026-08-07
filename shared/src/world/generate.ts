@@ -125,6 +125,9 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // coastline impossible however hard the smoother worked. Nothing derives
   // it any more, so nothing can derive it differently.
   map.shores = baked.shores.map((r) => ({ points: r.points, land: r.land }));
+  // And the band's inner edge beside it (§39): the same kind of thing, from
+  // the same place, for the same reason.
+  map.banks = baked.banks.map((r) => ({ points: r.points, land: r.land }));
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.

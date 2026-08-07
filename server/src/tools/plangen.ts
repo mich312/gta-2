@@ -294,6 +294,7 @@ function main(): void {
       district: city.district,
       bevel: deriveBevels(city.tiles, city.widthTiles, city.heightTiles),
       shores: city.shores,
+      banks: city.banks,
       shops: city.shops,
     },
     loadPalette(),

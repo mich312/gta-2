@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  chainSide,
   coastRings,
   contourRings,
+  levelRings,
   rasteriseRings,
   ringArea2,
   ringHasInterior,
   sampleField,
+  shoreChains,
   type Ring,
 } from '../src/world/geometry.js';
 
@@ -134,6 +137,58 @@ describe('an island, and a bar pretending to be one', () => {
     expect(Math.abs(ringArea2(rect(4, 50)) / 2)).toBeCloseTo(200, 6);
     expect(ringHasInterior(rect(14, 14))).toBe(true);
     expect(ringHasInterior(rect(4, 50))).toBe(false);
+  });
+});
+
+/**
+ * The band a level set cuts, and the side test the painters cut it with
+ * (WORLDGEN.md §39).
+ *
+ * A shore band is the region between two contours of the same field, so the
+ * only new machinery it needs is a contour that does NOT apply the coast's
+ * sandbar rule — a band is a ribbon by construction and would fail it — and a
+ * way to ask which side of a cut a point is on.
+ */
+describe('a band between two levels of one field', () => {
+  /** A disc of radius 20 about (32, 32): positive outside, as land is. */
+  const disc = (r: number) => (x: number, y: number): number => Math.hypot(x - 32, y - 32) - r;
+
+  it('keeps the ribbon that the coast rule would drown', () => {
+    // The two contours of one field, three tiles apart. Both are rings round
+    // the same disc, and the annulus between them has an island's area and no
+    // interior at all — which is exactly the shape `coastRings` throws away.
+    const inner = levelRings(sampleField(disc(20), 64, 64, 0.5), 4);
+    const outer = levelRings(sampleField(disc(23), 64, 64, 0.5), 4);
+    expect(inner.length).toBe(1);
+    expect(outer.length).toBe(1);
+    // Wound the same way: both enclose the NEGATIVE side of their own field.
+    expect(inner[0]?.land).toBe(false);
+    expect(outer[0]?.land).toBe(false);
+    expect(outer[0]?.area as number).toBeGreaterThan(inner[0]?.area as number);
+    // And the band between them is the ring of tiles one fills and the other
+    // does not — the same subtraction the shore pass makes.
+    const a = rasteriseRings([inner[0]?.points as Ring], 64, 64);
+    const b = rasteriseRings([outer[0]?.points as Ring], 64, 64);
+    expect(a[32 * 64 + 32]).toBe(1);
+    expect(b[32 * 64 + 32]).toBe(1);
+    // Twenty-one and a half tiles out: inside the outer ring, outside the
+    // inner one. That is the band.
+    expect(a[32 * 64 + 53]).toBe(0);
+    expect(b[32 * 64 + 53]).toBe(1);
+  });
+
+  it('tells a painter which half of a tile is which', () => {
+    // One tile of the outer contour, in tile-local coordinates, and the two
+    // questions a painter asks of it: which side is my own centre on, and
+    // which side is the neighbour I want the material of.
+    const chains = shoreChains(levelRings(sampleField(disc(20), 64, 64, 0.5), 4), 64, 64);
+    // Due east of the centre, so the contour runs roughly north-south here.
+    const seg = chains.get(32 * 64 + 51);
+    expect(seg).toBeDefined();
+    // Inside the disc is the NEGATIVE side of the field, which the winding
+    // puts on the right of travel: −1. Outside is +1.
+    expect(chainSide(seg as Float32Array, -1.5, 0.5)).toBe(-1);
+    expect(chainSide(seg as Float32Array, 3.5, 0.5)).toBe(1);
   });
 });
 
