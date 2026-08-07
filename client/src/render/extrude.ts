@@ -1,4 +1,11 @@
-import { type CityMap, TILE_SIZE, buildingCorners, buildingMass, buildingStoreys } from 'shared';
+import {
+  type CityMap,
+  T_BUILDING,
+  TILE_SIZE,
+  buildingCorners,
+  buildingMass,
+  buildingStoreys,
+} from 'shared';
 import type { Vec2 } from 'shared';
 import { PARALLAX_PX_PER_STOREY, RENDER_SCALE, SUN_X, SUN_Y } from './config.js';
 import palette from 'shared/data/palette.json';
@@ -34,6 +41,24 @@ export class ExtrudeLayer {
   private map: CityMap | null = null;
 
   /**
+   * Which buildings may be drawn as ONE turned mass: those that face a street
+   * AND whose footprint is solid wall.
+   *
+   * The same rule `TileLayer.massesNear` and the 3D city's walk apply, and
+   * for the same reason — a shop is a room punched out of a footprint and
+   * open to the sky, so a mass over the whole rect puts a lid on it. Having
+   * it in only two of the three renderers is what made `?extrude=1` lid
+   * thirty-two shops the other two drew open (§22.4).
+   *
+   * Computed once per map rather than per frame: this runs inside the draw
+   * loop's building sweep.
+   */
+  private massed: Uint8Array = new Uint8Array(0);
+
+  /** Whether each building's footprint is solid wall, turned or not. */
+  private solid: Uint8Array = new Uint8Array(0);
+
+  /**
    * Supplies each building's baked roof. Owned by `TileLayer`, which has the
    * tile-level painters; null falls back to a flat fill.
    */
@@ -41,6 +66,26 @@ export class ExtrudeLayer {
 
   setMap(map: CityMap): void {
     this.map = map;
+    const W = map.widthTiles;
+    this.massed = new Uint8Array(map.buildings.length);
+    this.solid = new Uint8Array(map.buildings.length);
+    for (let i = 0; i < map.buildings.length; i++) {
+      const b = map.buildings[i];
+      if (!b) continue;
+      let solid = true;
+      for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) {
+          if (tx < 0 || ty < 0 || tx >= W || ty >= map.heightTiles) continue;
+          if (map.tiles[ty * W + tx] !== T_BUILDING) {
+            solid = false;
+            break;
+          }
+        }
+      }
+      if (!solid) continue;
+      this.solid[i] = 1;
+      if ((b.angle ?? 0) !== 0) this.massed[i] = 1;
+    }
   }
 
   /**
@@ -116,7 +161,7 @@ export class ExtrudeLayer {
       // A building that faces a street leans as the mass it is drawn as
       // (§20), not as its bookkeeping rect: the wall the lean uncovers is on
       // the turned edge, and the roof that lands on top of it is turned too.
-      const turned = (b.angle ?? 0) !== 0;
+      const turned = this.massed[i] === 1;
       const corners = turned
         ? buildingCorners(b).map(
             ([cxT, cyT]) =>
@@ -148,8 +193,25 @@ export class ExtrudeLayer {
         }
         ctx.closePath();
         ctx.fill();
-      } else {
+      } else if (this.solid[i] === 1) {
         ctx.fillRect(ex.base.x, ex.base.y, ex.base.w, ex.base.h);
+      } else {
+        // A footprint with a room punched out of it is filled tile by tile,
+        // over its WALLS only. Filling the whole rect put a lid on every shop
+        // in the parallax renderer — the chunk beneath has painted the open
+        // floor, its counter and its shelves, and this covered them.
+        const W = map.widthTiles;
+        for (let ty = b.y; ty < b.y + b.h; ty++) {
+          for (let tx = b.x; tx < b.x + b.w; tx++) {
+            if (tx < 0 || ty < 0 || tx >= W || ty >= map.heightTiles) continue;
+            if (map.tiles[ty * W + tx] !== T_BUILDING) continue;
+            const qx = originX + Math.round(tx * TILE_SIZE * RENDER_SCALE);
+            const qy = originY + Math.round(ty * TILE_SIZE * RENDER_SCALE);
+            const qw = originX + Math.round((tx + 1) * TILE_SIZE * RENDER_SCALE) - qx;
+            const qh = originY + Math.round((ty + 1) * TILE_SIZE * RENDER_SCALE) - qy;
+            ctx.fillRect(qx, qy, qw, qh);
+          }
+        }
       }
 
       for (const f of (rex ?? ex).faces) {

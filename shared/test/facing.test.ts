@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { CITY_DATA } from '../src/world/city.data.js';
 import { decodeBakedCity } from '../src/world/bake.js';
-import { MIN_FACING_FIT, buildingCorners, buildingMass } from '../src/world/heights.js';
-import { T_BUILDING, T_FLOOR, type Building } from '../src/world/types.js';
+import {
+  MASS_SLACK,
+  MIN_FACING_FIT,
+  buildingCorners,
+  buildingMass,
+  facingAngle,
+} from '../src/world/heights.js';
+import { T_BRIDGE, T_BUILDING, T_FLOOR, T_ROAD, type Building } from '../src/world/types.js';
 
 /**
  * Which way a building faces (WORLDGEN.md §20).
@@ -17,16 +23,17 @@ describe('a building that faces its street', () => {
   const city = decodeBakedCity(JSON.parse(CITY_DATA));
 
   it('keeps its mass inside its own plot', () => {
-    // Half a tile of slack, and not one tile: a mass may lean into its own
-    // pavement, because that is where a doorstep is, and may not lean into
-    // the carriageway.
+    // `MASS_SLACK` tiles of lean, half of it per side: a mass may use its own
+    // pavement, because that is where a doorstep and a porch are, and may not
+    // reach the carriageway. The tile test below is the one that holds the
+    // second half of that sentence.
     for (const b of city.buildings) {
       const corners = buildingCorners(b);
       for (const [cx, cy] of corners) {
-        expect(cx, `${b.x},${b.y}`).toBeGreaterThanOrEqual(b.x - 0.26);
-        expect(cy, `${b.x},${b.y}`).toBeGreaterThanOrEqual(b.y - 0.26);
-        expect(cx, `${b.x},${b.y}`).toBeLessThanOrEqual(b.x + b.w + 0.26);
-        expect(cy, `${b.x},${b.y}`).toBeLessThanOrEqual(b.y + b.h + 0.26);
+        expect(cx, `${b.x},${b.y}`).toBeGreaterThanOrEqual(b.x - (MASS_SLACK / 2 + 0.01));
+        expect(cy, `${b.x},${b.y}`).toBeGreaterThanOrEqual(b.y - (MASS_SLACK / 2 + 0.01));
+        expect(cx, `${b.x},${b.y}`).toBeLessThanOrEqual(b.x + b.w + (MASS_SLACK / 2 + 0.01));
+        expect(cy, `${b.x},${b.y}`).toBeLessThanOrEqual(b.y + b.h + (MASS_SLACK / 2 + 0.01));
       }
     }
   });
@@ -50,6 +57,29 @@ describe('a building that faces its street', () => {
     // And the floor is a floor, not a ceiling nothing reaches: if every mass
     // were drawn whole this test would pass while saying nothing.
     expect(worst).toBeLessThan(1);
+  });
+
+  it('never leans into the carriageway', () => {
+    // The half of "inside its own plot" that a coordinate bound cannot state.
+    // A mass is allowed its pavement and is not allowed the road, and once
+    // the lean is a whole tile that stops being obvious — so it is measured,
+    // by sampling the drawn rectangle against the ground it covers.
+    const W = city.widthTiles;
+    for (const b of city.buildings) {
+      if ((b.angle ?? 0) === 0) continue;
+      const m = buildingMass(b);
+      const c = Math.cos(m.rad);
+      const s = Math.sin(m.rad);
+      for (let v = -m.h / 2; v <= m.h / 2; v += 0.25) {
+        for (let u = -m.w / 2; u <= m.w / 2; u += 0.25) {
+          const tx = Math.floor(m.cx + u * c - v * s);
+          const ty = Math.floor(m.cy + u * s + v * c);
+          if (tx < 0 || ty < 0 || tx >= W || ty >= city.heightTiles) continue;
+          const t = city.tiles[ty * W + tx] as number;
+          expect(t === T_ROAD || t === T_BRIDGE, `${b.x},${b.y} covers ${tx},${ty}`).toBe(false);
+        }
+      }
+    }
   });
 
   it('leaves a square building exactly square', () => {
@@ -98,7 +128,7 @@ describe('a building that faces its street', () => {
       // agrees — a building on a seam between two fabrics faces neither.
       for (let ty = b.y; ty < b.y + b.h; ty++) {
         for (let tx = b.x; tx < b.x + b.w; tx++) {
-          expect(city.bearing[ty * W + tx], `${b.x},${b.y}`).toBe(angle);
+          expect(facingAngle(city.bearing[ty * W + tx] as number), `${b.x},${b.y}`).toBe(angle);
         }
       }
     }

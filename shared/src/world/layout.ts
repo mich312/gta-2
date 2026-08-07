@@ -248,6 +248,65 @@ function despeckle(mask: Uint8Array, want: number, minTiles: number, W: number, 
   }
 }
 
+/**
+ * Drown every island that is all shore and no island.
+ *
+ * `despeckle` asks how BIG a landmass is, and a sandbar four tiles wide and
+ * fifty long passes that test comfortably while being, on the ground, a strip
+ * of quay and beach standing in open water with nothing behind it — no
+ * interior, nothing to build on, nothing to reach it by. Two of them ran down
+ * the middle of the sound, and read as half-built causeways.
+ *
+ * So the test here is not area but DEPTH: a landmass has to contain at least
+ * one tile a full two tiles from the water on every side. The margin is not
+ * fine — the smallest real islet in the city has 189 such tiles and every bar
+ * has none — because the two are different things rather than the same thing
+ * at different sizes.
+ */
+function drownSandbars(land: Uint8Array, W: number, H: number): void {
+  const wet = (x: number, y: number): boolean =>
+    x < 0 || y < 0 || x >= W || y >= H || land[y * W + x] !== 1;
+  const seen = new Uint8Array(W * H);
+  for (let start = 0; start < land.length; start++) {
+    if (seen[start] === 1 || land[start] !== 1) continue;
+    const bag = [start];
+    seen[start] = 1;
+    let deep = false;
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      if (!deep) {
+        let clear = true;
+        for (let dy = -2; dy <= 2 && clear; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            if (wet(x + dx, y + dy)) {
+              clear = false;
+              break;
+            }
+          }
+        }
+        if (clear) deep = true;
+      }
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (seen[j] === 1 || land[j] !== 1) continue;
+        seen[j] = 1;
+        bag.push(j);
+      }
+    }
+    if (!deep) for (const i of bag) land[i] = 0;
+  }
+}
+
 interface Coast {
   water: Uint8Array;
   /** Shore normal dotted with the swell: +1 fully exposed, -1 sheltered. */
@@ -370,6 +429,10 @@ function paintCoast(plan: CityPlan): Coast {
       if (add) land[y * W + x] = 1;
     }
   }
+
+  // Last, once the islets and spits are in and the coast is final: anything
+  // left that is all shore and no interior is a bar, not an island.
+  drownSandbars(land, W, H);
 
   const margin = g.margin;
   const water = new Uint8Array(W * H);
@@ -1920,6 +1983,78 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
+  // And no piers. The pass above works tile by tile, so a crossing that is
+  // too wide in the middle and narrow enough at its ends keeps its ends: a
+  // deck that leaves the bank, runs out over the water and stops. Kelvin
+  // Bridge did exactly that, fourteen tiles short of the far shore, and
+  // being connected at one end it was on the road network — you could drive
+  // off it into the sea.
+  //
+  // A bridge exists to join two pieces of land. So each deck is taken whole
+  // and asked how many separate places it lands; anything that lands in
+  // fewer than two goes back to water, and the stub prune below tidies up
+  // the road it was fed by.
+  {
+    const seen = new Uint8Array(W * H);
+    for (let start = 0; start < tiles.length; start++) {
+      if (seen[start] === 1 || tiles[start] !== T_BRIDGE) continue;
+      const deck: number[] = [start];
+      seen[start] = 1;
+      const shore: number[] = [];
+      for (let q = 0; q < deck.length; q++) {
+        const i = deck[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (tiles[j] === T_BRIDGE) {
+            if (seen[j] === 0) {
+              seen[j] = 1;
+              deck.push(j);
+            }
+          } else if (tiles[j] !== T_WATER) {
+            shore.push(j);
+          }
+        }
+      }
+      // How many separate pieces of bank the deck touches. Eight-connected,
+      // because one landfall that happens to straddle a diagonal step of the
+      // shore is still one landfall.
+      const bank = new Set(shore);
+      const grouped = new Set<number>();
+      let landfalls = 0;
+      for (const s of bank) {
+        if (grouped.has(s)) continue;
+        landfalls++;
+        const bag = [s];
+        grouped.add(s);
+        for (let q = 0; q < bag.length; q++) {
+          const i = bag[q] as number;
+          const x = i % W;
+          const y = (i - x) / W;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const j = (y + dy) * W + (x + dx);
+              if (bank.has(j) && !grouped.has(j)) {
+                grouped.add(j);
+                bag.push(j);
+              }
+            }
+          }
+        }
+      }
+      if (landfalls < 2) for (const i of deck) tiles[i] = T_WATER;
+    }
+  }
+
   // Which landmasses are cliff-bound. Flood-filled over the finished water
   // mask from the plan's seed points, so it is the island the author pointed
   // at however far the warp moved its shore.
@@ -1979,7 +2114,13 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // gets rock, which here is the same quay tile — solid to hulls, open
       // to feet.
       const sandy = d === 'park' && (exposure[i] as number) < -0.15;
-      const touching = wetAt(tx + 1, ty) || wetAt(tx - 1, ty) || wetAt(tx, ty + 1) || wetAt(tx, ty - 1);
+      // Eight-connected, not four. A coast that steps diagonally has a tile
+      // at every step whose only water is on the corner, and a four-neighbour
+      // test walked straight past all of them: a thousand one-tile holes of
+      // bare grass in the quay, checkered along every diagonal shore behind a
+      // waterline that had been smoothed. The bank is the land that MEETS the
+      // water, and a corner is meeting it.
+      const touching = wetNear(tx, ty, 1);
       if (sheer(tx, ty)) {
         // Cliff: rock and scrub straight down to the water. Solid, so there
         // is no stepping ashore here from a boat.
@@ -2182,7 +2323,8 @@ export function buildLayout(plan: CityPlan): CityLayout {
     for (let tx = 0; tx < W; tx++) {
       const i = ty * W + tx;
       if (tiles[i] !== T_FIELD) continue;
-      if (!(wetAt(tx + 1, ty) || wetAt(tx - 1, ty) || wetAt(tx, ty + 1) || wetAt(tx, ty - 1))) continue;
+      // Eight-connected, as the first shore pass is: a corner counts.
+      if (!wetNear(tx, ty, 1)) continue;
       if (sheer(tx, ty)) {
         tiles[i] = T_TREES;
         continue;

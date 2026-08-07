@@ -194,6 +194,29 @@ const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
   [-1, -1],
 ];
 
+/**
+ * Ground a building's plot can plausibly be surfaced with (§22.4).
+ *
+ * The plot fill and the turned forecourt both answer "what is this house
+ * standing on?" by looking at the nearest tile that is not the house itself.
+ * That question has wrong answers as well as right ones: a wall, the sea and
+ * a bridge deck were always excluded, and so must the carriageway, a stunt
+ * ramp's chevrons, a runway and the open floor of a shop be — none of them is
+ * a surface a plot is ever made of, and a ramp picked as a plot's material
+ * paints a rotated ring of hazard stripes round the house.
+ */
+function plottable(t: number): boolean {
+  return (
+    t !== T_BUILDING &&
+    t !== T_WATER &&
+    t !== T_BRIDGE &&
+    t !== T_ROAD &&
+    t !== T_RAMP &&
+    t !== T_RUNWAY &&
+    t !== T_FLOOR
+  );
+}
+
 function shade(hex: string, amount: number, towards = '#0b111c'): string {
   const a = parseInt(hex.slice(1), 16);
   const b = parseInt(towards.slice(1), 16);
@@ -249,6 +272,8 @@ export class TileLayer {
     pts: Float64Array;
     widthPx: number;
     kind: string;
+    /** The whole course's length in world px — the seniority of a road. */
+    len: number;
     minX: number;
     minY: number;
     maxX: number;
@@ -310,11 +335,19 @@ export class TileLayer {
         if (wx > maxX) maxX = wx;
         if (wy > maxY) maxY = wy;
       });
+      let len = 0;
+      for (let k = 2; k < pts.length; k += 2) {
+        len += Math.hypot(
+          (pts[k] as number) - (pts[k - 2] as number),
+          (pts[k + 1] as number) - (pts[k - 1] as number),
+        );
+      }
       const pad = (c.width / 2) * TILE_SIZE + TILE_SIZE;
       this.ribbons.push({
         pts,
         widthPx: c.width * TILE_SIZE,
         kind: c.kind,
+        len,
         minX: minX - pad,
         minY: minY - pad,
         maxX: maxX + pad,
@@ -382,12 +415,30 @@ export class TileLayer {
         }
         path.lineTo(px(n - 1), py(n - 1));
       }
-      return { path, w: r.widthPx * t };
+      return { path, w: r.widthPx * t, len: r.len };
     });
 
     ctx.save();
     ctx.lineJoin = 'round';
     ctx.lineCap = 'butt';
+
+    // A course is a curve and the ground under it is not: where a road bends
+    // near the water, the stroked ribbon overhangs the tiles the carve
+    // actually took, and 385 tiles of sea and building wall were being
+    // painted as tarmac and kerb — worst beside the bridges, where the deck
+    // is narrow and the curve is not. Clip the whole pass to ground a road
+    // may be drawn on. Water and walls only: the casing is MEANT to reach
+    // past the carriageway onto the kerb band, so pavement stays in.
+    ctx.beginPath();
+    for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
+      for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
+        const t2 = this.tileAt(tx, ty);
+        if (t2 === T_WATER || t2 === T_BUILDING) continue;
+        ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
+      }
+    }
+    ctx.clip();
+
     // Kerb casing, proud of the carriageway by the kerb band's width.
     ctx.strokeStyle = palette.kerb;
     for (const p of paths) {
@@ -424,17 +475,24 @@ export class TileLayer {
     // The casing and the fill above stay in ONE pass each, because their
     // order is what opens a junction (§16) — grouping those by width would
     // draw an avenue's kerb across every street that meets it.
-    const tiers = [...new Set(paths.map((p) => p.w))].sort((a, b) => a - b);
-    for (const w of tiers) {
-      const tier = paths.filter((p) => p.w === w);
+    // Widest last, and within one width, LONGEST last. The width tiers alone
+    // left the commonest case untouched: two streets of the same width
+    // running alongside each other land in the same tier, so both repaints
+    // go down and then both dashes, and neither ever covers the other — up
+    // to three dashed centre lines braiding across one sheet of tarmac. Since
+    // equal widths cannot be ranked by width, they are ranked by how long the
+    // road is, which is the same seniority a driver reads off the ground: the
+    // through road's line carries on, the side road's stops where it joins.
+    const order = [...paths].sort((a, b) => a.w - b.w || a.len - b.len);
+    for (const p of order) {
       ctx.setLineDash([]);
       ctx.strokeStyle = palette.road;
-      ctx.lineWidth = w - 4 * t;
-      for (const p of tier) ctx.stroke(p.path);
+      ctx.lineWidth = p.w - 4 * t;
+      ctx.stroke(p.path);
       ctx.setLineDash([4 * t, 6 * t]);
       ctx.strokeStyle = palette.roadLane;
       ctx.lineWidth = t;
-      for (const p of tier) ctx.stroke(p.path);
+      ctx.stroke(p.path);
     }
     ctx.setLineDash([]);
     ctx.restore();
@@ -1323,15 +1381,17 @@ export class TileLayer {
     this.paintRoad(ctx, tx, ty, x, y);
     ctx.fillStyle = palette.kerb;
     const rail = Math.max(1, (TD / 10) | 0);
-    // Rails run along the deck, i.e. across whichever axis leaves the bridge.
-    const alongX = this.tileAt(tx - 1, ty) === T_BRIDGE || this.tileAt(tx + 1, ty) === T_BRIDGE;
-    if (alongX) {
-      ctx.fillRect(x, y, TD, rail);
-      ctx.fillRect(x, y + TD - rail, TD, rail);
-    } else {
-      ctx.fillRect(x, y, rail, TD);
-      ctx.fillRect(x + TD - rail, y, rail, TD);
-    }
+    // A parapet stands where the deck ends and the drop begins: on any edge
+    // of this tile with open water across it. Nothing is inferred about which
+    // way the bridge runs, which is what the old test got wrong — it asked
+    // whether a bridge tile lay east or west, and on a four-wide north-south
+    // deck that is true of every tile, so every tile drew its rails top and
+    // bottom and the deck came out as a ladder of rungs across the road.
+    // Edges onto land are abutments and get none.
+    if (this.tileAt(tx, ty - 1) === T_WATER) ctx.fillRect(x, y, TD, rail);
+    if (this.tileAt(tx, ty + 1) === T_WATER) ctx.fillRect(x, y + TD - rail, TD, rail);
+    if (this.tileAt(tx - 1, ty) === T_WATER) ctx.fillRect(x, y, rail, TD);
+    if (this.tileAt(tx + 1, ty) === T_WATER) ctx.fillRect(x + TD - rail, y, rail, TD);
   }
 
   /** Stunt ramp: chevrons on concrete, so it reads as "hit this fast". */
@@ -2036,7 +2096,11 @@ export class TileLayer {
     for (let oy = -2; oy <= 2; oy++) {
       for (let ox = -2; ox <= 2; ox++) {
         const t = this.tileAt(tx + ox, ty + oy);
-        if (t === T_BUILDING || t === T_WATER || t === T_BRIDGE) continue;
+        // Not everything a building stands NEAR is something it stands ON.
+        // Carriageway, a stunt ramp's chevrons, a runway and the floor of a
+        // shop are all surfaces in their own right, and a house whose plot
+        // resolved to one of them got a rotated apron of hazard stripes.
+        if (!plottable(t)) continue;
         const d = ox * ox + oy * oy;
         if (d < best) {
           best = d;

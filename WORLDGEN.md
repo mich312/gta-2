@@ -2868,3 +2868,175 @@ Two smaller things from the same review, both in `TileRenderer`:
 per chunk; it wants the block index the shops pass uses. `shoreCover` in
 `shoreline.ts` is dead since the chains landed. And the evidence PNGs are 5 MB
 of the repository.
+
+### 22.4 The audit, and the rule rebuilt
+
+§22 shipped and was then audited — three passes over the finished city, one
+for roads, one for buildings, one for terrain, each told to be harsh and to
+back every claim with a picture or a number. The buildings pass came back with
+a verdict on §22 itself: **it made the city look worse, and here are the A/B
+frames.** It was right, and this is the correction.
+
+**What the floor actually cost.** Of the 436 buildings it refused, **68% had a
+fit of 0.75 or better** and only **20** were the genuine slivers the rule was
+written for. Worse, the refusals concentrated exactly where a diagonal is most
+visible — **178 at bearing 26°, 141 at 20°** — so the boroughs whose streets
+most obviously run askew were the ones handed back their square boxes, which
+is §20.1's original complaint restored. And because it refused per building
+rather than per borough, 90 blocks ended up holding both a turned house and a
+squared one on the same frontage: half-and-half reads as a fault where either
+pure answer reads as a choice.
+
+The mistake was picking the threshold off a percentile table without looking
+at which buildings fell either side of it. The measurement was right and the
+inference from it was not.
+
+**The fix is upstream of the floor, in both directions the audit pointed.**
+
+- **`MASS_SLACK` is a whole tile, not a half.** The lean allowance was what
+  forced the shrink. A plot is bounded by its own pavement and a doorstep, a
+  porch and a bay window all live in that ring, so a mass may use it. What it
+  may still not touch is the carriageway, and half a tile per side does not
+  reach — which is no longer an argument but a test, `never leans into the
+  carriageway`, sampling every drawn mass against the ground it covers.
+- **The bearing is folded into (−45°, 45°] before it is recorded.** A
+  rectangle turned θ and turned θ−90 puts its walls on the same two lines;
+  only which of its own axes runs along the street differs. Taking the bearing
+  raw turned elongated buildings across themselves for nothing — a 2×4 shed on
+  a 112° street costs a fit of 0.56 raw and 0.75 folded to 22°. A bearing of
+  exactly 90° folds to 0, which is the truth: a rectangle square to a
+  north-south street *is* square to the world, and three buildings were being
+  "turned" 90° into a transposed mass with a band of bare plot above and below.
+
+`MIN_FACING_FIT` stays at 0.85 and now bites 91 times instead of 436.
+
+| | §20 | §22 first cut | now |
+|---|---|---|---|
+| buildings facing a street | 1,624 (43%) | 1,188 (31%) | **1,533 (40%)** |
+| drawn area, median | 0.84 | 0.89 | **1.00** |
+| drawn area, worst | **0.12** | 0.73 | **0.74** |
+| footprint corner outside the mass, worst | **3.66 tiles** | 1.35 | **1.48** |
+| masses touching carriageway | 0 | 0 | **0** |
+
+The median mass is now drawn at its **full footprint size** — with a tile of
+lean, most turned buildings do not have to shrink at all, which was never true
+before. Evidence: `evidence/city-facing-3d.png`, the same North Point flyover.
+
+Two more from the same pass, both renderer bugs the audit found by comparing
+the three renderers at one location:
+
+- **`?extrude=1` lidded thirty-two shops.** The parallax renderer turned a
+  mass on `angle !== 0` alone, where the 2D painter and the 3D city both also
+  require a solid footprint — so a shop the other two drew open became a
+  rotated dark void with its counter and shelves stranded outside it. The same
+  rule now lives in all three. While there: a non-solid footprint's base is
+  filled tile by tile over its walls instead of as one rect, so a **square**
+  shop stops being lidded too.
+- **Seven houses had a stunt ramp for a forecourt.** `plotGround` rejected
+  only wall, water and bridge, so a plot next to a ramp resolved its material
+  to `T_RAMP` and laid a rotated ring of yellow hazard chevrons round the
+  house. Ramps are placed at runtime, which is why no bake showed it. It now
+  rejects carriageway, ramp, runway and shop floor as well — none of them is
+  something a plot is ever surfaced with.
+
+---
+
+## 23. The audit: what three harsh passes found in the ground
+
+The same audit, on everything that is not a house. What follows is what was
+fixed; §23.3 is what was found and left, which is the more useful half.
+
+### 23.1 Blockers — the tiles, not the drawing
+
+**A bridge that stopped in open water.** The no-causeways pass (§14) reverts
+bridge tiles whose crossing is too wide, working tile by tile — so a crossing
+too wide in the middle and narrow at its ends keeps its ends. Kelvin Bridge,
+the city's named crossing of the strait, left the north bank, ran 47 tiles out
+and stopped **14 tiles short of the far shore**; being attached at one end it
+was on the road network, so a player could drive off it into the sea. The
+Ring's east crossing was the same thing, a 24-tile pier tapering to one tile.
+
+A bridge exists to join two pieces of land, so each deck is now taken **whole**
+and asked how many separate places it lands — eight-connected, so one landfall
+straddling a diagonal step counts once. Fewer than two and it goes back to
+water. Four decks went; road running straight into water fell from 15 tiles to
+9, because the stub prune then tidied what fed them.
+
+**Two ~187-tile sandbars floating in the sound.** `despeckle` asks how BIG a
+landmass is, and a bar four tiles wide and fifty long passes that comfortably
+while being a strip of quay and beach standing in open water with nothing
+behind it. `drownSandbars` asks a different question — **depth, not area**: a
+landmass must contain at least one tile a full two tiles from water on every
+side. The margin is not fine, it is absolute; the smallest real islet in the
+city has 189 such tiles and every bar had **zero**. Seven components went,
+including five specks nobody had noticed.
+
+### 23.2 The paint
+
+**A thousand one-tile holes in the quay.** Both shore passes tested four
+neighbours, so every diagonal step of a coast left a tile whose only water is
+on the corner as bare grass: a green-and-tan checkerboard along every diagonal
+shore, behind a waterline that §18 had just smoothed. Eight-connected now, in
+both passes — **1,025 holes down to 4** (the 74 that remain are park lawns
+running to the water, which is a lawn and not a hole).
+
+**Three centre lines braiding down one carriageway.** §21.2's width tiers
+could not touch the commonest case: two streets of the SAME width land in one
+tier, so both repaints go down and then both dashes, and neither ever covers
+the other — ~15,000 tiles of it. Equal widths cannot be ranked by width, so
+they are ranked by **how long the road is**, which is the seniority a driver
+reads off the ground anyway: the through road's line carries on, the side
+road's stops where it joins.
+
+**Tarmac painted on the sea.** A course is a curve and the ground under it is
+not, so a stroked ribbon overhangs the tiles the carve actually took — **385
+tiles** of water and building wall were being painted as carriageway and kerb,
+worst beside the bridges. The course pass is now clipped to ground a road may
+be drawn on. Water and walls only: the casing is *meant* to reach past the
+carriageway onto the kerb band.
+
+**Bridge parapets were rungs.** `paintBridge` decided the rail axis by asking
+whether a bridge tile lay east or west — true of every tile of a four-wide
+north-south deck, so every tile drew rails top and bottom and the deck came
+out as a ladder across the road. A parapet now stands on any edge with open
+water across it, and abutments get none. It had been invisible because the
+course ribbon covered 1,506 of 1,524 deck tiles; fixing the clip surfaced it.
+
+### 23.3 Found and NOT fixed
+
+Written down because an audit whose findings are half-fixed and half-forgotten
+is worth less than one nobody ran.
+
+- **Over half the drawn coastline is still a tile staircase.** Smoothed-to-raw
+  length ratio 0.841 where a genuinely smoothed 45° coast gives 0.71; 55% of
+  the waterline is within 7.5° of an axis. Chaikin×2 with a ⅓-tile
+  Douglas–Peucker straightens a **1:1** staircase and leaves a 2:1 one — which
+  is the common case — with every step intact. §18.4's "smooth to the eye at
+  any zoom the game uses" is not true at flyover height. This wants a
+  different smoother, not a bigger epsilon.
+- **Diagonal bridge decks are raw staircases.** §15's bevel plane never
+  touches `T_BRIDGE`. Now the most visible thing about a bridge.
+- **Past the world edge the 3D view is a flat green void** — no sky, no
+  horizon, and the sea ending on a straight line. The margin is 8 tiles at the
+  north and south borders with a beach at (518,8), so a player can reach it.
+- **`?extrude=1` and the 3D ground pass order the apron and the courses
+  differently**, and the 2D chunk builder now differs from both.
+- **Lattice-on-lattice merging is worse than §21.1 diagnosed.** At a ≥7×7
+  solid-tarmac threshold only 58% of merged tiles are near an authored avenue;
+  **1,289 tiles are street-on-street** with no avenue involved, which
+  contradicts §21.1's "it is not lattice on lattice". The §21.3 plan is
+  therefore necessary but not sufficient.
+- **Zebra crossings laid as carpet** — 4–7 stacked back to back in open tarmac
+  with no kerb, downstream of the same merged sheets.
+- **Two lighthouses on the same four tiles** (`Gannet Light` and `Old Point
+  Light`, both `653,586 4x4`), and `Marsh Post` standing on an empty field.
+- **71 course junctions meet under 30°**, 29 of them under 15°, worst 2.2° —
+  against §13.5's stated invariant.
+- **Trees stand dead on the tile lattice at identical scale**, so a wood shows
+  a visible square grid; woodland is drawn as a 1-tile-high green plinth.
+- **`pnpm mapgen` cannot see any of this.** The tool WORLDGEN.md points at for
+  reviewing every wave draws no courses, no lane markings, no kerbs and no
+  rotated masses — which is the honest explanation for how §16, §20 and §21
+  defects survived three waves of review. Teaching `mapRender.ts` the ribbons
+  and the masses is the highest-value thing on this list, because it is the
+  one that finds the next list.

@@ -80,7 +80,7 @@ export function buildingHeightPx(b: Building, pxPerStorey: number): number {
  */
 export function buildingMass(
   b: Building,
-  slack = 0.5,
+  slack = MASS_SLACK,
 ): { cx: number; cy: number; w: number; h: number; rad: number } {
   const rad = ((b.angle ?? 0) * Math.PI) / 180;
   const cx = b.x + b.w / 2;
@@ -104,7 +104,7 @@ export function buildingMass(
  * of `buildingMass`: `bakeCity` asks it BEFORE recording a facing, and leaves
  * a building square when the turn would cost more than `MIN_FACING_FIT`.
  */
-export function massFit(w: number, h: number, deg: number, slack = 0.5): number {
+export function massFit(w: number, h: number, deg: number, slack = MASS_SLACK): number {
   const rad = (deg * Math.PI) / 180;
   if (rad === 0) return 1;
   const c = Math.abs(Math.cos(rad));
@@ -112,6 +112,18 @@ export function massFit(w: number, h: number, deg: number, slack = 0.5): number 
   // The rotated box's own bounding extent, per unit of scale.
   return Math.min(1, (w + slack) / (w * c + h * s), (h + slack) / (w * s + h * c));
 }
+
+/**
+ * How far out of its plot a mass may lean, in tiles — half of it per side.
+ *
+ * A whole tile, not the half tile §22 first tried. The plot a building stands
+ * in is bounded by its own pavement, and a doorstep, a porch and a bay window
+ * all live in that ring; a mass allowed to use it needs to shrink far less to
+ * turn, which is the difference between a diagonal borough that faces its
+ * streets and one that gives up (§22.4). What it may still not touch is the
+ * carriageway, and half a tile of lean does not reach it.
+ */
+export const MASS_SLACK = 1;
 
 /**
  * The least a mass may shrink and still be worth turning (§20).
@@ -124,10 +136,29 @@ export function massFit(w: number, h: number, deg: number, slack = 0.5): number 
  */
 export const MIN_FACING_FIT = 0.85;
 
+/**
+ * The angle a mass is drawn at, given the street bearing its tiles carry.
+ *
+ * A rectangle turned θ and turned θ−90 puts its walls on the same two lines;
+ * all that changes is which of its own axes runs ALONG the street. So a
+ * bearing is folded into (−45°, 45°]: the building still fronts its street,
+ * and it fronts it with whichever side fits the plot, instead of being turned
+ * across itself. A 2×4 shed on a 112° street costs a fit of 0.56 taken raw
+ * and 0.75 folded to 22°; a bearing of exactly 90° folds to 0, which is the
+ * truth — a rectangle square to a north-south street IS square to the world.
+ */
+export function facingAngle(deg: number): number {
+  let a = ((deg % 180) + 180) % 180;
+  if (a > 90) a -= 180;
+  if (a > 45) a -= 90;
+  else if (a <= -45) a += 90;
+  return a;
+}
+
 /** The mass's four corners, in tile units, clockwise from the north-west. */
 export function buildingCorners(
   b: Building,
-  slack = 0.5,
+  slack = MASS_SLACK,
 ): Array<[number, number]> {
   const { cx, cy, w, h, rad } = buildingMass(b, slack);
   const c = Math.cos(rad);

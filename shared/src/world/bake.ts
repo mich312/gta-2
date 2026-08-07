@@ -2,7 +2,7 @@ import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
-import { MIN_FACING_FIT, massFit } from './heights.js';
+import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
 import {
@@ -617,16 +617,21 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // angles has no one street to face, and squaring it to the world is the
   // honest answer there.
   //
-  // And only where the turn is affordable: the mass keeps its aspect ratio
-  // and has to fit back inside the plot, so an elongated footprint turned
-  // across its long axis shrinks to a sliver. `MIN_FACING_FIT` is where that
-  // stops being a facing and starts being a hole in the street (§20).
+  // The bearing is FOLDED into (-45,45] before it is recorded: a rectangle
+  // turned to face a street can front it with either of its own axes, and
+  // taking the bearing raw turns elongated buildings across themselves for no
+  // gain (§22.4). Then, and only then, the turn has to be affordable — the
+  // mass keeps its aspect ratio and has to fit back inside its plot, and
+  // `MIN_FACING_FIT` is where a shrinking mass stops being a facing and
+  // starts being an invisible wall.
   for (const b of buildings) {
     const cx = Math.min(W - 1, Math.max(0, Math.floor(b.x + b.w / 2)));
     const cy = Math.min(H - 1, Math.max(0, Math.floor(b.y + b.h / 2)));
     const deg = layout.bearing[cy * W + cx] as number;
     if (deg === 0) continue;
-    if (massFit(b.w, b.h, deg) < MIN_FACING_FIT) continue;
+    const face = facingAngle(deg);
+    if (face === 0) continue;
+    if (massFit(b.w, b.h, face) < MIN_FACING_FIT) continue;
     let agrees = true;
     for (let ty = b.y; ty < b.y + b.h && agrees; ty++) {
       for (let tx = b.x; tx < b.x + b.w; tx++) {
@@ -637,7 +642,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
         }
       }
     }
-    if (agrees) b.angle = deg;
+    if (agrees) b.angle = face;
   }
 
   const baked: BakedCity = {
