@@ -3109,3 +3109,106 @@ the game and nothing deleted — the only phase in `VECTOR.md` of which that is
 true. `RenderableMap` gained `courses` and `buildings`, both optional, both
 already present on `CityMap`, so `mapgen` and `plangen` pick them up without
 changes.
+
+---
+
+## 25. VECTOR phase 1 — the coast, upstream of the raster
+
+The change §18 could not make. §18 recovered the waterline from the finished
+tiles and smoothed it; this makes the waterline the definition and the tiles
+its rasterisation. Same doctrine as always — the tiles are still what the sim
+reads — but the ARROW now points the other way, and that is what a smooth
+coast turned out to depend on.
+
+### 25.1 It was already a field. Two lines destroyed it.
+
+The coast was never a polygon problem. `paintCoast` builds a signed distance
+field, warps the SAMPLE POINT through four octaves of noise, damps the warp
+where the shore faces the swell, and asks whether the result is positive.
+Everything up to that question is continuous. Two things quantised it:
+
+1. `sample()` read the field with `Math.round` — **nearest neighbour** — so
+   the field was on the tile lattice before anything else happened. It is
+   bilinear now.
+2. The result was thresholded into a mask, and everything downstream worked on
+   the mask.
+
+So the fix is not a polygon library. It is: keep the field continuous, and
+take its **zero contour by interpolation** instead of thresholding it.
+`geometry.ts` does that with marching squares whose crossing points are placed
+by linear interpolation along each cell edge — one detail, and the difference
+between a curve and a staircase.
+
+### 25.2 Booleans without a boolean library
+
+§9 of `VECTOR.md` called exact polygon union "the whole risk". It never had to
+be built: **a union of implicit fields is `Math.max`.** The islands, the bays
+and rivers cut out of them, the islets and the spits added after the warp, and
+the forced margin of open sea round the map are all signed depths now, and
+`landAt` combines them arithmetically. The one conversion from implicit to
+explicit geometry happens once, at the contour.
+
+`strokeHit` gained a signed sibling, `strokeDepth`, for exactly this: a
+boolean test can only be rasterised, a signed depth can be contoured.
+
+### 25.3 What went, and what it was doing
+
+Three raster passes existed to undo damage the raster had done, and all three
+are gone:
+
+- **morphological open/close** ("a coast is allowed to be ragged, not
+  confetti") — the blur already on the distance field does this, on the field,
+  where it belongs;
+- **two `despeckle` passes** — `coastRings` drops rings under 120 tiles² by
+  area, on the shape rather than on its rasterisation;
+- **`drownSandbars`** (added six hours earlier, §23.1) — replaced by
+  `ringHasInterior`, which asks the shape's hydraulic radius (area ÷
+  perimeter ≈ half the width) instead of flood-filling the mask. A bar four
+  tiles wide and fifty long has the area of a respectable islet and no
+  interior at all; width is the property that tells them apart, and a ring
+  knows its width without being rasterised first.
+
+And `shoreline.ts` is deleted — 514 lines. `deriveShores` was the round trip
+itself. `shoreChains` and `shoreHalf` moved to `geometry.ts`: they never
+looked at a tile to decide where the coast is, they only INDEX a curve per
+tile, which a painter still needs.
+
+### 25.4 DELIVERED
+
+| | before | after |
+|---|---|---|
+| waterline within 7.5° of an axis | **55.1%** | **19.7%** |
+| coast rings | 15–17, incl. bars and specks | **9** |
+| where the coast is defined | traced from tiles, at every client start | **shipped in the bake** |
+| land area | — | −0.3% |
+| tiles that changed side | — | 0.30% of the map |
+
+The coastline is the same coastline — a third of a percent of the map changed
+side — and it is no longer a staircase. `city.data.ts` grew 782 → 840 kB for
+the 4,289 shipped vertices, and `generateCity` stopped rebuilding them at
+every load.
+
+888 tests pass. `geometry.test.ts` states the two properties everything
+downstream leans on: the rings are wound with the water on the right, and
+**rasterising the rings reproduces the field they came from** — which is the
+claim that makes the tile plane a cache rather than a second opinion.
+
+### 25.5 What this cost, honestly
+
+- **The city moved.** Two landmarks needed re-siting in `city-plan.json`
+  (Kessler Power, The Eyrie) because the ground under them changed. The plan
+  is the authored document and the coast is now different; that is an edit,
+  not a workaround.
+- **Two tests were staged on incidental geography** and broke. Both are now
+  map-independent, which they should always have been: the fists test aims
+  where `clearAim` says there is room instead of assuming east is clear, and
+  the prediction test picks a lane by asking the PHYSICS whether a car can
+  drive away from it rather than asking the tile plane for a clear ray. The
+  second had been hiding a weak assertion — its sibling accepted `travelled >
+  0`, which one pixel satisfies, so a completely undrivable lane passed it.
+- **The bake is slower**: 7.0 s → 10.7 s, because the field is evaluated at
+  half-tile spacing rather than per tile. It runs offline, once.
+- **`bevel.ts` is NOT deleted**, contrary to the plan. Its coast cases are now
+  redundant, but it also bevels the beach-against-grass line and the kerb of a
+  diagonal avenue, and collision reads it. Narrowing it belongs with the road
+  work, not here.

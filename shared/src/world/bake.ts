@@ -63,6 +63,15 @@ export interface BakedCity {
    * as one line instead of a staircase of tiles. See WORLDGEN.md §16.
    */
   courses: StreetCourse[];
+  /**
+   * The waterline as closed rings, straight from the layout (VECTOR.md).
+   *
+   * Shipped rather than recovered at load: the coast is a boundary, so its
+   * definition is the curve and the water tiles are its rasterisation. The
+   * old arrangement ran the other way — tiles first, curve traced back out —
+   * and no amount of smoothing could beat the staircase it started from.
+   */
+  shores: Array<{ points: Array<readonly [number, number]>; land: boolean; area: number }>;
 }
 
 /**
@@ -652,6 +661,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
     tiles,
     district: layout.district,
     bearing: layout.bearing,
+    shores: layout.shores,
     blocks,
     buildings,
     landmarks,
@@ -886,6 +896,13 @@ export function encodeBakedCity(city: BakedCity): string {
         width: c.width,
         kind: c.kind,
       })),
+      // The waterline, to the same hundredth of a tile: a sixth of a world
+      // pixel, well under the quarter-pixel the vertices are flattened at.
+      shores: city.shores.map((r) => ({
+        points: r.points.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100]),
+        land: r.land,
+        area: Math.round(r.area),
+      })),
     },
     null,
     0,
@@ -906,6 +923,8 @@ export function decodeBakedCity(raw: unknown): BakedCity {
     // Absent in a pre-bearing bake: every street was on the screen axes.
     bearing: typeof r['bearing'] === 'string' ? decodePlane(r['bearing'] as string, n) : new Uint8Array(n),
     blocks: r['blocks'] as BlockRect[],
+    // Absent in a pre-VECTOR bake, where the coast was recovered at load.
+    shores: (r['shores'] ?? []) as BakedCity['shores'],
     buildings: r['buildings'] as Building[],
     landmarks: r['landmarks'] as Landmark[],
     shops: r['shops'] as Shop[],

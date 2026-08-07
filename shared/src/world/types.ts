@@ -279,15 +279,14 @@ export interface CityMap {
     kind: string;
   }>;
   /**
-   * The coastline as closed polylines in tile units — the curve the water
-   * tiles are a rasterisation of, for the renderer to shade against instead
-   * of the tile edge (WORLDGEN.md §18). Structurally `ShoreLoop[]`
-   * (shoreline.ts); typed loosely here for the same reason `courses` is.
+   * The coastline as closed rings in tile units — and THE definition of where
+   * the water is, of which the wet tiles are a rasterisation (VECTOR.md).
    *
-   * Derived from the finished tiles in `generateCity`, like the bevel plane
-   * and unlike the courses: a shore has no authored source to keep, the
-   * tiles ARE its definition, so recovering it costs no bake and no wire.
-   * Optional; absent means the square shoreline the tiles draw themselves.
+   * Shipped in the bake, not recovered here. It used to run the other way,
+   * traced back out of the finished tiles, and that round trip is why the
+   * drawn waterline stepped: a curve recovered from a raster can never be
+   * smoother than the raster it came from, whatever is done to it afterwards.
+   * Optional only so a bare fixture can omit it.
    */
   shores?: Array<{ points: Array<readonly [number, number]>; land: boolean }>;
   blocks: BlockRect[];

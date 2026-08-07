@@ -17,7 +17,7 @@ import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
-import { clearSpot, roadLane } from './helpers.js';
+import { clearAim, clearSpot, roadLane } from './helpers.js';
 
 const map = generateCity(5150, parseWorldgenParams(worldgenJson));
 
@@ -161,15 +161,22 @@ describe('fists', () => {
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a', loadout: [FISTS] }], map);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'b', loadout: [FISTS] }], map);
 
+    // Stand the target on ground the puncher can actually see. Placing it a
+    // fixed 14 px east assumed the spawn had clear ground that way, which is
+    // an assumption about the MAP: it held until the coast moved and the
+    // spawn's east neighbour became a wall, and then this failed describing a
+    // weapon bug that was not there. `clearAim` picks a direction with room.
+    const aim = clearAim(map, state.players.byId[1]!.pos, 40);
     let seq = 1;
     for (let i = 0; i < 300; i++) {
       const b = state.players.byId[2]!;
       if (b.mode === 'dead') break;
       // Stay in reach; fists have a very short range by design.
-      b.pos = { x: state.players.byId[1]!.pos.x + 14, y: state.players.byId[1]!.pos.y };
+      const a = state.players.byId[1]!.pos;
+      b.pos = { x: a.x + Math.cos(aim) * 14, y: a.y + Math.sin(aim) * 14 };
       state = step(
         state,
-        { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: true, aimAngle: 0 } },
+        { 1: { ...NULL_INPUT, seq: seq++, tick: i, fire: true, aimAngle: aim } },
         [],
         map,
       );

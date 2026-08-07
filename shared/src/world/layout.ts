@@ -1,5 +1,11 @@
 import { latticeHash, valueNoise } from './fields.js';
 import {
+  coastRings,
+  rasteriseRings,
+  sampleField,
+  type CoastRing,
+} from './geometry.js';
+import {
   meanderPolyline,
   pointInPoly,
   polyBounds,
@@ -99,6 +105,13 @@ export interface CityLayout {
   bearing: Uint8Array;
   /** The authored roads as carved: the curves the tile bands rasterise. */
   courses: StreetCourse[];
+  /**
+   * The waterline as closed rings — the CURVE the `water` mask above is a
+   * rasterisation of (VECTOR.md). Carried out of the layout rather than
+   * recovered from the tiles later, which is the whole change: a curve traced
+   * back out of a raster can never be smoother than the raster.
+   */
+  shores: CoastRing[];
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -170,147 +183,48 @@ function blurField(field: Float32Array, r: number, W: number, H: number): Float3
 
 /** Widen a stroke from w0 to w1 along its length; is (x, y) inside it? */
 function strokeHit(s: { points: PlanPoint[]; w0: number; w1: number }, x: number, y: number): boolean {
+  return strokeDepth(s, x, y) > 0;
+}
+
+/**
+ * How far INSIDE a stroke a point is: positive within, negative without.
+ *
+ * The signed form of `strokeHit`, and the reason it exists is VECTOR.md's
+ * whole method — a boolean test can only be rasterised, but a signed depth
+ * can be contoured, and two of them can be combined with `Math.max` to mean
+ * "union" without any polygon clipping at all. The coast's spits and islets
+ * join its islands that way.
+ */
+function strokeDepth(
+  s: { points: PlanPoint[]; w0: number; w1: number },
+  x: number,
+  y: number,
+): number {
+  let best = -Infinity;
   for (let k = 0; k + 1 < s.points.length; k++) {
     const [ax, ay] = s.points[k] as PlanPoint;
     const [bx, by] = s.points[k + 1] as PlanPoint;
     const u = k / Math.max(1, s.points.length - 2);
     const w = s.w0 + (s.w1 - s.w0) * u;
-    if (segmentDistance(x, y, ax, ay, bx, by) < w / 2) return true;
+    const d = w / 2 - segmentDistance(x, y, ax, ay, bx, by);
+    if (d > best) best = d;
   }
-  return false;
+  return best;
 }
 
-/** Dilate (grow) or erode (shrink) a mask by a disc of radius r. */
-function morph(
-  mask: Uint8Array,
-  r: number,
-  grow: boolean,
-  W: number,
-  H: number,
-): Uint8Array<ArrayBuffer> {
-  const out = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      let hit = grow ? 0 : 1;
-      for (let dy = -r; dy <= r; dy++) {
-        const ny = y + dy < 0 ? 0 : y + dy >= H ? H - 1 : y + dy;
-        let done = false;
-        for (let dx = -r; dx <= r; dx++) {
-          if (dx * dx + dy * dy > r * r) continue;
-          const nx = x + dx < 0 ? 0 : x + dx >= W ? W - 1 : x + dx;
-          const v = mask[ny * W + nx];
-          if (grow && v === 1) {
-            hit = 1;
-            done = true;
-            break;
-          }
-          if (!grow && v === 0) {
-            hit = 0;
-            done = true;
-            break;
-          }
-        }
-        if (done) break;
-      }
-      out[y * W + x] = hit;
-    }
-  }
-  return out;
-}
 
-/** Flip runs of `want` smaller than `minTiles`. Kills specks and puddles. */
-function despeckle(mask: Uint8Array, want: number, minTiles: number, W: number, H: number): void {
-  const seen = new Uint8Array(W * H);
-  for (let start = 0; start < mask.length; start++) {
-    if (seen[start] === 1 || mask[start] !== want) continue;
-    const bag = [start];
-    seen[start] = 1;
-    for (let q = 0; q < bag.length; q++) {
-      const i = bag[q] as number;
-      const x = i % W;
-      const y = (i - x) / W;
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        if (seen[j] === 1 || mask[j] !== want) continue;
-        seen[j] = 1;
-        bag.push(j);
-      }
-    }
-    if (bag.length < minTiles) for (const i of bag) mask[i] = want === 1 ? 0 : 1;
-  }
-}
 
-/**
- * Drown every island that is all shore and no island.
- *
- * `despeckle` asks how BIG a landmass is, and a sandbar four tiles wide and
- * fifty long passes that test comfortably while being, on the ground, a strip
- * of quay and beach standing in open water with nothing behind it — no
- * interior, nothing to build on, nothing to reach it by. Two of them ran down
- * the middle of the sound, and read as half-built causeways.
- *
- * So the test here is not area but DEPTH: a landmass has to contain at least
- * one tile a full two tiles from the water on every side. The margin is not
- * fine — the smallest real islet in the city has 189 such tiles and every bar
- * has none — because the two are different things rather than the same thing
- * at different sizes.
- */
-function drownSandbars(land: Uint8Array, W: number, H: number): void {
-  const wet = (x: number, y: number): boolean =>
-    x < 0 || y < 0 || x >= W || y >= H || land[y * W + x] !== 1;
-  const seen = new Uint8Array(W * H);
-  for (let start = 0; start < land.length; start++) {
-    if (seen[start] === 1 || land[start] !== 1) continue;
-    const bag = [start];
-    seen[start] = 1;
-    let deep = false;
-    for (let q = 0; q < bag.length; q++) {
-      const i = bag[q] as number;
-      const x = i % W;
-      const y = (i - x) / W;
-      if (!deep) {
-        let clear = true;
-        for (let dy = -2; dy <= 2 && clear; dy++) {
-          for (let dx = -2; dx <= 2; dx++) {
-            if (wet(x + dx, y + dy)) {
-              clear = false;
-              break;
-            }
-          }
-        }
-        if (clear) deep = true;
-      }
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        if (seen[j] === 1 || land[j] !== 1) continue;
-        seen[j] = 1;
-        bag.push(j);
-      }
-    }
-    if (!deep) for (const i of bag) land[i] = 0;
-  }
-}
 
 interface Coast {
   water: Uint8Array;
   /** Shore normal dotted with the swell: +1 fully exposed, -1 sheltered. */
   exposure: Float32Array;
+  /**
+   * The waterline itself, as closed rings (VECTOR.md). THE boundary: `water`
+   * above is its rasterisation and nothing else, and no pass may edit one
+   * without the other.
+   */
+  rings: CoastRing[];
 }
 
 /**
@@ -365,10 +279,25 @@ function paintCoast(plan: CityPlan): Coast {
   for (let i = 0; i < raw.length; i++) raw[i] = base[i] === 1 ? (inland[i] as number) : -(offshore[i] as number);
   const sdf = blurField(raw, 4, W, H);
 
+  // BILINEAR, not nearest. This one word is half of why the coast used to
+  // step: sampling the distance field with `Math.round` quantises it to the
+  // tile lattice before anything else happens, so the field the contour is
+  // taken from is already a staircase (VECTOR.md §1.1). The other half was
+  // thresholding it to a mask, which the contour below no longer does.
   const sample = (f: Float32Array, x: number, y: number): number => {
-    const sx = x < 0 ? 0 : x >= W ? W - 1 : Math.round(x);
-    const sy = y < 0 ? 0 : y >= H ? H - 1 : Math.round(y);
-    return f[sy * W + sx] as number;
+    const cx = x < 0 ? 0 : x > W - 1 ? W - 1 : x;
+    const cy = y < 0 ? 0 : y > H - 1 ? H - 1 : y;
+    const x0 = Math.floor(cx);
+    const y0 = Math.floor(cy);
+    const x1 = x0 + 1 > W - 1 ? x0 : x0 + 1;
+    const y1 = y0 + 1 > H - 1 ? y0 : y0 + 1;
+    const fx = cx - x0;
+    const fy = cy - y0;
+    const a = f[y0 * W + x0] as number;
+    const b = f[y0 * W + x1] as number;
+    const c = f[y1 * W + x0] as number;
+    const d = f[y1 * W + x1] as number;
+    return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
   };
   const [sxw, syw] = g.swell;
   const swellLen = Math.hypot(sxw, syw) || 1;
@@ -383,66 +312,75 @@ function paintCoast(plan: CityPlan): Coast {
   const octaves: Array<[number, number]> = [];
   for (let o = 0; o < 4; o++) octaves.push([g.wave / 2 ** o, g.warp / 2 ** o]);
 
-  let land: Uint8Array<ArrayBuffer> = new Uint8Array(W * H);
-  const exposure = new Float32Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      let wx = 0;
-      let wy = 0;
-      for (const [lam, amp] of octaves) {
-        wx += (valueNoise(COAST_SEED ^ Math.imul(lam | 0, 2654435761), x / lam, y / lam) - 0.5) * 2 * amp;
-        wy += (valueNoise(COAST_SEED ^ Math.imul(lam | 0, 40503), x / lam + 11.7, y / lam - 4.3) - 0.5) * 2 * amp;
-      }
-      const e = exposureAt(x, y);
-      exposure[y * W + x] = e;
-      const damp = 1 - 0.55 * Math.max(0, e);
-      land[y * W + x] = sample(sdf, x + wx * damp, y + wy * damp) > 0 ? 1 : 0;
-    }
-  }
-
-  // A coast is allowed to be ragged. It is not allowed to be confetti.
-  land = morph(morph(land, 2, true, W, H), 2, false, W, H);
-  land = morph(morph(land, 2, false, W, H), 2, true, W, H);
-  despeckle(land, 1, 120, W, H);
-  despeckle(land, 0, 60, W, H);
-
   // Now the small stuff, with a warp its own size: five tiles at a wavelength
   // of twenty-four, so a rock has a ragged edge and is still a rock.
   const fine = (x: number, y: number, salt: number): number =>
     (valueNoise(COAST_SEED ^ salt, x / 24, y / 24) - 0.5) * 10;
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (land[y * W + x] === 1) continue;
-      let add = false;
-      for (const islet of g.islets) {
-        const d = Math.hypot(x - islet.at[0], y - islet.at[1]);
-        if (d < islet.radius + fine(x, y, 0x5a17)) { add = true; break; }
-      }
-      if (!add) {
-        for (const s of spits) {
-          if (strokeHit({ ...s, w0: s.w0 + fine(x, y, 0x2b17), w1: s.w1 + fine(x, y, 0x2b17) }, x, y)) {
-            add = true;
-            break;
-          }
-        }
-      }
-      if (add) land[y * W + x] = 1;
-    }
-  }
-
-  // Last, once the islets and spits are in and the coast is final: anything
-  // left that is all shore and no interior is a bar, not an island.
-  drownSandbars(land, W, H);
 
   const margin = g.margin;
-  const water = new Uint8Array(W * H);
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      const edge = x < margin || y < margin || x >= W - margin || y >= H - margin;
-      water[y * W + x] = edge || land[y * W + x] !== 1 ? 1 : 0;
+
+  /**
+   * How far inside the land a point is — the coast as one continuous
+   * function, positive ashore and negative at sea (VECTOR.md §3).
+   *
+   * Everything the coast is made of appears here as a signed depth, and the
+   * only combinator is `Math.max`, which is union. That is what lets islets
+   * and spits join the warped mainland without a single polygon-clipping
+   * operation — the boolean algebra is implicit in the field, and the one
+   * conversion to explicit geometry happens once, at the contour.
+   *
+   * Nothing thresholds this. It is sampled, contoured and simplified, and
+   * the tiles are painted from the RESULT — so the shape the game collides
+   * with is a rasterisation of the shape it draws, rather than the other way
+   * round.
+   */
+  const landAt = (x: number, y: number): number => {
+    // The open sea the plan keeps round the whole map. Forced, not warped:
+    // a coastline running along the world border would be worse than none,
+    // and the margin is what guarantees the city cannot reach the edge.
+    const edge = Math.min(x - margin, y - margin, W - margin - x, H - margin - y);
+    if (edge <= 0) return edge - 1;
+    let wx = 0;
+    let wy = 0;
+    for (const [lam, amp] of octaves) {
+      wx += (valueNoise(COAST_SEED ^ Math.imul(lam | 0, 2654435761), x / lam, y / lam) - 0.5) * 2 * amp;
+      wy += (valueNoise(COAST_SEED ^ Math.imul(lam | 0, 40503), x / lam + 11.7, y / lam - 4.3) - 0.5) * 2 * amp;
     }
+    const damp = 1 - 0.55 * Math.max(0, exposureAt(x, y));
+    let v = sample(sdf, x + wx * damp, y + wy * damp);
+    for (const islet of g.islets) {
+      const d = Math.hypot(x - islet.at[0], y - islet.at[1]);
+      v = Math.max(v, islet.radius + fine(x, y, 0x5a17) - d);
+    }
+    for (const s of spits) {
+      const grow = fine(x, y, 0x2b17);
+      v = Math.max(v, strokeDepth({ ...s, w0: s.w0 + grow, w1: s.w1 + grow }, x, y));
+    }
+    return Math.min(v, edge);
+  };
+
+  // The exposure plane is still a FIELD — "how does this stretch of shore
+  // stand to the swell" is asked per tile and never collided with — so it
+  // stays a grid, per VECTOR.md §2.
+  const exposure = new Float32Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) exposure[y * W + x] = exposureAt(x, y);
   }
-  return { water, exposure };
+
+  // The coast, once: contour the field, tidy the rings, fill them.
+  //
+  // What used to stand here — morphological open/close, then two despeckle
+  // passes, then a sandbar drown — was all of it the raster trying to undo
+  // damage the raster had done. The blur on the distance field above already
+  // does the smoothing that open/close approximated; `coastRings` drops the
+  // specks by area and the bars by width, on the shape rather than on its
+  // rasterisation.
+  const rings = coastRings(sampleField(landAt, W, H, 0.5), 120);
+  const land = rasteriseRings(rings.map((r) => r.points), W, H);
+
+  const water = new Uint8Array(W * H);
+  for (let i = 0; i < water.length; i++) water[i] = land[i] === 1 ? 0 : 1;
+  return { water, exposure, rings };
 }
 
 export type { Coast };
@@ -513,7 +451,7 @@ function bridgeable(
 export function buildLayout(plan: CityPlan): CityLayout {
   const W = plan.widthTiles;
   const H = plan.heightTiles;
-  const { water, exposure } = paintCoast(plan);
+  const { water, exposure, rings: shores } = paintCoast(plan);
   const tiles = new Uint8Array(W * H);
   const district = new Uint8Array(W * H).fill(DISTRICT_IDX.park);
   const owner = new Int16Array(W * H).fill(-1);
@@ -2334,5 +2272,5 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   }
 
-  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing, courses };
+  return { widthTiles: W, heightTiles: H, tiles, district, blocks, water, owner, sheer: sheerLand, bearing, courses, shores };
 }

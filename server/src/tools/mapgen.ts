@@ -5,7 +5,6 @@ import {
   T_ROAD,
   T_WATER,
   T_BRIDGE,
-  deriveShores,
   generateCity,
   parseCityPlan,
   pointInPoly,
@@ -387,11 +386,9 @@ function main(): void {
   const t0 = performance.now();
   const map = generateCity(seed, params);
   const genMs = performance.now() - t0;
-  // The coast as curves (§18), for the painter to shade against instead of
-  // the tile edge. Derived here rather than carried on the map because a
-  // still is the only place it currently shows: the game's own painter
-  // derives its own.
-  const shores = deriveShores(map.tiles, map.widthTiles, map.heightTiles);
+  // The coast as curves comes off the map itself now (VECTOR.md): it is
+  // shipped in the bake, so this tool shades against the same rings the game
+  // draws rather than against a second recovery of its own.
   // `--tiles` draws the RASTER alone: no coast curve, no road courses, no
   // turned masses. The difference between the two pictures IS the curve
   // layer, which makes it the visual form of the question VECTOR.md asks —
@@ -399,7 +396,7 @@ function main(): void {
   // Every phase of that plan should shrink the difference to nothing.
   const drawable = rasterOnly
     ? { ...map, shores: undefined, courses: undefined, buildings: [] }
-    : { ...map, shores };
+    : map;
 
   let picture: Render;
   if (sheet !== null) {

@@ -102,7 +102,7 @@ describe('collision prediction', () => {
     lane: { x: number; y: number; heading: number };
   } {
     const map = generateCity(6006, parseWorldgenParams(worldgenJson));
-    const lane = roadLane(map, 260);
+    const lane = drivableLane(map);
     let state = createGameState(4242);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
     state = step(
@@ -159,7 +159,10 @@ describe('collision prediction', () => {
     const v = predictor.predictedVehicle!;
     const parked = state.vehicles.byId[11]!;
     const travelled = Math.hypot(v.pos.x - state.vehicles.byId[10]!.pos.x, v.pos.y - state.vehicles.byId[10]!.pos.y);
-    expect(travelled).toBeGreaterThan(0);
+    // Well past the parked car, not merely off the mark: `> 0` is satisfied
+    // by one pixel, which is what let a lane the car could not drive at all
+    // pass this while failing its sibling.
+    expect(travelled).toBeGreaterThan(180);
     expect(parked.health).toBe(getVehicleTuning('car').health); // never touched
   });
 
@@ -206,3 +209,55 @@ describe('collision prediction', () => {
     expect(state.vehicles.byId[11]!.speed).toBe(0);
   });
 });
+
+/**
+ * A kerbside spawn a car can DEMONSTRABLY drive away from.
+ *
+ * `roadLane` asks the tile plane for a clear run, which is a ray from a point
+ * — and a car is a box. On a diagonal lane the two disagree: the ray threads a
+ * gap the vehicle cannot, so the staging looked fine and the predicted car
+ * never moved, and this file then reported a collision bug that was really a
+ * lane-picking one. It survived only because the sibling test asserted
+ * `travelled > 0`, which one pixel satisfies.
+ *
+ * So the question is asked of the physics instead of the tiles: run the
+ * predictor with no world view and keep the first lane the car actually gets
+ * going on. Slower, and immune to every future change in the map — which this
+ * test has now been broken by twice.
+ */
+function drivableLane(map: ReturnType<typeof generateCity>): {
+  x: number;
+  y: number;
+  heading: number;
+} {
+  const home = map.playerSpawns[0] ?? { x: 0, y: 0 };
+  const near = [...map.vehicleSpawns].sort(
+    (a, b) => Math.hypot(a.x - home.x, a.y - home.y) - Math.hypot(b.x - home.x, b.y - home.y),
+  );
+  let probeState = createGameState(1);
+  probeState = step(probeState, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'probe' }], map);
+  let id = 100;
+  for (const cand of near.slice(0, 60)) {
+    const vid = id++;
+    probeState = step(
+      probeState,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: vid, kind: 'car', x: cand.x, y: cand.y, heading: cand.heading }],
+      map,
+    );
+    const veh = probeState.vehicles.byId[vid];
+    if (!veh) continue;
+    const p = probeState.players.byId[1]!;
+    p.pos = { x: cand.x, y: cand.y };
+    p.mode = 'driving';
+    p.vehicleId = vid;
+    const probe = new Predictor();
+    probe.reconcile(p, veh, 0, map);
+    for (let i = 0; i < 40; i++) {
+      probe.applyLocalInput({ ...NULL_INPUT, seq: i + 1, tick: i, up: true }, map);
+    }
+    const v = probe.predictedVehicle;
+    if (v && Math.hypot(v.pos.x - cand.x, v.pos.y - cand.y) > 180) return cand;
+  }
+  throw new Error('no drivable lane among the 60 kerbside spawns nearest the player spawn');
+}

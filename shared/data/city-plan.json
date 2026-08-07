@@ -1634,8 +1634,8 @@
       "kind": "power",
       "name": "Kessler Power",
       "rect": [
-        130,
-        361,
+        129,
+        354,
         13,
         11
       ]
@@ -1775,8 +1775,8 @@
       "kind": "campground",
       "name": "The Eyrie",
       "rect": [
-        124,
-        656,
+        123,
+        655,
         8,
         7
       ],
