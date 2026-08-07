@@ -1,6 +1,7 @@
 import {
   type CityMap,
   T_BUILDING,
+  T_FLOOR,
   TILE_SIZE,
   buildingCorners,
   buildingMass,
@@ -72,11 +73,14 @@ export class ExtrudeLayer {
     for (let i = 0; i < map.buildings.length; i++) {
       const b = map.buildings[i];
       if (!b) continue;
+      // See `massDrawable` in tiles.ts: a cut building's bounding-box corners
+      // are yard, so "every tile is wall" would refuse every one of them.
       let solid = true;
       for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
         for (let tx = b.x; tx < b.x + b.w; tx++) {
           if (tx < 0 || ty < 0 || tx >= W || ty >= map.heightTiles) continue;
-          if (map.tiles[ty * W + tx] !== T_BUILDING) {
+          const t = map.tiles[ty * W + tx];
+          if (t === T_FLOOR || (b.mw === undefined && t !== T_BUILDING)) {
             solid = false;
             break;
           }

@@ -634,10 +634,20 @@ export function buildCity(map: CityMap): CityBuild {
   const masses: Array<{ b: Building; top: number }> = [];
   for (const b of map.buildings) {
     if ((b.angle ?? 0) === 0) continue;
+    // A building CUT at an angle (§36) records its BOUNDING BOX, whose
+    // corners are yard by construction — so "every tile is wall" refuses
+    // every one of them and the walk falls back to per-tile boxes, drawing a
+    // stepped outline round a rectangle. The question either way is whether a
+    // room has been punched out of it.
     let solid = true;
     for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
       for (let tx = b.x; tx < b.x + b.w; tx++) {
-        if (tx < 0 || ty < 0 || tx >= W || ty >= H || map.tiles[ty * W + tx] !== T_BUILDING) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) {
+          solid = false;
+          break;
+        }
+        const t = map.tiles[ty * W + tx];
+        if (t === T_FLOOR || (b.mw === undefined && t !== T_BUILDING)) {
           solid = false;
           break;
         }

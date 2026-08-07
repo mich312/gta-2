@@ -3774,7 +3774,21 @@ section exists to delete.
 central claim is the one that matters: **the ground under the drawn rectangle
 is that building's own wall.**
 
-### 36.4 Two bugs it flushed out
+### 36.4 The gate that had to move with it
+
+All three renderers gate the single-mass drawing on "the footprint is solid
+wall", because a shop is a room punched out of one and a lid over the whole
+rect would close it. A cut building records its BOUNDING BOX, whose corners are
+yard by construction — so every one of them failed the gate, and all three fell
+back to per-tile boxes: a stepped outline drawn round a rectangle, which looked
+worse than the square buildings it replaced.
+
+The question is the same either way — *has a room been punched out of it* — so
+the test is now `T_FLOOR`, plus the old wall requirement only for buildings
+that were not cut. One rule, `massDrawable`, in the painter that had it first;
+the other two mirror it. Instances over North Point 608,267 → 605,101.
+
+### 36.5 Two bugs it flushed out
 
 Both were pre-existing, and both only became visible once a building's tiles
 had to agree with its drawing exactly:
@@ -3789,7 +3803,7 @@ had to agree with its drawing exactly:
   has already taken those) and wrong for a ring that reaches one tile PAST the
   landmark, where a neighbouring block's building stands.
 
-### 36.5 What is still not done
+### 36.6 What is still not done
 
 `fillBlock` — the square-block filler, the other 15% — keeps the old model, and
 does not need anything else: its blocks have no angle, so there is nothing to

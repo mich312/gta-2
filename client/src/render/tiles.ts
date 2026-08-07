@@ -206,6 +206,28 @@ const NEIGHBOURS: ReadonlyArray<readonly [number, number]> = [
  * a surface a plot is ever made of, and a ramp picked as a plot's material
  * paints a rotated ring of hazard stripes round the house.
  */
+/**
+ * May this building be drawn as ONE mass rather than per tile?
+ *
+ * The rule has always been "its footprint is solid wall", because a shop is a
+ * room punched out of one and a lid over the whole rect would close it. For a
+ * building CUT at an angle (§36) the footprint record is a BOUNDING BOX, and
+ * its corners are yard by construction — so the old test failed every one of
+ * them and the renderers fell back to per-tile boxes, drawing a stepped
+ * outline round a rectangle. What matters is the same thing either way: is
+ * there a room punched out of it.
+ */
+function massDrawable(b: Building, at: (tx: number, ty: number) => number): boolean {
+  for (let ty = b.y; ty < b.y + b.h; ty++) {
+    for (let tx = b.x; tx < b.x + b.w; tx++) {
+      const t = at(tx, ty);
+      if (t === T_FLOOR) return false;
+      if (b.mw === undefined && t !== T_BUILDING) return false;
+    }
+  }
+  return true;
+}
+
 function plottable(t: number): boolean {
   return (
     t !== T_BUILDING &&
@@ -2253,16 +2275,7 @@ export class TileLayer {
       if ((b.angle ?? 0) === 0) continue;
       if (b.x + b.w < tx0 - 2 || b.x > tx0 + CHUNK_TILES + 1) continue;
       if (b.y + b.h < ty0 - 2 || b.y > ty0 + CHUNK_TILES + 1) continue;
-      let solid = true;
-      for (let ty = b.y; ty < b.y + b.h && solid; ty++) {
-        for (let tx = b.x; tx < b.x + b.w; tx++) {
-          if (this.tileAt(tx, ty) !== T_BUILDING) {
-            solid = false;
-            break;
-          }
-        }
-      }
-      if (solid) out.push({ b, i });
+      if (massDrawable(b, (tx, ty) => this.tileAt(tx, ty))) out.push({ b, i });
     }
     return out;
   }
