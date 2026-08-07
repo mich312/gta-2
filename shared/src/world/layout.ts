@@ -2041,7 +2041,11 @@ export function buildLayout(plan: CityPlan): CityLayout {
         Math.round(run(1, 1) * 1.414),
         Math.round(run(1, -1) * 1.414),
       );
-      if (shortest > plan.maxBridgeSpan) tiles[i] = T_WATER;
+      // Back to what the COAST says was there, not flatly to water: a deck
+      // reaches a tile or two onto its abutment, and drowning those put sea
+      // where the rings keep land (§29). The rings are the definition; this
+      // pass may remove a deck and may not move a shoreline.
+      if (shortest > plan.maxBridgeSpan) tiles[i] = water[i] === 1 ? T_WATER : T_FIELD;
     }
   }
 
@@ -2113,7 +2117,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
         }
       }
-      if (landfalls < 2) for (const i of deck) tiles[i] = T_WATER;
+      if (landfalls < 2) for (const i of deck) tiles[i] = water[i] === 1 ? T_WATER : T_FIELD;
     }
   }
 

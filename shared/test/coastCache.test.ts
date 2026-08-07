@@ -57,10 +57,29 @@ describe('the water tiles are a rasterisation of the coast rings', () => {
     return seen;
   };
 
-  it('agrees everywhere except a deck over water and a pond inland', () => {
+  /** Is this tile's centre sitting on the waterline itself? */
+  const onTheLine = (i: number): boolean => {
+    const x = (i % W) + 0.5;
+    const y = Math.floor(i / W) + 0.5;
+    for (const r of city.shores) {
+      for (let k = 0; k < r.points.length; k++) {
+        const [ax, ay] = r.points[k] as readonly [number, number];
+        const [bx, by] = r.points[(k + 1) % r.points.length] as readonly [number, number];
+        const vx = bx - ax;
+        const vy = by - ay;
+        const l2 = vx * vx + vy * vy || 1;
+        const t = Math.max(0, Math.min(1, ((x - ax) * vx + (y - ay) * vy) / l2));
+        if (Math.hypot(x - ax - t * vx, y - ay - t * vy) < 0.02) return true;
+      }
+    }
+    return false;
+  };
+
+  it('agrees everywhere except a deck, a tie on the line, and nothing else', () => {
     const sea = openSea();
     let decks = 0;
     let ponds = 0;
+    let ties = 0;
     let unexplained = 0;
     for (let i = 0; i < W * H; i++) {
       const wet = city.tiles[i] === T_WATER;
@@ -71,23 +90,31 @@ describe('the water tiles are a rasterisation of the coast rings', () => {
         // is not land. Expected, and not a disagreement about the coastline.
         decks++;
       } else if (wet && sea[i] === 0) {
-        // An enclosed pond, carved into a park block by `fillBlock` long after
-        // `paintCoast` produced the rings (WORLDGEN.md §27.2). A boundary with
-        // no curve — the defect this plan exists to remove, at a smaller
-        // scale. Pinned, not accepted: it may not grow.
+        // Was 486 tiles of park pond with no ring at all (§27.2), which is
+        // what this test was written to pin. §29 gave ponds rings, so this
+        // should now be nothing — kept as a named case so that if some future
+        // pass starts carving water behind the curve's back, the failure says
+        // which kind of water it is.
         ponds++;
+      } else if (onTheLine(i)) {
+        // A tile whose centre lies EXACTLY on the waterline. The even-odd
+        // rule has to answer in or out, and the coordinates are shipped
+        // rounded to 1/100 of a tile, so the answer can differ by a rounding
+        // either side. Seven tiles, all at distance 0.0000 from a ring. Not a
+        // disagreement about where the coast is — the coast is precisely
+        // there — but about which side of itself a point on it falls.
+        ties++;
       } else {
         unexplained++;
       }
     }
-    // Nothing may disagree for a reason nobody has written down. The seven
-    // that do are the pier prune (§23.1) drowning abutment tiles that were
-    // land before a deck was put on them.
-    expect(unexplained).toBeLessThanOrEqual(7);
+    // Nothing may disagree for a reason nobody has written down.
+    expect(unexplained).toBe(0);
+    expect(ties).toBeLessThanOrEqual(16);
     expect(decks).toBeGreaterThan(0);
-    // The ponds are the open defect. If this number rises, something new has
-    // started carving water behind the curve's back.
-    expect(ponds).toBeLessThanOrEqual(486);
+    // Closed by §29. If this rises, something new is carving water behind the
+    // curve's back — which is the whole failure mode this file exists for.
+    expect(ponds).toBe(0);
   });
 
   it('describes every island it ships as a closed ring', () => {

@@ -1,6 +1,6 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { fillBlock, fillRegion } from './buildings.js';
+import { fillBlock, fillRegion, takePondRings } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
@@ -661,7 +661,11 @@ export function bakeCity(plan: CityPlan): BakedCity {
     tiles,
     district: layout.district,
     bearing: layout.bearing,
-    shores: layout.shores,
+    // The coastline, plus every park pond cut since (§29). A pond belongs to
+    // the park that contains it, so it cannot be cut with the coast — but it
+    // is the same kind of thing, and joining the two here is what keeps ONE
+    // answer to "where is the water" instead of two.
+    shores: [...layout.shores, ...takePondRings()],
     blocks,
     buildings,
     landmarks,

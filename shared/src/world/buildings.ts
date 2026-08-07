@@ -1,5 +1,11 @@
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { latticeHash, valueNoise } from './fields.js';
+import {
+  coastRings,
+  rasteriseRings,
+  sampleField,
+  type CoastRing,
+} from './geometry.js';
 import { meanderPolyline, type PlanPoint } from './plan.js';
 import {
   T_BANK,
@@ -17,6 +23,28 @@ import {
   type BlockRect,
   type Building,
 } from './types.js';
+
+/**
+ * Rings cut by this pass that are WATER — park ponds (WORLDGEN.md §29).
+ *
+ * A pond is a boundary: you see it, and once there is swimming you enter it.
+ * By VECTOR.md's rule that makes it a curve, and the wet tiles under it its
+ * rasterisation — exactly like the coast. It could not be built with the
+ * coast because a pond belongs to the park that contains it, and parks are
+ * placed thousands of lines later; so it is collected here and drained into
+ * `layout.shores` by the caller, where it joins the coastline as one more
+ * ring the water tiles are a rasterisation OF.
+ *
+ * A module-level sink rather than a threaded return value because `fillBlock`
+ * is called from two places through three layers of optional arguments, and
+ * one more of those would be worse than this.
+ */
+const pondRings: CoastRing[] = [];
+
+/** Take the ponds cut since the last call. The bake drains this once. */
+export function takePondRings(): CoastRing[] {
+  return pondRings.splice(0, pondRings.length);
+}
 
 export interface Ctx {
   tiles: Uint8Array;
@@ -590,10 +618,42 @@ function fillPark(
       }
     }
     if (!clear) continue;
-    for (let ty = py - pr; ty <= py + pr; ty++) {
-      for (let tx = px - pr; tx <= px + pr; tx++) {
-        const warp = (valueNoise(deriveParkSeed(b, 7), tx / 5, ty / 5) - 0.5) * 3;
-        if (Math.hypot(tx - px, ty - py) < pr - 1 + warp) tiles[ty * W + tx] = T_WATER;
+    // The pond's edge, as a curve (§29). The shape was always a continuous
+    // field — a warped disc — and testing it per tile threw the curve away
+    // exactly as the coast used to. Contour it instead, keep the ring, and
+    // let the wet tiles be its rasterisation, so the painters shade a pond
+    // against the same kind of line they shade the sea against.
+    const pad = pr + 3;
+    const ox = px - pad;
+    const oy = py - pad;
+    const span = pad * 2;
+    const pondLand = (lx: number, ly: number): number => {
+      const wx = ox + lx;
+      const wy = oy + ly;
+      const warp = (valueNoise(deriveParkSeed(b, 7), wx / 5, wy / 5) - 0.5) * 3;
+      return Math.hypot(wx - px, wy - py) - (pr - 1 + warp);
+    };
+    const local = coastRings(sampleField(pondLand, span, span, 0.5), 4);
+    const wet = local.filter((r) => !r.land);
+    if (wet.length === 0) continue;
+    for (const r of wet) {
+      const world = r.points.map(([lx, ly]) => [lx + ox, ly + oy] as readonly [number, number]);
+      pondRings.push({ points: world, land: false, area: r.area });
+    }
+    const pondMask = rasteriseRings(
+      wet.map((r) => r.points),
+      span,
+      span,
+    );
+    for (let ly = 0; ly < span; ly++) {
+      for (let lx = 0; lx < span; lx++) {
+        // The ring encloses the pond, and `rasteriseRings` fills what a ring
+        // encloses — so a set cell is water here, not land.
+        if (pondMask[ly * span + lx] !== 1) continue;
+        const tx = ox + lx;
+        const ty = oy + ly;
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        tiles[ty * W + tx] = T_WATER;
       }
     }
     // A pond has a shore: the grass never meets the water flush. Sand is

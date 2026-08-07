@@ -3303,11 +3303,12 @@ edge the rings now own. The painters already reconcile them by hand ("prefer
 the chord and skip the bevel on the same tiles", `tiles.ts:986`), and a
 reconciliation at paint time is the smell this plan is named after.
 
-Narrowing `deriveBevels` to non-water edges looked like a small follow-up
-until §27.2: the bevel is what currently softens a **park pond**, which has no
-ring. So the two findings are ordered — ponds become rings first, and only
-then can the water bevels go. Recorded because doing them the other way round
-would make the ponds visibly worse while looking like a tidy-up.
+Narrowing `deriveBevels` to non-water edges looked like a small follow-up.
+**It is not, and the reason given here was wrong** — corrected in §29.3: the
+blocker is not ponds but COLLISION. `collide.ts` reads the bevel plane, so
+removing the water bevels would leave the waterline drawn as a curve and
+collided as square tiles, which is a bigger mismatch than the one it tidies.
+They can go when water stops being a wall.
 
 ### 27.4 What landed, honestly
 
@@ -3410,3 +3411,59 @@ stop being a pitch apart. That is §21.3's diagnosis and it wants §21.3's fix:
 band each borough against ONE shore rather than against the nearest water, so
 the duplicate is never generated. A test that deletes lines after the fact is
 treating the symptom, and the measurements say how far that can go.
+
+---
+
+## 29. Ponds are water too
+
+§27.2 found the city holding water that no curve described: **486 tiles** of
+park pond, in 13 clusters, carved into tiles by `fillBlock` long after
+`paintCoast` produced its rings. So the sea was shaded against a smooth line
+and a pond against the tile edge — a staircase shore in a city whose coastline
+no longer has one. The defect this whole plan exists to remove, at a smaller
+scale, and invisible until the rings and the tiles were asked to agree.
+
+### 29.1 It was already a field, again
+
+Exactly as with the coast (§25.1), the shape was never the problem. A pond is
+`hypot(x - px, y - py) < pr - 1 + warp` — a warped disc, continuous — and the
+`<` was the only thing that quantised it. Contour it instead, keep the ring,
+rasterise the ring, and the wet tiles become its rasterisation. `geometry.ts`
+needed nothing new.
+
+A pond could not be cut with the coast because it belongs to the park that
+contains it and parks are placed thousands of lines later. So the rings are
+collected in `buildings.ts` and drained into `layout.shores` by the bake,
+where they join the coastline: **one answer to "where is the water", not two.**
+
+### 29.2 And the pier prune stopped drowning land
+
+The remaining seven tiles were not ponds. `tiles[i] = T_WATER` when a deck is
+pruned put sea wherever the deck had reached — including a tile or two onto
+its own abutment, which is land. It asks the rings now: a pass may remove a
+deck, and may not move a shoreline.
+
+### 29.3 DELIVERED
+
+| | §27 | now |
+|---|---|---|
+| tiles disagreeing with the rings | 1,775 | **1,289** |
+| — of which bridge decks (correct) | 1,282 | 1,282 |
+| — park ponds with no ring | **486** | **0** |
+| — pier prune drowning land | 7 | **0** |
+| — unexplained | 0 | **0** |
+| lake rings shipped | **0** | 13 |
+
+What remains is 1,282 bridge decks, which are right, and **seven tiles whose
+centre lies exactly on the waterline** — measured at distance 0.0000 from a
+ring. The even-odd rule must answer in or out, and the vertices ship rounded to
+1/100 of a tile, so the answer can fall either side. That is not a
+disagreement about where the coast is; the coast is precisely there.
+`coastCache.test.ts` now names all three cases and asserts **zero** unexplained.
+
+**Correction to §27.3.** Narrowing `deriveBevels` to non-water edges is not
+blocked on ponds, as that section claimed. `collide.ts` reads the bevel plane,
+so the water bevels are load-bearing: remove them and the waterline is drawn as
+a curve and collided as square tiles — a worse mismatch than the one being
+tidied. They can go when water stops being a wall, which is what swimming does
+(`VECTOR.md` Q1), and not before.
