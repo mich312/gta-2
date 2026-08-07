@@ -1737,6 +1737,16 @@ export class TileLayer {
     // test, and a zebra painted into the mouth of the ring road at every
     // stair step was a good part of why it read as broken.
     if (!this.streetResumesBeyond(tx, ty, vertical, forward ? 1 : -1)) return;
+    // ...and only where two COURSES actually cross (§35).
+    //
+    // `junctionAt` reads the tile plane, so a merged sheet of carriageway is
+    // "junction" across its whole area and every tile of it painted its own
+    // crossing: four to seven zebras stacked back to back in open tarmac with
+    // no kerb at either end. The filters above were added to stop exactly
+    // that and could not, because they ask the same raster the same way. A
+    // junction is where two centrelines meet, and §26 already computes that
+    // from the curves — so ask it.
+    if (!this.nearJunction(tx, ty, 2)) return;
 
     // A stop line holds the traffic going INTO the junction, so it covers that
     // half of the carriageway and stops at the centre line. Painted across the
@@ -1766,6 +1776,17 @@ export class TileLayer {
       if (vertical) ctx.fillRect(x + off, forward ? y + TD - 9 * t : y + 4 * t, bar, 5 * t);
       else ctx.fillRect(forward ? x + TD - 9 * t : x + 4 * t, y + off, 5 * t, bar);
     }
+  }
+
+  /** Is this tile inside a course-crossing disc, plus `pad` tiles? */
+  private nearJunction(tx: number, ty: number, pad: number): boolean {
+    for (const j of this.junctionDiscs) {
+      const r = j.r + pad;
+      const dx = tx + 0.5 - j.x;
+      const dy = ty + 0.5 - j.y;
+      if (dx * dx + dy * dy <= r * r) return true;
+    }
+    return false;
   }
 
   /**

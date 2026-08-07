@@ -3669,3 +3669,32 @@ with fresh salts — so it stays what scenery has always been, a pure function
 of the tile with no rng and no state, planted identically on every host.
 
 Evidence: `evidence/woodland-jitter.png`.
+
+---
+
+## 35. Zebra crossings, at crossings
+
+§23.3: four to seven zebras stacked back to back in open tarmac, with no kerb
+at either end.
+
+The per-tile painter puts a crossing on the last tile before a junction, and
+`junctionAt` reads the TILE PLANE — so a merged sheet of carriageway is
+"junction" across its whole area, and every tile of it painted its own
+crossing. Two filters had already been added to stop this (`width >=
+ARTERIAL_WIDTH`, and `streetResumesBeyond`), and neither could, because both
+ask the same raster the same way: on a sheet, the width is arterial and the
+street does resume.
+
+A junction is where two centrelines meet. §26 already computes that from the
+curves, so the crossing is gated on it: inside a course-crossing disc plus two
+tiles, or no crossing. A merged sheet with no courses crossing it gets none,
+which is the answer the filters were reaching for.
+
+Evidence: `evidence/zebra-gated.png`.
+
+This is the third defect in this file whose cause was "the raster was asked a
+question only the curves can answer" — after the doubled centre lines (§26)
+and the doubled roads (§28). It is worth naming as a pattern: **anything that
+depends on how two roads RELATE is a question about the lines, and the tile
+plane cannot answer it,** because rasterising two roads that touch produces
+one region with no record that it was ever two.
