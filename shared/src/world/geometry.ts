@@ -368,16 +368,58 @@ export function shoreChains(
   let curTile = -1;
   let cur: number[] = [];
   let curLen = 0;
+  // The first piece of the ring being walked, held back so the last piece can
+  // be joined to it. See `closeRing`.
+  let firstTile = -1;
+  let firstPts: number[] = [];
+  let firstLen = 0;
 
-  const flush = (): void => {
-    if (curTile < 0 || cur.length < 4) return;
-    if (curLen > (bestLen.get(curTile) ?? -1)) {
-      bestLen.set(curTile, curLen);
-      best.set(curTile, cur);
+  const record = (tile: number, pts: number[], len: number): void => {
+    if (tile < 0 || pts.length < 4) return;
+    if (len > (bestLen.get(tile) ?? -1)) {
+      bestLen.set(tile, len);
+      best.set(tile, pts);
     }
+  };
+  const flush = (): void => {
+    if (firstTile < 0 && curTile >= 0 && cur.length >= 4) {
+      firstTile = curTile;
+      firstPts = cur;
+      firstLen = curLen;
+    }
+    record(curTile, cur, curLen);
     curTile = -1;
     cur = [];
     curLen = 0;
+  };
+  /**
+   * Finish a ring, joining its last piece to its first.
+   *
+   * A ring is a cycle and its point list is not: wherever the list happens to
+   * start, the curve through THAT tile arrives as the walk's last piece and
+   * leaves as its first. Keeping the longer of the two — which is what the
+   * per-tile rule below does — throws the other half away, and a chain that
+   * starts inside the square instead of on its border makes `shoreHalf` walk
+   * the wrong way round it: a thin spike of the wrong material, once per ring.
+   *
+   * Invisible on the coast, where a ring is two thousand points round an
+   * island and the one bad tile is somewhere in open sand. Not invisible on a
+   * park pond's beach, which is sixty-five points round a puddle.
+   */
+  const closeRing = (): void => {
+    if (curTile >= 0 && curTile === firstTile && cur.length >= 4 && firstPts.length >= 4) {
+      // The last piece ends where the first piece begins — the ring's own
+      // first point — so drop the repeat when splicing them.
+      record(curTile, cur.concat(firstPts.slice(2)), curLen + firstLen);
+      curTile = -1;
+      cur = [];
+      curLen = 0;
+    } else {
+      flush();
+    }
+    firstTile = -1;
+    firstPts = [];
+    firstLen = 0;
   };
   const piece = (tile: number, ax: number, ay: number, bx: number, by: number): void => {
     const tx = tile % W;
@@ -431,8 +473,8 @@ export function shoreChains(
         piece(ty * W + tx, ax + dx * t0, ay + dy * t0, ax + dx * t1, ay + dy * t1);
       }
     }
+    closeRing();
   }
-  flush();
 
   const out = new Map<number, Float32Array>();
   for (const [tile, pts] of best) out.set(tile, Float32Array.from(pts));
@@ -668,7 +710,8 @@ export function courseJunctions(
 }
 
 /**
- * Exact distance to the nearest point on a set of rings, as a function.
+ * Distance to the nearest point on a set of rings, as a function — exact out
+ * to `limit`, and reported as `limit` beyond it.
  *
  * The shore band — quay and beach — was decided by neighbour tests on the
  * tile plane, so its inner edge was 100% axis-aligned while the waterline in
@@ -680,12 +723,20 @@ export function courseJunctions(
  * cells, stopping once the best distance found cannot be beaten by a further
  * ring — so a query costs a handful of segment tests rather than three
  * thousand.
+ *
+ * `limit` is what makes that bound hold everywhere rather than only near the
+ * coast. In the middle of a landmass there is no segment to find, so the ring
+ * search expands until it meets one, and at half-tile sampling that is 2.4
+ * million searches across the whole map. Every caller is asking about a band a
+ * few tiles wide, so past `limit` the exact number is not information anybody
+ * uses — only its sign, which "at least this far" gives.
  */
 export function ringDistance(
   rings: ReadonlyArray<{ points: ReadonlyArray<readonly [number, number]> }>,
   W: number,
   H: number,
   cell = 8,
+  limit = 8,
 ): (x: number, y: number) => number {
   const cols = Math.ceil(W / cell);
   const rows = Math.ceil(H / cell);
@@ -718,11 +769,39 @@ export function ringDistance(
     const dy = y - ay - t * vy;
     return dx * dx + dy * dy;
   };
+  // Beyond this the answer is reported as `limit` rather than searched for.
+  // Without it a point in the middle of a landmass expands the ring search
+  // over the whole map before it finds a coast — which is fine once per tile
+  // and ruinous at half-tile sampling, where it turned one layout into a
+  // minute and a half. Every caller only cares about the first few tiles.
+  const stopAt = Math.ceil(limit / cell) + 1;
+  // Cells with a segment in them or beside them. A point whose own cell and
+  // all eight neighbours are empty is at least one WHOLE cell from anything —
+  // the point is inside the middle cell, so the block reaches a full cell past
+  // it in every direction — which is the far case answered in one array read
+  // instead of twenty-five bucket lookups. It needs `limit <= cell` to be
+  // sound, so the limit is clamped to that.
+  const reach = Math.min(limit, cell);
+  const near = new Uint8Array(cols * rows);
+  for (let ry = 0; ry < rows; ry++) {
+    for (let rx = 0; rx < cols; rx++) {
+      if ((bucket[ry * cols + rx] as number[]).length === 0) continue;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const ny = ry + dy;
+          const nx = rx + dx;
+          if (ny < 0 || nx < 0 || ny >= rows || nx >= cols) continue;
+          near[ny * cols + nx] = 1;
+        }
+      }
+    }
+  }
   return (x: number, y: number): number => {
     const cx = Math.max(0, Math.min(cols - 1, Math.floor(x / cell)));
     const cy = Math.max(0, Math.min(rows - 1, Math.floor(y / cell)));
+    if (near[cy * cols + cx] === 0) return reach;
     let best = Infinity;
-    for (let ring = 0; ring < Math.max(cols, rows); ring++) {
+    for (let ring = 0; ring <= stopAt && ring < Math.max(cols, rows); ring++) {
       // Once the nearest possible point in the next ring of cells is further
       // than what we have, we are done.
       if (best < Infinity && (ring - 1) * cell * ((ring - 1) * cell) > best) break;
@@ -745,6 +824,8 @@ export function ringDistance(
       }
       if (!any && best < Infinity) break;
     }
-    return best === Infinity ? Infinity : Math.sqrt(best);
+    if (best === Infinity) return reach;
+    const d = Math.sqrt(best);
+    return d > reach ? reach : d;
   };
 }

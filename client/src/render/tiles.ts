@@ -1173,9 +1173,14 @@ export class TileLayer {
     };
     const shoreward = materialOn(-1);
     const inland = materialOn(1);
-    // Nothing to say if both halves are the same stuff, which is most of the
-    // band's length wherever it runs behind a quay into more of the same.
-    if (shoreward === inland || shoreward < 0 || inland < 0) return false;
+    // Nothing to PAINT if both halves are the same stuff, which is most of
+    // the band's length wherever it runs behind a quay into more of the same.
+    // Still `true`: the tile is uniform as far as the line is concerned, and
+    // the 45° bevel that would otherwise land here is describing the very
+    // boundary this curve owns (`YIELDS_P1` bevels sand against grass and
+    // nothing else that could run through a band tile). Letting it draw put a
+    // wedge back into an edge the curve had just said was straight.
+    if (shoreward === inland || shoreward < 0 || inland < 0) return true;
 
     const local = (p: [number, number]): [number, number] => [x + p[0] * TD, y + p[1] * TD];
     const clipTo = (poly: Array<[number, number]>): boolean => {

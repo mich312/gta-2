@@ -4062,3 +4062,31 @@ foot. Those are *material* changes WITHIN the band, decided per tile by
 district and exposure — a field, correctly — and where two of them meet along
 the shore the change is a tile edge. It is a short line and a small tonal step
 next to sand-against-grass, which is why it is recorded rather than fixed.
+
+### 39.7 Three follow-ups, from looking at it
+
+**A ring is a cycle; its point list is not.** `shoreChains` keeps the longest
+chain per tile, and wherever a ring's point list happens to start, the curve
+through THAT tile arrives as the walk's last piece and leaves as its first —
+so one of the two halves was thrown away and the survivor started *inside* the
+square. `shoreHalf` then walked the border the wrong way round it: a thin
+spike of the wrong material, exactly once per ring. Invisible on a coastline of
+two thousand points round an island; not invisible on a pond's beach of
+sixty-five points round a puddle. The two pieces are now spliced.
+
+**A bevel in a band tile is always describing the band.** `YIELDS_P1` bevels
+sand against grass and water against land and nothing else that can run
+through a band tile, so where the curve cuts, the 45° triangle is a coarser
+statement of the same boundary. It is now suppressed for the whole tile, not
+only where the cut painted something — the tiles where both sides come out the
+same material are precisely the ones a stray triangle showed up in.
+
+**`ringDistance` needed a horizon.** The band field is sampled at half a tile,
+which is 2.4 million queries across the map, and a point in the middle of a
+landmass has no segment to find — so the ring search expanded until it met a
+coast. Two changes: a `limit`, past which the answer is reported rather than
+searched for (only its sign is information anybody uses out there), and a
+precomputed "is there a segment in this cell or beside it" mask, which answers
+the far case in one array read. 13.3 s → 0.46 s for the sampling pass, and the
+bake is byte-identical, because the contour lives at 1.5–2.6 tiles where the
+distance was exact all along.

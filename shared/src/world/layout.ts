@@ -2295,7 +2295,11 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // here rather than per tile: the rings are already the definition of where
   // the water is, so the band that hugs them should be measured against them
   // and not against a rasterisation of them.
-  const shoreCurveDist = ringDistance(shores, W, H);
+  // Limited to 8 tiles: the band's inner edge is at most `CLIFF_REACH` from
+  // the waterline, so anything further out only has to come back with the
+  // right SIGN — and searching for the true number there is what the limit
+  // exists to skip.
+  const shoreCurveDist = ringDistance(shores, W, H, 8, 8);
 
   const wetAt = (tx: number, ty: number): boolean =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? false : water[ty * W + tx] === 1;
