@@ -379,6 +379,13 @@ export interface CityMap {
    */
   roadNet?: import('../sim/roadnet.js').RoadNet;
   /**
+   * The street centrelines indexed for point queries (WORLDGEN.md §41).
+   * Derived at generation time from `courses`, never sent — both hosts hold
+   * the same courses. Absent means "no centrelines here", and every consumer
+   * falls back to what it did before there were any.
+   */
+  courseIndex?: import('./courseIndex.js').CourseIndex;
+  /**
    * Seconds in an in-game day, copied here from the worldgen params so the
    * renderer can read the clock from the map it already has rather than
    * threading a second parameter through every frame.

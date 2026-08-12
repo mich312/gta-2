@@ -1,5 +1,6 @@
 import { labelJunctions } from '../sim/signals.js';
 import { buildRoadNet } from '../sim/roadnet.js';
+import { buildCourseIndex } from './courseIndex.js';
 import { deriveBevels } from './bevel.js';
 import { assignTurf, markGangCars } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
@@ -133,6 +134,10 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.
   map.junctions = labelJunctions(map);
+  // The centrelines, indexed at a point: where the middle of the road is and
+  // which way it runs (§41). Built before the graph, which asks it what each
+  // of its streets is made of.
+  map.courseIndex = buildCourseIndex(map.courses ?? []);
   // And the network the junctions imply: nodes, streets and the flood tree
   // that gets any tile to its own junction without a search. After the
   // labelling, because it is built out of it.

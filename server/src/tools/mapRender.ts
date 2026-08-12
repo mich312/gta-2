@@ -599,10 +599,19 @@ export function render(
   // junctions stroked along the tiles the flood ran through, every junction a
   // dot. What routing actually searches, over the paint it replaced.
   if (net && map.roadNet) {
-    const street: [number, number, number] = [40, 220, 255];
+    // Coloured by what the street is made of (§41.3): an avenue or the ring
+    // reads bright, an ordinary street dim, and carriageway no centreline
+    // covers — 12% of the streets — grey. The graph knowing this is most of
+    // what §40.5 said an edge was missing.
+    const wide: [number, number, number] = [40, 220, 255];
+    const narrow: [number, number, number] = [30, 130, 160];
+    const unknown: [number, number, number] = [130, 130, 130];
     const node: [number, number, number] = [255, 230, 60];
     const rn = map.roadNet;
-    for (let k = 0; k < rn.pathTiles.length; k++) {
+    for (let e = 0; e < rn.edgeA.length; e++) {
+      const w = rn.edgeWidth[e] as number;
+      const street = w >= 4 ? wide : w > 0 ? narrow : unknown;
+      for (let k = rn.pathOff[e] as number; k < (rn.pathOff[e + 1] as number); k++) {
       const t = rn.pathTiles[k] as number;
       const mx = t % map.widthTiles;
       const my = (t - mx) / map.widthTiles;
@@ -610,6 +619,7 @@ export function render(
       const cy = (my - y0) * scale + (scale >> 1);
       const r = scale >> 3;
       for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) put(cx + dx, cy + dy, street);
+      }
     }
     for (let n = 0; n < rn.nodeX.length; n++) {
       const cx = Math.round(((rn.nodeX[n] as number) / 16 - x0) * scale);

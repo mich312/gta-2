@@ -1,3 +1,4 @@
+import { nearestCourse } from '../world/courseIndex.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE, type CityMap } from '../world/types.js';
 
 /**
@@ -66,6 +67,19 @@ export interface RoadNet {
   edgeA: Int32Array;
   edgeB: Int32Array;
   edgeCost: Int32Array;
+  /**
+   * The carriageway each street carries, from the course that runs down it
+   * (§41.3) — 0 where no centreline covers it, which is 12% of EDGES. (§26.1
+   * measures 24%, but that counts TILES: an uncovered stretch is usually a
+   * short link, so it costs twice the share of the ground that it does of
+   * the network.)
+   *
+   * §40.5 recorded that an edge knew its length and nothing else, "though the
+   * courses have width and kind sitting right there". This is that: routing
+   * can prefer a road to a back lane the way a driver does, rather than
+   * treating every tile of tarmac as interchangeable.
+   */
+  edgeWidth: Float64Array;
   /** Tile indices along each edge, A to B: `pathTiles[pathOff[e] .. pathOff[e+1])`. */
   pathOff: Int32Array;
   pathTiles: Int32Array;
@@ -87,9 +101,9 @@ export interface RoadNet {
 /** `fromDir` for a junction tile: the walk home ends here. */
 export const AT_ROOT = 255;
 
-/** Walk the flood tree from a tile out to its own junction. */
 export { joinWithin };
 
+/** Walk the flood tree from a tile out to its own junction. */
 export function tilesToJunction(net: RoadNet, tile: number): number[] {
   const out: number[] = [];
   for (let k = tile; ; ) {
@@ -285,6 +299,26 @@ export function buildRoadNet(map: CityMap): RoadNet {
     }
   }
 
+  // What each street is made of: the MEDIAN of three samples along its path.
+  // Not one at the middle — the nearest centreline to a point on a street is
+  // not always that street's own, and a mid-path sample is no more immune to
+  // a crossing course than any other. Measured, one sample takes a crossing
+  // street's width on 9.5% of edges; three votes leave only genuine doubles.
+  const edgeWidth = new Float64Array(m);
+  const courses = map.courseIndex;
+  if (courses) {
+    for (let e = 0; e < m; e++) {
+      const path = paths[e] as number[];
+      const at = (f: number): number => {
+        const t = path[Math.min(path.length - 1, Math.floor(path.length * f))] as number;
+        const near = nearestCourse(courses, (t % W) + 0.5, Math.floor(t / W) + 0.5, 3);
+        return near ? near.width : 0;
+      };
+      const v = [at(0.25), at(0.5), at(0.75)].sort((a, b) => a - b);
+      edgeWidth[e] = v[1] as number;
+    }
+  }
+
   const nodeX = new Float64Array(nodes);
   const nodeY = new Float64Array(nodes);
   for (let j = 0; j < nodes; j++) {
@@ -302,11 +336,33 @@ export function buildRoadNet(map: CityMap): RoadNet {
     edgeA,
     edgeB,
     edgeCost,
+    edgeWidth,
     pathOff,
     pathTiles,
     owner,
     fromDir,
   };
+}
+
+/**
+ * What a street costs to drive: its length, and only its length.
+ *
+ * `edgeWidth` is right there and the search does NOT use it, which is a
+ * decision rather than an omission. Preferring the wider road looks correct
+ * on paper and measures well — 56% of routed distance on avenue-or-better
+ * against 36%, for 1.7% more distance — and it broke a cross-city errand:
+ * `traffic.test.ts`'s "drives the errand to the far side of town" stopped
+ * arriving inside its two-minute budget. Width-aware routes take more, shorter
+ * streets (31.7 against 27.2 per route), every extra street is another
+ * junction, and a junction is where the follower stalls. The bottleneck is the
+ * driver, not the plan, and weighting the plan just gives the driver more
+ * chances to fail (WORLDGEN.md §41.3).
+ *
+ * So the width ships and waits for the wave that fixes the follower. It is a
+ * fact about the network either way, and the review tool draws it.
+ */
+function edgeWeight(net: RoadNet, e: number): number {
+  return net.edgeCost[e] as number;
 }
 
 /**
@@ -383,7 +439,7 @@ export function routeNodes(net: RoadNet, from: number, to: number): number[] | n
       const e = net.nodeEdges[k] as number;
       const other = (net.edgeA[e] as number) === n ? (net.edgeB[e] as number) : (net.edgeA[e] as number);
       if (done[other] === 1) continue;
-      const ng = (g[n] as number) + (net.edgeCost[e] as number);
+      const ng = (g[n] as number) + edgeWeight(net, e);
       const known = g[other] as number;
       if (known !== -1 && known <= ng) continue;
       g[other] = ng;

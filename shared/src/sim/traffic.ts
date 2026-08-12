@@ -573,6 +573,25 @@ function laneControl(
       // band — shunted, or arriving from a cardinal street — has to be able
       // to find the band's direction in the fan, or every probe fails alike
       // and it sails off the edge into the wedge/recover cycle.
+      // So follow the tarmac itself: probe a fan of bearings around the
+      // car's own heading and take the one that stays on drivable ground
+      // longest. Fixed probe order and first-wins ties keep it deterministic;
+      // dCos/dSin are the sim's own pinned tables. The fan is what lets the
+      // heading drift smoothly round the curve instead of snapping between
+      // cardinals.
+      // Out to a right angle either side: a car that ends up pointing OFF the
+      // band — shunted, or arriving from a cardinal street — has to be able
+      // to find the band's direction in the fan, or every probe fails alike
+      // and it sails off the edge into the wedge/recover cycle.
+      //
+      // The search stops at the first bearing clear for the whole probe.
+      // Nothing can beat six, and ties already went to the first, so this
+      // decides exactly what it decided before and reads a third as many
+      // tiles doing it (WORLDGEN.md §41.2). Steering the car by the road's
+      // TRUE direction instead — from the courses, which know it — was tried
+      // three ways and measured worse every time: the fan is not finding the
+      // road's direction, it is keeping the car on the road, and a geometric
+      // ideal does not know where the car sits across the band.
       const FAN = [0, -0.393, 0.393, -0.785, 0.785, -1.178, 1.178, -1.571, 1.571] as const;
       let bestD = -1;
       let bestA = v.heading;
@@ -588,6 +607,7 @@ function laneControl(
         if (d > bestD) {
           bestD = d;
           bestA = a;
+          if (d === 6) break;
         }
       }
       targetX = v.pos.x + dCos(bestA) * t.lookAhead * 2;

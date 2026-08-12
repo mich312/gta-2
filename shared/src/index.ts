@@ -52,3 +52,4 @@ export * from './economy/depot.js';
 export * from './sim/respect.js';
 export * from './world/turf.js';
 export * from './sim/roadnet.js';
+export * from './world/courseIndex.js';

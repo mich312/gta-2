@@ -4205,7 +4205,8 @@ Owed:
 - **`traffic.ts` still probes tiles.** `dirIsOpen` and the fan of bearings when
   the cardinals fail are questions the graph answers directly. Converting the
   *follower* is a separate wave: this one changed what a route is, not how a car
-  drives one.
+  drives one. *(§41.2 tried it, and "the graph answers that question directly"
+  turned out to be wrong about which question the fan is asking.)*
 - **1.90 MB is one `Int16` and one byte per tile**, which is the economy this
   structure was written to; the temptation is three `Int32` planes and seven
   megabytes, and it should stay resisted.
@@ -4264,3 +4265,155 @@ five runs each, are 0.12 ms against 1.8–2.2 ms — still fifteen to nineteen
 times, and the honest figure for a system that runs for hours. The cold
 numbers are what a session's first few routes cost and are recorded here
 rather than in the headline.
+
+---
+
+## 41. The follower, the centrelines, and three things that did not work
+
+§40 closed with three items owed: convert the follower off tile-probing, marry
+the graph's paths to the courses, and give collision the coastline. This is
+that work. **One of the three landed as intended, one landed smaller than
+intended, and one did not land at all** — and since the reason in every case is
+a measurement, the measurements are the section.
+
+### 41.1 What the fan was actually doing
+
+`laneControl` has three ways of deciding where to aim. Instrumented over five
+seeds, 900 ticks each — 55,411 calls:
+
+| path | share |
+|---|---|
+| the cardinal lane model answers | 45% |
+| inside a junction, `junctionExit` finds the far lane | 36% |
+| **neither: the bearing fan** | **18.5%** |
+
+The fan probes nine bearings around the car's heading, six tiles each, and
+takes whichever stays on tarmac longest. It exists for diagonal bands — the
+ring road, a curved avenue — where a cardinal probe runs off the tarmac in a
+few tiles. At 40 tile reads a call it is the most expensive thing in the
+driving loop, and the lane model failing on **55%** of ticks was itself news.
+
+### 41.2 The follower: what landed, and the four things that did not
+
+**What landed is one line.** The fan's search now stops at the first bearing
+clear for the whole six-tile probe. Nothing can beat six and ties already went
+to the first candidate, so it decides *exactly* what it decided before —
+verified exhaustively rather than argued: all 7⁹ = 40,353,607 possible
+combinations of the nine clear-run lengths give an identical chosen bearing,
+including the quarter of them where no bearing reaches six and the exit never
+fires. Probes per call fall from **37.0 to 9.7**, and the off-carriageway rate
+over five seeds is **identical to the byte** — 424 of 56,814 vehicle-ticks,
+same distance driven, same cars alive.
+
+**What did not land is the actual conversion,** and it is worth recording in
+full because the idea is obviously right and is obviously wrong:
+
+| attempt | off-carriageway |
+|---|---|
+| the fan, unchanged | **0.75%** |
+| steer by the flood tree's local street axis | 2.24% |
+| steer at a point along the nearest centreline | 1.82% |
+| …offset into the right-hand lane | 1.84% |
+| …with the aim point at the fan's own lookahead | 3.18% |
+| …at the best aim distance of six tried | 1.45% |
+| the fan, but seeded with the centreline's bearing | 1.40% |
+
+Every one of them is worse, and the last is the instructive one: it keeps the
+fan's criterion and merely offers the road's true direction as the first
+candidate, and it *still* doubles the off-road rate. The conclusion is not that
+the centreline is inaccurate — it is exact. It is that **the fan is not finding
+the road's direction. It is keeping the car on the road**, and a bearing chosen
+for how far it stays on tarmac carries information about where the car sits
+across the band and how hard it can steer that no geometric ideal contains. The
+optimiser is doing lane-keeping, badly named.
+
+Converting the follower therefore needs a lane model on the graph — sides,
+widths, and the car's lateral position within them — not a better source for
+one vector. That is a wave, not an edit, and §40.5's "the graph answers that
+question directly" was wrong about which question was being asked.
+
+### 41.3 The centrelines, indexed — and the width an edge now carries
+
+`courseIndex.ts` buckets the courses' segments by 8-tile cell (the shape
+`courseJunctions` already uses) and answers, at any point, where the nearest
+centreline is, which way it runs and how wide it is. A query is exact: it
+matches a scan of all 7,682 segments at 8,000 sampled points, and the test says
+so rather than trusting the buckets.
+
+Its first customer is the graph. §40.5 recorded that an edge knew its length
+and nothing else "though the courses have width and kind sitting right there";
+an edge now carries the width, for **88.5%** of them — 339 avenue-or-better,
+1,223 ordinary street, 202 unknown. The unknown are the carriageway no
+centreline covers, and note that §26.1's 24% is a count of TILES: an uncovered
+stretch is usually a short link, so it is 12% of the network by edge.
+
+It is sampled as the median of three points along the edge rather than one at
+the middle, because the nearest centreline to a point on a street is not always
+that street's own — one sample takes a crossing course's width on 9.5% of
+edges.
+
+**Routing does not use it, and that is a decision.** Preferring the wider road
+is what a driver does and it measures beautifully: the share of routed distance
+on avenue-or-better goes from **35.7% to 56.0%** for **1.7%** more distance. It
+also broke a cross-city errand — `traffic.test.ts`'s "drives the errand to the
+far side of town" stopped arriving inside its two-minute budget. Width-aware
+routes take more, shorter streets (31.7 against 27.2 per route), every extra
+street is another junction, and a junction is where the follower stalls. The
+same lesson as §41.2 from the other end: **the bottleneck is the driver, not
+the plan, and improving the plan hands the driver more chances to fail.** The
+width ships, the search ignores it, and a test pins that so it cannot drift
+back in before the follower is fixed.
+
+The review tool draws it: `pnpm mapgen --net` now colours each street by what
+it is made of.
+
+### 41.4 Collision on the coastline: attempted, measured, withdrawn
+
+§25 made the coast a curve and the water tiles its rasterisation, and the
+renderers took it — but collision still stops a car at the tile edge, so the
+water you see and the water you hit are different shapes. Porting a solver
+that does this (built elsewhere, against rings traced FROM a tile mask) was
+attempted here and is not in this commit.
+
+The reason is structural rather than incidental. That solver's rules are all
+local to a tile, and they were exact because its rings were traced from the
+tile plane and so agreed with it by construction. These rings are contours of a
+field, and the tiles are their rasterisation — the two agree only to within the
+rasteriser, and a tile can hold five segments belonging to stretches of shore
+that do not enclose it. Measured, classifying a point from the edges in its own
+tile puts this many tile centres on the wrong side of the water:
+
+| rule | wrong at a centre |
+|---|---|
+| union of the tile's water half-planes | 209 land / 85 hull |
+| the nearest edge alone | 134 / 9 |
+| the tile's byte, flipped only by an edge that separates the point from the tile's middle | 126 / **0** |
+
+The third is right in principle — it cannot be wrong AT a centre, and its
+remaining 126 are bevelled water the rings never reach, a pre-existing figure
+that is *better* than the 297 the bevel plane manages alone. But the movement
+solver needs the point test, the box test and the depenetration push to share
+one rule exactly, and reconciling them left **1.02%** of movers near a shore
+resting inside the water, against **0%** for the tiles-and-bevels collision
+shipping today. A visible regression in exchange for a sub-tile improvement is
+not a trade, so it was withdrawn.
+
+What it needs is not a port: it is the point, box and push rules derived
+together from one definition, against a boundary that is authoritative and a
+tile plane that is merely its shadow. That is the wave, and it should be
+written rather than moved.
+
+### 41.5 The review
+
+Reviewed by an agent given the diff and the author's claims, told to verify
+rather than believe. It confirmed the early exit exhaustively (the 7⁹
+enumeration above is its work, not the author's), and found four defects that
+were fixed before this landed: `Math.hypot` where `Math.sqrt` was required —
+ECMA-262 pins the second to the exactly rounded result and leaves the first
+approximated, and the value decides which cells a segment is filed under, so it
+was a desync waiting for the right map; a "quarter of the network" claim that
+was a tile figure repeated at edge level, twice, once in the legend of the
+picture reviewers look at; a dead `streetAxisAt` whose doc claimed it had
+replaced the fan that is still there; and a doc comment inserted between
+`routeNodes` and its own documentation. It also noted the feature shipped with
+no test naming it, which `courseIndex.test.ts` now fixes.
