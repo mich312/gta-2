@@ -1,6 +1,6 @@
 import { HALF_PI, PI, wrapAngle } from '../math/trig.js';
 import { T_BRIDGE, T_ROAD, TILE_SIZE, type CityMap } from '../world/types.js';
-import { routeNodes, tilesToJunction, type RoadNet } from './roadnet.js';
+import { joinWithin, routeNodes, tilesToJunction, type RoadNet } from './roadnet.js';
 
 /**
  * The road grid as a navigation aid.
@@ -202,7 +202,22 @@ function routeOverNet(net: RoadNet, start: number, goal: number): number[] | nul
   const a = net.owner[start] as number;
   const b = net.owner[goal] as number;
   if (a < 0 || b < 0) return null;
-  const raw: number[] = tilesToJunction(net, start);
+  const raw: number[] = [];
+  // Every tile appended has to be a STEP from the one before it. The three
+  // pieces below each begin at whichever junction tile they begin at, so the
+  // seams between them are filled in rather than jumped.
+  const append = (tiles: readonly number[]): void => {
+    for (const t of tiles) {
+      const last = raw[raw.length - 1];
+      if (last !== undefined && last !== t) {
+        const dx = Math.abs((t % net.widthTiles) - (last % net.widthTiles));
+        const dy = Math.abs(Math.floor(t / net.widthTiles) - Math.floor(last / net.widthTiles));
+        if (dx + dy !== 1) for (const mid of joinWithin(net, last, t)) raw.push(mid);
+      }
+      raw.push(t);
+    }
+  };
+  append(tilesToJunction(net, start));
   if (a !== b) {
     const edges = routeNodes(net, a, b);
     if (edges === null) return null;
@@ -211,12 +226,14 @@ function routeOverNet(net: RoadNet, start: number, goal: number): number[] | nul
       const forward = (net.edgeA[e] as number) === at;
       const lo = net.pathOff[e] as number;
       const hi = net.pathOff[e + 1] as number;
-      if (forward) for (let k = lo; k < hi; k++) raw.push(net.pathTiles[k] as number);
-      else for (let k = hi - 1; k >= lo; k--) raw.push(net.pathTiles[k] as number);
+      const span: number[] = [];
+      if (forward) for (let k = lo; k < hi; k++) span.push(net.pathTiles[k] as number);
+      else for (let k = hi - 1; k >= lo; k--) span.push(net.pathTiles[k] as number);
+      append(span);
       at = forward ? (net.edgeB[e] as number) : (net.edgeA[e] as number);
     }
   }
-  for (const t of tilesToJunction(net, goal).reverse()) raw.push(t);
+  append(tilesToJunction(net, goal).reverse());
 
   // Cut every loop out of it. The walk to a junction goes to whichever of its
   // tiles the flood happened to seed from, and the street out of it leaves
@@ -253,7 +270,12 @@ function routeOverNet(net: RoadNet, start: number, goal: number): number[] | nul
 function waypoints(tiles: readonly number[], w: number): number[] {
   const out: number[] = [];
   let sinceEmit = 0;
-  for (let i = 1; i < tiles.length; i++) {
+  // From index 0, so the FIRST corner is the tile the query snapped to. The
+  // emitter bounds every later gap at `ROUTE_SEGMENT_TILES`, but it bounded
+  // nothing at the head: a car starting on a junction tile got its first
+  // corner up to nine tiles away, against a follower that calls itself lost
+  // at eight and then re-plans every tick without ever steering.
+  for (let i = 0; i < tiles.length; i++) {
     const isLast = i === tiles.length - 1;
     // Index deltas encode direction (+-1 along x, +-w along y): a change of
     // delta is a turn. A splice between two junction tiles is not adjacent at
@@ -268,18 +290,6 @@ function waypoints(tiles: readonly number[], w: number): number[] {
       out.push((x + 0.5) * TILE_SIZE, (((tiles[i] as number) - x) / w + 0.5) * TILE_SIZE);
       sinceEmit = 0;
     }
-  }
-  // A splice between two tiles of the same junction is a jump, not a step,
-  // and one wider than the follower's repath distance reads to it as being
-  // hopelessly off plan. Halve any such gap until it is short enough; every
-  // point inserted lies between two tiles of one junction, which is a
-  // connected patch of carriageway, so it is somewhere a car can be.
-  for (let i = 2; i < out.length; i += 2) {
-    const dx = (out[i] as number) - (out[i - 2] as number);
-    const dy = (out[i + 1] as number) - (out[i - 1] as number);
-    if (Math.abs(dx) + Math.abs(dy) <= MAX_WAYPOINT_GAP) continue;
-    out.splice(i, 0, (out[i - 2] as number) + dx / 2, (out[i - 1] as number) + dy / 2);
-    i -= 2;
   }
   if (out.length === 0 && tiles.length > 0) {
     const last = tiles[tiles.length - 1] as number;
@@ -392,12 +402,6 @@ function planRouteOverTiles(map: CityMap, start: number, goal: number): number[]
   tiles.reverse();
   return waypoints(tiles, w);
 }
-
-/**
- * Widest gap allowed between consecutive waypoints, in px. Under
- * `traffic.REPATH_DIST`, which is what a driver calls lost.
- */
-const MAX_WAYPOINT_GAP = TILE_SIZE * 5;
 
 /** Longest straight between route waypoints, in tiles. See planRoute. */
 export const ROUTE_SEGMENT_TILES = 6;

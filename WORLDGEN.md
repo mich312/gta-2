@@ -4104,9 +4104,10 @@ drawn on.
 
 ### 40.1 The claim, measured before it was built
 
-`planRoute` costs **3.57 ms** a call on random city-wide pairs — plain A* over
-102,987 drivable cells, with a 60,000-expansion guard that exists because a
-route to somewhere unreachable floods the whole network. Traffic replanning,
+`planRoute` costs **1.8–2.2 ms** a call warm, and 3.5 ms cold, on random
+city-wide pairs — plain A* over 102,987 drivable cells, with a
+60,000-expansion guard that exists because a route to somewhere unreachable
+floods the whole network. Traffic replanning,
 ambulance dispatch and errand assignment between them call it several times a
 second against a 33 ms budget. The number is why this was worth doing; it is
 recorded here because the alternative was to assert it.
@@ -4114,9 +4115,9 @@ recorded here because the alternative was to assert it.
 | | |
 |---|---|
 | Nodes / edges | **940 / 1,764**, from 102,987 drivable tiles |
-| `planRoute` | **0.18 ms**, against 3.57 ms over tiles — **19.7×** |
+| `planRoute` | **0.12 ms**, against 1.8–2.2 ms over tiles — **15–19×** (warm medians, §40.6) |
 | Routes the tile search had given up on | **15 of 300** |
-| Route length against tile-optimal | p50 **1.08**, p95 1.39, max 2.22 |
+| Route length against tile-optimal | p50 **1.09**, p95 1.39, max 2.02 |
 | Build | 30 ms once per session; 1.90 MB resident |
 | Waypoints off carriageway | 0 |
 | Tests | 907 pass; host parity green, and the 600-tick hash is **unchanged** |
@@ -4211,3 +4212,55 @@ Owed:
 
 Evidence: `evidence/city-roadnet.png` — every street a stroked run, every
 junction a dot, and no carriageway in the crop the graph does not run down.
+
+### 40.6 The review, and the four things it found
+
+Reviewed at high effort against the landed commit, because "the tests pass"
+is not the same claim as "the code is right". Four findings, all real, all
+confirmed by measurement before being fixed — and three of them share one
+cause, which is the more useful thing to record than the three symptoms.
+
+**The cause: a route contained a jump.** A walk out to a junction ends at
+whichever of its tiles the flood seeded from, and the street out of it leaves
+from another, so the assembled path stepped from one junction tile to a
+non-adjacent one. Everything downstream assumed adjacency:
+
+1. **A straight can leave the road.** Waypoints were all on carriageway, but a
+   car drives the line BETWEEN them, and a junction is connected without being
+   convex. **7 of 140,250** waypoint-to-waypoint straights crossed ground that
+   is not road. The code carried a comment asserting this could not happen.
+2. **The head of the route was unbounded.** The gap-halving repair compared
+   each waypoint with the previous one and so never looked at the first, which
+   is measured from the car rather than from a waypoint. A car starting on a
+   junction tile got its first corner **112 px** away against a follower that
+   calls itself lost at 128 — sixteen pixels from a driver that re-plans every
+   tick, from an unchanged position, without ever setting a steering direction.
+   The test asserted the bound; its 120 random spots missed the tiles that
+   break it.
+3. **The repair fired on ordinary straights.** Its threshold (80 px) sat below
+   the emitter's own spacing (96 px), so every six-tile straight was split by
+   an `O(n)` splice — about a fifth more corners than intended, on the legacy
+   tile route as well.
+
+The fix is to stop jumping: `joinWithin` walks the junction's own tiles
+breadth-first and the seams are filled in rather than stepped over. With the
+path continuous, the repair pass and its threshold are both deleted, the
+emitter's ordinary corner-and-spacing rule bounds every gap, and emitting from
+index 0 makes the first corner the tile the query snapped to. After: **0 of
+109,840** straights leave the road, no first leg over the bound, and 22% fewer
+waypoints for the same routes. `roadnet.test.ts` gained the invariant the
+comment used to assert — the straights are sampled, not just the corners.
+
+**The fourth is independent.** `consider()`'s equal-cost tie-break compared a
+canonicalised side against a raw one, so "ties go to the lower tile" was true
+only when the lower-numbered junction happened to be on the left. Deterministic
+per host either way, so never a desync — but a stated invariant that did not
+hold, which is worse than no invariant. Canonicalised before the comparison
+now.
+
+**And a number that was overstated.** §40.1 first published 0.18 ms against
+3.57 ms. Both were measured cold, on first call. Warm medians over 400 pairs,
+five runs each, are 0.12 ms against 1.8–2.2 ms — still fifteen to nineteen
+times, and the honest figure for a system that runs for hours. The cold
+numbers are what a session's first few routes cost and are recorded here
+rather than in the headline.

@@ -88,6 +88,8 @@ export interface RoadNet {
 export const AT_ROOT = 255;
 
 /** Walk the flood tree from a tile out to its own junction. */
+export { joinWithin };
+
 export function tilesToJunction(net: RoadNet, tile: number): number[] {
   const out: number[] = [];
   for (let k = tile; ; ) {
@@ -97,6 +99,51 @@ export function tilesToJunction(net: RoadNet, tile: number): number[] {
     const [dx, dy] = STEPS[d] as readonly [number, number];
     k -= dy * net.widthTiles + dx;
   }
+  return out;
+}
+
+/**
+ * The tiles between two tiles of the SAME junction, exclusive of both ends.
+ *
+ * The one discontinuity a route can contain. A walk out to a junction ends at
+ * whichever of its tiles the flood seeded from and the street out of it leaves
+ * from another, so the assembled path used to jump between them — and a jump
+ * is not a step: the straight line between two tiles of one junction can leave
+ * the patch, because a junction is connected but not convex. Measured before
+ * this existed: 7 waypoint-to-waypoint straights in 140,250 crossed ground
+ * that is not road.
+ *
+ * Breadth-first over the junction's own tiles, which are the ones the flood
+ * seeded — same owner, and `AT_ROOT` because nothing sent the wave to them.
+ * A patch averages five tiles, so this is a handful of steps.
+ */
+function joinWithin(net: RoadNet, from: number, to: number): number[] {
+  if (from === to) return [];
+  const W = net.widthTiles;
+  const owner = net.owner[from] as number;
+  const seen = new Map<number, number>();
+  seen.set(from, -1);
+  const queue = [from];
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q] as number;
+    if (i === to) break;
+    const x = i % W;
+    for (let d = 0; d < STEPS.length; d++) {
+      const [dx, dy] = STEPS[d] as readonly [number, number];
+      const nx = x + dx;
+      if (nx < 0 || nx >= W) continue;
+      const j = i + dy * W + dx;
+      if (j < 0 || j >= net.owner.length) continue;
+      if ((net.owner[j] as number) !== owner || (net.fromDir[j] as number) !== AT_ROOT) continue;
+      if (seen.has(j)) continue;
+      seen.set(j, i);
+      queue.push(j);
+    }
+  }
+  if (!seen.has(to)) return [];
+  const out: number[] = [];
+  for (let k = seen.get(to) as number; k !== from && k !== -1; k = seen.get(k) as number) out.push(k);
+  out.reverse();
   return out;
 }
 
@@ -154,9 +201,15 @@ export function buildRoadNet(map: CityMap): RoadNet {
     if (a === b) return;
     const cost = (depth[u] as number) + (depth[v] as number) + 1;
     const key = a < b ? a * nodes + b : b * nodes + a;
+    // Canonicalised BEFORE the comparison, not after. The stored `u` is
+    // always the lower-numbered junction's side of the meeting, so comparing
+    // it against the raw argument decides ties by which side the flood
+    // happened to scan first rather than by the tile — the invariant this
+    // tie-break is here to state.
+    const mine = a < b ? { cost, u, v } : { cost, u: v, v: u };
     const held = best.get(key);
-    if (held !== undefined && (held.cost < cost || (held.cost === cost && held.u <= u))) return;
-    best.set(key, a < b ? { cost, u, v } : { cost, u: v, v: u });
+    if (held !== undefined && (held.cost < cost || (held.cost === cost && held.u <= mine.u))) return;
+    best.set(key, mine);
   };
 
   while (head < tail) {

@@ -186,6 +186,49 @@ describe('the road network', () => {
     expect(routed).toBeGreaterThan(40);
   });
 
+  it('keeps a driver on the road BETWEEN corners, not just at them', () => {
+    // Waypoints on carriageway is not enough: a car drives the straight
+    // between them. A junction is connected but not convex, so a route that
+    // jumped from one of its tiles to another could hand a driver a line
+    // across the corner of a building — 7 of 140,250 straights did, before
+    // the seams were walked instead of jumped.
+    let h = 11;
+    const rnd = (): number => {
+      h = (h * 1103515245 + 12345) & 0x7fffffff;
+      return h / 0x7fffffff;
+    };
+    const spots: Array<{ x: number; y: number }> = [];
+    while (spots.length < 200) {
+      const tx = Math.floor(rnd() * W);
+      const ty = Math.floor(rnd() * H);
+      if (drivableTile(map, tx, ty)) spots.push({ x: tx * 16 + 8, y: ty * 16 + 8 });
+    }
+    let straights = 0;
+    for (let i = 0; i + 1 < spots.length; i += 2) {
+      const a = spots[i] as { x: number; y: number };
+      const b = spots[i + 1] as { x: number; y: number };
+      const r = planRoute(map, a.x, a.y, b.x, b.y);
+      if (r === null) continue;
+      for (let k = 2; k < r.length; k += 2) {
+        straights++;
+        const ax = r[k - 2] as number;
+        const ay = r[k - 1] as number;
+        const bx = r[k] as number;
+        const by = r[k + 1] as number;
+        const steps = Math.max(1, Math.ceil((Math.abs(bx - ax) + Math.abs(by - ay)) / 4));
+        for (let t = 1; t < steps; t++) {
+          const x = ax + ((bx - ax) * t) / steps;
+          const y = ay + ((by - ay) * t) / steps;
+          expect(
+            drivableTile(map, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)),
+            `straight leaves the road at ${x.toFixed(0)},${y.toFixed(0)}`,
+          ).toBe(true);
+        }
+      }
+    }
+    expect(straights).toBeGreaterThan(10_000);
+  });
+
   it('is a pure function of the map: rebuilding changes nothing', () => {
     const again = buildRoadNet(map);
     expect(Array.from(again.edgeA)).toEqual(Array.from(net.edgeA));
