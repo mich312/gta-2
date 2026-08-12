@@ -370,6 +370,15 @@ export interface CityMap {
    */
   junctions: JunctionMap;
   /**
+   * The road network as junctions and the streets between them
+   * (WORLDGEN.md §40), derived at generation time from the tiles and the
+   * junction table. Routing searches it instead of the hundred thousand tiles
+   * the roads are painted on. Typed loosely for the same reason the curve
+   * fields are: `sim/roadnet.ts` sits above `types.ts` in the import order.
+   * Absent means "no graph here", and routing falls back to searching tiles.
+   */
+  roadNet?: import('../sim/roadnet.js').RoadNet;
+  /**
    * Seconds in an in-game day, copied here from the worldgen params so the
    * renderer can read the clock from the map it already has rather than
    * threading a second parameter through every frame.

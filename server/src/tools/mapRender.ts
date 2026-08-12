@@ -17,7 +17,7 @@ import {
   bevelOther,
   inCutHalf,
 } from 'shared';
-import { courseJunctions } from 'shared';
+import { courseJunctions, type RoadNet } from 'shared';
 import { hexToRgb } from './png.js';
 
 /**
@@ -45,6 +45,13 @@ export interface RenderableMap {
    */
   shores?: ReadonlyArray<{ points: Array<readonly [number, number]>; land: boolean }> | undefined;
   banks?: ReadonlyArray<{ points: Array<readonly [number, number]>; land: boolean }> | undefined;
+  /**
+   * The road network as a graph (WORLDGEN.md §40). Given AND asked for, the
+   * painter strokes every street between two junctions along the tiles the
+   * flood ran through and dots every junction — which is the coverage claim
+   * as a picture rather than a count.
+   */
+  roadNet?: RoadNet | undefined;
   /**
    * The authored road centrelines (WORLDGEN.md §16), in tile units.
    *
@@ -215,6 +222,7 @@ export function render(
   wTiles: number,
   hTiles: number,
   scale: number,
+  net = false,
 ): Render {
   const W = wTiles * scale;
   const H = hTiles * scale;
@@ -585,6 +593,35 @@ export function render(
       ([px, py]) => [cx + px * cos - py * sin, cy + px * sin + py * cos] as readonly [number, number],
     );
     fillQuad(put, W, H, q, hexToRgb(palette.building[b.district] ?? '#888888'));
+  }
+
+  // The road network as a graph (WORLDGEN.md §40): every street between two
+  // junctions stroked along the tiles the flood ran through, every junction a
+  // dot. What routing actually searches, over the paint it replaced.
+  if (net && map.roadNet) {
+    const street: [number, number, number] = [40, 220, 255];
+    const node: [number, number, number] = [255, 230, 60];
+    const rn = map.roadNet;
+    for (let k = 0; k < rn.pathTiles.length; k++) {
+      const t = rn.pathTiles[k] as number;
+      const mx = t % map.widthTiles;
+      const my = (t - mx) / map.widthTiles;
+      const cx = (mx - x0) * scale + (scale >> 1);
+      const cy = (my - y0) * scale + (scale >> 1);
+      const r = scale >> 3;
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) put(cx + dx, cy + dy, street);
+    }
+    for (let n = 0; n < rn.nodeX.length; n++) {
+      const cx = Math.round(((rn.nodeX[n] as number) / 16 - x0) * scale);
+      const cy = Math.round(((rn.nodeY[n] as number) / 16 - y0) * scale);
+      const r = Math.max(1, scale >> 2);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy > r * r) continue;
+          put(cx + dx, cy + dy, node);
+        }
+      }
+    }
   }
 
   // Overlay markers: shops (bright), player spawns (white dots).

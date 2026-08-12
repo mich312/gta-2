@@ -4090,3 +4090,124 @@ precomputed "is there a segment in this cell or beside it" mask, which answers
 the far case in one array read. 13.3 s → 0.46 s for the sampling pass, and the
 bake is byte-identical, because the contour lives at 1.5–2.6 tiles where the
 distance was exact all along.
+
+---
+
+## 40. The road stops being paint — the network as a graph
+
+§9.1's first complaint was that roads exist only as painted cells, so every
+consumer reverse-engineers meaning from pixels; §9.2's L2 asked for typed nodes
+and typed edges. This is that, at the level routing needs it: **junctions are
+nodes, the streets between them are edges**, and crossing the city is a search
+over a thousand of them instead of over the hundred thousand tiles they are
+drawn on.
+
+### 40.1 The claim, measured before it was built
+
+`planRoute` costs **3.57 ms** a call on random city-wide pairs — plain A* over
+102,987 drivable cells, with a 60,000-expansion guard that exists because a
+route to somewhere unreachable floods the whole network. Traffic replanning,
+ambulance dispatch and errand assignment between them call it several times a
+second against a 33 ms budget. The number is why this was worth doing; it is
+recorded here because the alternative was to assert it.
+
+| | |
+|---|---|
+| Nodes / edges | **940 / 1,764**, from 102,987 drivable tiles |
+| `planRoute` | **0.18 ms**, against 3.57 ms over tiles — **19.7×** |
+| Routes the tile search had given up on | **15 of 300** |
+| Route length against tile-optimal | p50 **1.08**, p95 1.39, max 2.22 |
+| Build | 30 ms once per session; 1.90 MB resident |
+| Waypoints off carriageway | 0 |
+| Tests | 907 pass; host parity green, and the 600-tick hash is **unchanged** |
+
+### 40.2 Why this one is built from the tiles
+
+§25 established that a boundary must come from its field, because a curve
+traced out of a raster can never beat the staircase it started from. That rule
+is about **geometry**. Topology is not damaged by rasterisation: a junction is
+a junction whatever it is drawn on, and which junction connects to which is
+exactly as true in the bytes as in the drawing.
+
+That distinction is what lets routing move now rather than waiting for VECTOR
+phase 2. §26.1 declined to retire the per-tile marking system on a number —
+courses cover **76.1%** of carriageway tiles — and the same number blocks a
+graph built from them. Measured from the other direction for this work: **20.2%
+of drivable tiles sit more than three tiles from any centreline**, so a course
+graph would leave a fifth of the city unroutable and the tile search would be
+the fallback more often than not. The tiles cover all of it.
+
+What the tiles cannot supply is where an edge *runs*. The paths here are chains
+of tile centres, staircase and all. Marrying them to the courses is exactly the
+work §26.1 wants done once and deliberately, when coverage is raised — and it
+is a change to this module's paths, not to its topology.
+
+### 40.3 One flood, not a thousand searches
+
+Every junction tile seeds a breadth-first wave at distance zero and they spread
+over the carriageway together. Each tile ends up owned by the junction nearest
+it *along the road*, carrying the direction the wave arrived from — so every
+tile in the city already knows its way to its own junction, and the first and
+last leg of every route cost nothing at all. Where two owners meet, their
+junctions have a street between them, and its length is what the two waves had
+travelled. One pass builds every node, every edge and every path.
+
+The care is in what the splicing leaves behind. A walk out to a junction ends
+at whichever of its tiles the flood seeded from, and the street out of it
+leaves from another, so the assembled path doubles back on itself around every
+node — and around the start too, whenever the destination lies back down the
+street the car is already on. Cutting everything between a tile and its own
+second appearance leaves the simple path through the same corridor, and is also
+what turns a U-turn at the start into no U-turn at all.
+
+Deterministic by construction: the seed order is tile order, the four
+neighbours are visited in a fixed order, and a queue is a queue. Like
+`junctions`, it never goes on the wire — both hosts build the identical graph
+from the identical tiles, which the parity gate confirms.
+
+### 40.4 The invariants, and the middle one is load-bearing
+
+`roadnet.test.ts`:
+
+- **Coverage.** Every drivable tile is owned by a junction. Not a quota, a
+  property: there is nowhere a car can be that routing cannot start from.
+- **The graph agrees with the tiles about what connects to what.** Flood the
+  drivable tiles for their true connected components, flood the graph for its
+  own, and assert the two partitions are identical. The graph can therefore
+  never claim a route the roads do not have, nor deny one they do — which is
+  what makes it safe to stop falling back to the tile search on a failure, and
+  that is where the twenty-millisecond spike went. It is also why the 15 pairs
+  that route now are a fix rather than a fabrication: the tile search had hit
+  its expansion cap.
+- **The tree terminates and its steps are steps.** Every walk home is over
+  carriageway, one tile at a time, ending at a junction.
+- **Routes are drivable.** Every waypoint on carriageway, and none further from
+  the last than the follower's repath distance — a splice inside a junction is
+  a jump rather than a step, and an unhalved one reads to a driver as being
+  hopelessly off plan.
+- **It is a pure function of the map.** Rebuild it, get the same arrays.
+
+### 40.5 What it cost, and what is owed
+
+Routes are about **7% longer** than tile-optimal at the median and up to 2.2× at
+the worst, because a route now goes *via junctions* rather than wherever the
+tiles allow. That is the price of the abstraction and it buys the nineteenfold:
+a car takes a plausible route rather than an optimal one, which is what drivers
+do. Nothing in the game measures route length, and the 600-tick parity hash did
+not move.
+
+Owed:
+
+- **Edges carry a length and nothing else.** No width, no kind, no one-way flag,
+  no lanes — though the courses have width and kind sitting right there. That is
+  the same marriage §40.2 defers.
+- **`traffic.ts` still probes tiles.** `dirIsOpen` and the fan of bearings when
+  the cardinals fail are questions the graph answers directly. Converting the
+  *follower* is a separate wave: this one changed what a route is, not how a car
+  drives one.
+- **1.90 MB is one `Int16` and one byte per tile**, which is the economy this
+  structure was written to; the temptation is three `Int32` planes and seven
+  megabytes, and it should stay resisted.
+
+Evidence: `evidence/city-roadnet.png` — every street a stroked run, every
+junction a dot, and no carriageway in the crop the graph does not run down.

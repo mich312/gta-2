@@ -23,6 +23,7 @@ import { loadPalette, render, type PaletteFile, type RenderableMap, type Render 
  *   pnpm mapgen --sheet[=path.png]            the fabric-review contact sheet
  *   pnpm mapgen --stats                       per-borough fabric numbers
  *   pnpm mapgen --tiles                       the raster alone, no curve layer
+ *   pnpm mapgen --net                         draw the junction graph routing searches
  *
  * The ground is the same picture whatever the seed: it comes out of the bake
  * (`pnpm citybake`). What the seed moves is the furniture the render marks —
@@ -358,6 +359,7 @@ function main(): void {
   let crop: [number, number, number, number] | null = null;
   let sheet: string | null = null;
   let stats = false;
+  let net = false;
   let rasterOnly = false;
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)(?:=(.+))?$/.exec(a);
@@ -367,6 +369,7 @@ function main(): void {
     if (key === 'seed' && val) seed = Number.parseInt(val, 10);
     if (key === 'out' && val) out = val;
     if (key === 'stats') stats = true;
+    if (key === 'net') net = true;
     if (key === 'tiles') rasterOnly = true;
     if (key === 'sheet') sheet = val ?? SHEET_OUT;
     if (key === 'crop' && val) {
@@ -407,10 +410,10 @@ function main(): void {
     // Scaled so a close-up is actually close: a 60-tile crop renders at 8 px
     // per tile, the whole map still at 2.
     const scale = Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
-    picture = render(drawable, palette, x, y, w, h, scale);
+    picture = render(drawable, palette, x, y, w, h, scale, net);
     if (!out) out = `mapgen-crop-${x}-${y}.png`;
   } else {
-    picture = render(drawable, palette, 0, 0, map.widthTiles, map.heightTiles, 2);
+    picture = render(drawable, palette, 0, 0, map.widthTiles, map.heightTiles, 2, net);
     if (!out) out = `mapgen-seed${seed}.png`;
   }
 
