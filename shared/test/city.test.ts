@@ -486,7 +486,10 @@ describe('the city, as an asset', () => {
     expect(() => parseCityPlan(fat)).toThrow(/use median/);
   });
 
-  it('draws the same ground every time it is asked', { timeout: 60_000 }, () => {
+  // Two whole layouts, which is 45 seconds of work on its own against a
+  // 60-second budget — and it loses that race whenever the rest of the suite
+  // is running beside it. The others here build one layout and finish in 25.
+  it('draws the same ground every time it is asked', { timeout: 150_000 }, () => {
     const a = buildLayout(plan);
     const b = buildLayout(plan);
     expect(Buffer.from(a.tiles).equals(Buffer.from(b.tiles))).toBe(true);

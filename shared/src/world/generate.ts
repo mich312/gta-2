@@ -1,7 +1,9 @@
 import { labelJunctions } from '../sim/signals.js';
 import { buildRoadNet } from '../sim/roadnet.js';
+import { buildLanes } from '../sim/lanes.js';
 import { buildCourseIndex } from './courseIndex.js';
 import { deriveBevels } from './bevel.js';
+import { buildShoreCut } from './shoreCut.js';
 import { assignTurf, markGangCars } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { decodeBakedCity, type BakedCity } from './bake.js';
@@ -130,6 +132,10 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // And the band's inner edge beside it (§39): the same kind of thing, from
   // the same place, for the same reason.
   map.banks = baked.banks.map((r) => ({ points: r.points, land: r.land }));
+  // And the coast again, cut up per tile and linearised, which is the form
+  // collision can use (§43). After the bevels deliberately: it does not
+  // replace them, it pre-empts them on the tiles the curve actually crosses.
+  map.shoreCut = buildShoreCut(map.shores, W, H);
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.
@@ -142,6 +148,10 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // that gets any tile to its own junction without a search. After the
   // labelling, because it is built out of it.
   map.roadNet = buildRoadNet(map);
+  // And the lanes on it: a line per street, sides, and a tile that names its
+  // own street (§42). Last, because it is built out of all three of the
+  // graph, the courses and the tiles.
+  map.lanes = buildLanes(map, map.roadNet);
 
   return map;
 }

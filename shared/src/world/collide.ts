@@ -5,6 +5,22 @@ import { T_BRIDGE, T_BUILDING, T_TREES, T_WATER, TILE_SIZE, type CityMap } from 
 const EPS = 0.001;
 
 /**
+ * How far past a face a mover must be before that face stops counting as
+ * something in front of it. Half a pixel: far above the slack a flush clamp
+ * leaves, far below anything a mover can be genuinely embedded by.
+ *
+ * Both bounds matter. A face already behind you must not block, or a mover
+ * that starts inside a solid — spawned in one, or shunted through by a car —
+ * is clamped back in every tick instead of being able to walk out the way it
+ * came. But "behind you" cannot be read off the leading edge exactly: the
+ * axes move one at a time and a sloped face is a function of the OTHER axis,
+ * so the x step slides the y face by a fraction of a pixel and a box that was
+ * flush comes out a hair inside. Read strictly, that hair reads as "behind"
+ * and the mover sinks (§43).
+ */
+const FLUSH = 0.5;
+
+/**
  * What a mover travels through. Land movers (people, cars) are stopped by
  * buildings and water; boats are stopped by everything that is not water.
  * A bridge tile carries both: road over the top, river underneath.
@@ -51,9 +67,17 @@ export function isSolidTile(
   const tile = map.tiles[ty * map.widthTiles + tx];
   const base = plainSolid(tile as number, medium);
   if (base) return true;
-  // A tile whose cut half is solid — the water wedge bitten out of a
+  // A tile whose BEVELLED half is solid — the water wedge bitten out of a
   // headland — still answers solid, so the conservative readers above
   // never send anybody to stand on a corner that is half sea.
+  //
+  // The coast CURVE is deliberately not consulted here, and the quay is why:
+  // the curve crosses every tile of the waterfront, and answering "solid" for
+  // all of them would close it to anybody on foot. A tile the curve crosses
+  // is half open, and half open is what the movement solver below is for.
+  // Measured, letting it stay coarse costs the placement passes nothing —
+  // spots overlapping solid move by at most one across three seeds, in both
+  // directions (§43.4).
   const code = map.bevel ? (map.bevel[ty * map.widthTiles + tx] as number) : BEV_NONE;
   if (code === BEV_NONE) return false;
   return plainSolid(bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty), medium);
@@ -94,6 +118,103 @@ export function solidPartAt(
   return other ? code : oppositeHalf(code);
 }
 
+/**
+ * The coast's own line through a tile, as the SOLID half-plane for this
+ * medium: solid where `CUT.nx * lx + CUT.ny * ly > CUT.c`, with `(lx, ly)`
+ * in px from the tile's top-left corner. False when the curve has nothing
+ * to say about this tile, and the bevels answer as they always have.
+ *
+ * **This is the single definition the whole solver reads** (WORLDGEN.md §43).
+ * `faceX`, `faceY`, `boxInSolid` and `isSolidAtWorld` each derive their own
+ * question from it rather than approximating it separately, which is the
+ * thing §41.4 found missing when a solver built elsewhere was ported in: its
+ * point test, box test and depenetration push were three rules reconciled
+ * afterwards, and they left movers standing in the sea.
+ *
+ * Written into module scratch rather than returned, because this sits inside
+ * the movement loop and inside client prediction. Not shared state in any
+ * sense the simulation can observe: it is a pure function of the map, the
+ * tile and the medium, read back before the next call.
+ */
+const CUT = { nx: 0, ny: 0, c: 0 };
+
+function shoreCutAt(map: CityMap, tx: number, ty: number, medium: Medium): boolean {
+  const cut = map.shoreCut;
+  if (cut === undefined) return false;
+  if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+  const slot = cut.slot.get(ty * map.widthTiles + tx);
+  if (slot === undefined) return false;
+  // A wall, a wood and a deck are not shore. The curve says where the WATER
+  // stops; it has no opinion on a building standing at the quayside, and
+  // letting it halve one would open a doorway through the wall.
+  const tile = map.tiles[ty * map.widthTiles + tx] as number;
+  if (tile === T_BUILDING || tile === T_TREES || tile === T_BRIDGE) return false;
+  // Land movers are stopped by the water; boats by everything else. The
+  // normal names the wet side, so a boat simply reads it backwards — one
+  // sign, rather than a second traversal of the same geometry.
+  const flip = medium === 'water' ? -1 : 1;
+  CUT.nx = (cut.nx[slot] as number) * flip;
+  CUT.ny = (cut.ny[slot] as number) * flip;
+  CUT.c = (cut.c[slot] as number) * flip;
+  return true;
+}
+
+/**
+ * How far the solid half-plane reaches along one axis, across the box's
+ * extent `lo..hi` on the other — the same question `faceX` asks of a bevel,
+ * asked of an arbitrary line.
+ *
+ * `n0` is the normal's component along the axis of travel, `n1` its component
+ * across; `origin` is the tile's corner on the travel axis. Answers ±Infinity
+ * when no part of this tile is in the way.
+ *
+ * Conservative for the WHOLE box by construction: the row that lets the solid
+ * reach furthest is the one maximising `n1 * l`, which is an end of the range
+ * because the expression is linear — so this is the extreme over the box, not
+ * a sample of it, and clamping flush to it can leave no corner inside.
+ *
+ * The face it reports is `MARGIN` px OUTSIDE the water, for a reason that has
+ * nothing to do with geometry: positions go on the wire quantised to eighths
+ * of a pixel (`q8`), and the snap can round towards the line. A mover parked
+ * exactly flush against an arbitrary slope is therefore rounded a few
+ * hundredths of a pixel into the sea — invisible, and still a mover in the
+ * sea. A margin the quantiser cannot spend (its worst case moves a point
+ * `sqrt(2)/16` across a unit normal) makes "outside" survive being written
+ * down. The BEVELS have the same exposure and are left alone: their faces are
+ * all 45° and it has never bitten, and moving every wall in the city by an
+ * eighth of a pixel is not a thing to do in passing.
+ */
+const MARGIN = 1 / 8;
+
+function cutFace(
+  n0: number,
+  n1: number,
+  c: number,
+  lo: number,
+  hi: number,
+  sign: number,
+  origin: number,
+): number {
+  // What the solid demands of the travel axis, once the other axis has been
+  // given its most generous value — and the margin, which is a shift of the
+  // whole line because the normal is a unit vector.
+  const k = c - MARGIN - n1 * (n1 > 0 ? hi : lo);
+  if (sign > 0) {
+    // The solid's near extent, coming from below.
+    if (n0 > 0) {
+      const e = k / n0;
+      return e >= TILE_SIZE ? Infinity : origin + (e < 0 ? 0 : e);
+    }
+    // The solid reaches the tile's own low face, or is not here at all.
+    return k < 0 ? origin : Infinity;
+  }
+  if (n0 < 0) {
+    const e = k / n0;
+    return e <= 0 ? -Infinity : origin + (e > TILE_SIZE ? TILE_SIZE : e);
+  }
+  return n0 * TILE_SIZE > k ? origin + TILE_SIZE : -Infinity;
+}
+
 /** Point query, bevel-exact: the diagonal itself counts as open. */
 export function isSolidAtWorld(
   map: CityMap,
@@ -103,6 +224,9 @@ export function isSolidAtWorld(
 ): boolean {
   const tx = Math.floor(x / TILE_SIZE);
   const ty = Math.floor(y / TILE_SIZE);
+  if (shoreCutAt(map, tx, ty, medium)) {
+    return CUT.nx * (x - tx * TILE_SIZE) + CUT.ny * (y - ty * TILE_SIZE) > CUT.c;
+  }
   const part = solidPartAt(map, tx, ty, medium);
   if (part === PART_FULL) return true;
   if (part === PART_NONE) return false;
@@ -128,14 +252,19 @@ function faceX(
   sign: number,
   medium: Medium,
 ): number {
-  const part = solidPartAt(map, tx, ty, medium);
   const open = sign > 0 ? Infinity : -Infinity;
-  if (part === PART_NONE) return open;
   const x0 = tx * TILE_SIZE;
   const ty0 = ty * TILE_SIZE;
   const yLo = Math.max(y0, ty0) - ty0;
   const yHi = Math.min(y1, ty0 + TILE_SIZE) - ty0;
   if (yHi < yLo) return open;
+  // The coast's own line, where there is one, in place of the bevel's 45°
+  // approximation of it (§43).
+  if (shoreCutAt(map, tx, ty, medium)) {
+    return cutFace(CUT.nx, CUT.ny, CUT.c, yLo, yHi, sign, x0);
+  }
+  const part = solidPartAt(map, tx, ty, medium);
+  if (part === PART_NONE) return open;
   if (sign > 0) {
     // The solid's western extent across the box's rows.
     if (part === BEV_NE) return x0 + yLo;
@@ -158,14 +287,19 @@ function faceY(
   sign: number,
   medium: Medium,
 ): number {
-  const part = solidPartAt(map, tx, ty, medium);
   const open = sign > 0 ? Infinity : -Infinity;
-  if (part === PART_NONE) return open;
   const y0 = ty * TILE_SIZE;
   const tx0 = tx * TILE_SIZE;
   const xLo = Math.max(x0, tx0) - tx0;
   const xHi = Math.min(x1, tx0 + TILE_SIZE) - tx0;
   if (xHi < xLo) return open;
+  // The normal's components swap roles with the axes: the same line, asked
+  // about y instead of x.
+  if (shoreCutAt(map, tx, ty, medium)) {
+    return cutFace(CUT.ny, CUT.nx, CUT.c, xLo, xHi, sign, y0);
+  }
+  const part = solidPartAt(map, tx, ty, medium);
+  if (part === PART_NONE) return open;
   if (sign > 0) {
     // The solid's northern extent across the box's columns.
     if (part === BEV_SW) return y0 + xLo;
@@ -223,15 +357,37 @@ function moveOnce(
   if (dx !== 0) {
     const nx = pos.x + dx;
     const y0 = pos.y - half;
+    // Two bounds, deliberately. The half-open one picks the ROWS the box
+    // touches, so a box resting flush on a tile edge does not claim the row
+    // beyond it. The closed one is what the FACE is evaluated over: a sloped
+    // face is a function of the other axis, so measuring it against a box an
+    // epsilon short of its real height leaves the mover a fraction of a pixel
+    // inside once the other axis moves and slides the face (§43).
     const y1 = pos.y + half - EPS;
+    const yEnd = pos.y + half;
     const ty1 = Math.floor(y0 / TILE_SIZE);
     const ty2 = Math.floor(y1 / TILE_SIZE);
     if (dx > 0) {
       const tx = Math.floor((nx + half) / TILE_SIZE);
+      // Every column the leading edge SWEEPS, not just the one it lands in.
+      // A whole tile's face is its own boundary, so landing in it is the only
+      // way to meet it and the destination alone was enough. A sloped face —
+      // a bevel's hypotenuse, and now the coast's own line — lives INSIDE its
+      // tile, so a mover standing behind one can step clean over it into the
+      // next tile, be stopped flush against THAT tile's face, and come to
+      // rest a couple of pixels inside the water it just crossed (§43).
+      // Sub-steps are capped at half a tile, so this is one column or two.
+      const tx0 = Math.floor((pos.x + half) / TILE_SIZE);
       let limit = Infinity;
-      for (let ty = ty1; ty <= ty2; ty++) {
-        const b = faceX(map, tx, ty, y0, y1, 1, medium);
-        if (b < limit) limit = b;
+      for (let t = tx0; t <= tx; t++) {
+        for (let ty = ty1; ty <= ty2; ty++) {
+          const b = faceX(map, t, ty, y0, yEnd, 1, medium);
+          // A face already BEHIND the leading edge does not stop anything.
+          // Without this, a mover that starts inside a solid — shunted there
+          // by a car, or spawned in one — is clamped back into it every tick
+          // instead of being able to walk out the way it came.
+          if (b < limit && b >= pos.x + half - FLUSH) limit = b;
+        }
       }
       if (nx + half > limit) {
         pos.x = limit - half - EPS;
@@ -242,10 +398,13 @@ function moveOnce(
       }
     } else {
       const tx = Math.floor((nx - half) / TILE_SIZE);
+      const tx0 = Math.floor((pos.x - half) / TILE_SIZE);
       let limit = -Infinity;
-      for (let ty = ty1; ty <= ty2; ty++) {
-        const b = faceX(map, tx, ty, y0, y1, -1, medium);
-        if (b > limit) limit = b;
+      for (let t = tx; t <= tx0; t++) {
+        for (let ty = ty1; ty <= ty2; ty++) {
+          const b = faceX(map, t, ty, y0, yEnd, -1, medium);
+          if (b > limit && b <= pos.x - half + FLUSH) limit = b;
+        }
       }
       if (nx - half < limit) {
         pos.x = limit + half + EPS;
@@ -261,14 +420,18 @@ function moveOnce(
     const ny = pos.y + dy;
     const x0 = pos.x - half;
     const x1 = pos.x + half - EPS;
+    const xEnd = pos.x + half;
     const tx1 = Math.floor(x0 / TILE_SIZE);
     const tx2 = Math.floor(x1 / TILE_SIZE);
     if (dy > 0) {
       const ty = Math.floor((ny + half) / TILE_SIZE);
+      const ty0 = Math.floor((pos.y + half) / TILE_SIZE);
       let limit = Infinity;
-      for (let tx = tx1; tx <= tx2; tx++) {
-        const b = faceY(map, tx, ty, x0, x1, 1, medium);
-        if (b < limit) limit = b;
+      for (let t = ty0; t <= ty; t++) {
+        for (let tx = tx1; tx <= tx2; tx++) {
+          const b = faceY(map, tx, t, x0, xEnd, 1, medium);
+          if (b < limit && b >= pos.y + half - FLUSH) limit = b;
+        }
       }
       if (ny + half > limit) {
         pos.y = limit - half - EPS;
@@ -279,10 +442,13 @@ function moveOnce(
       }
     } else {
       const ty = Math.floor((ny - half) / TILE_SIZE);
+      const ty0 = Math.floor((pos.y - half) / TILE_SIZE);
       let limit = -Infinity;
-      for (let tx = tx1; tx <= tx2; tx++) {
-        const b = faceY(map, tx, ty, x0, x1, -1, medium);
-        if (b > limit) limit = b;
+      for (let t = ty; t <= ty0; t++) {
+        for (let tx = tx1; tx <= tx2; tx++) {
+          const b = faceY(map, tx, t, x0, xEnd, -1, medium);
+          if (b > limit && b <= pos.y - half + FLUSH) limit = b;
+        }
       }
       if (ny - half < limit) {
         pos.y = limit + half + EPS;
@@ -309,8 +475,9 @@ export function boxInSolid(
   const ty2 = Math.floor((pos.y + half - EPS) / TILE_SIZE);
   for (let ty = ty1; ty <= ty2; ty++) {
     for (let tx = tx1; tx <= tx2; tx++) {
-      const part = solidPartAt(map, tx, ty, medium);
-      if (part === PART_NONE) continue;
+      const cut = shoreCutAt(map, tx, ty, medium);
+      const part = cut ? PART_NONE : solidPartAt(map, tx, ty, medium);
+      if (!cut && part === PART_NONE) continue;
       if (part === PART_FULL) return true;
       // The box clipped to this tile, then its corner deepest into the
       // solid half: a box overlaps a half-plane iff that corner does.
@@ -318,6 +485,14 @@ export function boxInSolid(
       const bx1 = Math.min(pos.x + half - EPS, (tx + 1) * TILE_SIZE) - tx * TILE_SIZE;
       const by0 = Math.max(pos.y - half, ty * TILE_SIZE) - ty * TILE_SIZE;
       const by1 = Math.min(pos.y + half - EPS, (ty + 1) * TILE_SIZE) - ty * TILE_SIZE;
+      // The coast's line is a half-plane like the bevels', only not diagonal:
+      // the deepest corner is whichever the normal points at (§43).
+      if (cut) {
+        const cx = CUT.nx > 0 ? bx1 : bx0;
+        const cy = CUT.ny > 0 ? by1 : by0;
+        if (CUT.nx * cx + CUT.ny * cy > CUT.c) return true;
+        continue;
+      }
       if (part === BEV_NE && bx1 > by0) return true;
       if (part === BEV_SW && bx0 < by1) return true;
       if (part === BEV_SE && bx1 + by1 > TILE_SIZE) return true;

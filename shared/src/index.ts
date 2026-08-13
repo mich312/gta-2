@@ -17,6 +17,7 @@ export * from './sim/traffic.js';
 export * from './sim/weapons.js';
 export * from './sim/police.js';
 export * from './sim/roadgrid.js';
+export * from './sim/lanes.js';
 export * from './sim/signals.js';
 export * from './sim/daynight.js';
 export * from './sim/peds.js';

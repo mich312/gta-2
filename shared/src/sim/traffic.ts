@@ -19,6 +19,7 @@ import {
   nearestCardinal,
   planRoute,
 } from './roadgrid.js';
+import { laneAim, laneAt } from './lanes.js';
 import { PLAYER_RADIUS } from '../constants.js';
 import { rayWallDistance } from './weapons.js';
 import { stopLineGap } from './signals.js';
@@ -484,6 +485,93 @@ function recoverTarget(map: CityMap, x: number, y: number): { x: number; y: numb
 }
 
 /**
+ * Follow the tarmac itself: probe a fan of bearings around the car's own
+ * heading and aim down the one that stays on drivable ground longest.
+ *
+ * The last resort. Out to a right angle either side, so a car pointing OFF
+ * the band — shunted, or arriving from a cardinal street — can still find the
+ * band's direction rather than failing every probe alike and sailing off the
+ * edge into the wedge/recover cycle the trajectory plots showed as scribbles
+ * all over the ring. Fixed probe order and first-wins ties keep it
+ * deterministic, and `dCos`/`dSin` are the sim's own pinned tables.
+ *
+ * The search stops at the first bearing clear for the whole probe: nothing
+ * can beat six and ties already went to the first, so it decides exactly what
+ * it decided before and reads a third as many tiles doing it (§41.2).
+ *
+ * What it is NOT is a way of finding where the road runs, and three attempts
+ * to replace it with one measured worse every time — it is lane keeping, and
+ * the bearing it picks carries information about where the car sits ACROSS
+ * the band that no geometric ideal contains. `bandTarget` below supplies that
+ * information directly instead, which is why this now runs on the leftovers
+ * rather than on a fifth of every driving decision.
+ */
+function followTarmac(
+  map: CityMap,
+  v: VehicleState,
+  t: TrafficTuning,
+): { x: number; y: number } {
+  const FAN = [0, -0.393, 0.393, -0.785, 0.785, -1.178, 1.178, -1.571, 1.571] as const;
+  let bestD = -1;
+  let bestA = v.heading;
+  for (const off of FAN) {
+    const a = q256(wrapAngle(v.heading + off));
+    const ax = dCos(a);
+    const ay = dSin(a);
+    let d = 0;
+    for (let s = 1; s <= 6; s++) {
+      if (!drivableAt(map, v.pos.x + ax * s * TILE_SIZE, v.pos.y + ay * s * TILE_SIZE)) break;
+      d = s;
+    }
+    if (d > bestD) {
+      bestD = d;
+      bestA = a;
+      if (d === 6) break;
+    }
+  }
+  return { x: v.pos.x + dCos(bestA) * t.lookAhead * 2, y: v.pos.y + dSin(bestA) * t.lookAhead * 2 };
+}
+
+/**
+ * Where to aim on a DIAGONAL band — the ring road, a curved avenue — where
+ * every cardinal probe runs off the tarmac in a few tiles.
+ *
+ * The one place the graph's lanes drive the car (WORLDGEN.md §42), and the
+ * place §41.2 named when it said the fan was standing in for a lane model.
+ * §41.1 measured that fan at 18.5% of every driving decision, all of it on
+ * ground the cardinal lane model had already refused to describe — so the
+ * streets it cannot describe are exactly the ones the graph describes best: a
+ * line that follows the band, sides taken from the tarmac either side of that
+ * line, and a direction of travel resolved against it.
+ *
+ * Only here, and that is a measurement rather than modesty. Driving the WHOLE
+ * city off the lanes is better on lane behaviour — head-on encounters 11.8%
+ * of vehicle-ticks down to 4.3% — and worse on everything else: a tenth off
+ * the traffic's distance and its mean speed, six points more of it crawling,
+ * and the cross-city errand stops arriving inside its budget. Here, where the
+ * alternative is a fan of guesses, every measure improves at once. §42.3 has
+ * the table.
+ *
+ * The fan is still the fallback, for band the graph never reached — an
+ * islet's lane with no intersection anywhere on it — and for the bare
+ * fixtures that have no graph to consult.
+ */
+function bandTarget(
+  map: CityMap,
+  v: VehicleState,
+  t: TrafficTuning,
+  dx: number,
+  dy: number,
+): { x: number; y: number } {
+  const lm = map.lanes;
+  if (lm !== undefined) {
+    const lp = laneAt(lm, v.pos.x, v.pos.y, dCos(v.heading), dSin(v.heading));
+    if (lp !== null) return laneAim(lm, map.roadNet, lp, t.lookAhead * 2, 0, dx, dy);
+  }
+  return followTarmac(map, v, t);
+}
+
+/**
  * Choose a direction to follow from where the car is standing: straight on if
  * that is open, otherwise a turn, and a U-turn only out of a dead end. Draws
  * from the sim rng, so every driver makes the same choices on every host and
@@ -552,67 +640,9 @@ function laneControl(
     // is what happened before — means every turn is taken by rotating on the
     // spot at the junction centre and then cutting the corner.
     const exit = junctionExit(map, v.pos.x, v.pos.y, dirIdx);
-    if (exit) {
-      targetX = exit.x;
-      targetY = exit.y;
-    } else {
-      // No lane model AND no cardinal exit: the middle of a DIAGONAL band —
-      // the ring road, a curved avenue — where every cardinal probe runs off
-      // the tarmac in a few tiles. The lane model is cardinal and cannot
-      // answer here; holding the cardinal heading drove every car off the
-      // band's edge, and the wedge/recover cycle that followed is what the
-      // trajectory plots showed as scribbles and loops all over the ring.
-      //
-      // So follow the tarmac itself: probe a fan of bearings around the
-      // car's own heading and take the one that stays on drivable ground
-      // longest. Fixed probe order and first-wins ties keep it deterministic;
-      // dCos/dSin are the sim's own pinned tables. The fan is what lets the
-      // heading drift smoothly round the curve instead of snapping between
-      // cardinals.
-      // Out to a right angle either side: a car that ends up pointing OFF the
-      // band — shunted, or arriving from a cardinal street — has to be able
-      // to find the band's direction in the fan, or every probe fails alike
-      // and it sails off the edge into the wedge/recover cycle.
-      // So follow the tarmac itself: probe a fan of bearings around the
-      // car's own heading and take the one that stays on drivable ground
-      // longest. Fixed probe order and first-wins ties keep it deterministic;
-      // dCos/dSin are the sim's own pinned tables. The fan is what lets the
-      // heading drift smoothly round the curve instead of snapping between
-      // cardinals.
-      // Out to a right angle either side: a car that ends up pointing OFF the
-      // band — shunted, or arriving from a cardinal street — has to be able
-      // to find the band's direction in the fan, or every probe fails alike
-      // and it sails off the edge into the wedge/recover cycle.
-      //
-      // The search stops at the first bearing clear for the whole probe.
-      // Nothing can beat six, and ties already went to the first, so this
-      // decides exactly what it decided before and reads a third as many
-      // tiles doing it (WORLDGEN.md §41.2). Steering the car by the road's
-      // TRUE direction instead — from the courses, which know it — was tried
-      // three ways and measured worse every time: the fan is not finding the
-      // road's direction, it is keeping the car on the road, and a geometric
-      // ideal does not know where the car sits across the band.
-      const FAN = [0, -0.393, 0.393, -0.785, 0.785, -1.178, 1.178, -1.571, 1.571] as const;
-      let bestD = -1;
-      let bestA = v.heading;
-      for (const off of FAN) {
-        const a = q256(wrapAngle(v.heading + off));
-        const ax = dCos(a);
-        const ay = dSin(a);
-        let d = 0;
-        for (let s = 1; s <= 6; s++) {
-          if (!drivableAt(map, v.pos.x + ax * s * TILE_SIZE, v.pos.y + ay * s * TILE_SIZE)) break;
-          d = s;
-        }
-        if (d > bestD) {
-          bestD = d;
-          bestA = a;
-          if (d === 6) break;
-        }
-      }
-      targetX = v.pos.x + dCos(bestA) * t.lookAhead * 2;
-      targetY = v.pos.y + dSin(bestA) * t.lookAhead * 2;
-    }
+    const aim = exit ?? bandTarget(map, v, t, dx, dy);
+    targetX = aim.x;
+    targetY = aim.y;
   } else {
     // Take the first lane that is actually free, in preference order. A parked
     // car is 18 px wide in a 16 px lane, so without this every one of them is a

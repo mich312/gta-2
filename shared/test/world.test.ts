@@ -314,16 +314,23 @@ describe('collision', () => {
 
   it('moveWithCollision clamps flush against a solid tile and zeroes velocity', () => {
     const map = generateCity(66, params);
-    // Find a building tile with open space to its left.
+    // Find a building tile with open space to its left, and MEAN "building":
+    // `isSolidTile` is also true of water, and the first tile it matched was
+    // a stretch of sea whose waterline runs diagonally through the tile to
+    // its left (§43). A tile can be open by the coarse rule and half wet by
+    // the curve, so a walker starting at its centre starts in the sea — which
+    // proves nothing about clamping flush against a wall, and never did.
     let found: { tx: number; ty: number } | null = null;
     for (let ty = 1; ty < map.heightTiles - 1 && !found; ty++) {
       for (let tx = 1; tx < map.widthTiles - 1 && !found; tx++) {
-        if (isSolidTile(map, tx, ty) && !isSolidTile(map, tx - 1, ty)) found = { tx, ty };
+        if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) continue;
+        if (!isSolidTile(map, tx - 1, ty)) found = { tx, ty };
       }
     }
     expect(found).not.toBeNull();
     const { tx, ty } = found!;
     const pos = { x: (tx - 1) * TILE_SIZE + 8, y: ty * TILE_SIZE + 8 };
+    expect(boxInSolid(map, pos, PLAYER_RADIUS)).toBe(false);
     const vel = { x: 100, y: 0 };
     moveWithCollision(map, pos, vel, PLAYER_RADIUS, 50, 0); // ram right into the wall
     expect(vel.x).toBe(0);

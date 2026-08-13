@@ -431,7 +431,13 @@ export function shoreChains(
       curLen = 0;
     }
     cur.push(bx - tx, by - ty);
-    curLen += Math.hypot(bx - ax, by - ay);
+    // `Math.sqrt`, not `Math.hypot`. This length decides which of two chains
+    // through a tile is kept, and `shoreChains` now feeds the collision solver
+    // as well as the painter (§43): ECMA-262 pins sqrt to the exactly rounded
+    // IEEE result and leaves hypot approximated, so a last-ulp disagreement
+    // between two engines could keep a different chain and stop a car in a
+    // different place.
+    curLen += Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
   };
 
   const ts: number[] = [];

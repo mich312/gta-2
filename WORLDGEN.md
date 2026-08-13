@@ -4417,3 +4417,245 @@ picture reviewers look at; a dead `streetAxisAt` whose doc claimed it had
 replaced the fan that is still there; and a doc comment inserted between
 `routeNodes` and its own documentation. It also noted the feature shipped with
 no test naming it, which `courseIndex.test.ts` now fixes.
+
+---
+
+## 42. Lanes on the graph
+
+§41 closed owing a lane model. It said so twice, from opposite directions —
+the follower could not be converted without one (§41.2), and the routing could
+not spend its widths without one (§41.3) — and both times the reason was the
+same: **the graph knew the topology of the city and nothing about where a road
+runs or which side of it you drive on.** This is that model, and it is one
+third of what was hoped for, for reasons that are measurements.
+
+### 42.1 What a street now knows
+
+`lanes.ts` gives every edge of the graph three things it did not have.
+
+**A line.** The edge's path is the chain of tile centres the flood walked, so
+its geometry is a staircase. Each centre is pulled onto the course running
+down that street where one covers it — not the NEAREST course, which on nearly
+a tenth of edges is a crossing street (§41.3), but the nearest one *running the
+way the path runs* — and what is left is smoothed by a three-point average.
+The result runs down its own tarmac at 99.99% of sampled points.
+
+**Sides, measured rather than assumed.** At every point on that line, how far
+the tarmac reaches to the left and to the right, in two-pixel steps. Not one
+width per street: a street narrows at a building line and widens at a lay-by,
+and the line itself is the course where a course covers it and smoothed tile
+centres where none does, so it is not reliably down the middle. A lane is then
+a FRACTION of the room actually there — the same 0.5 / 0.75 / 0.25 split
+`laneOptions` has always driven — which is what stops a "kerb lane" being
+computed onto a pavement. Measured: **99.55%** of kerb-lane samples are on
+tarmac, in both directions.
+
+**A tile that names its street.** One `Int16` plane, so a car asks where it is
+with one array read. An edge's path is one tile wide and a street is up to
+four, so the names are spread outward by breadth-first search — **bounded** at
+three tiles, and that bound is load-bearing. Unbounded it does not stop at the
+end of a street: a dead-end spur or a long lane with no intersection on it has
+no edge of its own, so the spread pours down it from the junction at its mouth
+and names the whole thing after some hundred-pixel street back at the corner.
+The worst tile in the city was named a street whose line is **147 tiles away**,
+and a car standing there would have steered at it. Bounded, the worst is 4.5
+tiles and coverage is 80.9% of carriageway; the rest is ground the graph does
+not describe, and saying so is the right answer.
+
+### 42.2 What drives on it, and what does not
+
+The lane model drives the car in exactly one place: **the diagonal bands**, where
+the cardinal lane model has already refused to answer and the bearing fan used
+to take over. §41.1 measured that fan at **18.5% of every driving decision**, and
+§41.2 named it as the thing a lane model on the graph should replace. Over five
+seeds, 900 ticks each, against the same harness run on clean `HEAD`:
+
+| | before | after |
+|---|---|---|
+| off the carriageway | 1.947% | **1.001%** |
+| head-on encounters | 11.80% | **7.52%** |
+| lane discipline | 87.0% | **88.9%** |
+| crawling (under 12 px/s) | 34.6% | **30.2%** |
+| distance driven | 45,982 | **50,903** |
+| mean speed | 26.4 | **29.2** |
+
+Every measure improves, several by a tenth. That is the whole of the case.
+
+The "before" column is clean `HEAD`, so it carries §43's collision change as
+well as this one. Measured separately, §43 alone moves off-the-carriageway
+from 1.947% to 1.848% and nothing else materially; the rest is the lanes.
+
+### 42.3 Driving the WHOLE city off it: measured, and not shipped
+
+The obvious next step is to retire `laneOptions` and drive everything off the
+lanes, and it was built, and it is not here. The same five seeds:
+
+Against the same clean-`HEAD` baseline, driving everything off the lanes:
+
+| | fan (before) | lanes everywhere |
+|---|---|---|
+| head-on encounters | 11.80% | **4.26%** |
+| off the carriageway | 1.947% | 1.764% |
+| lane discipline | 87.0% | 85.5% |
+| distance driven | 45,982 | **41,558** |
+| mean speed | 26.4 | **23.9** |
+| crawling | 34.6% | **40.5%** |
+
+Better lane behaviour, and a tenth off the flow — and the flow is not a bug,
+it is the *consequence*: with the traffic properly in lane it drives in single
+file, so `scanAhead` finds a car ahead 63% of the time against 60%, at a mean
+gap of 30 px against 36, and the Intelligent Driver Model brakes for it. The
+old scattering across the carriageway was worth throughput precisely because
+it was not lane discipline.
+
+It also stops the cross-city errand in `traffic.test.ts` arriving inside its
+two-minute budget — the same test that §41.3 declined to break for
+width-weighted routing. Eight rounds went into that one failure and each
+uncovered a real defect worth recording:
+
+| what was wrong | what it did |
+|---|---|
+| direction resolved from the driver's cardinal intent | a cardinal square to the street is a coin flip; steering error 0.48 rad against 0.31, discipline 85.9% |
+| direction resolved from the heading alone | a car cannot turn ROUND; the errand drove away from its destination and re-planned for two minutes |
+| the aim point clamped at the street's end | the pursuit point stops moving away as the car closes on a junction; traffic bunches at every mouth |
+| the aim point extrapolated past the street's end | aims across the junction and out the far side; off the carriageway 2.69% |
+| lane 1 duplicating lane 0 on an ordinary street | no oncoming fallback, so one parked car is a permanent roadblock |
+| the graph's own junction traversal | junction time 5.9% of ticks to 9.2%, half of it crawling |
+| the lane aim closer than the turn radius | the documented orbit: the car circles a point it can never reach at full lock |
+| direction with no memory | a car broadside to its street flips end-to-end every tick on a two-degree wobble and vibrates until it decides it is wedged |
+
+Six of those are fixed and in the shipped code, because the band driver needs
+them too. Two — the cardinal-versus-heading question and the hysteresis — are
+recorded here and nowhere else, because at the scope that ships the car is
+never broadside to a band and never asked to turn round on one.
+
+The lesson is §41's, one level down. §41 said the bottleneck was the driver
+rather than the plan. It is more specific than that: **the bottleneck is the
+junction**, and a lane model makes streets better and junctions no better at
+all, so applying it to the streets a junction sits between hands the junction
+more traffic to fail on. The next wave is the junction — lane-to-lane
+connections through the box, with the turn a car is taking known before it
+enters — and until that exists, driving more of the city off the lanes trades
+flow for tidiness.
+
+### 42.4 Owed
+
+- The junction, as above. Everything §42.3 measured is waiting on it.
+- **Width-aware routing** is still shipped-and-ignored (§41.3) for the same
+  reason, and joins the same queue.
+- Only lane 0 is driven. Lanes 1 and 2 exist, are tested, and have no
+  consumer until the overtaking rule moves off the cardinal model.
+
+---
+
+## 43. Collision on the coastline
+
+§25 made the coast a curve and the water tiles its rasterisation. Both
+renderers took the curve — the 2D painter cuts a tile with `shoreHalf`, the 3D
+one punches its ground mask against the same chain — and collision did not. So
+for four waves **the water you could see and the water you could drive into
+were different shapes**: a car stopped a tile short of a waterline drawn
+diagonally across the square, or drove out onto sea already coloured blue.
+
+§41.4 tried to fix that by porting a solver built elsewhere, measured it, and
+withdrew it. The reason it recorded is the design of this one:
+
+> What it needs is not a port: it is the point, box and push rules derived
+> together from one definition, against a boundary that is authoritative and a
+> tile plane that is merely its shadow.
+
+### 43.1 One definition
+
+`shoreCut.ts` supplies exactly one thing: **the solid half-plane of a tile.**
+`shoreChains` (which the renderers already use) cuts the rings into per-tile
+chains; the chord through a chain's ends becomes a unit normal and an offset,
+and `collide.ts` reads all four of its questions off that — the point test, the
+box test, the movement face and the depenetration clamp. There is no second
+solver to reconcile with the first. A bevel is the same construction with the
+normal rounded to a diagonal, which is why the general form drops into
+`faceX`/`faceY` beside it rather than beside a special case.
+
+**One line per tile, and when it declines.** A chain can bend. Of the 7,782
+shore tiles, 5,833 have a single straight run, and the chord is within 0.1 tile
+of every interior point on 99.8% of the rest. Where it is not — a chain that
+doubles back inside one square, a cape thinner than a tile — the tile gets no
+plane and the bevels answer exactly as they do today. A cut that cannot be
+described by one line is not described by one line.
+
+### 43.2 Three defects the tile solver already had
+
+Making the faces non-diagonal exposed three things that were wrong before and
+had never bitten hard enough to notice.
+
+**`moveOnce` only ever tested the DESTINATION tile.** For a whole solid tile
+that is sound — the face is the tile's own boundary, so landing in it is the
+only way to meet it. A sloped face lives INSIDE its tile, so a mover standing
+behind one can step clean over it into the next tile, be stopped flush against
+THAT tile's face, and come to rest inside the water it just crossed. It now
+tests every column the leading edge sweeps, which is one or two given the
+half-tile sub-step. Measured on the shipped tiles-and-bevels collision alone,
+with no curve involved: movers left resting inside solid fall from **0.241% to
+0.026%**.
+
+**A face already behind you was still blocking.** The fix above needs its
+converse, or a mover that starts inside a solid — spawned in one, shunted
+through by a car — is clamped back in every tick instead of walking out the way
+it came. A face counts unless the mover is more than half a pixel past it: far
+above the slack a flush clamp leaves, far below anything a mover is genuinely
+embedded by. With both, the tile solver's residue goes to **zero**.
+
+**The box was half-open on one axis and closed on the other.** The rows a box
+touches are chosen from `pos + half - EPS` and the box is MOVED to `pos + half`;
+for a square face those are the same question, but a sloped face is a function
+of the other axis, so the x step slid the y face by a fraction of a pixel and a
+box that was flush came out a hair inside. The tile range still uses the
+half-open bound and the face is now evaluated against the closed one.
+
+### 43.3 The quantiser, which is not a geometry problem
+
+With all three fixed, a mover still ended up 0.03 px inside — and the cause is
+`q8`. Positions go on the wire quantised to eighths of a pixel, and the snap
+can round towards the line. A mover parked exactly flush against an arbitrary
+slope is therefore written down a few hundredths of a pixel into the sea:
+invisible, and still a mover in the sea. The face the solver clamps to is now
+an eighth of a pixel OUTSIDE the water, which the quantiser cannot spend (its
+worst case moves a point `sqrt(2)/16` across a unit normal). The bevels have
+the same exposure, have never shown it, and are left alone.
+
+### 43.4 What it measures
+
+Movers driven at the shore from open ground, forty steps each, at everything
+from a walk to a fast car, across all 6,888 cut tiles:
+
+| | resting inside solid |
+|---|---|
+| the ported solver §41.4 withdrew | 1.02% |
+| tiles and bevels, before this wave | 0.24% |
+| **the curve, this wave** | **0%** at a person's size |
+| …at a car's | 1 mover in 12,624, 0.9 px in |
+
+That last row is one tile of coast, and it is here rather than rounded away.
+It is a twentieth of a car's width on a shore a car has to be driven at
+deliberately, against a solver that left 1.02% of movers in the sea and a tile
+plane that left 0.24%; a different order of thing, and not nothing.
+
+The plane agrees with the tiles about which side is water at **6,767 of 6,888**
+tile centres, and about their neighbours' centres 15,417 times against 125 —
+and the disagreements are the pre-existing figure §41.4 measured, bevelled
+water the rings never reach. The placement passes are untouched: vehicle and
+parking spots overlapping solid move by at most one across three seeds, in both
+directions, because `isSolidTile` is deliberately NOT cut-aware. That is not an
+oversight — the coast crosses every tile of the quay, and answering "solid"
+there would close the whole waterfront to anybody on foot.
+
+`pnpm mapgen --solid` stipples everywhere collision says solid, which is the
+only way to see this at all: the ground has looked right since §25.
+
+### 43.5 Owed
+
+- The bevels could take the same margin and the same closed-extent treatment.
+  They have not needed it, and moving every wall in the city by an eighth of a
+  pixel is not a thing to do in passing.
+- `boxInSolid` and the movement faces now agree exactly on a cut tile. They
+  agree only to within `EPS` on a bevelled one, for the reason in §43.2 — the
+  same fix applies and the same argument against churning it does too.

@@ -153,8 +153,22 @@ export function nearestCourse(
   let bestD2 = reach * reach;
   let best = -1;
   let bestT = 0;
+  // Which cell the point is in, so a neighbouring cell entirely beyond the
+  // reach can be skipped without opening it. Safe because a segment is filed
+  // in EVERY cell it crosses: any part of it within `reach` of the point lies
+  // in a cell within `reach`, which is not skipped — so the set of segments
+  // that can win is unchanged, and so is the tie-break among them. At the
+  // half-tile reach the lane snap asks for (§42) that is five cells of nine
+  // never opened, and the snap is 40,000 queries per city.
+  const ox = x - Math.floor(x / CELL) * CELL;
+  const oy = y - Math.floor(y / CELL) * CELL;
   for (let cy = -1; cy <= 1; cy++) {
+    // Distance from the point to that row of cells, 0 for its own.
+    const dy = cy < 0 ? oy : cy > 0 ? CELL - oy : 0;
+    if (dy >= reach) continue;
     for (let cx = -1; cx <= 1; cx++) {
+      const dx = cx < 0 ? ox : cx > 0 ? CELL - ox : 0;
+      if (dx * dx + dy * dy >= bestD2) continue;
       const slot = idx.cellOf.get(cellKey(x + cx * CELL, y + cy * CELL));
       if (slot === undefined) continue;
       for (let k = idx.off[slot] as number; k < (idx.off[slot + 1] as number); k++) {

@@ -315,6 +315,12 @@ export interface CityMap {
    * smooth waterline. Optional only so a bare fixture can omit it.
    */
   banks?: Array<{ points: Array<readonly [number, number]>; land: boolean }>;
+  /**
+   * `shores` cut up per tile and linearised, so collision stops a mover at
+   * the waterline the renderers draw rather than at the tile edge behind it
+   * (WORLDGEN.md §43). Derived, per session, never on the wire.
+   */
+  shoreCut?: import('./shoreCut.js').ShoreCut;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];
@@ -378,6 +384,14 @@ export interface CityMap {
    * Absent means "no graph here", and routing falls back to searching tiles.
    */
   roadNet?: import('../sim/roadnet.js').RoadNet;
+  /**
+   * The lanes on that graph (WORLDGEN.md §42): a line per street, sides and
+   * widths, and a tile that names its own street. What a driver reads to know
+   * which road it is on, which way along it, and where it sits across it —
+   * the three facts the bearing fan was standing in for. Absent means the
+   * driver falls back to probing the tiles.
+   */
+  lanes?: import('../sim/lanes.js').Lanes;
   /**
    * The street centrelines indexed for point queries (WORLDGEN.md §41).
    * Derived at generation time from `courses`, never sent — both hosts hold

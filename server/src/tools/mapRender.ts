@@ -1,3 +1,4 @@
+import { laneOffset, type Lanes } from 'shared';
 import { readFileSync } from 'node:fs';
 import {
   DISTRICT_TYPES,
@@ -52,6 +53,13 @@ export interface RenderableMap {
    * as a picture rather than a count.
    */
   roadNet?: RoadNet | undefined;
+  /**
+   * The lanes on that graph (WORLDGEN.md §42). Given AND asked for, the
+   * painter draws each street's own line and the kerb lane a car keeps to
+   * going each way along it — which is the claim "the graph knows where the
+   * road is and which side of it you drive on" as a picture.
+   */
+  lanes?: Lanes | undefined;
   /**
    * The authored road centrelines (WORLDGEN.md §16), in tile units.
    *
@@ -223,6 +231,9 @@ export function render(
   hTiles: number,
   scale: number,
   net = false,
+  lanes = false,
+  solid = false,
+  isSolidAt?: (x: number, y: number) => boolean,
 ): Render {
   const W = wTiles * scale;
   const H = hTiles * scale;
@@ -629,6 +640,88 @@ export function render(
         for (let dx = -r; dx <= r; dx++) {
           if (dx * dx + dy * dy > r * r) continue;
           put(cx + dx, cy + dy, node);
+        }
+      }
+    }
+  }
+
+  // What COLLISION thinks, sampled finer than a tile (WORLDGEN.md §43).
+  //
+  // The one overlay that cannot be inferred from the picture underneath it.
+  // Both renderers have cut their coast against the curve since §25, so the
+  // waterline has LOOKED right for a long time while a car still stopped at
+  // the tile edge behind it — and a still of the ground cannot show that,
+  // because the thing that was wrong was invisible. Marking every sample the
+  // movement solver calls solid puts the two shapes in one frame.
+  if (solid && isSolidAt) {
+    const mark: [number, number, number] = [255, 60, 90];
+    const sub = Math.max(2, Math.min(8, scale));
+    for (let ty = y0; ty < y0 + hTiles; ty++) {
+      for (let tx = x0; tx < x0 + wTiles; tx++) {
+        for (let sy = 0; sy < sub; sy++) {
+          for (let sx = 0; sx < sub; sx++) {
+            const wx = (tx + (sx + 0.5) / sub) * 16;
+            const wy = (ty + (sy + 0.5) / sub) * 16;
+            if (!isSolidAt(wx, wy)) continue;
+            // A sparse stipple, not a wash: the ground has to stay readable
+            // under it or the picture only shows the overlay.
+            if (((sx + sy) & 1) === 1) continue;
+            const px = Math.round((tx - x0) * scale + ((sx + 0.5) * scale) / sub);
+            const py = Math.round((ty - y0) * scale + ((sy + 0.5) * scale) / sub);
+            put(px, py, mark);
+          }
+        }
+      }
+    }
+  }
+
+  // The lanes on that graph (WORLDGEN.md §42): each street's own LINE, and
+  // the kerb lane a car keeps to going each way along it. The line is where
+  // the tile centres were pulled onto the course running down the street; the
+  // two lanes are a fraction of the tarmac measured either side of it, which
+  // is why they narrow where the street does instead of running through the
+  // kerb.
+  if (lanes && map.lanes) {
+    const L = map.lanes;
+    const line: [number, number, number] = [90, 90, 110];
+    const withEdge: [number, number, number] = [60, 230, 120];
+    const against: [number, number, number] = [255, 140, 60];
+    const dot = (wx: number, wy: number, c: [number, number, number]): void => {
+      const cx = Math.round((wx / 16 - x0) * scale);
+      const cy = Math.round((wy / 16 - y0) * scale);
+      const r = Math.max(0, (scale >> 3) - 1);
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) put(cx + dx, cy + dy, c);
+    };
+    for (let e = 0; e + 1 < L.off.length; e++) {
+      const lo = L.off[e] as number;
+      const hi = L.off[e + 1] as number;
+      for (let k = lo; k + 1 < hi; k++) {
+        const ax = L.x[k] as number;
+        const ay = L.y[k] as number;
+        const vx = (L.x[k + 1] as number) - ax;
+        const vy = (L.y[k + 1] as number) - ay;
+        const len = Math.sqrt(vx * vx + vy * vy);
+        if (len === 0) continue;
+        const a = k > lo ? k - 1 : k;
+        const b = k + 1 < hi ? k + 1 : k;
+        const nx = (L.x[b] as number) - (L.x[a] as number);
+        const ny = (L.y[b] as number) - (L.y[a] as number);
+        const nl = Math.sqrt(nx * nx + ny * ny) || 1;
+        const steps = Math.max(1, Math.ceil(len / 2));
+        for (let t = 0; t <= steps; t++) {
+          const px = ax + (vx * t) / steps;
+          const py = ay + (vy * t) / steps;
+          dot(px, py, line);
+          for (const dir of [1, -1]) {
+            const roomR = (dir > 0 ? L.halfR[k] : L.halfL[k]) as number;
+            const roomL = (dir > 0 ? L.halfL[k] : L.halfR[k]) as number;
+            const off = laneOffset(L.edgeLanes[e] as number, roomR, roomL, 0);
+            dot(
+              px - (ny / nl) * dir * off,
+              py + (nx / nl) * dir * off,
+              dir > 0 ? withEdge : against,
+            );
+          }
         }
       }
     }
