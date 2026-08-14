@@ -663,12 +663,18 @@ export function render(
             const wx = (tx + (sx + 0.5) / sub) * 16;
             const wy = (ty + (sy + 0.5) / sub) * 16;
             if (!isSolidAt(wx, wy)) continue;
-            // A sparse stipple, not a wash: the ground has to stay readable
-            // under it or the picture only shows the overlay.
+            // A stipple, not a wash: the ground has to stay readable under it
+            // or the picture only shows the overlay. Every other sample, and
+            // each one drawn as the block it stands for rather than as one
+            // pixel — at a close-up zoom a single pixel per sample is a faint
+            // speckle, and this overlay is only ever looked at close up.
             if (((sx + sy) & 1) === 1) continue;
-            const px = Math.round((tx - x0) * scale + ((sx + 0.5) * scale) / sub);
-            const py = Math.round((ty - y0) * scale + ((sy + 0.5) * scale) / sub);
-            put(px, py, mark);
+            const step = Math.max(1, Math.round(scale / sub));
+            const px = Math.round((tx - x0) * scale + (sx * scale) / sub);
+            const py = Math.round((ty - y0) * scale + (sy * scale) / sub);
+            for (let by = 0; by < step; by++) {
+              for (let bx = 0; bx < step; bx++) put(px + bx, py + by, mark);
+            }
           }
         }
       }

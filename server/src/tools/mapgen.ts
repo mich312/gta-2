@@ -27,6 +27,7 @@ import { loadPalette, render, type PaletteFile, type RenderableMap, type Render 
  *   pnpm mapgen --net                         draw the junction graph routing searches
  *   pnpm mapgen --lanes                       draw each street's line and its two kerb lanes
  *   pnpm mapgen --solid                       stipple everywhere collision says solid
+ *   pnpm mapgen --crop=x,y,w --scale=44       px per tile, for a close-up
  *
  * The ground is the same picture whatever the seed: it comes out of the bake
  * (`pnpm citybake`). What the seed moves is the furniture the render marks —
@@ -365,6 +366,7 @@ function main(): void {
   let net = false;
   let lanes = false;
   let solid = false;
+  let scaleOverride = 0;
   let rasterOnly = false;
   for (const a of process.argv.slice(2)) {
     const m = /^--([a-z]+)(?:=(.+))?$/.exec(a);
@@ -377,6 +379,7 @@ function main(): void {
     if (key === 'net') net = true;
     if (key === 'lanes') lanes = true;
     if (key === 'solid') solid = true;
+    if (key === 'scale' && val) scaleOverride = Number.parseInt(val, 10);
     if (key === 'tiles') rasterOnly = true;
     if (key === 'sheet') sheet = val ?? SHEET_OUT;
     if (key === 'crop' && val) {
@@ -415,8 +418,12 @@ function main(): void {
   } else if (crop) {
     const [x, y, w, h] = crop;
     // Scaled so a close-up is actually close: a 60-tile crop renders at 8 px
-    // per tile, the whole map still at 2.
-    const scale = Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
+    // per tile, the whole map still at 2. `--scale` overrides it, which the
+    // `--solid` overlay wants — it samples finer than a tile, so eight pixels
+    // a tile is the point at which it stops being legible.
+    const scale = scaleOverride > 0
+      ? scaleOverride
+      : Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
     picture = render(drawable, palette, x, y, w, h, scale, net, lanes, solid, (px, py) =>
       isSolidAtWorld(drawable, px, py),
     );
