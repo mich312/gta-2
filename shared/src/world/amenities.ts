@@ -1056,8 +1056,18 @@ export function placePickups(map: CityMap): void {
     }
   }
   // Capped for the same reason the moorings are: every crate is a live sim
-  // entity from the first tick.
-  map.pickupSpawns = spread(spawns, Math.round(PICKUPS_PER_CITY * Math.sqrt(areaScale(map))));
+  // entity from the first tick — and the kinds are dealt over the CAPPED
+  // list, not the candidate list. Dealt before the cap, the cycle's fairness
+  // belonged to a list nobody gets: `spread` samples every ~(L/n)th
+  // candidate, and whenever that stride shared a factor with the 24-long
+  // cycle, whole residue classes of it vanished — the 4.6 rebake moved the
+  // candidate count and the city shipped 607 crates with no jail card in
+  // any of them. The mix is a property of what ships.
+  const capped = spread(spawns, Math.round(PICKUPS_PER_CITY * Math.sqrt(areaScale(map))));
+  map.pickupSpawns = capped.map((s, i) => ({
+    ...s,
+    kind: PICKUP_CYCLE[i % PICKUP_CYCLE.length] as PickupSpawnKind,
+  }));
 }
 
 

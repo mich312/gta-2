@@ -742,7 +742,13 @@
         "pitchY": 13,
         "width": 3,
         "alleyOver": 20,
-        "fabric": "contour"
+        "fabric": "contour",
+        "bandShore": [
+          176,
+          330,
+          230,
+          40
+        ]
       }
     },
     {
@@ -773,7 +779,13 @@
         "pitchY": 13,
         "width": 3,
         "alleyOver": 19,
-        "fabric": "contour"
+        "fabric": "contour",
+        "bandShore": [
+          404,
+          330,
+          240,
+          40
+        ]
       }
     },
     {
@@ -997,7 +1009,13 @@
         "width": 3,
         "alleyOver": 0,
         "angle": 0,
-        "fabric": "contour"
+        "fabric": "contour",
+        "bandShore": [
+          190,
+          250,
+          60,
+          170
+        ]
       }
     },
     {
@@ -1604,8 +1622,8 @@
       "kind": "stadium",
       "name": "Ironside Stadium",
       "rect": [
-        126,
-        315,
+        106,
+        324,
         15,
         12
       ]
@@ -1634,8 +1652,8 @@
       "kind": "power",
       "name": "Kessler Power",
       "rect": [
-        129,
-        354,
+        133,
+        324,
         13,
         11
       ]
@@ -1654,8 +1672,8 @@
       "kind": "police",
       "name": "Kelvin Road Station",
       "rect": [
-        474,
-        446,
+        470,
+        441,
         7,
         7
       ]
@@ -1664,8 +1682,8 @@
       "kind": "police",
       "name": "Sunridge Station",
       "rect": [
-        314,
-        457,
+        309,
+        463,
         7,
         7
       ]
@@ -1694,8 +1712,8 @@
       "kind": "hospital",
       "name": "Seaview Infirmary",
       "rect": [
-        551,
-        437,
+        574,
+        425,
         9,
         7
       ]
@@ -1744,8 +1762,8 @@
       "kind": "lighthouse",
       "name": "Old Point Light",
       "rect": [
-        512,
-        676,
+        517,
+        673,
         4,
         4
       ]

@@ -859,6 +859,42 @@ export function buildLayout(plan: CityPlan): CityLayout {
   const shoreSmooth = blurField(shoreDist, 3, W, H);
 
   /**
+   * One borough, one shore (wave 4.6, the approved design note).
+   *
+   * A contour borough's field is distance to ITS OWN banding shore — the
+   * water inside its authored `bandShore` box — not to the nearest water.
+   * With the nearest-water field, a borough between two waters laid two
+   * contour families that met mid-borough, and where they met, streets
+   * landed on streets: §28.3's merged tarmac sheets, unfixable by
+   * suppression because neither family was wrong. Computed here, before the
+   * esplanade pass, because both that pass and the fabric carve read them:
+   * the bands own the shore inside the box, the far waterfront gets the
+   * ordinary esplanade street.
+   */
+  const bandFields = new Map<number, { field: Float32Array; smooth: Float32Array }>();
+  for (const [di, d] of plan.districts.entries()) {
+    if (d.street.fabric !== 'contour' || !d.street.bandShore) continue;
+    const [bx, by, bw, bh] = d.street.bandShore;
+    const seed = new Uint8Array(W * H);
+    let wet = 0;
+    for (let ty = Math.max(0, by); ty < Math.min(H, by + bh); ty++) {
+      for (let tx = Math.max(0, bx); tx < Math.min(W, bx + bw); tx++) {
+        if (water[ty * W + tx] === 1) {
+          seed[ty * W + tx] = 1;
+          wet++;
+        }
+      }
+    }
+    if (wet === 0) {
+      throw new Error(
+        `city plan: district ${d.name}'s bandShore box [${bx},${by},${bw},${bh}] contains no water`,
+      );
+    }
+    const field = distanceField(seed, 1, W, H);
+    bandFields.set(di, { field, smooth: blurField(field, 3, W, H) });
+  }
+
+  /**
    * Is there already a road just inland or just seaward of here? The probe
    * runs along the shore-distance GRADIENT — perpendicular to the coast —
    * because the road this tile must not double is one running parallel to
@@ -867,9 +903,21 @@ export function buildLayout(plan: CityPlan): CityLayout {
    * the crossing, and the crossing itself becomes the junction.
    */
   const preEsp = tiles.slice();
-  const shoreParallelRoadNear = (tx: number, ty: number): boolean => {
-    const gx = (shoreSmooth[Math.min(W - 1, tx + 1) + ty * W] as number) - (shoreSmooth[Math.max(0, tx - 1) + ty * W] as number);
-    const gy = (shoreSmooth[tx + Math.min(H - 1, ty + 1) * W] as number) - (shoreSmooth[tx + Math.max(0, ty - 1) * W] as number);
+  // Parameterised over the field pair (wave 4.6): a contour borough's bands
+  // are iso-lines of ITS OWN banding field, so the probe that keeps a band
+  // off a road running beside it must walk that field's gradient — walking
+  // the global nearest-shore gradient near the borough's far side probes
+  // perpendicular to the band and misses the road standing right next to
+  // it, which is how the first one-shore bake grew an eight-wide sheet
+  // down the middle of the Docks.
+  const shoreParallelRoadNearIn = (
+    field: Float32Array,
+    smooth: Float32Array,
+    tx: number,
+    ty: number,
+  ): boolean => {
+    const gx = (smooth[Math.min(W - 1, tx + 1) + ty * W] as number) - (smooth[Math.max(0, tx - 1) + ty * W] as number);
+    const gy = (smooth[tx + Math.min(H - 1, ty + 1) * W] as number) - (smooth[tx + Math.max(0, ty - 1) * W] as number);
     const len = Math.hypot(gx, gy) || 1;
     for (let k = -4; k <= 4; k++) {
       if (k === 0) continue;
@@ -882,10 +930,25 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // shore left to it would still be a shore with no street — the whole
       // §13.5 invariant — so the band yields only to roads standing at
       // quay's reach of the water themselves.
-      if ((t === T_ROAD || t === T_BRIDGE) && (shoreDist[py * W + px] as number) <= 6) return true;
+      if (t !== T_ROAD && t !== T_BRIDGE) continue;
+      // Two rules, by depth (wave 4.6). The INNERMOST band is the §13.5
+      // waterfront street, and yields only to a road that already serves
+      // that waterfront — the old rule, kept: an avenue six tiles inland
+      // must not silence the shore's own street. Bands DEEPER inland have
+      // no waterfront claim: they yield to any road standing beside them,
+      // because with a one-shore field they now march far from their water
+      // and can land alongside an avenue the nearest-water field would
+      // never have carried them to. The serves-a-waterfront test reads the
+      // GLOBAL shore distance on purpose — with a banding field, a road on
+      // the far coast is eighty tiles from the box and still a waterfront
+      // street.
+      const innermost = (field[ty * W + tx] as number) <= 8;
+      if (!innermost || (shoreDist[py * W + px] as number) <= 6) return true;
     }
     return false;
   };
+  const shoreParallelRoadNear = (tx: number, ty: number): boolean =>
+    shoreParallelRoadNearIn(shoreDist, shoreSmooth, tx, ty);
 
   const esplanade = new Set<number>();
   const espBand = new Set<number>();
@@ -908,7 +971,15 @@ export function buildLayout(plan: CityPlan): CityLayout {
       if (own < 0) continue;
       const d = plan.districts[own] as PlanDistrict;
       if (d.rural) continue;
-      if (d.street.fabric === 'contour' && pointInPoly(d.area, tx + 0.5, ty + 0.5)) continue;
+      // A contour borough skips the esplanade only along its BANDING shore
+      // (wave 4.6) — its own innermost band is that street. Its far
+      // waterfront is no longer banded, so the esplanade lays the §13.5
+      // street there like anywhere else; the polygon-wide skip would leave
+      // that shore the streetless fringe all over again.
+      if (d.street.fabric === 'contour' && pointInPoly(d.area, tx + 0.5, ty + 0.5)) {
+        const bfe = bandFields.get(own);
+        if (!bfe || (bfe.field[i] as number) <= 8) continue;
+      }
       const sd = shoreDist[i] as number;
       if (sd < 3 || sd >= 6) continue;
       if (shoreParallelRoadNear(tx, ty)) continue;
@@ -1129,6 +1200,14 @@ export function buildLayout(plan: CityPlan): CityLayout {
     const fabric = d.street.fabric;
     const contour = fabric === 'contour';
 
+    // The banding shore's fields, computed once before the esplanade pass —
+    // see `bandFields` there. Falling back to the global pair can only
+    // happen for a plan the parser would refuse; the fallback keeps this
+    // total rather than trusted.
+    const bf = bandFields.get(di);
+    const bandField = bf?.field ?? shoreDist;
+    const bandSmooth = bf?.smooth ?? shoreSmooth;
+
     /**
      * The `spine` fabric's field: distance to the named avenue's course,
      * and the course's own bearing at the nearest point — measured
@@ -1183,7 +1262,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
         for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
           if (!inThis(tx, ty)) continue;
-          if ((shoreDist[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
+          if ((bandField[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
           mx += tx;
           my += ty;
           n++;
@@ -1195,7 +1274,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
           for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
             if (!inThis(tx, ty)) continue;
-            if ((shoreDist[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
+            if ((bandField[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
             sxx += (tx - mx) * (tx - mx);
             syy += (ty - my) * (ty - my);
             sxy += (tx - mx) * (ty - my);
@@ -1213,11 +1292,11 @@ export function buildLayout(plan: CityPlan): CityLayout {
         for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
           if (!inThis(tx, ty)) continue;
           const gx =
-            (shoreSmooth[Math.min(W - 1, tx + 1) + ty * W] as number) -
-            (shoreSmooth[Math.max(0, tx - 1) + ty * W] as number);
+            (bandSmooth[Math.min(W - 1, tx + 1) + ty * W] as number) -
+            (bandSmooth[Math.max(0, tx - 1) + ty * W] as number);
           const gy =
-            (shoreSmooth[tx + Math.min(H - 1, ty + 1) * W] as number) -
-            (shoreSmooth[tx + Math.max(0, ty - 1) * W] as number);
+            (bandSmooth[tx + Math.min(H - 1, ty + 1) * W] as number) -
+            (bandSmooth[tx + Math.max(0, ty - 1) * W] as number);
           const deg =
             gx === 0 && gy === 0
               ? frameDeg
@@ -1534,14 +1613,14 @@ export function buildLayout(plan: CityPlan): CityLayout {
       for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
         for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
           if (!inThis(tx, ty) || water[ty * W + tx] === 1) continue;
-          const sd = shoreDist[ty * W + tx] as number;
+          const sd = bandField[ty * W + tx] as number;
           if (sd < 3) continue;
           if ((sd - 3) % pitchX >= width) continue;
-          if (shoreParallelRoadNear(tx, ty)) continue;
+          if (shoreParallelRoadNearIn(bandField, bandSmooth, tx, ty)) continue;
           lay(tx, ty, null);
         }
       }
-      traceBands(shoreDist, 3);
+      traceBands(bandField, 3);
       // The cross streets: straight connectors perpendicular to the shore's
       // mean tangent, `pitchY` apart along it, carved through the same
       // rotated-frame machinery the grid fabric uses.

@@ -329,9 +329,14 @@ export function spotInsideWall(map: CityMap): { x: number; y: number } | null {
       for (let dy = -1; dy <= 1; dy++) open = open && !isSolidTile(map, tx - i, ty + dy, 'land');
     }
     // ...and a wall deep enough that driving round it is not the easy way,
-    // in both axes.
-    for (let dy = -2; dy <= 2 && open; dy++) {
-      for (let dx = 0; dx <= 2 && open; dx++) {
+    // in both axes. Deep BOTH ways since the 4.6 rebake: at three deep and
+    // five tall, the first qualifying wall's corners let a wave officer
+    // casting about at the diagonal catch a sliver of the suspect, one
+    // glimpse reset the search clock through the radio, and "gives up"
+    // never came. Hidden must mean hidden, from every angle a wave can
+    // reach.
+    for (let dy = -3; dy <= 3 && open; dy++) {
+      for (let dx = 0; dx <= 3 && open; dx++) {
         open = map.tiles[(ty + dy) * map.widthTiles + tx + dx] === T_BUILDING;
       }
     }

@@ -1,5 +1,53 @@
 # PROGRESS
 
+## Wave 4.6 of PLAN-WORLDGEN: one borough, one shore — DELIVERED
+
+The approved design note, built. A contour borough now names its banding
+shore in the plan (`street.bandShore`, a box over the water it fronts),
+its bands trace a field seeded from that water only, and its far
+waterfront gets the ordinary esplanade street instead of a second contour
+family marching in to meet the first at the medial axis. The parser
+refuses a contour borough without one; the layout refuses a box with no
+water in it; `plangen` emits boxes for its own contour cells and stays
+held to the same checker.
+
+One correction to the note, made by the code: the two-family merge lived
+in the CONTOUR fabrics — The Terraces, Beachfront and The Docks — not in
+the Old Quarter, whose fabric is an angled grid. The note's
+borough-by-borough mapping was wrong; its mechanism was right.
+
+Measured, on the metric this repo can re-run (7×7 all-carriageway window
+centres, pinned in `city.test.ts`):
+
+- merged sheet centres **276 → 211**; the contour-class hotspots (the
+  Docks column, the Terraces' 51%-carriageway sheet) are gone, and what
+  remains is the Kelvin avenue-crossing class §28 already measured as
+  the suppression ceiling
+- road share of dry land **34.2% → 32.9%** — the note's <30% gate is NOT
+  met, and honestly cannot be met by banding alone: the residual is
+  avenue-crossing merges and legitimate street, not two-family merges
+- **3,853 → 4,066 buildings** (+213) on ground freed from tarmac
+- goto-follower A/B over the same pair rule: 3/8 arrivals on this bake
+  against 3/11 on the previous one — the follower's ~30% ceiling is
+  chronic (§41), not a 4.6 regression
+
+Found and fixed on the way, a real session bug: pickup kinds were dealt
+over the CANDIDATE list before the cap, so whenever `spread`'s stride
+shared a factor with the 24-kind cycle, whole kinds vanished — this bake
+shipped 607 crates with no jail card in any of them. Kinds are dealt
+over the capped list now.
+
+Six landmarks moved to ground the rebanded fabrics freed or claimed
+(`citybake --fit` named every move). Five tests restaged on found ground,
+each with its reason written in: the queues test stands beside a signal,
+the errand and ambulance tests try the best few journeys (three rebakes
+taught them three distinct follower ceilings — a 16 px jink, a hairpin,
+a parked car dead on the lane), the lanes flip probe asks along the
+LOCAL tangent an L-shaped street actually has, and P1a holds its suspect
+below the first helicopter wave, because a heli sees through roofs and
+"cannot find the suspect" stopped being true the moment livelier kerbs
+could field one.
+
 ## Wave 4 of PLAN-WORLDGEN: the structural debt
 
 No tile moved. Four debts paid, one deferred with its gate written down,

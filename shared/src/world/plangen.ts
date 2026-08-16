@@ -1525,6 +1525,30 @@ export function generateCityPlan(opts: PlanGenOptions): CityPlan {
     const street = stranded
       ? { pitchX: 0, pitchY: 0, width: 2, alleyOver: 0, angle: 0, fabric: 'grid' as const, spine: '' }
       : fabricFor(type, rural, coastal, fabricRoll);
+    // One borough, one shore (wave 4.6): a contour cell names its banding
+    // water, exactly as the drawn plan must — the parser refuses a contour
+    // borough without one. The generator has the water raster, so the box
+    // is honest: forty tiles around the water nearest the cell's own site,
+    // which is the shore the fabric visibly fronts.
+    if (street.fabric === 'contour') {
+      let bd = Infinity;
+      let wx = 0;
+      let wy = 0;
+      for (let ty = 0; ty < H; ty++) {
+        for (let tx = 0; tx < W; tx++) {
+          if (water[ty * W + tx] !== 1) continue;
+          const d = (tx - s.x) * (tx - s.x) + (ty - s.y) * (ty - s.y);
+          if (d < bd) {
+            bd = d;
+            wx = tx;
+            wy = ty;
+          }
+        }
+      }
+      const bx = Math.max(0, wx - 20);
+      const by = Math.max(0, wy - 20);
+      street.bandShore = [bx, by, Math.min(40, W - bx), Math.min(40, H - by)];
+    }
     cells.push({
       name: s.name,
       borough: s.name,

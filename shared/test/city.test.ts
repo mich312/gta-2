@@ -782,6 +782,39 @@ describe('the city, as an asset', () => {
     expect(wet).toBe(0);
   });
 
+  it('keeps merged tarmac sheets rare, and shrinking', () => {
+    // Wave 4.6's gate, on the metric this repo can re-run: tiles at the
+    // centre of a 7×7 all-carriageway window. One-shore banding took it
+    // from 276 to 211 by ending the §28.3 two-family merges in the contour
+    // boroughs; what remains is the avenue-crossing class §28 measured as
+    // the suppression ceiling. The pin holds the ceiling: a change that
+    // grows a new sheet — a fabric regression, a probe that stopped
+    // probing — fails here before anyone has to see it from the air.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const cw = (x: number, y: number): boolean => {
+      const t = map.tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    let merged = 0;
+    for (let y = 3; y < H - 3; y++) {
+      for (let x = 3; x < W - 3; x++) {
+        if (!cw(x, y)) continue;
+        let all = true;
+        for (let dy = -3; dy <= 3 && all; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            if (!cw(x + dx, y + dy)) {
+              all = false;
+              break;
+            }
+          }
+        }
+        if (all) merged++;
+      }
+    }
+    expect(merged).toBeLessThanOrEqual(230);
+  });
+
   it('gives stadiums and power stations an inside, not a slab', () => {
     // Wave 3.1, the slab test inverted: the flyover found the city's two
     // biggest named buildings rendering as featureless warehouse roofs

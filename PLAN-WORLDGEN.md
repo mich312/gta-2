@@ -284,7 +284,17 @@ waterfronts) agreed **before** code, then lands as its own rebake with the
 < 30%, and the flyover retake of the Old Quarter no longer showing a tarmac
 lake (`evidence/topdown-oldquarter-tarmac.png` is the before picture).
 
-### 4.6.1 The design note (wave-4 deliverable — a decision to approve, not code)
+### 4.6.1 The design note — APPROVED AND DELIVERED (see PROGRESS.md)
+
+Delivered with one correction the code made to the note: the two-family
+merge lived in the contour fabrics (The Terraces, Beachfront, The Docks),
+not the Old Quarter, whose fabric is an angled grid — the note's mechanism
+was right and its borough map was wrong. Gates, measured: merged sheet
+centres 276 → 211 with the contour class gone (pinned ≤ 230); road share
+34.2% → 32.9% — the <30% gate is not met and cannot be met by banding
+alone, because the residual is §28's avenue-crossing ceiling; +213
+buildings on the freed ground. The original note follows, kept for the
+record.
 
 The mechanism today: a shore borough's long streets are traced as
 iso-lines of the water's distance field (§16's contour fabric), and that
