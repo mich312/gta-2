@@ -1,5 +1,30 @@
 # PROGRESS
 
+## Wave 0 of PLAN-WORLDGEN: the safety rails
+
+The four fixes that make every later worldgen change safe to make, landed
+together and none of them moving a tile:
+
+- **`citybake` no longer writes a failing city.** The asset write ran before
+  the checker's verdict, so a plan with a checker error still overwrote
+  `city.data.ts` — directly against the tool's own header. The write now
+  happens only on zero errors; verified by removing the lighthouses from the
+  plan and watching the bake refuse, exit 1, asset byte-identical.
+- **The shipped bytes meet their own checker, in a test.**
+  `server/test/shippedCity.test.ts` decodes `CITY_DATA` exactly as
+  `generateCity` does and runs `checkCity` over it: zero errors, and the
+  warning list *pinned* — the eight wet road tiles may shrink but not grow,
+  and any new warning kind is a red test. (`CITY_DATA` is now exported from
+  the shared barrel for exactly this.)
+- **The freshness gate is exact.** `city.test.ts` allowed 589 differing
+  tiles to cover ~230 session-carved ramps, leaving ~360 tiles of silent
+  plan/asset drift room. It now skips exactly the tiles the session turned
+  into `T_RAMP` and demands zero other differences.
+- **CI runs the suite.** `.github/workflows/test.yml` builds and tests every
+  push and PR, then runs `citybake --check` against the shipped asset; the
+  deploy workflow gained the same job and `deploy` now `needs: test` — main
+  cannot ship a red suite.
+
 ## The join, measured rather than estimated
 
 The entry below left the join sequence flagged as "the first thing that will

@@ -13,6 +13,7 @@ import {
   T_BUILDING,
   T_FIELD,
   T_LOT,
+  T_RAMP,
   T_ROAD,
   T_RUNWAY,
   T_SAND,
@@ -100,12 +101,17 @@ describe('the city, as an asset', () => {
     // a session dresses the map, so the loaded city has three more shops.
     expect(baked.shops).toEqual(loaded.shops.filter((s) => s.kind !== 'clinic'));
     // Ramps are carved from the SEED, after the bake — the one part of the
-    // ground a session is allowed to move — so compare everything else.
+    // ground a session is allowed to move — so skip exactly the tiles the
+    // session turned into ramps and demand the rest IDENTICAL. The old gate
+    // allowed `tiles.length / 1000` (589) differing tiles to cover ~230 ramp
+    // tiles, which left ~360 tiles of real plan/asset drift passing silently
+    // (PLAN-WORLDGEN.md wave 0.3).
     let differing = 0;
     for (let i = 0; i < baked.tiles.length; i++) {
+      if (loaded.tiles[i] === T_RAMP) continue;
       if (baked.tiles[i] !== loaded.tiles[i]) differing++;
     }
-    expect(differing).toBeLessThan(baked.tiles.length / 1000);
+    expect(differing).toBe(0);
   });
 
   it('survives the round trip through its encoded form', { timeout: 60_000 }, () => {

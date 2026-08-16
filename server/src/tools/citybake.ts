@@ -124,6 +124,15 @@ function main(): void {
     if (errors > 0) process.exitCode = 1;
     return;
   }
+  // The write comes AFTER the verdict. This file's whole argument is "a city
+  // that fails the checks does not get committed" — which was a lie while the
+  // asset was written first and the exit code set second: a failing bake
+  // overwrote `city.data.ts` and left the error scroll as the only witness.
+  if (errors > 0) {
+    console.log(`  ${errors} error(s): ${fileURLToPath(OUT).replace(HERE, '')} left untouched`);
+    process.exitCode = 1;
+    return;
+  }
   const encoded = encodeBakedCity(city);
   writeFileSync(
     OUT,
