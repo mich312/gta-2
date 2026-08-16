@@ -1,0 +1,268 @@
+# PLAN-WORLDGEN.md — fixing the map generation, and everything the flyover saw
+
+The fix plan for `REVIEW-WORLDGEN.md`, sequenced the way this codebase already
+knows works: safety rails before anything that can change the bake, paint-only
+fixes next (they ship without touching the city), then **one** declared rebake
+carrying every tile-changing fix at once, then the larger visual features, then
+the structural debt that makes all later changes cheaper. Nothing here touches
+the sim's hot loop; the one candidate that could (ramp geometry, 3.5) is
+renderer-only by design.
+
+House rules this plan inherits:
+
+- **A bake-changing fix does not ship alone.** Every change that moves a tile
+  lands in Wave 2's single rebake, declared in `PROGRESS.md`, with the
+  evidence renders retaken. Two rebakes in a wave means someone reviews the
+  city twice for one change's worth of difference.
+- **Every fix ships with its invariant** — a test that would have caught it,
+  not just the repair.
+- **Every evidence PNG names its retake command.** The flyover shots use
+  `WAIT_GROUND=40 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=<tx>,<ty>&h=300..360&pitch=8&night=0" <out>` —
+  and never shoot before `__ground.resident` says the painting caught up.
+
+---
+
+## Wave 0 — safety rails (all S, no bake change, land first)
+
+The point of this wave: after it, a bad bake *cannot* be committed silently,
+so every later wave gets to move fast.
+
+| # | Fix | Where | Gate |
+|---|---|---|---|
+| 0.1 | **`citybake` must not write a failing city.** Move the `writeFileSync` below the `errors > 0` test; on errors print them and exit 1 with `city.data.ts` untouched. | `server/src/tools/citybake.ts` | A deliberately broken plan (landmark in water) leaves the asset byte-identical and exits non-zero |
+| 0.2 | **The shipped city meets its own checker, in a test.** The freshness test already pays for a full `bakeCity(plan)`; add `checkCity(city, plan)` in the same `describe` and assert zero errors — and pin the warning count (today: one, "8 road tiles run straight into water") so it can shrink but not grow. | `shared/test/city.test.ts` | Red if anyone bakes in a checker error or a ninth wet road tile |
+| 0.3 | **Make the freshness gate exact.** The `tiles.length / 1000` (589-tile) slack exists for ~230 session-carved ramp tiles. Skip tiles where `loaded.tiles[i] === T_RAMP` and assert **zero** other differences. | `shared/test/city.test.ts:88` | Any plan/asset drift that is not a ramp fails |
+| 0.4 | **CI runs the tests.** A workflow job: `pnpm install`, `pnpm build`, `vitest run`; deploy depends on it. Today `deploy.yml` deploys unconditionally and every invariant in the repo is opt-in. | `.github/workflows/` | A red suite blocks deploy |
+
+## Wave 1 — paint-only visual fixes (renderer only, no bake change)
+
+Each item is independently shippable and retakes its evidence PNG.
+
+**1.1 The runway centreline (S).** Both painters mark every interior row of
+the strip — the predicate is "runway above AND below" (`client/src/render/tiles.ts:2119`,
+`client/src/three/cityGeometry.ts:542`), so a 7-row strip carries five dashed
+lines (`evidence/topdown-runway-grid.png`). Fix: walk to the strip's north
+and south edges and mark only the row equidistant from them (even strips:
+the northerly of the middle pair), keeping the every-other-column cadence.
+One rule, stated once, imported by both painters — the same treatment
+`RUN_ROAD` got in BUGS.md §7.1. *Invariant:* `cityTerrain.test.ts` — for
+every column of both airstrips, exactly one marked row.
+
+**1.2 Clip course ribbons to ground that carries a road (S, stopgap).** The
+ribbon pass clips only against `T_WATER` and `T_BUILDING`
+(`tiles.ts:474-485`), so courses whose carriageway the bake reverted paint
+casing, fill and dashes across lots and beaches
+(`evidence/topdown-lot-dashes.png`, the beach fragments in
+`evidence/topdown-bridge-wedges.png`). Widen the clip's exclusion to
+lot/sand/grass/park/trees — the casing is meant to reach the *kerb band*, so
+sidewalk stays in. This is the stopgap; the honest fix is 2.1, and this clip
+stays afterwards as defence in depth. *Invariant:* a painter test that bakes
+the Kessler chunk and asserts no marking pixel lands on a lot tile.
+
+**1.3 Bridge bevels must be deck or water, never land (S–M).** Parapet
+stair-step notches on the strait and sound bridges render grass wedges over
+open sea, and thin water slivers show between the smooth ribbon and the
+stepped deck (`evidence/topdown-bridge-wedges.png`,
+`evidence/topdown-sound-bridge.png`). Diagnose which neighbour's palette the
+wedge inherits on `T_WATER → T_BRIDGE` bevel pairs (`bevel.ts:102-109` built
+these deliberately in §31; the *painter's* ground pick is where land leaks
+in), then constrain: on a bridge tile the yielded wedge paints deck, the
+yielding side paints water. The ribbon/deck sliver closes from the same
+place — the deck fill under the ribbon edge extends to the bevel line.
+*Invariant:* no pixel of grass palette inside any bridge deck's bounding
+strip over water, asserted on the two named crossings' chunks.
+
+**1.4 No zebra on a bridge approach (S).** One zebra fragment floats where
+the east strait bridge meets the shore with no crossing street. §35 gates
+zebras on course crossings; the approach pocket passes the junction test
+without a crossing course. Extend the gate: a zebra needs the crossing
+course to *exist at that junction*, not just a junction-shaped widening.
+*Invariant:* extend the §35 test with the bridgehead case.
+
+**1.5 Forecourt quads stay inside their block (S).** Rotated buildings'
+tan aprons bleed past the kerb ring with soft anti-aliased edges — the one
+soft-edged thing in a crisp city (`evidence/topdown-oldquarter-tarmac.png`).
+Clip the rotated quad to the block polygon and draw it crisp (the painter
+has the block outline; `imageSmoothingEnabled` discipline as per the runway
+speckle fix). *Invariant:* visual retake; a pixel test is overkill here.
+
+**1.6 Chunk-seam banding (S, diagnose first).** Faint 128-px column/row
+tones in grass and tarmac. Suspects, in order: chunk-texture edge filtering
+(clamp/nearest at borders), a grain hash keyed off chunk-local rather than
+world coordinates, mipmap bias differing per chunk. Fix whichever it is;
+if it is filtering, it is three lines in `ground.ts`'s texture setup.
+
+## Wave 2 — the one declared rebake (worldgen; every tile change batched)
+
+All of these change `city.data.ts`. They land as **one** `pnpm citybake`,
+one commit, declared in `PROGRESS.md`, evidence renders retaken together.
+Wave 0 must already be in (a bad bake cannot slip through while doing this).
+
+**2.1 Trim courses to the finished carve (M).** The root cause behind 1.2:
+passes downstream of the carve (quay scraps, stranded-carriageway repair)
+remove road but not the course over it — §26.1 named this "wants doing once,
+deliberately". Extend `trimCourses` (`bake.ts:767`) to run against the FINAL
+tile plane: split a course where its samples leave carriageway (bridge
+counts), drop fragments shorter than the §19 stub floor. This attacks the
+76%-coverage gap from the course side and empties 1.2's clip of real work.
+*Invariant:* course-sample-over-carriageway ≥ 99% (measured by the §26
+coverage tool), and zero samples over lot/sand/water.
+
+**2.2 The ring's 110 buildingless blocks (M).** The known §7.6 fix — the
+frontage fill writes off a whole unit at every brush with carved road; slide
+one tile past blocked ground instead. **First** restage the two police tests
+that are locked to the current bake's geometry (`a cruiser facing the wrong
+way…`, `an officer keeps the uniform…`) onto found, guaranteed-suitable
+ground — the `sparseInput` treatment, already named as the remedy. Then the
+one-line fill fix rides the rebake. *Invariant:* buildingless blocks crossed
+by arterials < 80 (from 110), asserted in `city.test.ts`.
+
+**2.3 The airfields, tidied in the plan (S).** Marsh End's hut stands on the
+runway slab and two streets cross the strip mid-length
+(`evidence/topdown-airfield.png`); Gannet Rock's hut likewise abuts its
+strip. Move the huts beside the slabs in `city-plan.json`, reroute the two
+crossing streets around the strip (or terminate them at its apron), and
+teach the checker a new warning: *no street tile inside a runway rect*.
+`citybake --fit` names the replacement hut positions.
+
+**2.4 Wet road tiles: from warning to error (S).** Fix the 8 tiles of road
+running into water in the plan (they are visible in `--check`'s output), then
+promote `cityCheck.ts:280`'s warning to an error so the count stays zero.
+The §23.1 bridge-stub class then *fails* a bake instead of warning it.
+
+## Wave 3 — the visual features (bigger, each its own item)
+
+**3.1 Landmarks with interiors (L, rebake).** The stadium and the power
+station are featureless slabs from any altitude
+(`evidence/topdown-stadium-slab.png`). The recipe mechanism already exists
+(`RECIPES` in `bake.ts`) — this is content, not architecture: Ironside and
+The Bowl get a ring of stand-mass with tiered roof heights, an infield of
+`T_PARK` with pitch markings, and two gates; Kessler gets turbine halls, a
+switchyard, and stacks (tall thin masses the 3D renderer already knows how
+to extrude); the quarry gets terraced benches. Each recipe keeps the
+approach contract (§6.5). Batch with any other pending rebake. *Gate:*
+`citybake` validations green; flyover retakes at the three sites; roof-height
+variance inside each landmark footprint > 0 (the slab test, inverted).
+
+**3.2 Paths become courses (M, rebake).** Park and countryside footpaths are
+raw tile staircases beside vector-smooth roads
+(`evidence/topdown-ring-path.png`). Emit a course per path polyline in the
+layout (they are already drawn as polylines before rasterisation), stroked
+narrow, no markings, path palette. One mechanism (§16's), second consumer —
+which is also the forcing function that keeps course plumbing honest.
+*Invariant:* paths appear in `courses` with kind `path`; the §19 recovered-
+course simplifier never runs on them (they are authored, not recovered).
+
+**3.3 Woodland stops being a plinth (M, renderer only).** `T_TREES` renders
+as a flat 1-tile-high green slab that reads as a stain from above. The
+scenery layer already instances canopy blobs; extend it to cover `T_TREES`
+areas with clustered canopies (position-hashed, like §34's jitter) over an
+understory ground colour, and drop the extruded plinth. Collision is
+untouched — trees stay walls. *Gate:* flyover retake at the forest island
+and Gannet Rock; draw-call budget unchanged (instanced).
+
+**3.4 Material transitions at built edges (M, rebake or paint).** Sand
+meeting quay and cliff-foot is a hard tile edge (§38's open note). Where the
+*shore band* already blends by density (A2), the built edges want a 1-tile
+transition course of the §9.4 ladder — sand→revetment→quay — either painted
+(corner-sampled, no bake change) or baked as a band tile. Decide painted
+first; bake only if the painter cannot read enough context.
+
+**3.5 The REVIEW-3D top-down leftovers (S–M each, renderer only).**
+In priority order for an overhead camera:
+1. **Stunt ramps get geometry** — a wedge mesh at `T_RAMP` plus the 2D
+   chevron decal on its face; today frenzy launches cars off flat paint.
+2. **Pickups stop occluding bodies** — offset the float or draw pickups
+   under corpses in the sort.
+3. **Per-building window-hash salt** — kills the global lit-window grid at
+   night.
+4. **Night becomes a colour grade** — port the 2D blue/red shift + vignette
+   into the 3D post pass; wire `Lights3dLayer` into `city3d.html` so the
+   night evidence photographs what it claims to.
+5. **Outline weight in one unit** — buildings ~1 device px vs cars ~2.8.
+
+## Wave 4 — structural debt (makes every later change cheaper)
+
+**4.1 One district list (S).** `bake.ts:338` and `bake.ts:598` hardcode
+`['downtown',…]` positionally. Import `DISTRICT_TYPES` (`types.ts:71`) and
+derive the index map; add a compile-time exhaustiveness check. A reorder
+today silently mislabels every building.
+
+**4.2 Validate the decoded asset (M).** `decodeBakedCity` (`bake.ts:962`)
+blind-casts a ~1 MB generated file while the hand-edited plan gets 170 lines
+of validation. Add a structural check (plane lengths, tile-value ranges,
+building/shop/landmark bounds, course refs) that runs once at decode; delete
+the three dead "pre-X bake" fallbacks. Cost: one pass over the asset at
+load; budget it with 4.4.
+
+**4.3 Retire the generator's scaffolding (M).** `fields.ts` shrinks to the
+hash/value-noise primitives `bake.ts` actually calls; `params.ts` loses
+everything a session cannot vary; `BAKE_SEED`/`WILD_SEED` move next to their
+single callers. `plangen.ts` (1,596 lines) is kept **deliberately** — it is
+the checker's fuzz harness and the only honest test `checkCity` has — but it
+moves out of the client's module graph (server-only export) and its role is
+written at the top of the file so the next audit doesn't re-litigate it.
+
+**4.4 A budget for session dressing (M).** `generateCity` costs 1.3–2.1 s
+(amenity scans + bevels + shore cut + junctions + road net + lanes), plus a
+~210 ms module-scope decode every importer pays. Make the decode lazy,
+stop copying the never-written `district` plane (590 KB/session), and time-
+box the dressing passes in a perf test with a generous bound (fail at 2× the
+p95, so it catches compounding, not noise — the §27.5 worry).
+
+**4.5 `buildLayout` becomes passes (L, the big one).** 2,060 lines whose
+correctness is ordering held in prose. Strangler-fig it: name each pass
+(`coast`, `boroughs`, `avenues`, `streets`, `blocks`, `shores`, `quays`,
+`prune`, …) as a function with declared reads/writes over a shared layout
+struct, in an ordered list; the ordering comments become the list itself.
+**Gate: the bake is bit-identical before and after every extraction step**
+(the `coastCache` equality style, applied to refactoring). Do 2.1 first —
+course+carve editing together is the hardest coupling, and the refactor
+should inherit it already fixed.
+
+**4.6 The lattice-merging design change (L, design doc first).** §28.3
+measured that suppression cannot finish it: 1,289 street-on-street tiles,
+34.3% of dry land is road against 13.6% building. The identified fix is a
+*design* change — band each borough against ONE shore instead of the nearest
+water — which changes how borough fabrics are laid, so it wants a short
+design note (which shore per borough, what happens at the Old Quarter's two
+waterfronts) agreed **before** code, then lands as its own rebake with the
+§28 measurements as the gate: merged tiles < 700, road share of dry land
+< 30%, and the flyover retake of the Old Quarter no longer showing a tarmac
+lake (`evidence/topdown-oldquarter-tarmac.png` is the before picture).
+
+---
+
+## Sequence, size, risk
+
+| # | Work | Size | Risk | Rebake? | Gate |
+|---|---|---|---|---|---|
+| 0.1–0.4 | Safety rails | S | none | no | broken plan can't ship; CI red blocks deploy |
+| 1.1 | Runway centreline | S | none | no | one marked row per column |
+| 1.2 | Course clip stopgap | S | low | no | no markings on lot chunks |
+| 1.3 | Bridge bevel palette | S–M | low | no | no grass in deck strips |
+| 1.4 | Zebra approach gate | S | none | no | §35 test + bridgehead case |
+| 1.5–1.6 | Forecourt clip, chunk seams | S | none | no | retakes |
+| 2.1–2.4 | **The rebake**: course trim, ring blocks, airfield plan, wet roads | M | medium | **one** | coverage ≥99%; blocks <80; new checker rules; all renders retaken |
+| 3.1 | Landmark interiors | L | low | yes (batch) | roof-variance test; retakes |
+| 3.2 | Paths as courses | M | low | yes (batch) | path courses exist; retake |
+| 3.3 | Woodland canopy | M | low | no | retake; draw budget |
+| 3.4 | Material transitions | M | low | maybe | ladder test at built edges |
+| 3.5 | REVIEW-3D leftovers | S–M | low | no | per-item |
+| 4.1–4.4 | Enum, decode validation, scaffolding, perf budget | S–M | low | no | suite green; perf bound |
+| 4.5 | Layout passes | L | **medium** | no (bit-identical) | bake equality per step |
+| 4.6 | One-shore banding | L | **high** | yes (own) | §28 metrics; Old Quarter retake |
+
+Risks, ranked: **(1)** 4.6 changes the fabric of every waterside borough —
+design note first, own rebake, and it goes last for a reason. **(2)** 2.2's
+police-test restaging is the only place this plan touches server test
+staging; do it before the fill fix, not with it. **(3)** 2.1 can eat courses
+players' traffic follows — run the full bot suite on the rebake, not just
+worldgen tests. **(4)** 3.3 trades a plinth for instanced canopies; watch
+the draw stats the flyover HUD already prints.
+
+What this plan deliberately does not do: no new generator, no procedural
+revival, no touching `collide3`/volume adoption (that is a sim feature with
+its own plan in `BUGS.md` §6, not a worldgen fix), and no second rebake
+inside a wave. The city changes shape twice in this whole plan — Wave 2 and
+4.6 — and both times the diff is reviewable because Wave 0 made it so.
