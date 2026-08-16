@@ -174,7 +174,16 @@ export class SceneryLayer {
         // and the other is not, every tree in the city is planted in mid-air.
         const z = tile === T_TREES ? TREE_Z * Z_SCALE : 0;
         const roll = hash2(tx, ty, 71);
-        if (roll > 0.92) {
+        // Woodland is CANOPY, not lawn-with-trees (PLAN-WORLDGEN.md wave
+        // 3.3): at the park's 8% planting rate the wood's raised box read
+        // as a flat dark plateau with a few clones stood on it — "a stain
+        // on the grass" from the flyover. The box has to stay (it IS the
+        // collision volume `volume.ts` promises), so the fix is its top:
+        // woodland plants at ~45%, jittered and size-varied like every
+        // §34 tree, and the plateau becomes a lumpy continuous canopy.
+        // Parks keep their sparse ornamental planting.
+        const treeAt = tile === T_TREES ? 0.55 : 0.92;
+        if (roll > treeAt) {
           // Jittered off the tile centre and scaled per tree (§34). Rotation
           // alone was not enough: a trunk is round, so turning it changes
           // nothing you can see, and a wood came out as a square lattice of

@@ -235,7 +235,12 @@ export class WorldObjectsLayer {
         continue;
       }
       const bob = Math.sin(scene.nowMs * 0.004 + pu.id) * 1.5;
-      this.crates.put(pu.pos.x, pu.pos.y, PICKUP_Z + bob, 9, scene.nowMs * 0.0012, color);
+      // Drawn a hand's width off its sim position, deliberately: a drop
+      // spawns exactly where its owner fell, and from straight overhead a
+      // bobbing crate centred on a corpse hid almost all of the body it
+      // came from (REVIEW-3D, PLAN-WORLDGEN.md wave 3.5). Five px reads as
+      // "dropped beside them"; collection still reads the sim position.
+      this.crates.put(pu.pos.x + 5, pu.pos.y + 5, PICKUP_Z + bob, 9, scene.nowMs * 0.0012, color);
     }
 
     // Hidden packages: a slow glint rather than a bob, so they read as

@@ -157,6 +157,24 @@ The §23.1 bridge-stub class then *fails* a bake instead of warning it.
 
 ## Wave 3 — the visual features (bigger, each its own item)
 
+**Status after the wave-3 pass** (details in PROGRESS.md): 3.1 DELIVERED
+(stadium/power/quarry recipes with authored `storeys`, one rebake, slab
+test inverted and pinned); 3.3 DELIVERED as canopy density — the raised
+box stays because it IS `volume.ts`'s collision promise, and dropping it
+would draw walkable-looking woodland that is solid; 3.5's list settled as:
+pickups offset off the bodies they drop from (done), window salt found
+ALREADY fixed (salted per wall plane in `facade.ts`), ramp wedge
+DECLINED — the flat ramp is a pinned decision (`cityTerrain.test.ts`
+"lays a ramp at street level too") that belongs with `collide3` adoption,
+not before it; night grade, `Lights3dLayer` wiring and outline weight
+DEFERRED to a GPU box for the same reason as 1.6. 3.2 (paths as courses)
+DEFERRED whole: `trimCourses` keeps only carriageway runs, and the course
+index, road net and both painters all assume a course is a road — path
+courses need a per-kind ground rule through all four, which is its own
+wave, not an afternoon inside this one. 3.4 (material transitions)
+deferred with it — painted-first remains the right approach when it
+comes up.
+
 **3.1 Landmarks with interiors (L, rebake).** The stadium and the power
 station are featureless slabs from any altitude
 (`evidence/topdown-stadium-slab.png`). The recipe mechanism already exists

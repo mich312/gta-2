@@ -49,6 +49,9 @@ function hashRect(x: number, y: number, w: number, h: number): number {
  * does most of the work, so a street is varied rather than graded.
  */
 export function buildingStoreys(b: Building): number {
+  // The authored height, when the bake set one — the "designer overrules the
+  // hash" seam the header always promised, arrived via landmark recipes.
+  if (b.storeys !== undefined) return b.storeys;
   const range = STOREYS[b.district] ?? STOREYS.residential;
   const [lo, hi] = range;
   const roll = hashRect(b.x, b.y, b.w, b.h) / 0xffffffff;

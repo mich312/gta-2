@@ -782,6 +782,32 @@ describe('the city, as an asset', () => {
     expect(wet).toBe(0);
   });
 
+  it('gives stadiums and power stations an inside, not a slab', () => {
+    // Wave 3.1, the slab test inverted: the flyover found the city's two
+    // biggest named buildings rendering as featureless warehouse roofs
+    // (`evidence/topdown-stadium-slab.png`). A stadium is a ring of stands
+    // round an infield; a power station is halls and stacks over a yard. So:
+    // several parts, an open interior, and at least two distinct authored
+    // heights — a hash cannot know a chimney is a chimney.
+    const W = map.widthTiles;
+    for (const l of map.landmarks) {
+      if (l.kind !== 'stadium' && l.kind !== 'power') continue;
+      const parts = map.buildings.filter(
+        (b) => b.x >= l.x && b.y >= l.y && b.x + b.w <= l.x + l.w && b.y + b.h <= l.y + l.h,
+      );
+      expect(parts.length, `${l.name} has too few parts`).toBeGreaterThanOrEqual(3);
+      const heights = new Set(parts.map((b) => b.storeys));
+      expect(heights.size, `${l.name} is one flat mass`).toBeGreaterThanOrEqual(2);
+      let open = 0;
+      for (let y = l.y; y < l.y + l.h; y++) {
+        for (let x = l.x; x < l.x + l.w; x++) {
+          if (map.tiles[y * W + x] !== T_BUILDING) open++;
+        }
+      }
+      expect(open / (l.w * l.h), `${l.name} has no inside`).toBeGreaterThanOrEqual(0.2);
+    }
+  });
+
   it('only bevels materials the painters know by name', () => {
     // The canary for the §31 class of bug: the deck pair was added to the
     // bevel yield tables without a case in the 2D painter's wedge switch,

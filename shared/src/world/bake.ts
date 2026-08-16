@@ -96,17 +96,39 @@ export interface BakedCity {
 interface Recipe {
   ground: number;
   apron: number;
-  parts: (w: number, h: number) => Array<[number, number, number, number]>;
+  /** Solid footprints as [dx, dy, w, h, storeys?] — storeys authored where a
+   * hash cannot know a chimney from a hall (wave 3.1). */
+  parts: (w: number, h: number) => Array<[number, number, number, number, number?]>;
 }
 
 const RECIPES: Record<LandmarkKind, Recipe> = {
-  stadium: { ground: T_PARK, apron: T_PARK, parts: (w, h) => [[0, 0, w, h]] },
+  // A stadium is a RING: stands on all four sides, an infield of grass, and
+  // gates at the corners where the stands do not meet. One solid rect here
+  // was the flyover's biggest disappointment — the city's two largest named
+  // buildings read as warehouses with roof furniture
+  // (REVIEW-WORLDGEN.md §2.4, `evidence/topdown-stadium-slab.png`). The
+  // long stands rise over the end stands, so the mass tiers.
+  stadium: {
+    ground: T_PARK,
+    apron: T_PARK,
+    parts: (w, h) => [
+      [1, 0, w - 2, 3, 4],
+      [1, h - 3, w - 2, 3, 4],
+      [0, 4, 3, h - 8, 2],
+      [w - 3, 4, 3, h - 8, 2],
+    ],
+  },
+  // Two turbine halls with the switchyard between them, and a pair of
+  // stacks standing over everything — the silhouette a power station is
+  // navigated by, which one slab plus a shed could not give it.
   power: {
     ground: T_LOT,
     apron: T_LOT,
     parts: (w, h) => [
-      [0, 0, w, h - 3],
-      [w - 4, h - 2, 3, 2],
+      [0, 0, w - 5, 4, 3],
+      [0, h - 4, w - 5, 4, 3],
+      [w - 4, 1, 2, 2, 8],
+      [w - 4, h - 3, 2, 2, 8],
     ],
   },
   tower: { ground: T_SIDEWALK, apron: T_SIDEWALK, parts: (w, h) => [[1, 1, w - 2, h - 2]] },
@@ -123,7 +145,16 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   },
   campground: { ground: T_PARK, apron: T_PARK, parts: () => [[1, 1, 2, 2]] },
   lighthouse: { ground: T_FIELD, apron: T_FIELD, parts: (w, h) => [[0, 0, w, h]] },
-  quarry: { ground: T_LOT, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
+  // The pit hut and the crusher: low masses on the worked floor, so the
+  // quarry reads as a works rather than a shed on a car park.
+  quarry: {
+    ground: T_LOT,
+    apron: T_LOT,
+    parts: (w, h) => [
+      [0, 0, 3, 3, 1],
+      [w - 5, h - 4, 4, 3, 2],
+    ],
+  },
   // A long clear run and a hangar at one end: nothing else goes on it. The
   // apron is hardstanding, NOT more runway: with `apron: T_RUNWAY` the strip
   // ground spread four tiles past the drawn rect in every direction, under
@@ -330,11 +361,18 @@ export function bakeCity(plan: CityPlan): BakedCity {
    * meant: this building IS a landmark's own stamp.
    */
   const landmarkBuilt = new WeakSet<Building>();
-  const solid = (x: number, y: number, w: number, h: number, district: DistrictType): void => {
+  const solid = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    district: DistrictType,
+    storeys?: number,
+  ): void => {
     for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
       for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) tiles[ty * W + tx] = T_BUILDING;
     }
-    const rec: Building = { x, y, w, h, district };
+    const rec: Building = { x, y, w, h, district, ...(storeys !== undefined ? { storeys } : {}) };
     landmarkBuilt.add(rec);
     buildings.push(rec);
   };
@@ -346,9 +384,9 @@ export function bakeCity(plan: CityPlan): BakedCity {
       layout.district[y * W + x] as number
     ] as DistrictType;
     ground(x, y, w, h, recipe.ground);
-    for (const [dx, dy, pw, ph] of recipe.parts(w, h)) {
+    for (const [dx, dy, pw, ph, storeys] of recipe.parts(w, h)) {
       if (pw < 1 || ph < 1) continue;
-      solid(x + dx, y + dy, pw, ph, district);
+      solid(x + dx, y + dy, pw, ph, district, storeys);
     }
     const door = findDoorway(
       { widthTiles: W, heightTiles: H, tiles } as never,

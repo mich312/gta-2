@@ -1,5 +1,34 @@
 # PROGRESS
 
+## Wave 3 of PLAN-WORLDGEN: landmarks with insides, woodland with a canopy
+
+One more rebake (recipes moved tiles), one renderer change, and three
+honest deferrals:
+
+- **Stadiums and power stations stopped being slabs** (3.1). `Building`
+  gained the optional authored `storeys` the heights module's own comment
+  always promised, set today only by landmark recipes: Ironside and The
+  Bowl are rings of stands — long stands at four storeys over end stands
+  at two, corner gates, a grass infield — and Kessler is two turbine
+  halls with a pair of eight-storey stacks over a switchyard. The quarry
+  got its crusher. Pinned in `city.test.ts`: every stadium/power landmark
+  has ≥ 3 parts, ≥ 2 distinct authored heights, and an open interior.
+- **Woodland reads as canopy, not plateau** (3.3). The raised box stays —
+  it is the collision volume — but its top now carries §34-jittered
+  canopies at ~45% instead of the park's ornamental 8%, so the wood is a
+  lumpy continuous canopy instead of a stain with clones stood on it.
+  ~5,000 more instances in one instanced mesh.
+- **A drop no longer hides its body** (3.5): pickups draw five px off
+  their sim position, so the crate reads as dropped beside the corpse
+  rather than hovering dead over it. Collection reads the sim position,
+  unchanged.
+- Settled without code: the lit-window salt was already fixed (per
+  wall-plane in `facade.ts`); the ramp wedge is DECLINED while ramps are
+  deliberately flat (`cityTerrain.test.ts` pins it — the wedge belongs
+  with `collide3` adoption); night grading and the light budget wait for
+  a GPU box. 3.2 (paths as courses) deferred whole — four subsystems
+  assume a course is a road, and that is its own wave.
+
 ## Wave 2 of PLAN-WORLDGEN: the declared rebake
 
 **`city.data.ts` changed shape** — the one batched rebake the plan

@@ -192,6 +192,15 @@ export interface Building {
    */
   mw?: number;
   mh?: number;
+  /**
+   * Authored height in storeys, when somebody meant one (PLAN-WORLDGEN.md
+   * wave 3.1). `heights.buildingStoreys` returns this when present and its
+   * hash otherwise — the seam its own comment always promised. Set today
+   * only by landmark recipes: a power station's stacks stand over its
+   * turbine halls, a stadium's stands tier, because a hash cannot know that
+   * a chimney is a chimney.
+   */
+  storeys?: number;
 }
 
 export type ShopKind =
