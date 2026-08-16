@@ -48,7 +48,11 @@ export * from './world/generate.js';
 export { CITY_DATA } from './world/city.data.js';
 export * from './world/plan.js';
 export * from './world/layout.js';
-export * from './world/plangen.js';
+// plangen is NOT exported here on purpose (wave 4.3): it is a 1,600-line
+// second worldgen kept deliberately as the checker's fuzz harness — the only
+// honest test `checkCity` has — and nothing the game ships consumes it. It
+// lives behind its own entry (`shared/plangen`) so the client's module graph
+// never sees it.
 export * from './world/bake.js';
 export * from './world/collide.js';
 export * from './economy/catalog.js';

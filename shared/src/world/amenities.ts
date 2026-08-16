@@ -385,7 +385,7 @@ function bearingCarriageway(map: CityMap, tx: number, ty: number, angle: number)
 }
 
 /** Parked-car spawn points along road edges (consumed by phase 3). */
-export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: number): number {
+export function placeVehicleSpawns(map: CityMap, params: WorldgenParams): void {
   const spawns: VehicleSpawn[] = [];
   // Segments of this many tiles, one car in each. The old rule was a running
   // countdown of `parkedCarSpacing` plus a 0-4 jitter, so this is the same
@@ -443,12 +443,12 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
     }
   }
   map.vehicleSpawns = spawns;
-  // The stream is handed back untouched. This pass used to draw from it twice
-  // per car, and drawing from a WINDOW-ordered walk is precisely what made
-  // parked cars a property of the viewport: the scan started somewhere else
-  // after a rebase, so the whole sequence shifted and every car in the city
-  // moved. Its own stream, so consuming nothing shifts no other pass.
-  return rng;
+  // No rng in the signature any more (wave 4.3). This pass used to draw from
+  // a stream twice per car, then stopped — drawing from a WINDOW-ordered walk
+  // was precisely what made parked cars a property of the viewport — and for
+  // a long time it still TOOK a stream and handed it back untouched, which
+  // advertised consumption that never happened. Streams are derived per pass
+  // name, so dropping the argument shifts nobody.
 }
 
 /**
@@ -1309,7 +1309,7 @@ export function placePayphones(map: CityMap): void {
   map.payphones = spots;
 }
 
-export function placeRamps(map: CityMap, params: WorldgenParams, seed: number): void {
+export function placeRamps(map: CityMap, seed: number): void {
   // Hash-gated per GLOBAL position, not every-Nth-candidate: ramps mutate
   // tiles, and a counter would make the tile a function of the window
   // rather than of the world.

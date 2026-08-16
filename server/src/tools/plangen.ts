@@ -2,7 +2,6 @@ import { writeFileSync } from 'node:fs';
 import {
   bakeCity,
   deriveBevels,
-  generateCityPlan,
   parseCityPlan,
   T_BANK,
   T_BRIDGE,
@@ -16,6 +15,7 @@ import {
   T_WATER,
   type CityPlan,
 } from 'shared';
+import { generateCityPlan } from 'shared/plangen';
 import { checkCity } from './cityCheck.js';
 import { loadPalette, render } from './mapRender.js';
 import { encodePng } from './png.js';

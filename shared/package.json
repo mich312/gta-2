@@ -9,7 +9,11 @@
       "default": "./dist/index.js"
     },
     "./data/*": "./data/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./plangen": {
+      "types": "./dist/world/plangen.d.ts",
+      "default": "./dist/world/plangen.js"
+    }
   },
   "scripts": {
     "build": "tsc -b",

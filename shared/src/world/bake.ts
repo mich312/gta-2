@@ -19,6 +19,7 @@ import {
   T_TREES,
   T_WATER,
   TILE_SIZE,
+  DISTRICT_TYPES,
   type BlockRect,
   type Building,
   type DistrictType,
@@ -380,9 +381,11 @@ export function bakeCity(plan: CityPlan): BakedCity {
   const stamp = (l: PlanLandmark): void => {
     const [x, y, w, h] = l.rect;
     const recipe = RECIPES[l.kind];
-    const district = (['downtown', 'residential', 'industrial', 'commercial', 'park'] as const)[
-      layout.district[y * W + x] as number
-    ] as DistrictType;
+    // DISTRICT_TYPES by index, not a positional copy of it: two hardcoded
+    // lists here survived every review until wave 4.1, and a reorder of the
+    // source of truth would have silently relabelled every stamped building
+    // with no type error and no red test.
+    const district = DISTRICT_TYPES[layout.district[y * W + x] as number] as DistrictType;
     ground(x, y, w, h, recipe.ground);
     for (const [dx, dy, pw, ph, storeys] of recipe.parts(w, h)) {
       if (pw < 1 || ph < 1) continue;
@@ -639,8 +642,8 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // footprints, which hands the prop and ped passes the same dither for
   // free. The bearing plane is deliberately untouched: fabric stays sharp.
   {
-    const DISTRICTS = ['downtown', 'residential', 'industrial', 'commercial', 'park'] as const;
-    const IDX: Record<string, number> = { downtown: 0, residential: 1, industrial: 2, commercial: 3, park: 4 };
+    const DISTRICTS = DISTRICT_TYPES;
+    const IDX: Record<string, number> = Object.fromEntries(DISTRICT_TYPES.map((d, i) => [d, i]));
     // One rung of §9.4's ladder: the pairs that shade into each other in a
     // real city. Parks and the countryside are two ranks from everything —
     // their seams get fronts and fringes (D5, D6), not dither.
@@ -1065,29 +1068,69 @@ export function encodeBakedCity(city: BakedCity): string {
   );
 }
 
+/**
+ * Refuse a malformed asset with the field named, instead of handing the sim
+ * whatever a truncated or hand-mangled `city.data.ts` happens to decode to.
+ *
+ * The asymmetry this closes (wave 4.2): `plan.ts` validates the hand-edited
+ * plan exhaustively, while the megabyte of GENERATED file that actually
+ * becomes the game world was all blind casts — and the three "absent in a
+ * pre-X bake" fallbacks it carried were dead, because there is one producer
+ * and one committed consumer, both in this repository, both current. This
+ * is a structural check, not a semantic one: shapes, lengths and ranges.
+ * The semantic checks are `checkCity`'s job, and the shipped-city test runs
+ * them over these same bytes.
+ */
+function must(cond: boolean, what: string): void {
+  if (!cond) throw new Error(`city.data: ${what}`);
+}
+
 export function decodeBakedCity(raw: unknown): BakedCity {
   const r = raw as Record<string, unknown>;
+  must(typeof r === 'object' && r !== null, 'not an object');
   const widthTiles = r['widthTiles'] as number;
   const heightTiles = r['heightTiles'] as number;
+  must(Number.isInteger(widthTiles) && widthTiles > 0, 'widthTiles is not a positive integer');
+  must(Number.isInteger(heightTiles) && heightTiles > 0, 'heightTiles is not a positive integer');
+  must(typeof r['name'] === 'string', 'name is not a string');
+  for (const plane of ['tiles', 'district', 'bearing'] as const) {
+    must(typeof r[plane] === 'string', `${plane} plane is not an encoded string`);
+  }
+  for (const list of ['blocks', 'buildings', 'landmarks', 'shops', 'courses', 'shores', 'banks'] as const) {
+    must(Array.isArray(r[list]), `${list} is not an array`);
+  }
   const n = widthTiles * heightTiles;
+  const tiles = decodePlane(r['tiles'] as string, n);
+  const district = decodePlane(r['district'] as string, n);
+  const bearing = decodePlane(r['bearing'] as string, n);
+  for (const b of r['buildings'] as Building[]) {
+    must(
+      b.x >= 0 && b.y >= 0 && b.w > 0 && b.h > 0 && b.x + b.w <= widthTiles && b.y + b.h <= heightTiles,
+      `building at ${b.x},${b.y} is outside the map`,
+    );
+  }
+  for (const l of r['landmarks'] as Landmark[]) {
+    must(
+      l.x >= 0 && l.y >= 0 && l.x + l.w <= widthTiles && l.y + l.h <= heightTiles,
+      `landmark ${l.name} is outside the map`,
+    );
+  }
+  for (const c of r['courses'] as StreetCourse[]) {
+    must(c.points.length >= 2 && c.width > 0, 'a course with no line or no width');
+  }
   return {
     name: r['name'] as string,
     widthTiles,
     heightTiles,
-    tiles: decodePlane(r['tiles'] as string, n),
-    district: decodePlane(r['district'] as string, n),
-    // Absent in a pre-bearing bake: every street was on the screen axes.
-    bearing: typeof r['bearing'] === 'string' ? decodePlane(r['bearing'] as string, n) : new Uint8Array(n),
+    tiles,
+    district,
+    bearing,
     blocks: r['blocks'] as BlockRect[],
-    // Absent in a pre-VECTOR bake, where the coast was recovered at load.
-    shores: (r['shores'] ?? []) as BakedCity['shores'],
-    // Absent in a pre-§39 bake, where the shore band's inner edge was a
-    // staircase and there was no curve to ship.
-    banks: (r['banks'] ?? []) as BakedCity['banks'],
+    shores: r['shores'] as BakedCity['shores'],
+    banks: r['banks'] as BakedCity['banks'],
     buildings: r['buildings'] as Building[],
     landmarks: r['landmarks'] as Landmark[],
     shops: r['shops'] as Shop[],
-    // Absent in a pre-course bake: every road was its tiles and nothing more.
-    courses: (r['courses'] as StreetCourse[] | undefined) ?? [],
+    courses: r['courses'] as StreetCourse[],
   };
 }

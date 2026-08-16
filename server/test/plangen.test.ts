@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bakeCity, deriveBevels, generateCityPlan, parseCityPlan, T_SAND, T_WATER } from 'shared';
+import { bakeCity, deriveBevels, parseCityPlan, T_SAND, T_WATER } from 'shared';
+import { generateCityPlan } from 'shared/plangen';
 import { checkCity } from '../src/tools/cityCheck.js';
 
 /**

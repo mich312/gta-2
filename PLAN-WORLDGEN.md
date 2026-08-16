@@ -263,6 +263,16 @@ struct, in an ordered list; the ordering comments become the list itself.
 course+carve editing together is the hardest coupling, and the refactor
 should inherit it already fixed.
 
+*Wave-4 status: NOT STARTED, deliberately.* This is a multi-session
+refactor whose whole safety story is one extraction at a time against a
+bit-identical bake, and starting it at the tail of a wave that already
+rebaked twice would mean doing the riskiest work with the least
+attention. The gate mechanism it needs is now trivially available — bake
+once, hash `encodeBakedCity`'s output, extract one pass, hash again,
+`expect(equal)` — and the first three extractions should be the coast,
+the borough lattices and the block cut, in that order, because their
+seams are the ones the pass comments already describe most precisely.
+
 **4.6 The lattice-merging design change (L, design doc first).** §28.3
 measured that suppression cannot finish it: 1,289 street-on-street tiles,
 34.3% of dry land is road against 13.6% building. The identified fix is a
@@ -273,6 +283,49 @@ waterfronts) agreed **before** code, then lands as its own rebake with the
 §28 measurements as the gate: merged tiles < 700, road share of dry land
 < 30%, and the flyover retake of the Old Quarter no longer showing a tarmac
 lake (`evidence/topdown-oldquarter-tarmac.png` is the before picture).
+
+### 4.6.1 The design note (wave-4 deliverable — a decision to approve, not code)
+
+The mechanism today: a shore borough's long streets are traced as
+iso-lines of the water's distance field (§16's contour fabric), and that
+field answers "distance to the NEAREST water". A borough with water on two
+sides — the Old Quarter between the harbour and the strait, Sunridge
+between seafront and lagoon — therefore lays two contour families that
+meet mid-borough, and where they meet, streets land on streets: the
+merged tarmac sheets of `topdown-oldquarter-tarmac.png`, unfixable by
+suppression because neither family is wrong.
+
+**The proposal.** Each borough names its banding shore in the plan — one
+per borough, authored like everything else in `city-plan.json`
+(`bandShore: "harbour" | "strait" | …`, naming a geography feature). The
+distance field a borough's contour streets trace is computed from THAT
+shore's ring only. Consequences, borough by borough:
+
+- **Kelvin (Old Quarter)** bands against the harbour — the historic
+  waterfront its fabric already visually follows. Its strait side then
+  gets what a one-shore fabric gives every far edge: the LAST contour
+  street runs roughly parallel to the strait, and the §14 seam machinery
+  (which already handles borough-to-borough edges) closes the gap to the
+  water with short connector streets, not a second contour family.
+- **Sunridge** bands against the seafront; the lagoon side becomes a
+  seam-closed edge the same way.
+- **Ravenhill, Marsh End, Port Vasco** each have one dominant shore
+  already; naming it changes little and costs nothing.
+- The checker learns: `bandShore` must name a geography feature whose
+  ring touches the borough polygon, and every borough with a contour
+  fabric must name one.
+
+**Open question for the owner** (the reason this is a note, not a diff):
+whether the Old Quarter's strait frontage should keep a genuine
+water-following esplanade street (one authored road in the plan would do
+it — the §33 esplanade treatment) or take the seam-closure default. The
+note recommends the authored esplanade: the strait is the city's centre
+stage, and its frontage deserves a drawn line, not a fallback.
+
+**Gates, unchanged from above:** merged street-on-street tiles < 700
+(from 1,289), road share of dry land < 30% (from 34.2%), Old Quarter
+retake with no tarmac lake, and the §14 permeability floors still met on
+every seam the change touches. Own rebake, own commit, after approval.
 
 ---
 

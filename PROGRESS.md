@@ -1,5 +1,41 @@
 # PROGRESS
 
+## Wave 4 of PLAN-WORLDGEN: the structural debt
+
+No tile moved. Four debts paid, one deferred with its gate written down,
+one design note delivered for approval:
+
+- **One district list** (4.1). `bake.ts` carried two positional copies of
+  `DISTRICT_TYPES` — the stamp's district lookup and the blend pass's —
+  and a reorder of the source of truth would have silently relabelled
+  every building. Both now index the real list.
+- **The decoded asset is validated** (4.2). `decodeBakedCity` was blind
+  casts over a megabyte of generated file while the hand-edited plan got
+  170 lines of validation; it now refuses a malformed asset with the
+  field named — shapes, lengths, footprints inside the map — and its
+  three dead "pre-X bake" fallbacks are gone. Semantics stay `checkCity`'s
+  job, which the shipped-city test already runs over the same bytes.
+- **The generator's scaffolding is retired where it was vestigial**
+  (4.3). `plangen` (1,600 lines, the checker's fuzz harness — kept
+  deliberately, its role now written at the barrel) moved behind its own
+  package entry `shared/plangen`, out of the client's module graph.
+  `placeRamps` stopped taking params it never read; `placeVehicleSpawns`
+  stopped taking and returning an rng stream it never drew from —
+  streams are derived per pass name, so dropping the argument shifts
+  nobody. `fields.ts` turned out already trimmed to its primitives.
+- **Session dressing has a budget** (4.4). The baked city decodes on
+  first use instead of at module import (~210 ms off every process that
+  imports the barrel), the never-written district plane is shared
+  instead of copied (590 KB per session), and `world.test.ts` holds a
+  generous wall-clock bound that trips on compounding, not noise.
+- **4.5 (layout passes) not started, deliberately** — a multi-session
+  refactor whose bit-identical-bake gate is now written at the item.
+- **4.6 delivered as its design note** (PLAN-WORLDGEN.md §4.6.1): band
+  each borough against ONE authored shore, seam-close the far edges, an
+  esplanade for the Old Quarter's strait frontage — with the open
+  question named and the §28 metric gates unchanged. Awaits approval
+  before any code.
+
 ## Wave 3 of PLAN-WORLDGEN: landmarks with insides, woodland with a canopy
 
 One more rebake (recipes moved tiles), one renderer change, and three

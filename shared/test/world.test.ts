@@ -57,6 +57,18 @@ describe('world generation', () => {
     expect(c.packages).not.toEqual(a.packages);
   });
 
+  it('dresses a session inside its budget', () => {
+    // Wave 4.4's guard against compounding, not against noise: the whole
+    // point of the baked-asset architecture is that the expensive half runs
+    // offline, and §27.5 already recorded one 50% creep in the offline half.
+    // Session dressing measures 1.3–2.1 s on a loaded 4-core box today; the
+    // bound is set at several times that, so it trips when someone adds a
+    // full-map scan too many, and never on a slow CI runner having a day.
+    const t0 = performance.now();
+    generateCity(31337, params);
+    expect(performance.now() - t0).toBeLessThan(8000);
+  });
+
   it('produces a real city: roads, sidewalks, buildings, all districts in use', () => {
     for (const seed of [7, 8, 9]) {
       const map = generateCity(seed, params);
