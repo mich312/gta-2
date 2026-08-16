@@ -652,7 +652,28 @@ describe('errand driving (goto)', () => {
       for (const b of spawns) {
         const d = Math.hypot(b.x - a.x, b.y - a.y);
         if (d < minDist || d > maxDist) continue;
-        if (!planRoute(map, a.x, a.y, b.x, b.y)) continue;
+        const route = planRoute(map, a.x, a.y, b.x, b.y);
+        if (!route) continue;
+        // ...and the route free of sub-car-length jinks. The goto follower
+        // orbits a pair of corners 16 px apart instead of threading them —
+        // the cardinal lane model's known ceiling (§41, BUGS.md §7.6) — and
+        // whether the FIRST routable pair's route contains one is an
+        // accident of the bake: after wave 2's it did, and the errand test
+        // spent its whole tick budget circling the first corner. The claim
+        // here is "an errand arrives", so stage it on a route a follower
+        // can follow; the jink itself stays an open follower item.
+        let jink = false;
+        for (let i = 0; i + 3 < route.length; i += 2) {
+          const leg = Math.hypot(
+            (route[i + 2] as number) - (route[i] as number),
+            (route[i + 3] as number) - (route[i + 1] as number),
+          );
+          if (leg < 24) {
+            jink = true;
+            break;
+          }
+        }
+        if (jink) continue;
         return { from: a, to: b };
       }
     }
@@ -687,6 +708,21 @@ describe('errand driving (goto)', () => {
     // outside their despawn ring, which is the whole use of the primitive.
     state.players.byId[1]!.pos = { x: to.x, y: to.y };
     state = ambientCar(state, 930, from);
+    // Face the car down its own route's first leg before the errand starts.
+    // `ambientCar` spawns everything heading east, and whether the first
+    // routable pair's route happens to leave eastward is an accident of the
+    // bake — after wave 2's rebake it left NORTHWARD, and the goto follower
+    // (which has no U-turn; that is the police driver's trick) dithered at
+    // the first corner for the whole tick budget. A real ambient car picked
+    // for an errand is already driving along its lane; stage that, and the
+    // claim under test stays "the errand arrives", not "the follower can
+    // turn a car round".
+    {
+      const route = planRoute(map, from.x, from.y, to.x, to.y)!;
+      const heading = Math.atan2(route[3]! - route[1]!, route[2]! - route[0]!);
+      state.vehicles.byId[930]!.heading = heading;
+      state.trafficDrivers[930]!.dir = nearestCardinal(heading);
+    }
     expect(assignGoto(state, map, 930, to.x, to.y)).toBe(true);
     expect(state.trafficDrivers[930]!.mission).toBe('goto');
 

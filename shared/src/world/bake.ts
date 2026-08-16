@@ -124,8 +124,14 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   campground: { ground: T_PARK, apron: T_PARK, parts: () => [[1, 1, 2, 2]] },
   lighthouse: { ground: T_FIELD, apron: T_FIELD, parts: (w, h) => [[0, 0, w, h]] },
   quarry: { ground: T_LOT, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
-  // A long clear run and a hangar at one end: nothing else goes on it.
-  airstrip: { ground: T_RUNWAY, apron: T_RUNWAY, parts: () => [[0, 0, 3, 3]] },
+  // A long clear run and a hangar at one end: nothing else goes on it. The
+  // apron is hardstanding, NOT more runway: with `apron: T_RUNWAY` the strip
+  // ground spread four tiles past the drawn rect in every direction, under
+  // and around the borough's streets — from the air, roads appeared to cross
+  // the runway and the "runway" was three times the slab anybody drew
+  // (REVIEW-WORLDGEN.md §2.1). A lot apron reads as what it is, and the
+  // centreline rule now spans only the true strip.
+  airstrip: { ground: T_RUNWAY, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
   // The deliberate plazas (§13.6 step 7): open ground with streets flowing
   // through it. No parts — the space IS the landmark — except the circus,
   // whose monument stands in the ring's median for traffic to swing round.
@@ -639,6 +645,68 @@ export function bakeCity(plan: CityPlan): BakedCity {
           layout.district[ty * W + tx] = IDX[adopt] as number;
         }
       }
+    }
+  }
+
+  // Quay the wet road edges (PLAN-WORLDGEN.md wave 2.4). §23.1 took road
+  // running straight into water from 15 tiles to 9 by drowning whole decks;
+  // what was left is corner slivers at bridge mouths and angled shores — a
+  // road tile whose neighbour is open sea with no bank between. Each becomes
+  // quay, which is what a carriageway meeting water IS, unless removing it
+  // would sever the street network (checked by flood, not assumed) — a tile
+  // that fails that check stays road and stays a checker finding. Before
+  // `trimCourses`, so a course over a converted tile is trimmed with it.
+  {
+    const wet: number[] = [];
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (tiles[y * W + x] !== T_ROAD) continue;
+        const sea =
+          tiles[y * W + x + 1] === T_WATER ||
+          tiles[y * W + x - 1] === T_WATER ||
+          tiles[(y + 1) * W + x] === T_WATER ||
+          tiles[(y - 1) * W + x] === T_WATER;
+        if (sea) wet.push(y * W + x);
+      }
+    }
+    const network = (): number => {
+      const seen = new Uint8Array(W * H);
+      let components = 0;
+      for (let start = 0; start < tiles.length; start++) {
+        if (seen[start] === 1) continue;
+        const t = tiles[start] as number;
+        if (t !== T_ROAD && t !== T_BRIDGE) continue;
+        components++;
+        const stack = [start];
+        seen[start] = 1;
+        while (stack.length > 0) {
+          const i = stack.pop() as number;
+          const x = i % W;
+          const y = (i - x) / W;
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const j = ny * W + nx;
+            if (seen[j] === 1) continue;
+            const nt = tiles[j] as number;
+            if (nt !== T_ROAD && nt !== T_BRIDGE) continue;
+            seen[j] = 1;
+            stack.push(j);
+          }
+        }
+      }
+      return components;
+    };
+    const before = network();
+    for (const i of wet) {
+      tiles[i] = T_BANK;
+      if (network() > before) tiles[i] = T_ROAD;
     }
   }
 

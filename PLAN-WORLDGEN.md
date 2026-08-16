@@ -108,6 +108,17 @@ fragments at the bridgeheads resolved as boat-mooring furniture, not paint.
 
 ## Wave 2 — the one declared rebake (worldgen; every tile change batched)
 
+**DELIVERED — see PROGRESS.md.** What the doing taught, recorded against
+each item below: 2.1's trim already ran against the finished tiles, so the
+item collapsed to measuring (100.0%) and pinning; 2.2's "110 blocks" was
+really 15 once coastal road corridors with no buildable ground were
+filtered out, and the fix that mattered was trimming carved bands off
+block interiors, not only the unit-slide; 2.3's "streets across the
+runway" was the `T_RUNWAY` apron the whole time; and the four
+bake-sensitive tests that broke were restaged on found ground — including
+`journey()` learning to reject routes with sub-car-length jinks, §41's
+follower ceiling surfacing in staging rather than on the road.
+
 All of these change `city.data.ts`. They land as **one** `pnpm citybake`,
 one commit, declared in `PROGRESS.md`, evidence renders retaken together.
 Wave 0 must already be in (a bad bake cannot slip through while doing this).

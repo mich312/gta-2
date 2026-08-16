@@ -165,6 +165,12 @@ export function roadLane(
    * at its tail.
    */
   back = 0,
+  /**
+   * Also require the parallel lane this many px to the LEFT (positive
+   * perpendicular) to be clear for `need` — for tests that stage a second
+   * car passing in it. Zero checks nothing, as before.
+   */
+  lateral = 0,
 ): VehicleSpawn {
   const probe = Number.isFinite(most) ? most + 20 : need + 20;
   const near = [...map.vehicleSpawns].sort(
@@ -184,6 +190,19 @@ export function roadLane(
     if (back > 0) {
       const b = rayWallDistance(map, s.x, s.y, -Math.cos(s.heading), -Math.sin(s.heading), back + 20);
       if (b < back) continue;
+    }
+    if (lateral !== 0) {
+      // The oncoming lane, when the test stages a second car beside this
+      // one: clear for the same distance, probed from the offset point. A
+      // lane can be flush against a kerb or a wall on its passing side and
+      // still pass every probe above — which held until the wave-2 rebake
+      // moved the first qualifying spot against exactly that, and a
+      // passing-cars test failed describing a collision bug that was
+      // really the offset lane never having been looked at.
+      const ox = s.x - Math.sin(s.heading) * lateral;
+      const oy = s.y + Math.cos(s.heading) * lateral;
+      const f = rayWallDistance(map, ox, oy, Math.cos(s.heading), Math.sin(s.heading), probe);
+      if (f < need) continue;
     }
     return s;
   }

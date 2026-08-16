@@ -680,6 +680,108 @@ describe('the city, as an asset', () => {
     expect(violations).toBe(0);
   });
 
+  it('keeps every course centreline sample on carriageway', () => {
+    // Wave 2.1's gate, measured before it was pinned: `trimCourses` already
+    // splits and samples every course against the FINISHED tiles, and on
+    // this bake the answer is exactly 100% — so the invariant is exact, not
+    // a threshold. A sample off carriageway means a pass moved road after
+    // the trim ran, which is the ordering bug this test exists to catch.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    let off = 0;
+    for (const c of map.courses ?? []) {
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [x0, y0] = c.points[k] as [number, number];
+        const [x1, y1] = c.points[k + 1] as [number, number];
+        const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2));
+        for (let s = 0; s <= steps; s++) {
+          const tx = Math.floor(x0 + ((x1 - x0) * s) / steps);
+          const ty = Math.floor(y0 + ((y1 - y0) * s) / steps);
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) {
+            off++;
+            continue;
+          }
+          const t = map.tiles[ty * W + tx] as number;
+          if (t !== T_ROAD && t !== T_BRIDGE) off++;
+        }
+      }
+    }
+    expect(off).toBe(0);
+  });
+
+  it('builds on the blocks the arterials cross', () => {
+    // Wave 2.2. Blocks the ring crossed near an edge kept interior rows of
+    // carriageway, so every frontage unit spanned the band and was refused —
+    // fifteen whole blocks of Sunridge baked as bare field with nothing on
+    // them (was down as "110 along the ring" in BUGS.md §7.6; measured with
+    // a buildable-ground filter it was 15). The interior trim and the
+    // slide-past-blocked-ground fix take it to 2; this holds the ceiling.
+    const W = map.widthTiles;
+    let empty = 0;
+    for (const b of map.blocks) {
+      if (b.district === 'park') continue;
+      let road = 0;
+      let buildable = 0;
+      for (let y = b.y + 1; y < b.y + b.h - 1; y++) {
+        for (let x = b.x + 1; x < b.x + b.w - 1; x++) {
+          const t = map.tiles[y * W + x] as number;
+          if (t === T_ROAD || t === T_BRIDGE) road++;
+          if (t === T_LOT || t === T_PARK || t === T_FIELD) buildable++;
+        }
+      }
+      if (road === 0 || buildable < 20) continue;
+      const built = map.buildings.some(
+        (bd) => bd.x < b.x + b.w && bd.x + bd.w > b.x && bd.y < b.y + b.h && bd.y + bd.h > b.y,
+      );
+      if (!built) empty++;
+    }
+    expect(empty).toBeLessThanOrEqual(3);
+  });
+
+  it('keeps runway ground inside the airstrips the plan drew', () => {
+    // Wave 2.3. The airstrip recipe's apron was T_RUNWAY too, so the strip
+    // ground spread four tiles past the drawn rect under the borough's
+    // streets — from the air, roads crossed "the runway" and the runway was
+    // three times the slab anybody drew. The apron is hardstanding now, and
+    // this pins the slab to the drawing.
+    const strips = plan.landmarks.filter((l) => l.kind === 'airstrip').map((l) => l.rect);
+    const W = map.widthTiles;
+    for (let y = 0; y < map.heightTiles; y++) {
+      for (let x = 0; x < W; x++) {
+        if (map.tiles[y * W + x] !== T_RUNWAY) continue;
+        const inside = strips.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
+        expect(inside, `runway tile at ${x},${y} outside every airstrip rect`).toBe(true);
+      }
+    }
+  });
+
+  it('lets no road run straight into open water', () => {
+    // Wave 2.4. §23.1 drowned the decks that stopped mid-strait; the eight
+    // corner slivers it left at bridge mouths are quayed by the bake now,
+    // and the checker calls any survivor an error. This is the same claim
+    // from the tile side: a carriageway edge is never bare against the sea.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    let wet = 0;
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (map.tiles[y * W + x] !== T_ROAD) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          if (map.tiles[(y + dy) * W + x + dx] === T_WATER) {
+            wet++;
+            break;
+          }
+        }
+      }
+    }
+    expect(wet).toBe(0);
+  });
+
   it('only bevels materials the painters know by name', () => {
     // The canary for the §31 class of bug: the deck pair was added to the
     // bevel yield tables without a case in the 2D painter's wedge switch,

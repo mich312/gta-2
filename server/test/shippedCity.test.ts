@@ -23,18 +23,13 @@ describe('the shipped city', () => {
     expect(problems.filter((p) => p.severity === 'error').map((p) => p.message)).toEqual([]);
   });
 
-  it('carries no warnings beyond the ones written down here', () => {
-    // Warnings are pinned, not waved through: this list is every warning the
-    // committed city is ALLOWED to carry, and the counts may only shrink.
-    // A ninth wet road tile — or a warning kind not on the list — is a red
-    // test, not a log line scrolling past in `pnpm citybake`. When wave 2.4
-    // fixes the eight and promotes the rule to an error, this pin goes with it.
-    const warnings = problems.filter((p) => p.severity === 'warning').map((p) => p.message);
-    for (const w of warnings) {
-      const wet = /^(\d+) road tiles run straight into water$/.exec(w);
-      expect(wet, `a warning this test does not allow: "${w}"`).toBeTruthy();
-      expect(Number(wet![1])).toBeLessThanOrEqual(8);
-    }
-    expect(warnings.length).toBeLessThanOrEqual(1);
+  it('carries no warnings at all', () => {
+    // Warnings are pinned, not waved through. When this test was written the
+    // city carried one — eight road tiles running into open water — and the
+    // pin allowed exactly that, shrinking only. Wave 2.4 quayed the eight
+    // and promoted the rule to an error, so the allowance is gone: any
+    // warning on the shipped city is now a red test, and whoever adds a new
+    // warning kind to the checker decides here whether the city may carry it.
+    expect(problems.filter((p) => p.severity === 'warning').map((p) => p.message)).toEqual([]);
   });
 });

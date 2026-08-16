@@ -1,5 +1,51 @@
 # PROGRESS
 
+## Wave 2 of PLAN-WORLDGEN: the declared rebake
+
+**`city.data.ts` changed shape** — the one batched rebake the plan
+scheduled, and the first since the safety rails went in. 6,020 tiles
+differ; 3,801 → 3,844 buildings; the checker reports zero errors and zero
+warnings. What went into it:
+
+- **The arterial-crossed blocks build now** (2.2,
+  `evidence/fixed-ring-blocks.png`). Two fixes in `buildings.ts`: the ring
+  fill slides ONE tile past blocked ground instead of writing off a whole
+  unit-plus-gap at every brush with a carved band (BUGS.md §7.6's known
+  repair), and `fillBlock` trims interior edges that are a third or more
+  carriageway/pavement — a block the ring crossed near its edge had its
+  units spanning the band, every placement refused, and fifteen Sunridge
+  blocks baked as bare field. Measured with a buildable-ground filter:
+  15 → 2 empty crossed blocks (BUGS.md's "110" counted coastal road
+  corridors with no buildable ground at all). Pinned at ≤ 3 in
+  `city.test.ts`.
+- **Runway ground stays inside the drawn strips** (2.3,
+  `evidence/fixed-airfield-apron.png`). The airstrip recipe's apron was
+  `T_RUNWAY` too, so the strip spread four tiles past its rect in every
+  direction, under the borough's streets — "roads crossing the runway" was
+  the apron the whole time. The apron is hardstanding (`T_LOT`) now; the
+  one crossing that remains at Marsh End is the bake's own two-tile access
+  driveway to the hangar, which is a taxiway with a job. Pinned:
+  every `T_RUNWAY` tile inside an airstrip rect.
+- **No road runs into open water** (2.4). The eight §23.1 corner slivers
+  at bridge mouths are quayed by a new bake repair — each becomes `T_BANK`
+  unless a flood check says removing it would sever the street network —
+  and `cityCheck`'s wet-road rule is an ERROR now. Pinned from the tile
+  side in `city.test.ts`; the shipped-city test's warning allowance is
+  gone (zero warnings, exactly).
+- **Course coverage measured and pinned** (2.1). `trimCourses` already
+  runs against the finished tiles; measured on this bake, 63,308 of
+  63,308 half-tile centreline samples land on carriageway. Pinned exact.
+- **Four tests were restaged on found ground** — the price BUGS.md
+  §7.6 predicted, paid where it fell: the hidden-package restart test
+  finds an isolated package instead of trusting index 5's spacing; the
+  armour test stands its shooter ON the line `clearAim` cleared, firing
+  back down it; the passing-cars test stages on a found clearing (a
+  kerbside lane comes with the parked car the sim materialises on it);
+  and the errand test's `journey()` rejects routes with sub-car-length
+  jinks — the goto follower orbits a 16 px corner pair, which is §41's
+  known ceiling and now has its name written at the staging that found
+  it. The two police tests BUGS.md worried about held as already staged.
+
 ## Wave 1 of PLAN-WORLDGEN: the paint fixes
 
 Renderer-only, no tile moved, every fix with its invariant and its retaken

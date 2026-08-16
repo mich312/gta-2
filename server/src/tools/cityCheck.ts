@@ -278,7 +278,12 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
     }
   }
   if (drowned > 0) {
-    problems.push({ severity: 'warning', message: `${drowned} road tiles run straight into water` });
+    // An error since wave 2.4: the bake now quays every wet road edge it can
+    // without severing the network, so any tile left is either a new
+    // regression or a genuine severance case that needs a person. §23.1's
+    // failure mode — a deck you can drive off into the sea — must not be a
+    // log line.
+    problems.push({ severity: 'error', message: `${drowned} road tiles run straight into water` });
   }
 
   return problems;

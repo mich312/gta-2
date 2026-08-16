@@ -437,10 +437,41 @@ export function fillBlock(
   }
 
   laySidewalk(ctx, b);
-  const ix = b.x + 1;
-  const iy = b.y + 1;
-  const iw = b.w - 2;
-  const ih = b.h - 2;
+  let ix = b.x + 1;
+  let iy = b.y + 1;
+  let iw = b.w - 2;
+  let ih = b.h - 2;
+  // Trim carved bands off the interior's edges (wave 2.2). An authored
+  // arterial crossing a block near its edge leaves interior rows of
+  // carriageway plus the sidewalk belt it grew, and `frontage`'s solid
+  // branch stamps units the full interior height — so every unit spanned
+  // the band, every placement refused, and fifteen whole blocks of
+  // Sunridge baked as bare field behind the ring road. An edge is trimmed
+  // while a third or more of it is carriageway or pavement: a crossing
+  // band trims away, a lone alley mouth or driveway does not.
+  {
+    const share = (x0: number, y0: number, w: number, h: number): number => {
+      let n = 0;
+      for (let ty = y0; ty < y0 + h; ty++) {
+        for (let tx = x0; tx < x0 + w; tx++) {
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+          const t = tiles[ty * W + tx];
+          if (t === T_ROAD || t === T_BRIDGE || t === T_SIDEWALK) n++;
+        }
+      }
+      return n / Math.max(1, w * h);
+    };
+    while (ih >= 3 && share(ix, iy, iw, 1) >= 0.3) {
+      iy++;
+      ih--;
+    }
+    while (ih >= 3 && share(ix, iy + ih - 1, iw, 1) >= 0.3) ih--;
+    while (iw >= 3 && share(ix, iy, 1, ih) >= 0.3) {
+      ix++;
+      iw--;
+    }
+    while (iw >= 3 && share(ix + iw - 1, iy, 1, ih) >= 0.3) iw--;
+  }
   if (iw < 2 || ih < 2) return rng;
   const density = b.density ?? 0.5;
 
@@ -1041,15 +1072,24 @@ function frontage(
       const uy = alongX ? y0 : y0 + at;
       const uw = alongX ? unit : w;
       const uh = alongX ? h : unit;
-      if (skip >= gapChance && !rectHasWater(ctx, ux, uy, uw, uh)) {
-        fill(ctx, ux, uy, uw, uh, T_BUILDING);
-        ctx.buildings.push({ x: ux, y: uy, w: uw, h: uh, district: b.district });
-        at += unit;
-      } else {
+      if (skip < gapChance) {
         // A gap in the frontage: an alley mouth or a yard entrance.
         let gap: number;
         [gap, rng] = nextIntRange(rng, 2, 4);
         at += unit + gap;
+      } else if (rectHasWater(ctx, ux, uy, uw, uh)) {
+        // Blocked ground — a carved avenue, the waterfront, another block's
+        // building. Slide ONE tile and try again. This branch used to share
+        // the rolled-gap's unit-plus-gap stride, so a block crossed by a
+        // curved arterial wrote a whole unit of frontage off at every brush
+        // with the band and came out with no buildings at all — 110 blocks
+        // of it along the ring (BUGS.md §7.6, REVIEW-WORLDGEN.md §2.6).
+        at += 1;
+        continue;
+      } else {
+        fill(ctx, ux, uy, uw, uh, T_BUILDING);
+        ctx.buildings.push({ x: ux, y: uy, w: uw, h: uh, district: b.district });
+        at += unit;
       }
       // One tile of separation, so the wall reads as buildings and not as
       // one continuous slab.
