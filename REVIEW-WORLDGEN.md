@@ -137,16 +137,23 @@ streets cross the strip mid-length — worth a look in the plan.
 
 `evidence/topdown-lot-dashes.png` (Kessler Power).
 
-Dashed centre lines march in columns across the industrial *lot*, with faint
-carriageway banding under them — no road exists on those tiles. The course
-clip (`tiles.ts:474-485`) excludes only `T_WATER` and `T_BUILDING`, so
-wherever a course survives but its carriageway went back to being ground
-(the bake's stranded-carriageway repair, the quay pass), the full ribbon —
-casing, fill, edge lines, dash — goes down on lot, sand or grass. The same
-root cause puts the stray white edge-line fragments on the beach at the
-strait bridgeheads (`evidence/topdown-bridge-wedges.png`, top). The honest
-fix is upstream — trim the course when its carve is reverted (§26's known
-76% coverage gap, seen from the other side) — with the clip as a stopgap.
+Dashed centre lines march in columns across the industrial *lot* — no road
+exists on those tiles. The course clip (`tiles.ts:474-485`) excludes only
+`T_WATER` and `T_BUILDING`, so wherever a course survives but its
+carriageway went back to being ground (the bake's stranded-carriageway
+repair, the quay pass), the full ribbon — casing, fill, edge lines, dash —
+can go down on lot, sand or grass. The honest fix is upstream — trim the
+course when its carve is reverted (§26's known 76% coverage gap, seen from
+the other side) — with the clip as a stopgap.
+
+**Correction, from the Wave 1 fix work:** the clip hole is real and is now
+closed (`courseGround`), but the dash columns in this particular picture
+turned out to come from somewhere else — `paintLot` striped every third
+column of *every lot in the city* as "parking bays" (`tiles.ts:2202`), so
+quarry floors, factory yards and the airfield apron all read as car parks
+from the air. Bays are now painted only around tiles that actually host a
+parked vehicle (`indexParking`). The white fragments on the bridgehead
+beach likewise turned out to be boat-mooring furniture, not paint.
 
 ### 2.3 Bridge parapet steps hold grass over open water
 

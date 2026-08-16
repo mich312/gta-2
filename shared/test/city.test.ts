@@ -4,6 +4,7 @@ import worldgenJson from '../data/worldgen.json';
 import { parseCityPlan, pointInPoly } from '../src/world/plan.js';
 import { buildLayout } from '../src/world/layout.js';
 import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js';
+import { bevelOther } from '../src/world/bevel.js';
 import { generateCity } from '../src/world/generate.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import {
@@ -13,6 +14,7 @@ import {
   T_BUILDING,
   T_FIELD,
   T_LOT,
+  T_PARK,
   T_RAMP,
   T_ROAD,
   T_RUNWAY,
@@ -676,5 +678,40 @@ describe('the city, as an asset', () => {
       }
     }
     expect(violations).toBe(0);
+  });
+
+  it('only bevels materials the painters know by name', () => {
+    // The canary for the §31 class of bug: the deck pair was added to the
+    // bevel yield tables without a case in the 2D painter's wedge switch,
+    // so every parapet step's cut half fell through to the grass default —
+    // green triangles over open sea on all three crossings
+    // (REVIEW-WORLDGEN.md §2.3). This pins the set of materials a bevelled
+    // corner can answer (`bevelOther`) to the set the painters handle
+    // explicitly; a new yield pair fails here until `paintBevel`'s switch
+    // learns its material.
+    const painted = new Set([
+      T_WATER,
+      T_SAND,
+      T_FIELD,
+      T_PARK,
+      T_TREES,
+      T_ROAD,
+      T_BRIDGE,
+      T_SIDEWALK,
+    ]);
+    const bevel = map.bevel as Uint8Array;
+    const seen = new Set<number>();
+    for (let y = 0; y < map.heightTiles; y++) {
+      for (let x = 0; x < map.widthTiles; x++) {
+        if (bevel[y * map.widthTiles + x] === 0) continue;
+        seen.add(bevelOther(map.tiles, bevel, map.widthTiles, x, y));
+      }
+    }
+    for (const t of seen) {
+      expect(painted.has(t), `bevelOther answers tile ${t}, which no painter names`).toBe(true);
+    }
+    // And the bridge pair is genuinely exercised — the wedges §2.3 was
+    // about exist on this map, so the painter case above them is live.
+    expect(seen.has(T_BRIDGE)).toBe(true);
   });
 });

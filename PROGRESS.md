@@ -1,5 +1,40 @@
 # PROGRESS
 
+## Wave 1 of PLAN-WORLDGEN: the paint fixes
+
+Renderer-only, no tile moved, every fix with its invariant and its retaken
+evidence:
+
+- **The runway carries one centreline** (`evidence/fixed-runway-centreline.png`,
+  was `topdown-runway-grid.png`). Both painters' rule was "runway above and
+  below" — every interior row — so a seven-tile strip wore five dashed
+  lines. `runwayCentreRow` in `tiles.ts` walks to the strip's edges and
+  names the one equidistant row; the 3D renderer imports it, and
+  `cityTerrain.test.ts` asserts one marked row per column.
+- **Course ribbons clip to ground that carries a road** (`courseGround`):
+  the old clip excluded only water and walls, so a course outliving its
+  reverted carriageway could paint casing and dashes over lots and sand.
+  Unit-tested inclusion list; Wave 2.1 still owns the upstream trim.
+- **Bridge wedges are deck, not grass**
+  (`evidence/fixed-bridge-wedges.png`). §31 added the deck to the bevel
+  yield tables but not to `paintBevel`'s material switch, so every parapet
+  step's wedge fell to the grass default — green triangles over open sea on
+  all three crossings. A `T_BRIDGE` case now, and `city.test.ts` pins the
+  set of bevel materials to the set the painters name, so the next new pair
+  fails a test instead of painting grass.
+- **No zebra on a deck.** Deck tiles ride the carriageway marking rules for
+  their centre line, which dragged the stop-line and zebra along onto the
+  strait bridge's mouth. Both renderers now skip crossings on `T_BRIDGE`.
+- **Parking bays only where cars park**
+  (`evidence/fixed-lot-dashes.png`). Found while chasing the course clip:
+  `paintLot` striped every third column of every lot in the city, so
+  yards, quarry floors and the airfield apron all read as car parks from
+  the air. `indexParking` marks the tiles around real
+  `parkingSpots`/`vehicleHomes`, and only those stripe.
+- 1.5 (forecourt softness — canvas AA on rotated fills, clip already
+  correct) and 1.6 (residual chunk banding — needs a GPU box) are
+  investigated and deferred with notes in PLAN-WORLDGEN.md.
+
 ## Wave 0 of PLAN-WORLDGEN: the safety rails
 
 The four fixes that make every later worldgen change safe to make, landed

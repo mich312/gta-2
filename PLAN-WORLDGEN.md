@@ -79,18 +79,32 @@ without a crossing course. Extend the gate: a zebra needs the crossing
 course to *exist at that junction*, not just a junction-shaped widening.
 *Invariant:* extend the §35 test with the bridgehead case.
 
-**1.5 Forecourt quads stay inside their block (S).** Rotated buildings'
-tan aprons bleed past the kerb ring with soft anti-aliased edges — the one
-soft-edged thing in a crisp city (`evidence/topdown-oldquarter-tarmac.png`).
-Clip the rotated quad to the block polygon and draw it crisp (the painter
-has the block outline; `imageSmoothingEnabled` discipline as per the runway
-speckle fix). *Invariant:* visual retake; a pixel test is overkill here.
+**1.5 Forecourt quads stay inside their block (S). — INVESTIGATED, DEFERRED
+to 3.x.** The clip this item asked for already exists: `paintMassApron`
+confines the turned apron to the building's own tiles plus the soft ring
+beside them, and never over carriageway or water. The softness is canvas
+antialiasing on rotated path fills — which 2D canvas cannot turn off — made
+larger by the ground texture's upscale. A real fix is a different drawing
+strategy (rasterise the quad per texel, or give the apron a deliberate
+crisp edge treatment), which is Wave 3 polish, not a paint-pass tweak.
 
-**1.6 Chunk-seam banding (S, diagnose first).** Faint 128-px column/row
-tones in grass and tarmac. Suspects, in order: chunk-texture edge filtering
-(clamp/nearest at borders), a grain hash keyed off chunk-local rather than
-world coordinates, mipmap bias differing per chunk. Fix whichever it is;
-if it is filtering, it is three lines in `ground.ts`'s texture setup.
+**1.6 Chunk-seam banding (S, diagnosed — residual DEFERRED).** The known
+seam cause is already fixed in `ground.ts` (nearest magnification, no
+mipmaps, per the comment at its texture setup — the mip chain's clamped
+edge texels were the earlier seam grid). The faint residual banding in the
+flyover captures needs a machine with a real GPU to chase — under
+SwiftShader the render path differs enough that a "fix" verified here
+proves nothing about the shipped experience. Revisit when a GPU box is in
+the loop.
+
+**1.7 (found while fixing 1.2) Parking bays only where cars park (S).**
+The dash columns §2.2's screenshot shows were not course paint at all:
+`paintLot` striped every third column of EVERY lot tile in the city as
+parking bays, so quarry floors, factory yards and the airfield apron all
+read as car parks from the air. Bays now paint only within a tile of an
+actual `parkingSpots`/`vehicleHomes` entry (`indexParking`). The clip fix
+(1.2) stays — it closes the real §23.2 overhang class — and the beach
+fragments at the bridgeheads resolved as boat-mooring furniture, not paint.
 
 ## Wave 2 — the one declared rebake (worldgen; every tile change batched)
 

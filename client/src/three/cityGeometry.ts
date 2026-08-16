@@ -42,7 +42,7 @@ import {
 import palette from 'shared/data/palette.json';
 import { hash2 } from '../render/noise.js';
 import { Z_SCALE } from '../render/config.js';
-import { ARTERIAL_WIDTH, RUN_ROAD } from '../render/tiles.js';
+import { ARTERIAL_WIDTH, RUN_ROAD, runwayCentreRow } from '../render/tiles.js';
 import { addOutline, outlineMaterial, toonGradient, toonMaterial } from './toon.js';
 import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
 
@@ -434,6 +434,12 @@ export function buildCity(map: CityMap): CityBuild {
    */
   const crossing = (tx: number, ty: number): number => {
     if (!isRoad(tx, ty) || isJunction(tx, ty)) return 0;
+    // A deck is not a crossroads: `isCarriageway` counts T_BRIDGE (it must,
+    // for the centre line to carry over), which brought the crossing rule
+    // onto the deck and stamped a zebra at the strait bridge's mouth
+    // (REVIEW-WORLDGEN.md §2.3). Pedestrians cross streets, not spans. Same
+    // guard as the 2D painter's, kept in step by cityTerrain.test.ts.
+    if (tileAt(tx, ty) === T_BRIDGE) return 0;
     // Only where a MAIN road meets the junction.
     //
     // Marking every arm was the default, and at this city's block density it
@@ -534,13 +540,14 @@ export function buildCity(map: CityMap): CityBuild {
     return centre === 1 ? 7 : 2;
   };
   /**
-   * Runway centreline: dashed, along the strip, on the tiles with runway both
-   * sides of them. The same rule and the same cadence `paintRunway` uses, so
-   * the strip is marked out the same way in both renderers — and marked out as
-   * a runway rather than as a B-road.
+   * Runway centreline: dashed, along the strip, on the ONE row of each column
+   * `runwayCentreRow` names — the 2D painter's own rule, imported rather than
+   * approximated, so the strip is marked out the same way in both renderers.
+   * (The old local test here was "runway both sides", which is every interior
+   * row: five dashed lines on a seven-tile strip, in both views at once.)
    */
   const runwayMark = (tx: number, ty: number): boolean =>
-    tileAt(tx, ty - 1) === T_RUNWAY && tileAt(tx, ty + 1) === T_RUNWAY && tx % 2 === 0;
+    runwayCentreRow(tileAt, tx, ty) && tx % 2 === 0;
 
   // Which building covers each tile, so a block of them shares one colour
   // instead of every tile rolling its own — the same reason the 2D renderer

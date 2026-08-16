@@ -142,6 +142,49 @@ const TD = TILE_SIZE * RENDER_SCALE;
  * bare in the other.
  */
 export const RUN_ROAD = 8;
+
+/**
+ * Is (tx, ty) on the runway centreline — the ONE marked row of its column?
+ *
+ * The old rule was "runway above and below", which is true of every interior
+ * row: a seven-tile strip carried five parallel dashed lines and both
+ * airstrips read as dash carpets from the air (REVIEW-WORLDGEN.md §2.1,
+ * `evidence/topdown-runway-grid.png`). This walks to the strip's edges and
+ * marks only the row equidistant from them — on an even strip, the
+ * northerly of the middle pair. Strips under three tiles tall get no line,
+ * as before. Exported so the 3D renderer imports the rule rather than
+ * approximating it, which is how `RUN_ROAD` above earned its keep
+ * (BUGS.md §7.1); the every-other-column dash cadence stays at the call
+ * sites — it is presentation, this is the rule.
+ */
+export function runwayCentreRow(
+  tileAt: (tx: number, ty: number) => number,
+  tx: number,
+  ty: number,
+): boolean {
+  if (tileAt(tx, ty) !== T_RUNWAY) return false;
+  let y0 = ty;
+  while (tileAt(tx, y0 - 1) === T_RUNWAY) y0--;
+  let y1 = ty;
+  while (tileAt(tx, y1 + 1) === T_RUNWAY) y1++;
+  if (y1 - y0 < 2) return false;
+  return ty === y0 + ((y1 - y0) >> 1);
+}
+
+/**
+ * Ground the course ribbons may paint on: the carriageway itself, its deck
+ * over water, and the kerb band the casing is meant to reach — plus a shop's
+ * threshold, which sits flush against the street it opens onto, and the quay,
+ * which the esplanade's course runs along (§33). Everything else — lots,
+ * sand, grass, park, woodland, runway, ramps, water, walls — is ground a
+ * street's paint has no business on, however close the centreline passes.
+ */
+export function courseGround(t: number): boolean {
+  return (
+    t === T_ROAD || t === T_BRIDGE || t === T_SIDEWALK || t === T_BANK || t === T_FLOOR
+  );
+}
+
 /** Carriageway width at which a street counts as a main road. */
 /**
  * Carriageway width, in tiles, at which a street is a main road.
@@ -332,6 +375,9 @@ export class TileLayer {
    */
   private bandSegs: Map<number, Float32Array> | null = null;
 
+  /** Tile indices that host a parked vehicle — see `indexParking`. */
+  private readonly parkingTiles = new Set<number>();
+
   constructor(private readonly sprites: SpriteSheet) {}
 
   setMap(map: CityMap): void {
@@ -344,6 +390,29 @@ export class TileLayer {
     this.indexRoadRuns(map);
     this.indexCourses(map);
     this.indexShores(map);
+    this.indexParking(map);
+  }
+
+  /**
+   * Lot tiles that actually host a parked vehicle, plus a tile around each,
+   * so `paintLot` can mark bays where cars stand instead of striping every
+   * third column of every lot in the city — quarries, factory yards and the
+   * airfield apron were all coming out as car parks from the air
+   * (REVIEW-WORLDGEN.md §2.6's dash columns, run to ground: they were never
+   * course paint, they were this).
+   */
+  private indexParking(map: CityMap): void {
+    this.parkingTiles.clear();
+    const W = map.widthTiles;
+    for (const s of [...map.parkingSpots, ...map.vehicleHomes]) {
+      const tx = Math.floor(s.x / TILE_SIZE);
+      const ty = Math.floor(s.y / TILE_SIZE);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          this.parkingTiles.add((ty + oy) * W + tx + ox);
+        }
+      }
+    }
   }
 
   /** The coast and the band's inner edge, per tile (`shoreChains`, §18/§39). */
@@ -470,14 +539,20 @@ export class TileLayer {
     // near the water, the stroked ribbon overhangs the tiles the carve
     // actually took, and 385 tiles of sea and building wall were being
     // painted as tarmac and kerb — worst beside the bridges, where the deck
-    // is narrow and the curve is not. Clip the whole pass to ground a road
-    // may be drawn on. Water and walls only: the casing is MEANT to reach
-    // past the carriageway onto the kerb band, so pavement stays in.
+    // is narrow and the curve is not. Clip the whole pass to ground that
+    // CARRIES a road (`courseGround`). The first cut of this clip excluded
+    // only water and walls, and lots, beaches and grass all passed it — so
+    // wherever the bake reverted a course's carriageway to ground (the quay
+    // scraps, the stranded-carriageway repair) the full ribbon still went
+    // down: dashed centre lines marching across the Kessler Power lot and
+    // stray edge-line fragments on the sand at the strait bridgeheads
+    // (REVIEW-WORLDGEN.md §2.2). The casing is MEANT to reach past the
+    // carriageway onto the kerb band, so pavement stays in. Wave 2.1 trims
+    // the courses themselves; this clip stays as defence in depth.
     ctx.beginPath();
     for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
       for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-        const t2 = this.tileAt(tx, ty);
-        if (t2 === T_WATER || t2 === T_BUILDING) continue;
+        if (!courseGround(this.tileAt(tx, ty))) continue;
         ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
       }
     }
@@ -1427,15 +1502,24 @@ export class TileLayer {
         // uses, so the wedge continues the wood beside it.
         this.paintGrass(ctx, tx, ty, x, y, palette.trees, palette.treesLight, true, plants);
         break;
+      case T_BRIDGE:
       case T_ROAD:
         // Bare asphalt with the carriageway's own grain — no marks and no
-        // patches: a wedge is a kerbside sliver, not a lane.
+        // patches: a wedge is a kerbside sliver or a deck overhang, not a
+        // lane. T_BRIDGE is here by name because §31 added the deck to the
+        // yield tables without adding it to this switch, and every parapet
+        // step's wedge fell through to the grass default — green triangles
+        // over open sea on all three crossings (REVIEW-WORLDGEN.md §2.3).
         ctx.fillStyle = palette.road;
         ctx.fillRect(x, y, TD, TD);
         this.speckle(ctx, tx, ty, x, y, palette.roadDark, 5, 2, 3);
         this.speckle(ctx, tx, ty, x, y, palette.roadLight, 3, 1, 9);
         break;
       default:
+        // T_FIELD's painter, and DELIBERATELY only T_FIELD's: any material
+        // the yield tables learn to produce must be added above by name, or
+        // it comes out as a grass wedge wherever it meets the water — the
+        // §31 lesson. `city.test.ts` pins the set this switch must cover.
         this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
     }
     ctx.restore();
@@ -1851,6 +1935,13 @@ export class TileLayer {
       else ctx.fillRect(x, near ? y + t : y + TD - 2 * t, TD, t);
     }
 
+    // A deck is not a crossroads: `paintBridge` routes deck tiles through
+    // these carriageway rules for the centre line, which brought the
+    // stop-line and zebra along and painted a crossing onto the strait
+    // bridge's mouth (REVIEW-WORLDGEN.md §2.3). Pedestrians cross streets,
+    // not spans.
+    if (this.tileAt(tx, ty) === T_BRIDGE) return;
+
     // Stop line + zebra on the last tile before a junction — but only where a
     // MAIN road meets it.
     //
@@ -2112,14 +2203,12 @@ export class TileLayer {
       const gy = Math.floor(hash2(tx, ty, 0x51f9) * 11);
       ctx.fillRect(x + gx * RENDER_SCALE, y + gy * RENDER_SCALE, 2 * RENDER_SCALE, 2 * RENDER_SCALE);
     }
-    // The centreline runs east-west, matching how the strip is stamped. Every
-    // other tile, so it dashes.
+    // The centreline runs east-west, matching how the strip is stamped: ONE
+    // row per column (`runwayCentreRow` — the old interior-row test drew a
+    // line on every row of the strip), every other column, so it dashes.
     const map = this.map;
     if (!map) return;
-    const above = ty > 0 ? map.tiles[(ty - 1) * map.widthTiles + tx] : -1;
-    const below = ty + 1 < map.heightTiles ? map.tiles[(ty + 1) * map.widthTiles + tx] : -1;
-    const mid = above === T_RUNWAY && below === T_RUNWAY;
-    if (mid && tx % 2 === 0) {
+    if (runwayCentreRow((ax, ay) => this.tileAt(ax, ay), tx, ty) && tx % 2 === 0) {
       ctx.fillStyle = palette.runwayLine;
       ctx.fillRect(x, y + TD / 2 - RENDER_SCALE, TD, 2 * RENDER_SCALE);
     }
@@ -2136,8 +2225,11 @@ export class TileLayer {
     ctx.fillRect(x, y, TD, TD);
     this.speckle(ctx, tx, ty, x, y, palette.gravel, 8, 2, 17);
     this.speckle(ctx, tx, ty, x, y, shade(palette.lot, 0.18, '#ffffff'), 4, 1, 19);
-    // Parking bays, marked out in alternating columns.
-    if (tx % 3 === 0) {
+    // Parking bays — only where something actually parks (`indexParking`).
+    // Striping every third column of every lot painted the whole city's
+    // yards, aprons and quarry floors as car parks.
+    const map = this.map;
+    if (map && this.parkingTiles.has(ty * map.widthTiles + tx)) {
       ctx.fillStyle = palette.lotStripe;
       ctx.fillRect(x + 2 * RENDER_SCALE, y + 2 * RENDER_SCALE, RENDER_SCALE, TD - 4 * RENDER_SCALE);
     }
