@@ -1,0 +1,370 @@
+# REVIEW-MAPDESIGN.md — the city from straight above, read as a map, not as a render
+
+`REVIEW-WORLDGEN.md` part two already flew this city at pitch 8° and hunted
+*rendering* bugs: dash carpets, parapet wedges, slab roofs. This is the other
+review you get from the same viewpoint and the one nobody has written yet —
+the **map designer's** pass. Not "does it draw correctly" but "is this a good
+place to drive a stolen car around": where the crossings are, what the
+detours cost, which ground is doing no work, and whether the systems layered
+on the map (territory, spawns, amenities) know what the map looks like.
+
+Everything below is measured off `generateCity(1)` — the shipped bake plus
+the session's amenity passes — and every claim names the file it comes from.
+
+**The pictures.**
+
+| File | What it is | Retake |
+| --- | --- | --- |
+| `evidence/mapdesign-city.png` | The whole city, 2 px per tile | `pnpm mapgen --out=evidence/mapdesign-city.png` |
+| `evidence/mapdesign-strait.png` | The strait end to end, 3 px per tile | `pnpm mapgen --crop=240,250,470,220 --scale=3 --out=evidence/mapdesign-strait.png` |
+| `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
+
+---
+
+## 1. What the map does well, and it is a lot
+
+- **The boroughs read apart at a glance.** From 768 tiles up you can name
+  Ravenhill, The Spine, the Old Quarter, the Terraces and the New Suburbs
+  purely by fabric — pitch, angle and roof colour do the work that a legend
+  would otherwise have to. Very few hand-made GTA-era maps manage five
+  distinguishable fabrics; §13.4's per-borough pitch and angle is why.
+- **The coastline is the best thing in the city.** The vector shore
+  (`VECTOR.md`) gives headlands, a lagoon, a hooked spit and a real
+  sound — a silhouette you could put on a loading screen and be recognised by.
+- **Gannet Rock is a genuinely good idea.** A cliff-ringed plateau with a
+  strip on top, `byAir: true`, no road anywhere (`--stats`: `road 0%`) and a
+  campground as the prize. One island in the map that exists to reward owning
+  an aircraft is exactly the kind of thing that makes a map memorable.
+- **The sound crossings are placed like a designer placed them** — North
+  Sound Bridge at y≈228 and South Sound Bridge at y≈476, 250 tiles apart, so
+  Port Vasco has a north door and a south door and losing one is a
+  detour rather than a siege.
+- **Nothing is orphaned.** `pnpm citybake --check` reports no unreachable
+  ground and one street network; block, building and shop counts are healthy
+  (1,156 / 4,066 / 71).
+
+Everything below assumes that, and is about what the map does *next*.
+
+---
+
+## 2. The findings, ranked by how much they change the game
+
+### 2.1 The strait has two crossings and both of them are in the far west
+
+This is the big one. The plan authors **three** crossings of the strait —
+`Kelvin Bridge` (`city-plan.json:1300`), `Old Bridge`, `Marsh Causeway`
+(`:1333`) — and WORLDGEN.md §12.3 states the design intent outright:
+"Crossings, and there are eight of them, because on an archipelago the
+question 'which bridge' is the interesting one."
+
+The built city has **four** crossings, and of the strait's three, two do not
+exist:
+
+| Authored | In the built city | Why |
+| --- | --- | --- |
+| Old Bridge (x≈338) | **built**, 242-tile deck | — |
+| The Ring, west leg (x≈276) | **built**, as two parallel spans (§2.9) | widest span 35 t |
+| North Sound / South Sound Bridge | **built**, 177 / 182 t | widest span 45 t |
+| **Kelvin Bridge** (x=452) | **gone** | its south endpoint `452,400` is **10 tiles out to sea** |
+| **Marsh Causeway** (x≈569) | **gone** | its north endpoint `566,292` is **8 tiles out to sea**, and its widest span is 76 t |
+| **The Ring, east leg** (x≈652) | **gone** | widest span 75 t, over `maxBridgeSpan` 72 |
+
+Two different causes, and the first one is the interesting one. `layout.ts:2283`
+reverts bridge tiles whose crossing is wider than `maxBridgeSpan` (72,
+`city-plan.json:6`), and the whole-deck pass just below it — added by §23.1
+after Kelvin Bridge left the bank and stopped fourteen tiles short of the far
+shore — deletes any deck that **lands in fewer than two places**. Both rules
+are right, and the second one is doing exactly its job here: **the plan draws
+Kelvin Bridge and Marsh Causeway ending in open water**, so their decks can
+only ever land on one bank. Six of the plan's 32 road endpoints are in the sea
+(`Kelvin Bridge` end 10 t out, `Marsh Causeway` start 8 t, `Coast Road` end
+11 t, `Vasco Avenue` start 3 t, `Dockside` end 2 t, `Airfield Road` end 1 t) —
+and nothing in `plan.ts` checks for it, so a drawing error that deletes a named
+crossing passes validation silently.
+
+Verified, by re-running `buildLayout` over an edited plan:
+
+| Change | Decks that come back |
+| --- | --- |
+| Kelvin Bridge end → `452,414`, Marsh Causeway start → `566,272` (cap unchanged) | **Kelvin Bridge** (214-tile deck at `451,387`) |
+| `maxBridgeSpan` 72 → 84, plan unchanged | **The Ring's east leg** (`648,343` + `640,345`) |
+| Both, with the cap at 96 | **all three** — Marsh Causeway lands too (373-tile deck at `568,325`) |
+
+96 is not a novel number: it is `plangen`'s own default (`plangen.ts:310`). At
+108 an extra deck appears across the lagoon mouth at `560,669`, which may or
+may not be wanted. None of this has been baked or committed — changing the
+shipped city is a separate decision from reviewing it.
+
+Measured on the road net (`map.roadNet`, `sim/roadnet.ts`):
+
+- Exactly **6 of 1,498 edges** carry a bridge tile. Three of them join the
+  north and south landmasses, and their anchor points are at x = 276, 276 and
+  338. The map is 768 tiles wide.
+- **From x≈340 to the east edge — 56% of the map's width — there is no way
+  across the strait.** `evidence/mapdesign-strait.png` is that fact in one
+  picture: everything right of the Old Bridge is open water bank to bank.
+- The cost, over landmark pairs: detour factor **p50 ×1.60, p90 ×2.49**, and
+  the tail is brutal — Market Square → Seaview Infirmary is 203 tiles apart
+  and **1,034 tiles to drive (×5.1)**; the worst spawn-to-shop pair measured
+  ×8.6. The route out of the Old Quarter runs the entire width of downtown,
+  over the Old Bridge, and back east along the whole south bank.
+
+Why it matters more than the ratio suggests: the east end of the strait is
+where the map's two densest, most characterful districts face each other
+across the water (Old Quarter ↔ Beachfront). That confrontation is the best
+thing on the map and the player can never make the short trip. Police chases,
+too: a two-crossing city where both crossings are 60 tiles apart is not "an
+archipelago where the question is which bridge" — it is one bridge with a
+spare.
+
+**What I would do**, cheapest first:
+
+1. **Put the six endpoints on land** in `city-plan.json`, and add the check
+   that would have caught them: `plan.ts` already refuses a landmark off the
+   map and a road wider than `MAX_CARRIAGEWAY`; "a road may not begin or end
+   in the sea" is the same kind of rule and one loop long.
+2. **Raise `maxBridgeSpan` to 96** and re-bake, which brings back the ring and
+   the causeway. If long decks are unwanted, move the causeway's abutment onto
+   the Old Quarter's harbour point instead and leave the cap alone.
+3. **Make the checker able to see this at all.** `cityCheck.ts` validates that
+   one street network exists — true, via the west — and so it cannot notice
+   that a named crossing has vanished. The check with teeth is: **every
+   authored road must reach both of its endpoints in the built city**, failing
+   the bake when a crossing is silently deleted. That is what turns this from
+   "found by flying over it a year later" into "the bake refused".
+
+### 2.2 The Ring is not a ring
+
+`The Ring` (`city-plan.json:1110`) is a 1,607-tile closed loop around the
+whole archipelago — the single strongest line on the map, and from above the
+first thing the eye follows. In the built city it is a **C**: it crosses the
+strait on the west leg and is cut on the east (`x=652`, tiles read
+`ROAD×50 … WATER×75 … ROAD×90`).
+
+So the map's signature orbital road cannot be orbited. Every ring trip either
+U-turns or dives through the city centre. For a GTA map this is a real loss:
+the ring is the "get across town fast, at speed, with no junctions" road —
+the thing a chase escalates onto — and half of it is a cul-de-sac at each
+end. Same fix as §2.1.
+
+### 2.3 Eleven roads end at the water, and three of them are amputated bridges
+
+26 junctions on the road net are dead ends; **11 of them are within six tiles
+of open water**. Three are the stumps of §2.1: `565,275` (Marsh Causeway's
+north end, which starts in the sea), `455,361` / `470,367` (Kelvin Bridge's
+approach, which runs 74 tiles south out of downtown, crosses an empty
+headland, and stops on a beach), `632,308` and `665,471` (the ring's east
+legs).
+
+None of them is a safety bug — the quay pass puts a bank between tarmac and
+sea, and `citybake --check` reports zero "road tiles run straight into water".
+They are a *legibility* bug. A player learns a city by learning that roads go
+somewhere; five roads that confidently leave a district and end on a beach
+teach the opposite, and the Kelvin approach in particular is a 74-tile
+commitment before the payoff turns out not to exist
+(`evidence/mapdesign-headland.png`, the straight line down the middle).
+
+Whatever happens to `maxBridgeSpan`, the stub prune should follow a deleted
+deck all the way back to the last junction that still has a reason to exist.
+
+### 2.4 The best waterfront in the city is an empty field
+
+`evidence/mapdesign-headland.png`. Directly south of The Spine — downtown,
+the densest fabric on the map — is a **3,577-tile bare patch centred on
+495,333**: a headland with a mile of south-facing water frontage, looking
+across at the south bank, and it is grass. One road crosses it (the Kelvin
+stub). No block, no building, no shop, no prop.
+
+The cause is authoring, not code: The Spine's polygon stops at y=312
+(`city-plan.json`, bbox `424,120..558,312`), and the §14.3 fringe fill hands
+the leftover land the *label* `downtown` while no street pass ever touches it.
+**9.1% of the city's dry land lies outside every authored district polygon**,
+and 58% of that land is bare field.
+
+Some of that fringe is deliberate and good (Marsh End's flats, the
+countryside the ring runs through). This piece is not: it is the single most
+valuable parcel on the map — waterfront, adjacent to downtown, opposite the
+other bank — and it is the *only* piece of the north bank a player has no
+reason to visit. Docks, a container terminal, a stadium, a heliport, a marina,
+anything. It is also, not coincidentally, exactly where Kelvin Bridge would
+land.
+
+Two other bare patches worth a look: 2,936 tiles at `497,43` (north of
+Ravenhill Park, at the map edge — probably fine) and 2,496 tiles at `456,637`
+(Marsh End, deliberate countryside).
+
+### 2.5 Gang territory is drawn without ever looking at the map
+
+`turf.ts:22` partitions the city by Voronoi over **the whole 768×768 square**
+— seven home points on a staggered ring, 64×64 cells of 12 tiles. It has
+never heard of the coastline, the boroughs, the districts or the roads. The
+comment defends contiguity ("territory has to be contiguous to read as
+territory"), which is right, and then the partition is applied to a map that
+is **49.7% water**.
+
+Measured per gang (land tiles inside its cells, and which boroughs those cells
+touch):
+
+| Gang | Cells | Dry | Land tiles | Boroughs it straddles |
+| --- | --- | --- | --- | --- |
+| 7 | 801 | 67% | 77,517 | Ravenhill, Kelvin, Sunridge |
+| 2 | 573 | 84% | 69,026 | Sunridge, Port Vasco, Gannet Rock, Marsh End |
+| 6 | 448 | 73% | 46,810 | Ravenhill, Sunridge |
+| 4 | 538 | 46% | 35,573 | Port Vasco, Ravenhill, Sunridge, Gannet Rock |
+| 1 | 525 | 42% | 32,006 | Kelvin, Sunridge, Marsh End |
+| 3 | 719 | 27% | 27,792 | Marsh End, Gannet Rock, Sunridge |
+| **5** | 492 | **12%** | **8,202** | Ravenhill, Port Vasco |
+
+Gang 7 has **9.5× the ground** of gang 5, whose manor is seven-eighths open
+sea. Every gang straddles two to four boroughs, and every borough is split
+between two to four gangs — so the one property a player can actually read off
+the map (this is the Old Quarter; those are the docks) carries no information
+about whose turf they are standing in, and vice versa.
+
+This is the highest-leverage fix in the review, because the map has *already
+done the work*: the plan has six boroughs and sixteen districts with names,
+polygons and characters. Seed the Voronoi from **borough centroids over dry
+land only**, or assign each gang a set of districts outright, and territory
+becomes something you learn by looking out of the windscreen. It costs one
+function and no rng draws (turf already consumes none, so replays are safe).
+
+### 2.6 Port Vasco is a whole island the player almost never starts on
+
+Port Vasco holds **11% of the city's dry land** (32,281 tiles), 22 shops,
+376 buildings, and five landmarks including Ironside Stadium, Kessler Power,
+Greyhill Quarry and its own precinct and infirmary. It is the most distinct
+place on the map — long north-south dock blocks, a 12° housing grid, nothing
+else like it.
+
+Across eight seeds it receives **0–2 of 16 player spawns** (mean ≈ 0.6, about
+4%). The cause is in `amenities.ts:783-800`: spawns need a `downtown`,
+`commercial` or `residential` district *and* a street density ≥16 in a 7×7
+box. Port Vasco is two industrial districts plus one small residential one
+(Vasco Heights, 4,976 tiles), so it barely offers candidates — and the min
+distance sampler then spends its 16 picks where the candidates are.
+
+The intent behind that filter is right ("one player in five started on a dock
+road with no traffic… a bad first thirty seconds"). The result is that an
+island's worth of authored content sits behind two bridges that nobody is put
+next to. A per-borough spawn quota — at least one spawn on every landmass
+that has a shop on it — costs very little and turns Port Vasco from scenery
+into a place people start their session.
+
+The same island is also the one with the least redundancy: cut both sound
+bridges and 11% of the city goes with them. (No *single* edge disconnects
+anything: the cut-edge analysis finds 49 cut edges and none isolates as many
+as 20 junctions. Two-edge-connected, but only just.)
+
+### 2.7 The city is more asphalt than city
+
+From `citybake --check`: of dry land, **road 32.9%, building 14.8%, bare
+12.7%**. A third of every landmass is carriageway, and buildings occupy less
+than half what the roads do. It is visible from above as the dominant
+impression of the whole map — a grey mesh with coloured confetti in the holes
+(`evidence/mapdesign-city.png`).
+
+Underneath it is block size. Median block area is **110 tiles** (≈10×11), and
+the road graph has **765 junctions in 1,498 edges** — a junction roughly every
+twelve tiles. The knock-on effects are all gameplay:
+
+- A chase has an escape option every twelve tiles, so pursuit never builds
+  pressure; the police can't ever be committed to the wrong street.
+- Nothing is *far* in a way you can feel, so the map's real distances (which
+  are large, §2.1) come from detours rather than from geography.
+- Buildings are small (`downtown` footprint p50 = 8 tiles) which is why
+  downtown reads from above as bars around a green backland rather than as
+  massing.
+
+The plan already carries the dial: `pitchX/pitchY` per district. The Spine is
+15×12; the Old Quarter is 11×9. Widening the downtown and commercial pitches
+(say 22×18) and letting the fill push building coverage up would move road
+share toward 25% without touching a line of layout code. §28.3 already
+measured the lattice-merging ceiling from the other side; this is the same
+number read as a design brief.
+
+### 2.8 One orientation, and one skyline
+
+Bearing census over road tiles: **42.9% at 0°** and another 4.7% at 90° — so
+nearly half the city's streets are screen-aligned, with 20° (Old Quarter),
+26° (North Point), 12° (Vasco) and the two contour fabrics carrying the rest.
+The docs know this is the failure mode they were fixing (§13); from above it
+is still the dominant read, because the two biggest districts (Ravenhill,
+The Spine) are both at 0° and adjacent.
+
+Vertically it is flatter still. `heights.ts:24` gives `downtown [4,12]`,
+`commercial [2,6]`, `industrial [1,3]`, `residential [1,3]`; measured, the
+whole city is p50 = 3 storeys, p90 = 5, max 10. Downtown is *three storeys*
+taller than the suburbs on average. From straight down that costs nothing;
+from the pitch-42 camera the game is actually played at, it costs the city its
+skyline and costs the player the single most useful navigation aid a GTA map
+has — "drive toward the tall thing". The three towers (Vantage, The Spire,
+Halloran) are the right idea and want to be two or three times the height of
+anything near them, plus a genuine height gradient from the spine outward.
+
+### 2.9 Smaller things a designer would flag
+
+- **Four islets with nothing on them.** The unnamed islands (1,153 / 1,098 /
+  958 / 735 tiles — big enough for a farmhouse each) carry zero packages, zero
+  pickups, zero props. There are 460 boat spawns and 400 hidden packages in
+  the city; not one package is on an islet. Free reward-for-exploration.
+- **Two squares and one green for a city this size.** Nearest-square distance
+  is p50 174 t / p95 400 t. A public square is a landmark, a chase arena and a
+  frenzy stage all at once; the map has King's Circus, Market Square, Parade
+  Ground and Chapel Green and could carry twice that.
+- **Amenity spread is fine but thin at the edges**: nearest police p50 96 t /
+  p95 180 t, nearest hospital p50 103 t / p95 193 t. The p95s are all in
+  Marsh End and on the spit — a country police post east of the airfield
+  would close the worst of it.
+- **The ring crosses the strait as two parallel bridges** 7 tiles apart
+  (spans at `272,360` and `279,363`), because the ring's west leg saw-tooths
+  between x=268 and x=286 (`city-plan.json:1110`, points `[286,322] [268,392]
+  [286,462]`). It reads from above as an accidental dual carriageway. Harmless,
+  probably worth straightening into one deck.
+- **`vehicleSpawns` and `parkingSpots` are 1,469 points each and 909 of those
+  positions are identical.** Not a map-design finding as such, but from above
+  it is why parked traffic and moving traffic bunch on the same kerbs.
+
+---
+
+## 3. If I could only change three things
+
+1. **Restore the eastern crossings** (§2.1, §2.2, §2.3): six road endpoints
+   out of the water, `maxBridgeSpan` 72 → 96, re-bake. Measured, that is the
+   whole fix. Then add the "every authored road reaches both of its ends"
+   check so it can never silently regress again.
+2. **Give the gangs the boroughs** (§2.5). Territory that matches the city the
+   player can see, instead of a Voronoi over the sea.
+3. **Build the headland and widen the blocks** (§2.4, §2.7). One is authoring
+   in the plan, the other is four numbers in it; between them they fix the
+   "grey mesh, empty middles" impression the map gives from above.
+
+---
+
+## 4. How the numbers were taken
+
+All from a scratch script over `generateCity(1, loadWorldgenParams())` — the
+same call `pnpm mapgen` makes — plus `pnpm citybake --check` and
+`pnpm mapgen --stats`:
+
+- **Tile budget / land share**: histogram of `map.tiles`.
+- **Islands**: 4-connected flood over non-water; run again excluding
+  `T_BRIDGE` to separate the true islands from the bridged whole.
+- **Crossings**: every `roadNet` edge whose `pathTiles` include a `T_BRIDGE`.
+- **Cut edges**: iterative DFS low-link over the junction graph; subtree size
+  measured per cut edge.
+- **Detours**: Dijkstra over `edgeCost` (tiles) between landmark centres and
+  between spawn/shop points, against straight-line distance.
+- **Dead ends at the water**: degree-1 junctions with a `T_WATER` tile inside
+  a 6-tile box.
+- **Unauthored land**: dry tiles failing `pointInPoly` against every district
+  polygon in `city-plan.json`.
+- **Turf**: `map.turfCells` (64×64 of 12 tiles), dry fraction per cell and the
+  borough of each cell centre.
+- **Spawn distribution**: `map.playerSpawns` bucketed by island, seeds
+  1, 2, 3, 7, 11, 42, 99, 500.
+- **Water spans and endpoints**: the four-axis run `layout.ts:2250` measures,
+  taken over each authored crossing's centreline; endpoint depth by ring
+  search out from the endpoint tile.
+- **The bridge experiment (§2.1)**: `buildLayout(parseCityPlan({...raw, roads,
+  maxBridgeSpan}))` with the endpoints edited, counting 8-connected `T_BRIDGE`
+  components of 20 tiles or more. Layout only — no bake, nothing committed.
