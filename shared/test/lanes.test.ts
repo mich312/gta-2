@@ -146,8 +146,16 @@ describe('lanes on the graph', () => {
       if (checked >= 400) break;
       const lo = L.off[p.e] as number;
       const hi = L.off[p.e + 1] as number;
-      const vx = (L.x[lo + 1] as number) - (L.x[lo] as number);
-      const vy = (L.y[lo + 1] as number) - (L.y[lo] as number);
+      // The LOCAL tangent at the sample point, not the first segment's: on
+      // an L-shaped street line (which the 4.6 contour connectors produce,
+      // wrapping a corner in one edge) the first segment runs east while
+      // the midpoint's own run heads south, and a query perpendicular to
+      // the local tangent has no stable sign to flip — the probe was
+      // asking a question no car on that street would ask. A driver's
+      // travel direction is along the street where they ARE.
+      const kk = Math.min(Math.max(p.k, lo), hi - 2);
+      const vx = (L.x[kk + 1] as number) - (L.x[kk] as number);
+      const vy = (L.y[kk + 1] as number) - (L.y[kk] as number);
       const len = Math.sqrt(vx * vx + vy * vy);
       if (len === 0 || hi - lo < 3) continue;
       const with_ = laneAt(L, p.x, p.y, vx / len, vy / len);

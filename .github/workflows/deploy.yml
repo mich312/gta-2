@@ -16,8 +16,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The suite stands between main and the server (PLAN-WORLDGEN.md wave 0.4).
+  # Same steps as test.yml; duplicated here rather than chained through
+  # workflow_run so the gate is visible in this file and a deploy cannot be
+  # dispatched around it.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+      - name: Test
+        run: pnpm test
+      - name: City checker on the shipped asset
+        run: node server/dist/tools/citybake.js --check
+
   deploy:
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4      # only to get ci/deploy.sh onto the runner
 

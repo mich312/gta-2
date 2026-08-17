@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CITY_DATA } from '../src/world/city.data.js';
 import { decodeBakedCity } from '../src/world/bake.js';
-import { T_BRIDGE, T_ROAD } from '../src/world/types.js';
+import { T_BRIDGE, T_ROAD, T_SIDEWALK } from '../src/world/types.js';
 
 /**
  * The street courses (WORLDGEN.md §16): the authored roads' centrelines,
@@ -47,8 +47,12 @@ describe('street courses', () => {
       }
       return n === 0 ? 0 : acc / n;
     };
+    // Roads only: this pin exists to catch RECOVERED courses shipping their
+    // lattice quantisation as waver. A park walk (3.2) is authored the other
+    // way round — `meanderPolyline` makes it wavy on purpose, and the §19
+    // simplifier never runs on it — so its wander is signal, not noise.
     const all = city.courses
-      .filter((c) => c.points.length >= 5)
+      .filter((c) => c.kind !== 'path' && c.points.length >= 5)
       .map((c) => wander(c.points))
       .sort((a, b) => a - b);
     const mean = all.reduce((s, v) => s + v, 0) / all.length;
@@ -66,10 +70,14 @@ describe('street courses', () => {
     expect(p95).toBeLessThan(0.15);
   });
 
-  it('keeps every centreline on the carriageway it was carved as', () => {
+  it('keeps every centreline on the ground it was carved as', () => {
+    // Per kind (3.2): a road course over carriageway and its decks, a park
+    // walk over the pavement its carve laid. One rule, two grounds — the
+    // same split `trimCourses` enforces.
     const W = city.widthTiles;
-    const on = (x: number, y: number): boolean => {
+    const on = (kind: string, x: number, y: number): boolean => {
       const t = city.tiles[Math.floor(y) * W + Math.floor(x)] as number;
+      if (kind === 'path') return t === T_SIDEWALK;
       return t === T_ROAD || t === T_BRIDGE;
     };
     for (const c of city.courses) {
@@ -83,7 +91,7 @@ describe('street courses', () => {
           // Quantised to the hundredth of a tile on encode, so a sample can
           // sit a hair off the trimmed line; the tile under it must still
           // be carriageway.
-          expect(on(x, y), `course off carriageway at ${x.toFixed(1)},${y.toFixed(1)}`).toBe(true);
+          expect(on(c.kind, x, y), `${c.kind} course off its ground at ${x.toFixed(1)},${y.toFixed(1)}`).toBe(true);
         }
       }
     }
@@ -129,6 +137,16 @@ describe('street courses', () => {
     });
     expect(long.length).toBeGreaterThanOrEqual(90);
     expect(long.some((c) => c.kind === 'ring')).toBe(true);
+  });
+
+  it('ships the park walks as path courses', () => {
+    // 3.2's gate: the big parks' meander walks were always polylines before
+    // they were rasterised, and now the polylines ship. Kind `path`, two
+    // wide like the carve, and never in the road machinery — the course
+    // index, the road net and the junction discs all filter them by kind.
+    const walks = city.courses.filter((c) => c.kind === 'path');
+    expect(walks.length).toBeGreaterThanOrEqual(10);
+    expect(walks.every((c) => c.width === 2)).toBe(true);
   });
 
   it('round-trips through the wire form unchanged', () => {

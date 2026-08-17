@@ -151,6 +151,21 @@ export interface StreetGrid {
   fabric: 'grid' | 'contour' | 'spine' | 'crescent';
   /** For `fabric: 'spine'`: the name of the plan road the borough hangs off. */
   spine: string;
+  /**
+   * For `fabric: 'contour'`: the BANDING SHORE, as a tile-space box drawn
+   * over the water the borough fronts (wave 4.6, the approved design note).
+   *
+   * The contour bands used to trace iso-lines of distance to the NEAREST
+   * water, so a borough with water on two sides laid two contour families
+   * that met mid-borough — and where they met, streets landed on streets:
+   * the merged tarmac sheets no suppression could finish, because neither
+   * family was wrong. One borough, one shore: the field the bands trace is
+   * seeded only from the water inside this box, the far waterfront gets
+   * the ordinary esplanade street instead of a second family, and the box
+   * is authored like everything else in the plan. Required on every
+   * contour borough; must contain water.
+   */
+  bandShore?: [number, number, number, number];
 }
 
 export interface PlanDistrict {
@@ -332,6 +347,17 @@ export function parseCityPlan(raw: unknown): CityPlan {
               ? s['fabric']
               : 'grid',
           spine: typeof s['spine'] === 'string' ? s['spine'] : '',
+          ...(Array.isArray(s['bandShore'])
+            ? {
+                bandShore: (() => {
+                  const b = s['bandShore'] as unknown[];
+                  if (b.length !== 4 || b.some((v) => typeof v !== 'number')) {
+                    fail(`districts[${i}].street.bandShore must be [x, y, w, h]`);
+                  }
+                  return b as [number, number, number, number];
+                })(),
+              }
+            : {}),
         },
         rural: o['rural'] === true,
         density: typeof o['density'] === 'number' ? o['density'] : 0.5,
@@ -408,6 +434,14 @@ export function parseCityPlan(raw: unknown): CityPlan {
   for (const d of plan.districts) {
     if (d.street.fabric === 'spine' && !plan.roads.some((r) => r.name === d.street.spine)) {
       fail(`district ${d.name}: spine road "${d.street.spine}" is not in the plan`);
+    }
+    // One borough, one shore (wave 4.6): a contour borough that does not say
+    // which water it fronts is a borough that bands against the NEAREST
+    // water — which, with water on two sides, is the two-family merge the
+    // bandShore exists to end. Whether the box actually contains water is
+    // the layout's check; the geography has not been rasterised yet here.
+    if (d.street.fabric === 'contour' && !d.street.bandShore) {
+      fail(`district ${d.name} is contour but names no bandShore`);
     }
   }
   return plan;

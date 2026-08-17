@@ -1,5 +1,344 @@
 # PROGRESS
 
+## 3.2 follow-up: the path palette, and the rural saw-tooth
+
+Two things in 3.2's own retakes looked very wrong, and both were.
+
+The walk was stroked in sidewalk grey, and a two-tile grey band through
+a wood reads as a pale road — the plan's wording was "path palette" and
+it meant it. The walk is packed stone now (`palette.path`, the quays'
+warm tone with a darker rim), and reads as a park path from any height.
+
+The south retake was dominated by saw-toothed carriageway edges: every
+diagonal stretch of the ring through open country had grass teeth a
+half-tile deep along both edges. An A/B against the pre-3.2 bake showed
+it byte-identical — wave 1's clip, which holds the ribbon to ground that
+carries a road, was being absorbed by kerb bands everywhere the city
+retakes looked, and open country has no kerb band to absorb it. The
+clip's predicate now admits FLAT OPEN ground — grass, field, sand, and
+(after the census below) lots — inside the ribbon's own painted reach
+(`courseApron`, swept stroke plus casing wide), so a rural road draws as
+one smooth ribbon; water, walls and woodland stay refused, which keeps
+the 385 tiles of sea-painted-as-tarmac the clip was built against
+impossible. Renderer only, both fixes; no rebake, no test surface.
+
+"Is it really fixed everywhere?" was answered with a census, not more
+screenshots: every shipped course's painted footprint swept over the
+whole map, counting the tiles where the clip still cuts the ribbon.
+After the first fix the residue was 439 tiles of LOT — all on
+diagonals, worst in the angled boroughs where every street is one, the
+yard edge of every Old Quarter block a staircase — and 43 tiles of bare
+field a park walk grazes at the park's own fringe. Both are flat open
+ground by any honest reading, so both joined their clips' admitted
+sets. What remains, by design and in full: 771 tiles of building (paint
+stops at walls, and the extruded masses cover them), 490 of water (the
+waterline is a curve cut, so the boundary is drawn smooth), 55 walk
+butt-ends at street gates (clean straight cuts), 17 of runway (which
+keeps its own paint), and 7 — seven — of woodland, which settles it:
+the stepping beside forest roads is §3.3's canopy plateau boxes, not
+the ribbon clip.
+
+## Wave 3.2 of PLAN-WORLDGEN: paths become courses — DELIVERED
+
+The big parks' meander walks were always polylines — `fillPark` built
+each one with `meanderPolyline`, rasterised it to pavement tiles and
+threw the curve away, which is why every walk was a tile staircase
+beside vector-smooth roads. The curve ships now: a module-level sink in
+`buildings.ts` (the pond-ring pattern, third use) collects each walk as
+it is carved, and the bake joins them to the road courses as
+`kind: 'path'`, width 2, trimmed by the same `trimCourses` pass against
+their own ground — pavement, not carriageway. Seventeen walks survive
+the trim on this bake, six to a hundred and twenty-three tiles long.
+
+The per-kind rule the deferral note asked for runs through every
+consumer. The trim and both coverage pins sample a path against
+`T_SIDEWALK` where a road samples carriageway. The course index is a
+ROAD index: `generate` filters walks out before building it, so a driver
+snapped to "the centreline" can never be handed a footpath, and the road
+net and lane machinery behind it never see one. The junction discs are
+computed from road curves only — a walk must not punch the centre dash
+out of an avenue it ends against. The §19 wander pin filters by kind,
+because a walk's wander is authored, not recovered quantisation, and the
+§19 simplifier never touches them.
+
+The painter strokes a walk as one smooth pavement ribbon — a
+joint-coloured rim and the slab colour, no casing hierarchy, no
+markings — clipped to lawn and pavement, drawn under everything a street
+paints. Pavement tiles under a walk ribbon are repainted as lawn
+per-tile (`pathCover`, swept a shade wider than the stroke because the
+park carve rounds outward), so the staircase the carve rasterised never
+shows beside the curve that replaced it. The 3D view pays nothing: its
+ground chunks are painted by the same `TileLayer`.
+
+Scope, decided and written down: the "countryside footpaths" half of the
+plan's wording found no owner — nothing outside the parks carves footpath
+tiles from a polyline — and the small parks' straight cross-walks are
+axis-aligned lines with no staircase to fix; both stay tiles. The ring
+carriageways' stepped edges visible in the south-park retake are the
+wave-1 clip trade (ribbon held to the ground the carve took), shown
+identical in an A/B against the pre-3.2 bake — not a 3.2 regression.
+
+One rebake (`citybake` green, 869 → 873 kB, tiles byte-identical — only
+the course list grew), one test restaged: the course-index
+scan-vs-buckets test now scans the same road-only set the index is built
+from, because near the big parks the nearest line to a random probe is
+now sometimes a walk, and the index is right not to answer with it.
+Retakes: `evidence/fixed-park-paths.png` (the forest park's walk as one
+smooth curve), `fixed-park-paths-south.png`.
+
+## Wave 4.5 of PLAN-WORLDGEN: `buildLayout` becomes passes — DELIVERED
+
+The two-thousand-line function is now ten named passes and one ordered
+list. `paintOwnership`, `carveAuthoredRoads`, `layEsplanade`,
+`laySeamStreets`, `weaveFabrics`, `stitchBoroughs`, `guardRingAccess`,
+`trimBridges`, `mapCliffIslands`, `finishShores` — each a closure over
+the function's planes, defined where its section stood, invoked from a
+single list just before the return. The build order that used to live
+in the reading order of the file (the esplanade probes what the
+authored roads left, the lattices must find the seam streets already
+carved, the shore is dressed last so it can close what the pruning
+opened) is stated once, above the list.
+
+The safety story ran exactly as the plan gated it: three extraction
+steps, each held to `tsc` clean and a bit-identical bake —
+sha-256 of `encodeBakedCity(bakeCity(plan))` stayed
+`aa344019f39c43111679a052` before, between and after. The wrapping was
+mechanical (a script that asserts the first and last line of every
+range before touching it, then indents), because eight hundred lines
+re-indented by hand is eight hundred chances to be wrong; the one
+hazard checked first was multi-line template literals, whose contents
+indentation would silently change — there are none in the wrapped
+ranges. Only two declarations moved: `preEsp` is assigned at the top of
+`layEsplanade` (same instant it was snapped before), and `bandInner`
+is hoisted for the return to ship as `banks`. Every other shared
+declaration was audited as order-insensitive — allocations, closures,
+and fields computed from the coast masks alone.
+
+Suite: 942/942 pass. The runner exits non-zero on this box with the
+known `[vitest-worker] Timeout calling "onTaskUpdate"` noise — the
+20-second synchronous bakes starve the worker's RPC under a 4-core
+container, the same signature Wave 2 chased and cleared; zero tests
+fail, CI arbitrates.
+
+## Wave 4.6 of PLAN-WORLDGEN: one borough, one shore — DELIVERED
+
+The approved design note, built. A contour borough now names its banding
+shore in the plan (`street.bandShore`, a box over the water it fronts),
+its bands trace a field seeded from that water only, and its far
+waterfront gets the ordinary esplanade street instead of a second contour
+family marching in to meet the first at the medial axis. The parser
+refuses a contour borough without one; the layout refuses a box with no
+water in it; `plangen` emits boxes for its own contour cells and stays
+held to the same checker.
+
+One correction to the note, made by the code: the two-family merge lived
+in the CONTOUR fabrics — The Terraces, Beachfront and The Docks — not in
+the Old Quarter, whose fabric is an angled grid. The note's
+borough-by-borough mapping was wrong; its mechanism was right.
+
+Measured, on the metric this repo can re-run (7×7 all-carriageway window
+centres, pinned in `city.test.ts`):
+
+- merged sheet centres **276 → 211**; the contour-class hotspots (the
+  Docks column, the Terraces' 51%-carriageway sheet) are gone, and what
+  remains is the Kelvin avenue-crossing class §28 already measured as
+  the suppression ceiling
+- road share of dry land **34.2% → 32.9%** — the note's <30% gate is NOT
+  met, and honestly cannot be met by banding alone: the residual is
+  avenue-crossing merges and legitimate street, not two-family merges
+- **3,853 → 4,066 buildings** (+213) on ground freed from tarmac
+- goto-follower A/B over the same pair rule: 3/8 arrivals on this bake
+  against 3/11 on the previous one — the follower's ~30% ceiling is
+  chronic (§41), not a 4.6 regression
+
+Found and fixed on the way, a real session bug: pickup kinds were dealt
+over the CANDIDATE list before the cap, so whenever `spread`'s stride
+shared a factor with the 24-kind cycle, whole kinds vanished — this bake
+shipped 607 crates with no jail card in any of them. Kinds are dealt
+over the capped list now.
+
+Six landmarks moved to ground the rebanded fabrics freed or claimed
+(`citybake --fit` named every move). Five tests restaged on found ground,
+each with its reason written in: the queues test stands beside a signal,
+the errand and ambulance tests try the best few journeys (three rebakes
+taught them three distinct follower ceilings — a 16 px jink, a hairpin,
+a parked car dead on the lane), the lanes flip probe asks along the
+LOCAL tangent an L-shaped street actually has, and P1a holds its suspect
+below the first helicopter wave, because a heli sees through roofs and
+"cannot find the suspect" stopped being true the moment livelier kerbs
+could field one.
+
+## Wave 4 of PLAN-WORLDGEN: the structural debt
+
+No tile moved. Four debts paid, one deferred with its gate written down,
+one design note delivered for approval:
+
+- **One district list** (4.1). `bake.ts` carried two positional copies of
+  `DISTRICT_TYPES` — the stamp's district lookup and the blend pass's —
+  and a reorder of the source of truth would have silently relabelled
+  every building. Both now index the real list.
+- **The decoded asset is validated** (4.2). `decodeBakedCity` was blind
+  casts over a megabyte of generated file while the hand-edited plan got
+  170 lines of validation; it now refuses a malformed asset with the
+  field named — shapes, lengths, footprints inside the map — and its
+  three dead "pre-X bake" fallbacks are gone. Semantics stay `checkCity`'s
+  job, which the shipped-city test already runs over the same bytes.
+- **The generator's scaffolding is retired where it was vestigial**
+  (4.3). `plangen` (1,600 lines, the checker's fuzz harness — kept
+  deliberately, its role now written at the barrel) moved behind its own
+  package entry `shared/plangen`, out of the client's module graph.
+  `placeRamps` stopped taking params it never read; `placeVehicleSpawns`
+  stopped taking and returning an rng stream it never drew from —
+  streams are derived per pass name, so dropping the argument shifts
+  nobody. `fields.ts` turned out already trimmed to its primitives.
+- **Session dressing has a budget** (4.4). The baked city decodes on
+  first use instead of at module import (~210 ms off every process that
+  imports the barrel), the never-written district plane is shared
+  instead of copied (590 KB per session), and `world.test.ts` holds a
+  generous wall-clock bound that trips on compounding, not noise.
+- **4.5 (layout passes) not started, deliberately** — a multi-session
+  refactor whose bit-identical-bake gate is now written at the item.
+- **4.6 delivered as its design note** (PLAN-WORLDGEN.md §4.6.1): band
+  each borough against ONE authored shore, seam-close the far edges, an
+  esplanade for the Old Quarter's strait frontage — with the open
+  question named and the §28 metric gates unchanged. Awaits approval
+  before any code.
+
+## Wave 3 of PLAN-WORLDGEN: landmarks with insides, woodland with a canopy
+
+One more rebake (recipes moved tiles), one renderer change, and three
+honest deferrals:
+
+- **Stadiums and power stations stopped being slabs** (3.1). `Building`
+  gained the optional authored `storeys` the heights module's own comment
+  always promised, set today only by landmark recipes: Ironside and The
+  Bowl are rings of stands — long stands at four storeys over end stands
+  at two, corner gates, a grass infield — and Kessler is two turbine
+  halls with a pair of eight-storey stacks over a switchyard. The quarry
+  got its crusher. Pinned in `city.test.ts`: every stadium/power landmark
+  has ≥ 3 parts, ≥ 2 distinct authored heights, and an open interior.
+- **Woodland reads as canopy, not plateau** (3.3). The raised box stays —
+  it is the collision volume — but its top now carries §34-jittered
+  canopies at ~45% instead of the park's ornamental 8%, so the wood is a
+  lumpy continuous canopy instead of a stain with clones stood on it.
+  ~5,000 more instances in one instanced mesh.
+- **A drop no longer hides its body** (3.5): pickups draw five px off
+  their sim position, so the crate reads as dropped beside the corpse
+  rather than hovering dead over it. Collection reads the sim position,
+  unchanged.
+- Settled without code: the lit-window salt was already fixed (per
+  wall-plane in `facade.ts`); the ramp wedge is DECLINED while ramps are
+  deliberately flat (`cityTerrain.test.ts` pins it — the wedge belongs
+  with `collide3` adoption); night grading and the light budget wait for
+  a GPU box. 3.2 (paths as courses) deferred whole — four subsystems
+  assume a course is a road, and that is its own wave.
+
+## Wave 2 of PLAN-WORLDGEN: the declared rebake
+
+**`city.data.ts` changed shape** — the one batched rebake the plan
+scheduled, and the first since the safety rails went in. 6,020 tiles
+differ; 3,801 → 3,844 buildings; the checker reports zero errors and zero
+warnings. What went into it:
+
+- **The arterial-crossed blocks build now** (2.2,
+  `evidence/fixed-ring-blocks.png`). Two fixes in `buildings.ts`: the ring
+  fill slides ONE tile past blocked ground instead of writing off a whole
+  unit-plus-gap at every brush with a carved band (BUGS.md §7.6's known
+  repair), and `fillBlock` trims interior edges that are a third or more
+  carriageway/pavement — a block the ring crossed near its edge had its
+  units spanning the band, every placement refused, and fifteen Sunridge
+  blocks baked as bare field. Measured with a buildable-ground filter:
+  15 → 2 empty crossed blocks (BUGS.md's "110" counted coastal road
+  corridors with no buildable ground at all). Pinned at ≤ 3 in
+  `city.test.ts`.
+- **Runway ground stays inside the drawn strips** (2.3,
+  `evidence/fixed-airfield-apron.png`). The airstrip recipe's apron was
+  `T_RUNWAY` too, so the strip spread four tiles past its rect in every
+  direction, under the borough's streets — "roads crossing the runway" was
+  the apron the whole time. The apron is hardstanding (`T_LOT`) now; the
+  one crossing that remains at Marsh End is the bake's own two-tile access
+  driveway to the hangar, which is a taxiway with a job. Pinned:
+  every `T_RUNWAY` tile inside an airstrip rect.
+- **No road runs into open water** (2.4). The eight §23.1 corner slivers
+  at bridge mouths are quayed by a new bake repair — each becomes `T_BANK`
+  unless a flood check says removing it would sever the street network —
+  and `cityCheck`'s wet-road rule is an ERROR now. Pinned from the tile
+  side in `city.test.ts`; the shipped-city test's warning allowance is
+  gone (zero warnings, exactly).
+- **Course coverage measured and pinned** (2.1). `trimCourses` already
+  runs against the finished tiles; measured on this bake, 63,308 of
+  63,308 half-tile centreline samples land on carriageway. Pinned exact.
+- **Four tests were restaged on found ground** — the price BUGS.md
+  §7.6 predicted, paid where it fell: the hidden-package restart test
+  finds an isolated package instead of trusting index 5's spacing; the
+  armour test stands its shooter ON the line `clearAim` cleared, firing
+  back down it; the passing-cars test stages on a found clearing (a
+  kerbside lane comes with the parked car the sim materialises on it);
+  and the errand test's `journey()` rejects routes with sub-car-length
+  jinks — the goto follower orbits a 16 px corner pair, which is §41's
+  known ceiling and now has its name written at the staging that found
+  it. The two police tests BUGS.md worried about held as already staged.
+
+## Wave 1 of PLAN-WORLDGEN: the paint fixes
+
+Renderer-only, no tile moved, every fix with its invariant and its retaken
+evidence:
+
+- **The runway carries one centreline** (`evidence/fixed-runway-centreline.png`,
+  was `topdown-runway-grid.png`). Both painters' rule was "runway above and
+  below" — every interior row — so a seven-tile strip wore five dashed
+  lines. `runwayCentreRow` in `tiles.ts` walks to the strip's edges and
+  names the one equidistant row; the 3D renderer imports it, and
+  `cityTerrain.test.ts` asserts one marked row per column.
+- **Course ribbons clip to ground that carries a road** (`courseGround`):
+  the old clip excluded only water and walls, so a course outliving its
+  reverted carriageway could paint casing and dashes over lots and sand.
+  Unit-tested inclusion list; Wave 2.1 still owns the upstream trim.
+- **Bridge wedges are deck, not grass**
+  (`evidence/fixed-bridge-wedges.png`). §31 added the deck to the bevel
+  yield tables but not to `paintBevel`'s material switch, so every parapet
+  step's wedge fell to the grass default — green triangles over open sea on
+  all three crossings. A `T_BRIDGE` case now, and `city.test.ts` pins the
+  set of bevel materials to the set the painters name, so the next new pair
+  fails a test instead of painting grass.
+- **No zebra on a deck.** Deck tiles ride the carriageway marking rules for
+  their centre line, which dragged the stop-line and zebra along onto the
+  strait bridge's mouth. Both renderers now skip crossings on `T_BRIDGE`.
+- **Parking bays only where cars park**
+  (`evidence/fixed-lot-dashes.png`). Found while chasing the course clip:
+  `paintLot` striped every third column of every lot in the city, so
+  yards, quarry floors and the airfield apron all read as car parks from
+  the air. `indexParking` marks the tiles around real
+  `parkingSpots`/`vehicleHomes`, and only those stripe.
+- 1.5 (forecourt softness — canvas AA on rotated fills, clip already
+  correct) and 1.6 (residual chunk banding — needs a GPU box) are
+  investigated and deferred with notes in PLAN-WORLDGEN.md.
+
+## Wave 0 of PLAN-WORLDGEN: the safety rails
+
+The four fixes that make every later worldgen change safe to make, landed
+together and none of them moving a tile:
+
+- **`citybake` no longer writes a failing city.** The asset write ran before
+  the checker's verdict, so a plan with a checker error still overwrote
+  `city.data.ts` — directly against the tool's own header. The write now
+  happens only on zero errors; verified by removing the lighthouses from the
+  plan and watching the bake refuse, exit 1, asset byte-identical.
+- **The shipped bytes meet their own checker, in a test.**
+  `server/test/shippedCity.test.ts` decodes `CITY_DATA` exactly as
+  `generateCity` does and runs `checkCity` over it: zero errors, and the
+  warning list *pinned* — the eight wet road tiles may shrink but not grow,
+  and any new warning kind is a red test. (`CITY_DATA` is now exported from
+  the shared barrel for exactly this.)
+- **The freshness gate is exact.** `city.test.ts` allowed 589 differing
+  tiles to cover ~230 session-carved ramps, leaving ~360 tiles of silent
+  plan/asset drift room. It now skips exactly the tiles the session turned
+  into `T_RAMP` and demands zero other differences.
+- **CI runs the suite.** `.github/workflows/test.yml` builds and tests every
+  push and PR, then runs `citybake --check` against the shipped asset; the
+  deploy workflow gained the same job and `deploy` now `needs: test` — main
+  cannot ship a red suite.
+
 ## The join, measured rather than estimated
 
 The entry below left the join sequence flagged as "the first thing that will

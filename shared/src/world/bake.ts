@@ -1,6 +1,6 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { fillBlock, fillRegion, takePondBankRings, takePondRings } from './buildings.js';
+import { fillBlock, fillRegion, takePathCourses, takePondBankRings, takePondRings } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
@@ -19,6 +19,7 @@ import {
   T_TREES,
   T_WATER,
   TILE_SIZE,
+  DISTRICT_TYPES,
   type BlockRect,
   type Building,
   type DistrictType,
@@ -96,17 +97,39 @@ export interface BakedCity {
 interface Recipe {
   ground: number;
   apron: number;
-  parts: (w: number, h: number) => Array<[number, number, number, number]>;
+  /** Solid footprints as [dx, dy, w, h, storeys?] — storeys authored where a
+   * hash cannot know a chimney from a hall (wave 3.1). */
+  parts: (w: number, h: number) => Array<[number, number, number, number, number?]>;
 }
 
 const RECIPES: Record<LandmarkKind, Recipe> = {
-  stadium: { ground: T_PARK, apron: T_PARK, parts: (w, h) => [[0, 0, w, h]] },
+  // A stadium is a RING: stands on all four sides, an infield of grass, and
+  // gates at the corners where the stands do not meet. One solid rect here
+  // was the flyover's biggest disappointment — the city's two largest named
+  // buildings read as warehouses with roof furniture
+  // (REVIEW-WORLDGEN.md §2.4, `evidence/topdown-stadium-slab.png`). The
+  // long stands rise over the end stands, so the mass tiers.
+  stadium: {
+    ground: T_PARK,
+    apron: T_PARK,
+    parts: (w, h) => [
+      [1, 0, w - 2, 3, 4],
+      [1, h - 3, w - 2, 3, 4],
+      [0, 4, 3, h - 8, 2],
+      [w - 3, 4, 3, h - 8, 2],
+    ],
+  },
+  // Two turbine halls with the switchyard between them, and a pair of
+  // stacks standing over everything — the silhouette a power station is
+  // navigated by, which one slab plus a shed could not give it.
   power: {
     ground: T_LOT,
     apron: T_LOT,
     parts: (w, h) => [
-      [0, 0, w, h - 3],
-      [w - 4, h - 2, 3, 2],
+      [0, 0, w - 5, 4, 3],
+      [0, h - 4, w - 5, 4, 3],
+      [w - 4, 1, 2, 2, 8],
+      [w - 4, h - 3, 2, 2, 8],
     ],
   },
   tower: { ground: T_SIDEWALK, apron: T_SIDEWALK, parts: (w, h) => [[1, 1, w - 2, h - 2]] },
@@ -123,9 +146,24 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   },
   campground: { ground: T_PARK, apron: T_PARK, parts: () => [[1, 1, 2, 2]] },
   lighthouse: { ground: T_FIELD, apron: T_FIELD, parts: (w, h) => [[0, 0, w, h]] },
-  quarry: { ground: T_LOT, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
-  // A long clear run and a hangar at one end: nothing else goes on it.
-  airstrip: { ground: T_RUNWAY, apron: T_RUNWAY, parts: () => [[0, 0, 3, 3]] },
+  // The pit hut and the crusher: low masses on the worked floor, so the
+  // quarry reads as a works rather than a shed on a car park.
+  quarry: {
+    ground: T_LOT,
+    apron: T_LOT,
+    parts: (w, h) => [
+      [0, 0, 3, 3, 1],
+      [w - 5, h - 4, 4, 3, 2],
+    ],
+  },
+  // A long clear run and a hangar at one end: nothing else goes on it. The
+  // apron is hardstanding, NOT more runway: with `apron: T_RUNWAY` the strip
+  // ground spread four tiles past the drawn rect in every direction, under
+  // and around the borough's streets — from the air, roads appeared to cross
+  // the runway and the "runway" was three times the slab anybody drew
+  // (REVIEW-WORLDGEN.md §2.1). A lot apron reads as what it is, and the
+  // centreline rule now spans only the true strip.
+  airstrip: { ground: T_RUNWAY, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
   // The deliberate plazas (§13.6 step 7): open ground with streets flowing
   // through it. No parts — the space IS the landmark — except the circus,
   // whose monument stands in the ring's median for traffic to swing round.
@@ -324,11 +362,18 @@ export function bakeCity(plan: CityPlan): BakedCity {
    * meant: this building IS a landmark's own stamp.
    */
   const landmarkBuilt = new WeakSet<Building>();
-  const solid = (x: number, y: number, w: number, h: number, district: DistrictType): void => {
+  const solid = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    district: DistrictType,
+    storeys?: number,
+  ): void => {
     for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
       for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) tiles[ty * W + tx] = T_BUILDING;
     }
-    const rec: Building = { x, y, w, h, district };
+    const rec: Building = { x, y, w, h, district, ...(storeys !== undefined ? { storeys } : {}) };
     landmarkBuilt.add(rec);
     buildings.push(rec);
   };
@@ -336,13 +381,15 @@ export function bakeCity(plan: CityPlan): BakedCity {
   const stamp = (l: PlanLandmark): void => {
     const [x, y, w, h] = l.rect;
     const recipe = RECIPES[l.kind];
-    const district = (['downtown', 'residential', 'industrial', 'commercial', 'park'] as const)[
-      layout.district[y * W + x] as number
-    ] as DistrictType;
+    // DISTRICT_TYPES by index, not a positional copy of it: two hardcoded
+    // lists here survived every review until wave 4.1, and a reorder of the
+    // source of truth would have silently relabelled every stamped building
+    // with no type error and no red test.
+    const district = DISTRICT_TYPES[layout.district[y * W + x] as number] as DistrictType;
     ground(x, y, w, h, recipe.ground);
-    for (const [dx, dy, pw, ph] of recipe.parts(w, h)) {
+    for (const [dx, dy, pw, ph, storeys] of recipe.parts(w, h)) {
       if (pw < 1 || ph < 1) continue;
-      solid(x + dx, y + dy, pw, ph, district);
+      solid(x + dx, y + dy, pw, ph, district, storeys);
     }
     const door = findDoorway(
       { widthTiles: W, heightTiles: H, tiles } as never,
@@ -595,8 +642,8 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // footprints, which hands the prop and ped passes the same dither for
   // free. The bearing plane is deliberately untouched: fabric stays sharp.
   {
-    const DISTRICTS = ['downtown', 'residential', 'industrial', 'commercial', 'park'] as const;
-    const IDX: Record<string, number> = { downtown: 0, residential: 1, industrial: 2, commercial: 3, park: 4 };
+    const DISTRICTS = DISTRICT_TYPES;
+    const IDX: Record<string, number> = Object.fromEntries(DISTRICT_TYPES.map((d, i) => [d, i]));
     // One rung of §9.4's ladder: the pairs that shade into each other in a
     // real city. Parks and the countryside are two ranks from everything —
     // their seams get fronts and fringes (D5, D6), not dither.
@@ -639,6 +686,68 @@ export function bakeCity(plan: CityPlan): BakedCity {
           layout.district[ty * W + tx] = IDX[adopt] as number;
         }
       }
+    }
+  }
+
+  // Quay the wet road edges (PLAN-WORLDGEN.md wave 2.4). §23.1 took road
+  // running straight into water from 15 tiles to 9 by drowning whole decks;
+  // what was left is corner slivers at bridge mouths and angled shores — a
+  // road tile whose neighbour is open sea with no bank between. Each becomes
+  // quay, which is what a carriageway meeting water IS, unless removing it
+  // would sever the street network (checked by flood, not assumed) — a tile
+  // that fails that check stays road and stays a checker finding. Before
+  // `trimCourses`, so a course over a converted tile is trimmed with it.
+  {
+    const wet: number[] = [];
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (tiles[y * W + x] !== T_ROAD) continue;
+        const sea =
+          tiles[y * W + x + 1] === T_WATER ||
+          tiles[y * W + x - 1] === T_WATER ||
+          tiles[(y + 1) * W + x] === T_WATER ||
+          tiles[(y - 1) * W + x] === T_WATER;
+        if (sea) wet.push(y * W + x);
+      }
+    }
+    const network = (): number => {
+      const seen = new Uint8Array(W * H);
+      let components = 0;
+      for (let start = 0; start < tiles.length; start++) {
+        if (seen[start] === 1) continue;
+        const t = tiles[start] as number;
+        if (t !== T_ROAD && t !== T_BRIDGE) continue;
+        components++;
+        const stack = [start];
+        seen[start] = 1;
+        while (stack.length > 0) {
+          const i = stack.pop() as number;
+          const x = i % W;
+          const y = (i - x) / W;
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const j = ny * W + nx;
+            if (seen[j] === 1) continue;
+            const nt = tiles[j] as number;
+            if (nt !== T_ROAD && nt !== T_BRIDGE) continue;
+            seen[j] = 1;
+            stack.push(j);
+          }
+        }
+      }
+      return components;
+    };
+    const before = network();
+    for (const i of wet) {
+      tiles[i] = T_BANK;
+      if (network() > before) tiles[i] = T_ROAD;
     }
   }
 
@@ -710,7 +819,19 @@ export function bakeCity(plan: CityPlan): BakedCity {
     buildings,
     landmarks,
     shops: [],
-    courses: trimCourses(layout.courses, tiles, W, H),
+    // The roads, plus every park walk carved since (3.2). Joined here for
+    // the same reason the ponds join the shores above: one answer to "what
+    // curves does the ground carry", trimmed by one pass against the same
+    // finished tiles — each kind against its own ground.
+    courses: trimCourses(
+      [
+        ...layout.courses,
+        ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
+      ],
+      tiles,
+      W,
+      H,
+    ),
   };
   baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles);
   return baked;
@@ -753,7 +874,8 @@ export function bakeCity(plan: CityPlan): BakedCity {
 const MIN_RUN_WIDTHS = 3;
 
 /**
- * Keep only the stretches of each course that still run over carriageway.
+ * Keep only the stretches of each course that still run over its ground —
+ * carriageway for a road, pavement for a park walk (3.2).
  *
  * The courses were recorded while carving, but a dozen passes have run
  * since — an unbridgeable strait left the road un-laid, a landmark took a
@@ -770,11 +892,16 @@ function trimCourses(
   W: number,
   H: number,
 ): StreetCourse[] {
-  const onCarriageway = (x: number, y: number): boolean => {
+  // Each kind against its own ground (3.2): a road course runs over
+  // carriageway and its decks, a path course over the pavement the park
+  // walk carved — a footpath sample on tarmac is as much of a lie as a
+  // centre dash on grass.
+  const onGround = (kind: StreetCourse['kind'], x: number, y: number): boolean => {
     const tx = Math.floor(x);
     const ty = Math.floor(y);
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
     const t = tiles[ty * W + tx] as number;
+    if (kind === 'path') return t === T_SIDEWALK;
     return t === T_ROAD || t === T_BRIDGE;
   };
   const out: StreetCourse[] = [];
@@ -818,7 +945,7 @@ function trimCourses(
       const steps = Math.max(1, Math.ceil(len * 2));
       let clear = true;
       for (let s = 0; s <= steps; s++) {
-        if (!onCarriageway(ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps)) {
+        if (!onGround(course.kind, ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps)) {
           clear = false;
           break;
         }
@@ -959,29 +1086,73 @@ export function encodeBakedCity(city: BakedCity): string {
   );
 }
 
+/**
+ * Refuse a malformed asset with the field named, instead of handing the sim
+ * whatever a truncated or hand-mangled `city.data.ts` happens to decode to.
+ *
+ * The asymmetry this closes (wave 4.2): `plan.ts` validates the hand-edited
+ * plan exhaustively, while the megabyte of GENERATED file that actually
+ * becomes the game world was all blind casts — and the three "absent in a
+ * pre-X bake" fallbacks it carried were dead, because there is one producer
+ * and one committed consumer, both in this repository, both current. This
+ * is a structural check, not a semantic one: shapes, lengths and ranges.
+ * The semantic checks are `checkCity`'s job, and the shipped-city test runs
+ * them over these same bytes.
+ */
+function must(cond: boolean, what: string): void {
+  if (!cond) throw new Error(`city.data: ${what}`);
+}
+
 export function decodeBakedCity(raw: unknown): BakedCity {
   const r = raw as Record<string, unknown>;
+  must(typeof r === 'object' && r !== null, 'not an object');
   const widthTiles = r['widthTiles'] as number;
   const heightTiles = r['heightTiles'] as number;
+  must(Number.isInteger(widthTiles) && widthTiles > 0, 'widthTiles is not a positive integer');
+  must(Number.isInteger(heightTiles) && heightTiles > 0, 'heightTiles is not a positive integer');
+  must(typeof r['name'] === 'string', 'name is not a string');
+  for (const plane of ['tiles', 'district', 'bearing'] as const) {
+    must(typeof r[plane] === 'string', `${plane} plane is not an encoded string`);
+  }
+  for (const list of ['blocks', 'buildings', 'landmarks', 'shops', 'courses', 'shores', 'banks'] as const) {
+    must(Array.isArray(r[list]), `${list} is not an array`);
+  }
   const n = widthTiles * heightTiles;
+  const tiles = decodePlane(r['tiles'] as string, n);
+  const district = decodePlane(r['district'] as string, n);
+  const bearing = decodePlane(r['bearing'] as string, n);
+  for (const b of r['buildings'] as Building[]) {
+    must(
+      b.x >= 0 && b.y >= 0 && b.w > 0 && b.h > 0 && b.x + b.w <= widthTiles && b.y + b.h <= heightTiles,
+      `building at ${b.x},${b.y} is outside the map`,
+    );
+  }
+  for (const l of r['landmarks'] as Landmark[]) {
+    must(
+      l.x >= 0 && l.y >= 0 && l.x + l.w <= widthTiles && l.y + l.h <= heightTiles,
+      `landmark ${l.name} is outside the map`,
+    );
+  }
+  for (const c of r['courses'] as StreetCourse[]) {
+    must(c.points.length >= 2 && c.width > 0, 'a course with no line or no width');
+    must(
+      c.kind === 'avenue' || c.kind === 'ring' || c.kind === 'street' || c.kind === 'path',
+      'a course of unknown kind',
+    );
+  }
   return {
     name: r['name'] as string,
     widthTiles,
     heightTiles,
-    tiles: decodePlane(r['tiles'] as string, n),
-    district: decodePlane(r['district'] as string, n),
-    // Absent in a pre-bearing bake: every street was on the screen axes.
-    bearing: typeof r['bearing'] === 'string' ? decodePlane(r['bearing'] as string, n) : new Uint8Array(n),
+    tiles,
+    district,
+    bearing,
     blocks: r['blocks'] as BlockRect[],
-    // Absent in a pre-VECTOR bake, where the coast was recovered at load.
-    shores: (r['shores'] ?? []) as BakedCity['shores'],
-    // Absent in a pre-§39 bake, where the shore band's inner edge was a
-    // staircase and there was no curve to ship.
-    banks: (r['banks'] ?? []) as BakedCity['banks'],
+    shores: r['shores'] as BakedCity['shores'],
+    banks: r['banks'] as BakedCity['banks'],
     buildings: r['buildings'] as Building[],
     landmarks: r['landmarks'] as Landmark[],
     shops: r['shops'] as Shop[],
-    // Absent in a pre-course bake: every road was its tiles and nothing more.
-    courses: (r['courses'] as StreetCourse[] | undefined) ?? [],
+    courses: r['courses'] as StreetCourse[],
   };
 }

@@ -136,11 +136,22 @@ describe('hidden packages (L2)', () => {
   it('a find survives a restart', () => {
     const secrets = new Secrets(params);
     const state = withPlayers(1);
-    const at = map.packages[5]!;
+    // A package with no neighbour within twice the find reach — FOUND, not
+    // index 5 of whatever the current bake happens to scatter: after the
+    // wave-2 rebake, package 5 gained a neighbour inside the reach, and the
+    // restarted player standing on it "found" the neighbour — which reads
+    // as a double payment and is really the staging having assumed the
+    // packages' spacing. The claim is about persistence, so stage where
+    // spacing cannot answer instead of it.
+    const lone = map.packages.findIndex((a, i) =>
+      map.packages.every((b, j) => j === i || Math.hypot(a.x - b.x, a.y - b.y) > params.reach * 2),
+    );
+    expect(lone, 'no isolated package on this map').toBeGreaterThanOrEqual(0);
+    const at = map.packages[lone]!;
     state.players.byId[1]!.pos = { x: at.x, y: at.y };
     secrets.step(state, map);
     const saved = secrets.indicesOf(1);
-    expect(saved).toEqual([5]);
+    expect(saved).toEqual([lone]);
 
     const later = new Secrets(params);
     later.seed(1, saved);

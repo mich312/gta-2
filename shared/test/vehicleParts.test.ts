@@ -36,7 +36,9 @@ import {
   vehiclePower,
   zoneOfLocal,
 } from '../src/sim/vehicleDamage.js';
-import { roadLane } from './helpers.js';
+import { roadLane, tilesFromSpawn } from './helpers.js';
+import { isSolidTile } from '../src/world/collide.js';
+import { TILE_SIZE } from '../src/world/types.js';
 
 beforeAll(() => {
   initTuning({
@@ -230,7 +232,30 @@ describe('crashing', () => {
     // two-tile street are 16 px apart, the old collision square was 18 px
     // wide, and two cars passing collided eight times and lost 44% of their
     // health each without their bodies ever coming near each other.
-    const lane = roadLane(map, 300);
+    // Staged on found OPEN GROUND, not a road lane: the claim is about the
+    // collision geometry of two cars passing 16 px apart, and the physics
+    // is the same on a lot as on tarmac. A kerbside lane brings everything
+    // a kerb brings — walls one side, and the parked car the sim
+    // materialises on the very spot `roadLane` returns, which after the
+    // wave-2 rebake stood exactly where car 91 spawned and wedged it
+    // against sheet metal for the whole test. A clearing has neither.
+    let clearing: { x: number; y: number } | null = null;
+    for (const [tx, ty] of tilesFromSpawn(map, 8)) {
+      let open = true;
+      for (let dy = -2; dy <= 2 && open; dy++) {
+        for (let dx = -1; dx < 24; dx++) {
+          if (isSolidTile(map, tx + dx, ty + dy, 'land')) {
+            open = false;
+            break;
+          }
+        }
+      }
+      if (!open) continue;
+      clearing = { x: (tx + 2) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+      break;
+    }
+    expect(clearing, 'no open clearing on this map').not.toBeNull();
+    const lane = { x: clearing!.x, y: clearing!.y, heading: 0 };
     let state = createGameState(3);
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
     const ux = Math.cos(lane.heading);

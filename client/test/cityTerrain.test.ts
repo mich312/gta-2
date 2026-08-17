@@ -4,19 +4,27 @@ import {
   BRIDGE_DECK_Z,
   KERB_Z,
   RAMP_Z,
+  T_BANK,
   T_BRIDGE,
+  T_BUILDING,
+  T_FIELD,
+  T_FLOOR,
+  T_LOT,
+  T_PARK,
   T_RAMP,
   T_ROAD,
   T_RUNWAY,
   T_SIDEWALK,
   T_SAND,
   T_TREES,
+  T_WATER,
   TILE_SIZE,
   TREE_Z,
   type CityMap,
 } from 'shared';
 import palette from 'shared/data/palette.json';
 import { buildCity, drawnSpans, isCarriageway } from '../src/three/cityGeometry.js';
+import { courseGround, runwayCentreRow } from '../src/render/tiles.js';
 
 /**
  * What the 3D city is made of, and at what height.
@@ -184,6 +192,51 @@ describe('the 3D city, against the world the simulation runs', () => {
     // A bridge still counts: it is the same street, and the 2D painter agrees.
     expect(isCarriageway(T_BRIDGE)).toBe(true);
     expect(isCarriageway(T_RUNWAY)).toBe(false);
+  });
+
+  it('marks one centreline row per runway column, not a dash carpet', () => {
+    // The rule after the isCarriageway fix was "runway above and below" —
+    // true of EVERY interior row, so a seven-tile strip carried five dashed
+    // lines and both airstrips read as dash grids from the air
+    // (REVIEW-WORLDGEN.md §2.1). `runwayCentreRow` is the one rule both
+    // painters now import: exactly one marked row per column of a strip
+    // three or more tiles tall, none on anything thinner.
+    const strip = (h: number): ((tx: number, ty: number) => number) =>
+      (tx, ty) => (tx >= 0 && tx < 30 && ty >= 0 && ty < h ? T_RUNWAY : T_FIELD);
+    for (const h of [3, 5, 6, 7]) {
+      const at = strip(h);
+      for (let tx = 0; tx < 30; tx++) {
+        const marked = [];
+        for (let ty = 0; ty < h; ty++) if (runwayCentreRow(at, tx, ty)) marked.push(ty);
+        expect(marked, `strip height ${h}, column ${tx}`).toHaveLength(1);
+        // Equidistant from the edges — on an even strip, the northerly of
+        // the middle pair.
+        expect(marked[0]).toBe((h - 1) >> 1);
+      }
+    }
+    // A sliver of runway one or two tiles tall gets no line at all, as the
+    // old interior-row rule also guaranteed.
+    for (const h of [1, 2]) {
+      const at = strip(h);
+      for (let ty = 0; ty < h; ty++) expect(runwayCentreRow(at, 5, ty)).toBe(false);
+    }
+    // Off the strip it never fires.
+    expect(runwayCentreRow(strip(7), -1, 3)).toBe(false);
+    expect(runwayCentreRow(strip(7), 31, 3)).toBe(false);
+  });
+
+  it('lets course ribbons paint only on ground that carries a road', () => {
+    // The ribbon clip excluded just water and walls, so lots, beaches and
+    // grass all passed it — dashed centre lines marched across the Kessler
+    // Power lot and edge-line fragments landed on the sand at the strait
+    // bridgeheads wherever a course outlived its reverted carriageway
+    // (REVIEW-WORLDGEN.md §2.2). `courseGround` is the inclusion list.
+    for (const t of [T_ROAD, T_BRIDGE, T_SIDEWALK, T_BANK, T_FLOOR]) {
+      expect(courseGround(t), `tile ${t} should carry course paint`).toBe(true);
+    }
+    for (const t of [T_FIELD, T_LOT, T_SAND, T_PARK, T_TREES, T_WATER, T_BUILDING, T_RUNWAY, T_RAMP]) {
+      expect(courseGround(t), `tile ${t} should refuse course paint`).toBe(false);
+    }
   });
 
   it('carries the road surface across a bridge', () => {

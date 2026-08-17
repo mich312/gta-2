@@ -124,8 +124,25 @@ describe('health and armour', () => {
       map,
     );
     const victim = state.players.byId[1]!;
-    state.players.byId[2]!.pos = { x: victim.pos.x - 40, y: victim.pos.y };
-    state = step(state, { 2: { ...NULL_INPUT, seq: 1, tick: 1, fire: true, aimAngle: 0 } }, [], map);
+    // Stand the shooter ON a FOUND clear line and fire back down it, not
+    // due west of wherever the spawn landed: the wave-2 rebake moved the
+    // spawn against a wall on that side, the pistol shot stopped in the
+    // brickwork, and "armour soaks damage" failed without a shot ever
+    // landing. `clearAim` probes outward from the victim, so the shooter
+    // stands 40 px along the checked direction — ground the probe actually
+    // cleared — aiming the reverse way. The claim is about armour; the
+    // firing lane is the helpers' problem, not a compass constant's.
+    const lane = clearAim(map, victim.pos, 60);
+    state.players.byId[2]!.pos = {
+      x: victim.pos.x + Math.cos(lane) * 40,
+      y: victim.pos.y + Math.sin(lane) * 40,
+    };
+    state = step(
+      state,
+      { 2: { ...NULL_INPUT, seq: 1, tick: 1, fire: true, aimAngle: lane + Math.PI } },
+      [],
+      map,
+    );
 
     const after = state.players.byId[1]!;
     expect(after.armour).toBeLessThan(armour);

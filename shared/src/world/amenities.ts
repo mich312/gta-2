@@ -385,7 +385,7 @@ function bearingCarriageway(map: CityMap, tx: number, ty: number, angle: number)
 }
 
 /** Parked-car spawn points along road edges (consumed by phase 3). */
-export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: number): number {
+export function placeVehicleSpawns(map: CityMap, params: WorldgenParams): void {
   const spawns: VehicleSpawn[] = [];
   // Segments of this many tiles, one car in each. The old rule was a running
   // countdown of `parkedCarSpacing` plus a 0-4 jitter, so this is the same
@@ -443,12 +443,12 @@ export function placeVehicleSpawns(map: CityMap, params: WorldgenParams, rng: nu
     }
   }
   map.vehicleSpawns = spawns;
-  // The stream is handed back untouched. This pass used to draw from it twice
-  // per car, and drawing from a WINDOW-ordered walk is precisely what made
-  // parked cars a property of the viewport: the scan started somewhere else
-  // after a rebase, so the whole sequence shifted and every car in the city
-  // moved. Its own stream, so consuming nothing shifts no other pass.
-  return rng;
+  // No rng in the signature any more (wave 4.3). This pass used to draw from
+  // a stream twice per car, then stopped — drawing from a WINDOW-ordered walk
+  // was precisely what made parked cars a property of the viewport — and for
+  // a long time it still TOOK a stream and handed it back untouched, which
+  // advertised consumption that never happened. Streams are derived per pass
+  // name, so dropping the argument shifts nobody.
 }
 
 /**
@@ -1056,8 +1056,18 @@ export function placePickups(map: CityMap): void {
     }
   }
   // Capped for the same reason the moorings are: every crate is a live sim
-  // entity from the first tick.
-  map.pickupSpawns = spread(spawns, Math.round(PICKUPS_PER_CITY * Math.sqrt(areaScale(map))));
+  // entity from the first tick — and the kinds are dealt over the CAPPED
+  // list, not the candidate list. Dealt before the cap, the cycle's fairness
+  // belonged to a list nobody gets: `spread` samples every ~(L/n)th
+  // candidate, and whenever that stride shared a factor with the 24-long
+  // cycle, whole residue classes of it vanished — the 4.6 rebake moved the
+  // candidate count and the city shipped 607 crates with no jail card in
+  // any of them. The mix is a property of what ships.
+  const capped = spread(spawns, Math.round(PICKUPS_PER_CITY * Math.sqrt(areaScale(map))));
+  map.pickupSpawns = capped.map((s, i) => ({
+    ...s,
+    kind: PICKUP_CYCLE[i % PICKUP_CYCLE.length] as PickupSpawnKind,
+  }));
 }
 
 
@@ -1309,7 +1319,7 @@ export function placePayphones(map: CityMap): void {
   map.payphones = spots;
 }
 
-export function placeRamps(map: CityMap, params: WorldgenParams, seed: number): void {
+export function placeRamps(map: CityMap, seed: number): void {
   // Hash-gated per GLOBAL position, not every-Nth-candidate: ramps mutate
   // tiles, and a counter would make the tile a function of the window
   // rather than of the world.

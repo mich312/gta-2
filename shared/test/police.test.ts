@@ -762,8 +762,17 @@ describe('escalation by kind', () => {
     // while the suspect is still hot the radio keeps handing units a current
     // position and the search clock stays at zero. It only starts once the
     // trail goes cold. See `radioUpdate`.
+    //
+    // Held at GROUND-WAVE heat, below the first helicopter wave: a heli
+    // flies ("no walls"), so at heat 410 the level-4 wave's chopper hovered
+    // over the roof, saw the suspect through it, and the trail never went
+    // cold — which is the chopper doing its job, not the search failing to
+    // expire. Whether a wave with a heli in it ever turned out here was an
+    // accident of which kerbs could field one (BUGS.md §7.6); the 4.6
+    // rebake put livelier kerbs near the found wall and the accident ended.
+    // The give-up clock under test is the same at every level.
     for (let i = 0; i < t.wantedCooldownTicks + t.searchGiveUpTicks + 60; i++) {
-      state.players.byId[1]!.heat = 410;
+      state.players.byId[1]!.heat = 250;
       state = step(state, {}, [], map);
     }
     const after = state.cops.byId[500];

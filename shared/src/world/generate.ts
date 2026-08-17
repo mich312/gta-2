@@ -54,9 +54,20 @@ import { TILE_SIZE, type CityMap } from './types.js';
  * the edge needs no other explanation.
  */
 
-const baked: BakedCity = decodeBakedCity(JSON.parse(CITY_DATA));
+/**
+ * Decoded on first use, not on import (wave 4.4): the module-scope decode
+ * cost ~210 ms in every process that imported anything from the shared
+ * barrel — every test file, every tool — whether or not it ever asked for
+ * the city.
+ */
+let bakedCache: BakedCity | null = null;
+function bakedCity(): BakedCity {
+  if (bakedCache === null) bakedCache = decodeBakedCity(JSON.parse(CITY_DATA));
+  return bakedCache;
+}
 
 export function generateCity(seed: number, params: WorldgenParams): CityMap {
+  const baked = bakedCity();
   const stream = (pass: string): number => seedRng(deriveSeed(seed, `worldgen.${pass}`));
 
   const W = baked.widthTiles;
@@ -72,7 +83,11 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
     // proving ground, and a session must not scribble on the baked city that
     // the next one will load.
     tiles: baked.tiles.slice(),
-    district: baked.district.slice(),
+    // SHARED, not copied (wave 4.4): the sessions' passes carve tiles (ramps,
+    // the proving ground) but nothing anywhere writes the district plane —
+    // grep first if that ever changes — and the copy was 590 KB per session
+    // for a plane that is read-only by every consumer.
+    district: baked.district,
     bearing: baked.bearing,
     courses: baked.courses,
     blocks: baked.blocks,
@@ -101,7 +116,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   };
 
   registerClinics(map);
-  placeVehicleSpawns(map, params, stream('vehicles'));
+  placeVehicleSpawns(map, params);
   placePlayerSpawns(map, params, stream('playerSpawns'));
   placeParking(map, params);
   placeVehicleHomes(map);
@@ -109,7 +124,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   placeProps(map);
   placePickups(map);
   placeBoatSpawns(map);
-  placeRamps(map, params, seed);
+  placeRamps(map, seed);
   placeCranes(map);
   placePayphones(map);
   assignTurf(map, params);
@@ -142,8 +157,11 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   map.junctions = labelJunctions(map);
   // The centrelines, indexed at a point: where the middle of the road is and
   // which way it runs (§41). Built before the graph, which asks it what each
-  // of its streets is made of.
-  map.courseIndex = buildCourseIndex(map.courses ?? []);
+  // of its streets is made of. ROADS only: the index answers "where is the
+  // road" for drivers, lane snaps and route drawing, and a park walk (3.2)
+  // is none of those — a car asked to keep to the centreline must never be
+  // handed a footpath, however close it passes.
+  map.courseIndex = buildCourseIndex((map.courses ?? []).filter((c) => c.kind !== 'path'));
   // And the network the junctions imply: nodes, streets and the flood tree
   // that gets any tile to its own junction without a search. After the
   // labelling, because it is built out of it.

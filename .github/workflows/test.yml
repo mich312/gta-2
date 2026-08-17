@@ -1,0 +1,44 @@
+name: test
+
+# The suite, run where it can block things (PLAN-WORLDGEN.md wave 0.4).
+# Every invariant in shared/test, server/test and client/test was opt-in
+# before this file existed — deploy.yml shipped main without running one of
+# them. Pushes and PRs both run it; deploy now refuses a main whose suite
+# has not passed (see deploy.yml).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: City checker on the shipped asset
+        run: node server/dist/tools/citybake.js --check

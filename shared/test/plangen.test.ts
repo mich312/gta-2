@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  generateCityPlan,
   parseCityPlan,
   pointInPoly,
   LANDMARK_KINDS,
   MAX_CARRIAGEWAY,
-  MIN_MAP_TILES,
   type CityPlan,
 } from '../src/index.js';
+// Off the barrel on purpose (wave 4.3): plangen lives behind its own entry
+// so the client's module graph never sees it; its tests import it directly.
+import { MIN_MAP_TILES, generateCityPlan } from '../src/world/plangen.js';
 
 /**
  * The generated plan (WORLDGEN.md §17).

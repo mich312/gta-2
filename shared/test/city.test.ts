@@ -4,6 +4,7 @@ import worldgenJson from '../data/worldgen.json';
 import { parseCityPlan, pointInPoly } from '../src/world/plan.js';
 import { buildLayout } from '../src/world/layout.js';
 import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js';
+import { bevelOther } from '../src/world/bevel.js';
 import { generateCity } from '../src/world/generate.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import {
@@ -13,6 +14,8 @@ import {
   T_BUILDING,
   T_FIELD,
   T_LOT,
+  T_PARK,
+  T_RAMP,
   T_ROAD,
   T_RUNWAY,
   T_SAND,
@@ -100,12 +103,17 @@ describe('the city, as an asset', () => {
     // a session dresses the map, so the loaded city has three more shops.
     expect(baked.shops).toEqual(loaded.shops.filter((s) => s.kind !== 'clinic'));
     // Ramps are carved from the SEED, after the bake — the one part of the
-    // ground a session is allowed to move — so compare everything else.
+    // ground a session is allowed to move — so skip exactly the tiles the
+    // session turned into ramps and demand the rest IDENTICAL. The old gate
+    // allowed `tiles.length / 1000` (589) differing tiles to cover ~230 ramp
+    // tiles, which left ~360 tiles of real plan/asset drift passing silently
+    // (PLAN-WORLDGEN.md wave 0.3).
     let differing = 0;
     for (let i = 0; i < baked.tiles.length; i++) {
+      if (loaded.tiles[i] === T_RAMP) continue;
       if (baked.tiles[i] !== loaded.tiles[i]) differing++;
     }
-    expect(differing).toBeLessThan(baked.tiles.length / 1000);
+    expect(differing).toBe(0);
   });
 
   it('survives the round trip through its encoded form', { timeout: 60_000 }, () => {
@@ -670,5 +678,203 @@ describe('the city, as an asset', () => {
       }
     }
     expect(violations).toBe(0);
+  });
+
+  it('keeps every course centreline sample on its own ground', () => {
+    // Wave 2.1's gate, measured before it was pinned: `trimCourses` already
+    // splits and samples every course against the FINISHED tiles, and on
+    // this bake the answer is exactly 100% — so the invariant is exact, not
+    // a threshold. A sample off its ground means a pass moved road after
+    // the trim ran, which is the ordering bug this test exists to catch.
+    // Per kind since 3.2: carriageway for a road course, pavement for a
+    // park walk.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    let off = 0;
+    for (const c of map.courses ?? []) {
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [x0, y0] = c.points[k] as [number, number];
+        const [x1, y1] = c.points[k + 1] as [number, number];
+        const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2));
+        for (let s = 0; s <= steps; s++) {
+          const tx = Math.floor(x0 + ((x1 - x0) * s) / steps);
+          const ty = Math.floor(y0 + ((y1 - y0) * s) / steps);
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) {
+            off++;
+            continue;
+          }
+          const t = map.tiles[ty * W + tx] as number;
+          if (c.kind === 'path' ? t !== T_SIDEWALK : t !== T_ROAD && t !== T_BRIDGE) off++;
+        }
+      }
+    }
+    expect(off).toBe(0);
+  });
+
+  it('builds on the blocks the arterials cross', () => {
+    // Wave 2.2. Blocks the ring crossed near an edge kept interior rows of
+    // carriageway, so every frontage unit spanned the band and was refused —
+    // fifteen whole blocks of Sunridge baked as bare field with nothing on
+    // them (was down as "110 along the ring" in BUGS.md §7.6; measured with
+    // a buildable-ground filter it was 15). The interior trim and the
+    // slide-past-blocked-ground fix take it to 2; this holds the ceiling.
+    const W = map.widthTiles;
+    let empty = 0;
+    for (const b of map.blocks) {
+      if (b.district === 'park') continue;
+      let road = 0;
+      let buildable = 0;
+      for (let y = b.y + 1; y < b.y + b.h - 1; y++) {
+        for (let x = b.x + 1; x < b.x + b.w - 1; x++) {
+          const t = map.tiles[y * W + x] as number;
+          if (t === T_ROAD || t === T_BRIDGE) road++;
+          if (t === T_LOT || t === T_PARK || t === T_FIELD) buildable++;
+        }
+      }
+      if (road === 0 || buildable < 20) continue;
+      const built = map.buildings.some(
+        (bd) => bd.x < b.x + b.w && bd.x + bd.w > b.x && bd.y < b.y + b.h && bd.y + bd.h > b.y,
+      );
+      if (!built) empty++;
+    }
+    expect(empty).toBeLessThanOrEqual(3);
+  });
+
+  it('keeps runway ground inside the airstrips the plan drew', () => {
+    // Wave 2.3. The airstrip recipe's apron was T_RUNWAY too, so the strip
+    // ground spread four tiles past the drawn rect under the borough's
+    // streets — from the air, roads crossed "the runway" and the runway was
+    // three times the slab anybody drew. The apron is hardstanding now, and
+    // this pins the slab to the drawing.
+    const strips = plan.landmarks.filter((l) => l.kind === 'airstrip').map((l) => l.rect);
+    const W = map.widthTiles;
+    for (let y = 0; y < map.heightTiles; y++) {
+      for (let x = 0; x < W; x++) {
+        if (map.tiles[y * W + x] !== T_RUNWAY) continue;
+        const inside = strips.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
+        expect(inside, `runway tile at ${x},${y} outside every airstrip rect`).toBe(true);
+      }
+    }
+  });
+
+  it('lets no road run straight into open water', () => {
+    // Wave 2.4. §23.1 drowned the decks that stopped mid-strait; the eight
+    // corner slivers it left at bridge mouths are quayed by the bake now,
+    // and the checker calls any survivor an error. This is the same claim
+    // from the tile side: a carriageway edge is never bare against the sea.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    let wet = 0;
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (map.tiles[y * W + x] !== T_ROAD) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          if (map.tiles[(y + dy) * W + x + dx] === T_WATER) {
+            wet++;
+            break;
+          }
+        }
+      }
+    }
+    expect(wet).toBe(0);
+  });
+
+  it('keeps merged tarmac sheets rare, and shrinking', () => {
+    // Wave 4.6's gate, on the metric this repo can re-run: tiles at the
+    // centre of a 7×7 all-carriageway window. One-shore banding took it
+    // from 276 to 211 by ending the §28.3 two-family merges in the contour
+    // boroughs; what remains is the avenue-crossing class §28 measured as
+    // the suppression ceiling. The pin holds the ceiling: a change that
+    // grows a new sheet — a fabric regression, a probe that stopped
+    // probing — fails here before anyone has to see it from the air.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const cw = (x: number, y: number): boolean => {
+      const t = map.tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    let merged = 0;
+    for (let y = 3; y < H - 3; y++) {
+      for (let x = 3; x < W - 3; x++) {
+        if (!cw(x, y)) continue;
+        let all = true;
+        for (let dy = -3; dy <= 3 && all; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            if (!cw(x + dx, y + dy)) {
+              all = false;
+              break;
+            }
+          }
+        }
+        if (all) merged++;
+      }
+    }
+    expect(merged).toBeLessThanOrEqual(230);
+  });
+
+  it('gives stadiums and power stations an inside, not a slab', () => {
+    // Wave 3.1, the slab test inverted: the flyover found the city's two
+    // biggest named buildings rendering as featureless warehouse roofs
+    // (`evidence/topdown-stadium-slab.png`). A stadium is a ring of stands
+    // round an infield; a power station is halls and stacks over a yard. So:
+    // several parts, an open interior, and at least two distinct authored
+    // heights — a hash cannot know a chimney is a chimney.
+    const W = map.widthTiles;
+    for (const l of map.landmarks) {
+      if (l.kind !== 'stadium' && l.kind !== 'power') continue;
+      const parts = map.buildings.filter(
+        (b) => b.x >= l.x && b.y >= l.y && b.x + b.w <= l.x + l.w && b.y + b.h <= l.y + l.h,
+      );
+      expect(parts.length, `${l.name} has too few parts`).toBeGreaterThanOrEqual(3);
+      const heights = new Set(parts.map((b) => b.storeys));
+      expect(heights.size, `${l.name} is one flat mass`).toBeGreaterThanOrEqual(2);
+      let open = 0;
+      for (let y = l.y; y < l.y + l.h; y++) {
+        for (let x = l.x; x < l.x + l.w; x++) {
+          if (map.tiles[y * W + x] !== T_BUILDING) open++;
+        }
+      }
+      expect(open / (l.w * l.h), `${l.name} has no inside`).toBeGreaterThanOrEqual(0.2);
+    }
+  });
+
+  it('only bevels materials the painters know by name', () => {
+    // The canary for the §31 class of bug: the deck pair was added to the
+    // bevel yield tables without a case in the 2D painter's wedge switch,
+    // so every parapet step's cut half fell through to the grass default —
+    // green triangles over open sea on all three crossings
+    // (REVIEW-WORLDGEN.md §2.3). This pins the set of materials a bevelled
+    // corner can answer (`bevelOther`) to the set the painters handle
+    // explicitly; a new yield pair fails here until `paintBevel`'s switch
+    // learns its material.
+    const painted = new Set([
+      T_WATER,
+      T_SAND,
+      T_FIELD,
+      T_PARK,
+      T_TREES,
+      T_ROAD,
+      T_BRIDGE,
+      T_SIDEWALK,
+    ]);
+    const bevel = map.bevel as Uint8Array;
+    const seen = new Set<number>();
+    for (let y = 0; y < map.heightTiles; y++) {
+      for (let x = 0; x < map.widthTiles; x++) {
+        if (bevel[y * map.widthTiles + x] === 0) continue;
+        seen.add(bevelOther(map.tiles, bevel, map.widthTiles, x, y));
+      }
+    }
+    for (const t of seen) {
+      expect(painted.has(t), `bevelOther answers tile ${t}, which no painter names`).toBe(true);
+    }
+    // And the bridge pair is genuinely exercised — the wedges §2.3 was
+    // about exist on this map, so the painter case above them is live.
+    expect(seen.has(T_BRIDGE)).toBe(true);
   });
 });
