@@ -817,16 +817,20 @@ describe('the city, as an asset', () => {
     expect(merged).toBeLessThanOrEqual(230);
   });
 
-  it('gives stadiums and power stations an inside, not a slab', () => {
+  it('gives stadiums, power stations and towers an inside, not a slab', () => {
     // Wave 3.1, the slab test inverted: the flyover found the city's two
     // biggest named buildings rendering as featureless warehouse roofs
     // (`evidence/topdown-stadium-slab.png`). A stadium is a ring of stands
     // round an infield; a power station is halls and stacks over a yard. So:
     // several parts, an open interior, and at least two distinct authored
     // heights — a hash cannot know a chimney is a chimney.
+    //
+    // Towers joined them when the city got a skyline: a named tower is a shaft
+    // out of a podium, and one flat rect at the downtown hash made Vantage
+    // Tower the same height as the office block over the road.
     const W = map.widthTiles;
     for (const l of map.landmarks) {
-      if (l.kind !== 'stadium' && l.kind !== 'power') continue;
+      if (l.kind !== 'stadium' && l.kind !== 'power' && l.kind !== 'tower') continue;
       const parts = map.buildings.filter(
         (b) => b.x >= l.x && b.y >= l.y && b.x + b.w <= l.x + l.w && b.y + b.h <= l.y + l.h,
       );

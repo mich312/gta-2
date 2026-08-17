@@ -17,6 +17,7 @@ the session's amenity passes — and every claim names the file it comes from.
 | --- | --- | --- |
 | `evidence/mapdesign-city.png` | The whole city, 2 px per tile | `pnpm mapgen --out=evidence/mapdesign-city.png` |
 | `evidence/mapdesign-strait.png` | The strait end to end, 3 px per tile | `pnpm mapgen --crop=240,250,470,220 --scale=3 --out=evidence/mapdesign-strait.png` |
+| `evidence/mapdesign-skyline.png` | Downtown at the camera pitch the game is played at | `WAIT_GROUND=25 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,180&h=900&pitch=42&night=0" evidence/mapdesign-skyline.png` |
 | `evidence/mapdesign-turf.png` | The seven manors, washed over the ground they hold | `pnpm mapgen --turf --out=evidence/mapdesign-turf.png` |
 | `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
 
@@ -242,6 +243,11 @@ land only**, or assign each gang a set of districts outright, and territory
 becomes something you learn by looking out of the windscreen. It costs one
 function and no rng draws (turf already consumes none, so replays are safe).
 
+> **§2.6 is now fixed** for the spawn half: every island with a shop on it is
+> seated a spawn before the rest are sampled, and Port Vasco takes 1–2 of 16 on
+> every seed measured. `WORLDGEN.md` §46.1. The redundancy point — two bridges
+> carrying an eighth of the city — stands.
+
 ### 2.6 Port Vasco is a whole island the player almost never starts on
 
 Port Vasco holds **11% of the city's dry land** (32,281 tiles), 22 shops,
@@ -295,6 +301,11 @@ The plan already carries the dial: `pitchX/pitchY` per district. The Spine is
 share toward 25% without touching a line of layout code. §28.3 already
 measured the lattice-merging ceiling from the other side; this is the same
 number read as a design brief.
+
+> **The skyline half of §2.8 is now fixed**: downtown is 6–18 storeys and the
+> named towers are a 24-storey shaft over an 8-storey podium, inside the
+> renderers' existing overhang budget. `WORLDGEN.md` §46.2. The orientation
+> half — half the city's streets pointing the same way — stands.
 
 ### 2.8 One orientation, and one skyline
 

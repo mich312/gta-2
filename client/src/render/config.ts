@@ -218,11 +218,24 @@ export const PARALLAX_PX_PER_STOREY = 3.0;
  *
  * The number is set against the 2D renderer, which has always had to answer
  * the same question and answered it at `PARALLAX_PX_PER_STOREY` above: 3 px
- * per storey at the screen edge, 36 px for the tallest thing in the city. At
- * 0.25 a 12-storey block stands 72 px, magnifies 1.14× — a six-tile frontage
- * overhangs 0.42 of a tile, comfortably inside the one-tile pavement — and
- * leans up to about 50 px at the frame corner. Near enough that switching
- * renderers no longer moves the city, which is the whole test.
+ * per storey at the screen edge. At 0.25 a 12-storey block stands 72 px,
+ * magnifies 1.14× — a six-tile frontage overhangs 0.42 of a tile, comfortably
+ * inside the one-tile pavement — and leans up to about 50 px at the frame
+ * corner. Near enough that switching renderers no longer moves the city,
+ * which is the whole test.
+ *
+ * The city has since grown: `heights.ts` puts downtown at 6–18 storeys and the
+ * named towers at 24, where it used to top out at 12 and have no skyline to
+ * steer by. Both constants stay, and the arithmetic is why — the budget was
+ * never "36 px", it was "the overhang stays inside the pavement":
+ *
+ *   18 storeys → 108 px drawn, ×1.22, six-tile frontage overhangs 0.67 tile
+ *   24 storeys → 144 px drawn, ×1.32, four-tile shaft overhangs 0.65 tile
+ *
+ * Both inside the one-tile pavement, and the towers stand on a plaza besides.
+ * The 2D lean at the frame corner goes from 36 px to 72 px for the tallest
+ * thing in the city, which is the lean doing its job: what leans furthest is
+ * what you can see from furthest away.
  *
  * It scales EVERYTHING above street level and nothing below it: buildings and
  * woodland, not the river bed, the earth slab or the ramp trench. One knob for

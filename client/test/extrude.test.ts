@@ -106,7 +106,7 @@ describe('building storeys', () => {
 
   it('keeps every district inside its own range', () => {
     const ranges: Record<string, [number, number]> = {
-      downtown: [4, 12],
+      downtown: [6, 18],
       commercial: [2, 6],
       industrial: [1, 3],
       residential: [1, 3],

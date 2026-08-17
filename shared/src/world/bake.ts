@@ -132,7 +132,24 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
       [w - 4, h - 3, 2, 2, 8],
     ],
   },
-  tower: { ground: T_SIDEWALK, apron: T_SIDEWALK, parts: (w, h) => [[1, 1, w - 2, h - 2]] },
+  // A shaft standing out of a podium, and both authored: the hash tops out at
+  // the district's range and the whole point of a named tower is that it is
+  // taller than the district. One flat rect at the downtown hash made Vantage
+  // Tower the same height as the office block across the street, which is not
+  // a landmark, it is a building. The podium is a ring so the parts never
+  // overlap — nothing else in this table stacks one solid on another and this
+  // is not the place to find out what that would mean.
+  tower: {
+    ground: T_SIDEWALK,
+    apron: T_SIDEWALK,
+    parts: (w, h) => [
+      [1, 1, w - 2, 2, 8],
+      [1, h - 3, w - 2, 2, 8],
+      [1, 3, 2, h - 6, 8],
+      [w - 3, 3, 2, h - 6, 8],
+      [3, 3, w - 6, h - 6, 24],
+    ],
+  },
   hospital: { ground: T_LOT, apron: T_LOT, parts: (w, h) => [[0, 0, w, h]] },
   police: { ground: T_LOT, apron: T_LOT, parts: (w, h) => [[0, 0, w, h]] },
   // The country kinds: stamped on open ground, no block and no apron.

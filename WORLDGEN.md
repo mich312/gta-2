@@ -4852,3 +4852,84 @@ a piece of the city a player could name.
 - The wash steps at cell granularity — 12 tiles — so a manor's coast is blocky
   where the coastline is smooth. The radar has always drawn turf this way; it
   is more obvious now that the tint stops at the water.
+
+---
+
+## 46. A place to start, and something to steer by
+
+Two small things `REVIEW-MAPDESIGN.md` asked for, both cheap, and one of them
+turned out to be constrained by arithmetic nobody should overwrite by accident.
+
+### 46.1 Every island you can shop on is an island you can start on
+
+§2.6: across eight seeds Port Vasco received **0 to 2 of 16 player spawns**, a
+mean of 0.6 — about 4% — for an island holding 11% of the city's dry land, 22
+shops, 376 buildings, the stadium, the power station and the quarry. Nothing
+was broken. `placePlayerSpawns` wants a `downtown`, `commercial` or
+`residential` district and a street density of 16 in a 7×7 box — both right,
+and both added because "one player in five started on a dock road with no
+traffic, no crowd, no shop and nothing to steal" — and Port Vasco is two
+industrial districts plus one small housing one. Few candidates, so few picks.
+The most distinct place on the map was somewhere a player arrived at and never
+somewhere they started.
+
+`placePlayerSpawns` now seats one spawn on every island that has a shop on it
+before sampling the rest at large. Islands are labelled with **bridges
+removed**, which is the whole trick: Port Vasco is joined to the mainland by
+two decks, so a flood that crosses them makes the city one island and the
+quota does nothing. Measured over the same eight seeds: Port Vasco now gets
+**1 or 2 every time**, and the north and south banks still take 13 or 14
+between them.
+
+Cost: one extra full-map flood inside `generateCity`, which already runs
+several. The Int16 label plane caps out at 32,767 islands; past that the
+remainder go unlabelled rather than wrap, because a map with more islands than
+that is gravel.
+
+### 46.2 A skyline, and the budget it has to fit in
+
+§2.8: `downtown` was `[4, 12]` storeys against `residential` `[1, 3]`, and
+measured over the whole city that came out p50 3, p90 5, max 10. Downtown was
+three storeys taller than the suburbs on average. A top-down city has no
+horizon, so "drive toward the tall thing" is the only navigation aid of its
+kind it gets, and there was no tall thing.
+
+- `downtown` is now **`[6, 18]`** — wider as well as higher, because a
+  financial district that is uniformly tall reads as flat as one that is
+  uniformly low.
+- The `tower` recipe is a **shaft out of a podium**: a ring of podium at 8
+  storeys and a shaft at 24, both authored. One flat rect at the downtown hash
+  made Vantage Tower the same height as the office block across the road,
+  which is not a landmark. The podium is a ring so the parts never overlap —
+  nothing else in `RECIPES` stacks one solid on another, and this was not the
+  place to find out what that would mean. `city.test.ts`'s "an inside, not a
+  slab" check now covers towers alongside stadiums and power stations.
+
+Measured after, over 4,080 buildings: p50 3, p90 12, p99 17, max 24. Downtown's
+own median went 3 → **12**; residential stayed at 2.
+
+**Why neither renderer constant moved.** `render/config.ts` derives
+`PARALLAX_PX_PER_STOREY` and `Z_SCALE` from one rule — a roof may not overhang
+past its own pavement — and its prose recorded the working as "36 px for the
+tallest thing in the city" and "a 12-storey block stands 72 px". Those numbers
+described a 12-storey city, and it was tempting to read them as a ceiling and
+halve the constants to keep them. That would have flattened the other 3,300
+buildings to buy two towers. The rule, re-run:
+
+| | drawn height | magnification | overhang |
+| --- | --- | --- | --- |
+| 12 storeys (before) | 72 px | ×1.14 | 0.42 tile |
+| 18 storeys (downtown now) | 108 px | ×1.22 | 0.67 tile |
+| 24 storeys (a tower's shaft) | 144 px | ×1.32 | 0.65 tile |
+
+All inside the one-tile pavement, and the towers stand on a plaza besides. The
+2D lean at the frame corner goes 36 px → 72 px for the tallest thing in the
+city, which is the lean doing its job: what leans furthest is what can be seen
+from furthest away. Both constants stay; the comment that read as a ceiling now
+shows its working. `evidence/mapdesign-skyline.png` is the flyover at the
+camera pitch the game is actually played at.
+
+Aircraft are unaffected: `cruiseZ` is 54 world px and `Z_PER_STOREY` is 24, so
+a plane already flies below the third floor of everything. Flight has always
+gone between the buildings rather than over them, and a taller downtown does
+not change a rule it was never using.

@@ -796,19 +796,68 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
       candidates.push({ x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE });
     }
   }
+
   const spawns: Vec2[] = [];
   let minDist = params.playerSpawnMinDist * TILE_SIZE;
+  const clear = (c: Vec2): boolean =>
+    spawns.every((s) => {
+      const dx = s.x - c.x;
+      const dy = s.y - c.y;
+      return dx * dx + dy * dy >= minDist * minDist;
+    });
+
+  // One spawn on every island that has a shop on it, before the rest are
+  // sampled at large.
+  //
+  // Sampling alone put 0 to 2 of 16 spawns on Port Vasco across eight seeds —
+  // a mean of 0.6, about 4% — for an island holding 11% of the city's dry
+  // land, 22 shops, 376 buildings, the stadium, the power station and the
+  // quarry (`REVIEW-MAPDESIGN.md` §2.6). Nothing was wrong with the sampler:
+  // the district filter above wants downtown, commercial or residential and
+  // Port Vasco is two industrial districts plus one small housing one, so it
+  // offers few candidates and the picks land where the candidates are. The
+  // effect was that the most distinct place on the map was somewhere a player
+  // arrived at, never somewhere they started.
+  //
+  // Islands are counted with bridges REMOVED, which is the whole point: Port
+  // Vasco is joined to the mainland by two decks, so a flood that crosses
+  // them makes the city one island and this quota does nothing.
+  const island = islandLabels(map);
+  const shopIslands = new Set<number>();
+  for (const s of map.shops) {
+    const id = island[s.doorY * map.widthTiles + s.doorX] as number;
+    if (id >= 0) shopIslands.add(id);
+  }
+  const byIsland = new Map<number, Vec2[]>();
+  for (const c of candidates) {
+    const tx = Math.floor(c.x / TILE_SIZE);
+    const ty = Math.floor(c.y / TILE_SIZE);
+    const id = island[ty * map.widthTiles + tx] as number;
+    if (id < 0 || !shopIslands.has(id)) continue;
+    const list = byIsland.get(id);
+    if (list) list.push(c);
+    else byIsland.set(id, [c]);
+  }
+  // Ascending island id, so which island is served first is a fact about the
+  // map rather than about Map iteration order on the day.
+  for (const id of [...byIsland.keys()].sort((a, b) => a - b)) {
+    if (spawns.length >= params.playerSpawnCount) break;
+    const list = byIsland.get(id) as Vec2[];
+    let pick: number;
+    [pick, rng] = nextIntRange(rng, 0, list.length);
+    const c = list[pick] as Vec2;
+    if (!clear(c)) continue;
+    spawns.push(c);
+    const at = candidates.indexOf(c);
+    if (at >= 0) candidates.splice(at, 1);
+  }
+
   let attempts = 0;
   while (spawns.length < params.playerSpawnCount && candidates.length > 0) {
     let pick: number;
     [pick, rng] = nextIntRange(rng, 0, candidates.length);
     const c = candidates.splice(pick, 1)[0] as Vec2;
-    const ok = spawns.every((s) => {
-      const dx = s.x - c.x;
-      const dy = s.y - c.y;
-      return dx * dx + dy * dy >= minDist * minDist;
-    });
-    if (ok) spawns.push(c);
+    if (clear(c)) spawns.push(c);
     attempts++;
     if (attempts > 500 && spawns.length < params.playerSpawnCount) {
       minDist /= 2; // relax rather than loop forever on tiny maps
@@ -817,6 +866,56 @@ export function placePlayerSpawns(map: CityMap, params: WorldgenParams, rng: num
   }
   map.playerSpawns = spawns;
   return rng;
+}
+
+/**
+ * Which island each tile belongs to, -1 for water and for the decks.
+ *
+ * Bridges are excluded on purpose: what this is for is telling the player
+ * "you have never started on Port Vasco" apart from "Port Vasco is reachable",
+ * and those are different questions with different answers.
+ */
+function islandLabels(map: CityMap): Int16Array {
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const label = new Int16Array(W * H).fill(-1);
+  const dry = (i: number): boolean => {
+    const tile = map.tiles[i] as number;
+    return tile !== T_WATER && tile !== T_BRIDGE;
+  };
+  let next = 0;
+  const stack: number[] = [];
+  for (let s = 0; s < W * H; s++) {
+    if ((label[s] as number) >= 0 || !dry(s)) continue;
+    // Int16 has room for 32,767 islands; a map with more of them than that is
+    // gravel, and the ones past the end simply go unlabelled rather than wrap.
+    const id = next < 32767 ? next++ : -1;
+    if (id < 0) break;
+    label[s] = id;
+    stack.push(s);
+    while (stack.length > 0) {
+      const i = stack.pop() as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      if (x > 0 && (label[i - 1] as number) < 0 && dry(i - 1)) {
+        label[i - 1] = id;
+        stack.push(i - 1);
+      }
+      if (x < W - 1 && (label[i + 1] as number) < 0 && dry(i + 1)) {
+        label[i + 1] = id;
+        stack.push(i + 1);
+      }
+      if (y > 0 && (label[i - W] as number) < 0 && dry(i - W)) {
+        label[i - W] = id;
+        stack.push(i - W);
+      }
+      if (y < H - 1 && (label[i + W] as number) < 0 && dry(i + W)) {
+        label[i + W] = id;
+        stack.push(i + W);
+      }
+    }
+  }
+  return label;
 }
 
 /**

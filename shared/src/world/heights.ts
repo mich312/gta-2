@@ -22,7 +22,19 @@ import type { Building, DistrictType } from './types.js';
 
 /** Storey heights per district: [min, max], inclusive. */
 const STOREYS: Record<DistrictType, [number, number]> = {
-  downtown: [4, 12],
+  // Downtown was [4, 12], which put it three storeys above the suburbs on
+  // average and gave the city no skyline to steer by: measured over the whole
+  // map, p50 was 3 storeys, p90 5, max 10 (`REVIEW-MAPDESIGN.md` §2.8). "Drive
+  // toward the tall thing" is the navigation aid a top-down city has instead
+  // of a horizon, and there was no tall thing. The range is wider as well as
+  // higher, because a financial district that is uniformly tall is as flat to
+  // read as one that is uniformly low.
+  //
+  // 18 is not an arbitrary ceiling. It is what the renderers' height budget
+  // will take: at Z_SCALE 0.25 an 18-storey block draws 108 px, magnifies
+  // 1.22x, and a six-tile frontage overhangs 0.67 of a tile — still inside
+  // the one-tile pavement that `render/config.ts` sizes everything against.
+  downtown: [6, 18],
   commercial: [2, 6],
   industrial: [1, 3],
   residential: [1, 3],
