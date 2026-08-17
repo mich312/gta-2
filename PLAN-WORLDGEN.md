@@ -263,15 +263,27 @@ struct, in an ordered list; the ordering comments become the list itself.
 course+carve editing together is the hardest coupling, and the refactor
 should inherit it already fixed.
 
-*Wave-4 status: NOT STARTED, deliberately.* This is a multi-session
-refactor whose whole safety story is one extraction at a time against a
-bit-identical bake, and starting it at the tail of a wave that already
-rebaked twice would mean doing the riskiest work with the least
-attention. The gate mechanism it needs is now trivially available — bake
-once, hash `encodeBakedCity`'s output, extract one pass, hash again,
-`expect(equal)` — and the first three extractions should be the coast,
-the borough lattices and the block cut, in that order, because their
-seams are the ones the pass comments already describe most precisely.
+*Wave-4 status: DELIVERED (after 4.6).* `buildLayout` is now ten named
+passes — `paintOwnership`, `carveAuthoredRoads`, `layEsplanade`,
+`laySeamStreets`, `weaveFabrics`, `stitchBoroughs`, `guardRingAccess`,
+`trimBridges`, `mapCliffIslands`, `finishShores` — run from one ordered
+list just before the return, so the ordering the section comments held
+in prose is now stated once, executably. Three gated steps (wrap the
+first four sections, wrap the remaining six, move the invocations into
+the list), each verified by `tsc` and the bake hash: sha-256 of
+`encodeBakedCity(bakeCity(plan))` stayed `aa344019f39c43111679a052`
+through every step, and the full suite is green (942/942). Two
+deliberate deviations from the sketch above: the passes are closures
+over the function-scope planes rather than readers of a threaded
+struct — the planes were already shared state, and closures let every
+step be a pure wrap the hash could hold to — and the coast was already
+its own function (`paintCoast`), so the first wrap was ownership, with
+the block cut staying inside `weaveFabrics` where lattice carving and
+block records are one loop. Only two declarations needed hoisting:
+`preEsp` (the pre-esplanade tile snapshot, now taken at the top of
+`layEsplanade`) and `bandInner` (the §39 band curve the return ships as
+`banks`); every other shared declaration was audited as order-insensitive
+— computed from the coast masks and the plan alone — before any wrapping.
 
 **4.6 The lattice-merging design change (L, design doc first).** §28.3
 measured that suppression cannot finish it: 1,289 street-on-street tiles,

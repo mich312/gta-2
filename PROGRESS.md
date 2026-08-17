@@ -1,5 +1,39 @@
 # PROGRESS
 
+## Wave 4.5 of PLAN-WORLDGEN: `buildLayout` becomes passes — DELIVERED
+
+The two-thousand-line function is now ten named passes and one ordered
+list. `paintOwnership`, `carveAuthoredRoads`, `layEsplanade`,
+`laySeamStreets`, `weaveFabrics`, `stitchBoroughs`, `guardRingAccess`,
+`trimBridges`, `mapCliffIslands`, `finishShores` — each a closure over
+the function's planes, defined where its section stood, invoked from a
+single list just before the return. The build order that used to live
+in the reading order of the file (the esplanade probes what the
+authored roads left, the lattices must find the seam streets already
+carved, the shore is dressed last so it can close what the pruning
+opened) is stated once, above the list.
+
+The safety story ran exactly as the plan gated it: three extraction
+steps, each held to `tsc` clean and a bit-identical bake —
+sha-256 of `encodeBakedCity(bakeCity(plan))` stayed
+`aa344019f39c43111679a052` before, between and after. The wrapping was
+mechanical (a script that asserts the first and last line of every
+range before touching it, then indents), because eight hundred lines
+re-indented by hand is eight hundred chances to be wrong; the one
+hazard checked first was multi-line template literals, whose contents
+indentation would silently change — there are none in the wrapped
+ranges. Only two declarations moved: `preEsp` is assigned at the top of
+`layEsplanade` (same instant it was snapped before), and `bandInner`
+is hoisted for the return to ship as `banks`. Every other shared
+declaration was audited as order-insensitive — allocations, closures,
+and fields computed from the coast masks alone.
+
+Suite: 942/942 pass. The runner exits non-zero on this box with the
+known `[vitest-worker] Timeout calling "onTaskUpdate"` noise — the
+20-second synchronous bakes starve the worker's RPC under a 4-core
+container, the same signature Wave 2 chased and cleared; zero tests
+fail, CI arbitrates.
+
 ## Wave 4.6 of PLAN-WORLDGEN: one borough, one shore — DELIVERED
 
 The approved design note, built. A contour borough now names its banding
