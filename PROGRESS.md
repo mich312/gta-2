@@ -15,12 +15,28 @@ half-tile deep along both edges. An A/B against the pre-3.2 bake showed
 it byte-identical — wave 1's clip, which holds the ribbon to ground that
 carries a road, was being absorbed by kerb bands everywhere the city
 retakes looked, and open country has no kerb band to absorb it. The
-clip's predicate now admits SOFT natural ground — grass, field, sand —
-inside the ribbon's own painted reach (`courseApron`, swept stroke plus
-casing wide), so a rural road draws as one smooth ribbon; water, walls,
-lots and woodland stay refused, which keeps the 385 tiles of
-sea-painted-as-tarmac the clip was built against impossible. Renderer
-only, both fixes; no rebake, no test surface.
+clip's predicate now admits FLAT OPEN ground — grass, field, sand, and
+(after the census below) lots — inside the ribbon's own painted reach
+(`courseApron`, swept stroke plus casing wide), so a rural road draws as
+one smooth ribbon; water, walls and woodland stay refused, which keeps
+the 385 tiles of sea-painted-as-tarmac the clip was built against
+impossible. Renderer only, both fixes; no rebake, no test surface.
+
+"Is it really fixed everywhere?" was answered with a census, not more
+screenshots: every shipped course's painted footprint swept over the
+whole map, counting the tiles where the clip still cuts the ribbon.
+After the first fix the residue was 439 tiles of LOT — all on
+diagonals, worst in the angled boroughs where every street is one, the
+yard edge of every Old Quarter block a staircase — and 43 tiles of bare
+field a park walk grazes at the park's own fringe. Both are flat open
+ground by any honest reading, so both joined their clips' admitted
+sets. What remains, by design and in full: 771 tiles of building (paint
+stops at walls, and the extruded masses cover them), 490 of water (the
+waterline is a curve cut, so the boundary is drawn smooth), 55 walk
+butt-ends at street gates (clean straight cuts), 17 of runway (which
+keeps its own paint), and 7 — seven — of woodland, which settles it:
+the stepping beside forest roads is §3.3's canopy plateau boxes, not
+the ribbon clip.
 
 ## Wave 3.2 of PLAN-WORLDGEN: paths become courses — DELIVERED
 

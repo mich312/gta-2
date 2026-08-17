@@ -539,14 +539,24 @@ export class TileLayer {
     this.courseApron = apron;
   }
 
-  /** Soft natural ground inside a road ribbon's painted reach — see `courseApron`. */
+  /**
+   * Flat open ground inside a road ribbon's painted reach — see `courseApron`.
+   *
+   * Lots are in the set with the natural ground: a yard is flat drivable
+   * asphalt, and in the angled boroughs every street is diagonal, so holding
+   * the ribbon to the raster there saw-toothed the yard edge of every block
+   * (the census found 439 such tiles, all on diagonals). The §2.2 failure
+   * this used to guard against — dashes marching across the Kessler lot —
+   * came from UNTRIMMED courses far from any road, and the trim plus the
+   * footprint-limited apron is what rules that out now.
+   */
   private softUnderApron(tx: number, ty: number): boolean {
     const map = this.map;
     if (map === null || this.courseApron === null) return false;
     if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
     if (this.courseApron[ty * map.widthTiles + tx] !== 1) return false;
     const t = map.tiles[ty * map.widthTiles + tx] as number;
-    return t === T_FIELD || t === T_PARK || t === T_SAND;
+    return t === T_FIELD || t === T_PARK || t === T_SAND || t === T_LOT;
   }
 
   /**
@@ -604,7 +614,11 @@ export class TileLayer {
       for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
         for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
           const g = this.tileAt(tx, ty);
-          if (g !== T_PARK && g !== T_SIDEWALK) continue;
+          // Field as well as lawn: a meander grazes the park's own boundary,
+          // and the fringe just outside it is bare field — cutting the
+          // stroke there stepped the walk's edge at every graze (43 tiles,
+          // by the census). Walkable open ground, same rule as the roads'.
+          if (g !== T_PARK && g !== T_SIDEWALK && g !== T_FIELD) continue;
           ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
         }
       }

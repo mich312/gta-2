@@ -214,9 +214,13 @@ path palette (packed stone, `palette.path`) after the first cut's
 sidewalk grey read as a pale road through the woods; and the retakes
 exposed the RURAL saw-tooth — wave 1's clip held road ribbons to the
 rasterised band, which the city's kerb bands absorbed and open country
-did not — fixed by letting soft natural ground under a ribbon's own
-apron take the paint (water, walls and lots stay refused). Retakes:
-`evidence/fixed-park-paths.png`, `fixed-park-paths-south.png`.
+did not — fixed by letting flat open ground under a ribbon's own
+apron take the paint — grass, field, sand, and lots, the last added
+after a map-wide census of every remaining clip cut found the angled
+boroughs' yard edges saw-toothed on every diagonal street (water, walls
+and woodland stay refused; the census's full residue is in
+PROGRESS.md). Retakes: `evidence/fixed-park-paths.png`,
+`fixed-park-paths-south.png`.
 
 **3.3 Woodland stops being a plinth (M, renderer only).** `T_TREES` renders
 as a flat 1-tile-high green slab that reads as a stain from above. The
