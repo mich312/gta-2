@@ -18,6 +18,7 @@ the session's amenity passes — and every claim names the file it comes from.
 | `evidence/mapdesign-city.png` | The whole city, 2 px per tile | `pnpm mapgen --out=evidence/mapdesign-city.png` |
 | `evidence/mapdesign-strait.png` | The strait end to end, 3 px per tile | `pnpm mapgen --crop=240,250,470,220 --scale=3 --out=evidence/mapdesign-strait.png` |
 | `evidence/mapdesign-skyline.png` | Downtown at the camera pitch the game is played at | `WAIT_GROUND=25 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,180&h=900&pitch=42&night=0" evidence/mapdesign-skyline.png` |
+| `evidence/mapdesign-quay.png` | Kelvin Quay and Bridgefoot on the headland | `pnpm mapgen --crop=410,290,150,100 --scale=6 --out=evidence/mapdesign-quay.png` |
 | `evidence/mapdesign-turf.png` | The seven manors, washed over the ground they hold | `pnpm mapgen --turf --out=evidence/mapdesign-turf.png` |
 | `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
 
@@ -176,6 +177,11 @@ commitment before the payoff turns out not to exist
 
 Whatever happens to `maxBridgeSpan`, the stub prune should follow a deleted
 deck all the way back to the last junction that still has a reason to exist.
+
+> **§2.4 is now fixed.** The headland carries Bridgefoot and Kelvin Quay — a
+> commercial strip and the north bank's only working waterfront — with Quay Road
+> along the water. Bare ground there fell from 4,401 tiles to 2,076, and the
+> 3,577-tile patch is gone. `WORLDGEN.md` §47.
 
 ### 2.4 The best waterfront in the city is an empty field
 

@@ -4933,3 +4933,83 @@ Aircraft are unaffected: `cruiseZ` is 54 world px and `Z_PER_STOREY` is 24, so
 a plane already flies below the third floor of everything. Flight has always
 gone between the buildings rather than over them, and a taller downtown does
 not change a rule it was never using.
+
+---
+
+## 47. The headland gets a use
+
+`REVIEW-MAPDESIGN.md` §2.4: the best piece of land in the city — a promontory
+south of the Spine with a mile of water frontage, looking across the strait at
+the south bank — was 3,577 tiles of grass with one road across it that stopped
+on a beach. §44 turned that road back into Kelvin Bridge, so the blank ground
+became the first thing anybody crossing the bridge sees.
+
+### 47.1 What went on it, and why that
+
+A **working waterfront**, which is the one thing the north bank did not have.
+Every yard, shed and crane in the city was on Port Vasco, an island most
+players reach late; Ravenhill, the Spine and the Old Quarter are commerce,
+finance and old town. Putting the docks under the towers gives the north bank
+a fabric it was missing, contrasts hardest with the 15×12 downtown grid
+immediately behind it, and — the gameplay reason — drops big open lots, long
+straight quays and warehouse blocks right where the action already is.
+
+Two districts and a road, all in `city-plan.json`:
+
+- **Bridgefoot** (commercial, 16×13, density 0.8) — the strip between the
+  Spine's last street and the quay. Offices and flats facing the water rather
+  than the financial grid behind them.
+- **Kelvin Quay** (industrial, 26×22, density 0.55) — wharves, sheds and yards
+  along the strait.
+- **Quay Road** (4 wide, curved) — from the neck by the Old Bridge, round the
+  point, to the Old Quarter's harbour side. The frontage the quay is built
+  along, and the road that draws the city down to the water.
+
+Measured on the headland (x 415–560, y 295–390): bare ground **4,401 → 2,076
+tiles**, and the 3,577-tile patch itself is gone. 34 blocks and 75 buildings
+where there were none. What is left bare is the shore band, the point below
+Quay Road — a headland tip is allowed to be a headland tip — and the narrow
+neck by the Old Bridge.
+
+### 47.2 What the existing pins caught, which is the point of them
+
+The first shapes were greedier: Bridgefoot ran the full width from x=422 and
+the quay reached to the water all round the point. That version baked, and the
+suite said no four different ways.
+
+- **`--fit` refused two landmarks.** Kelvin Road Station and Seaview
+  Infirmary, both on the *south* bank, no longer fit their blocks. The
+  greedy polygons had changed street geometry a hundred tiles away across the
+  water; trimming them put both back on their authored rectangles, and the
+  final plan moves no landmark at all.
+- **"builds on the blocks the arterials cross" went 2 → 5.** Three new blocks
+  had carriageway through their interiors and no buildings — `BUGS.md` §7.6's
+  class, reappearing in new ground. The tip block was the worst: 23×19 with
+  106 tiles of road in it. Pulling the quay back off the point took it to 3,
+  which is the pin.
+- **"keeps merged tarmac sheets rare" went 211 → 244.** Not on the headland —
+  the headland's own figure *fell*, 23 → 19 — but at the bridge landfalls on
+  the far bank. It came back to 221 with the trimmed shapes.
+- **"a building cut at an angle is most of the city" fell to 35.9%** against a
+  40% floor, at one point in the middle of this. Both that and the long-course
+  count recovered once the shapes stopped disturbing the contour boroughs.
+
+A wrong turn worth recording: chasing the merged-tarmac number, this work
+shrank Beachfront's `bandShore` box from 40 to 30 tiles deep, which did fix
+merged (213) and broke two other pins instead (angle-cut 37.6%, long courses
+88). The box was tuned and did not want touching; the real fix was upstream, in
+polygons that had been drawn too greedily. **The pin that moves is not always
+the pin that is wrong.**
+
+### 47.3 Owed
+
+- One empty block remains in the quay (19×12 at 521,342), inside the pin but
+  visible from the air.
+- The west neck by the Old Bridge is still bare. It is narrow, awkward ground
+  between two roads and a shore, and every polygon that reached into it made a
+  block the filler refused.
+- The quay is axis-aligned like most of the city (§2.8's other half). A
+  waterfront laid along the waterline rather than on the downtown grid would
+  read better and add to the angle-cut share; 12° was measured at 38.8%
+  against 45.5% for the shape that shipped, so it wants doing with the
+  polygons redrawn to suit, not by turning the grid under them.

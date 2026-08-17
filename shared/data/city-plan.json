@@ -1103,6 +1103,77 @@
         "width": 2,
         "alleyOver": 0
       }
+    },
+    {
+      "name": "Bridgefoot",
+      "note": "The strip between the Spine's last street and the water, built when the bridge was: offices and flats at commercial pitch, facing the quay rather than the financial grid behind them.",
+      "borough": "Kelvin",
+      "district": "commercial",
+      "density": 0.8,
+      "area": [
+        [
+          438,
+          316
+        ],
+        [
+          552,
+          316
+        ],
+        [
+          544,
+          330
+        ],
+        [
+          442,
+          330
+        ]
+      ],
+      "street": {
+        "pitchX": 16,
+        "pitchY": 13,
+        "width": 3,
+        "alleyOver": 19
+      }
+    },
+    {
+      "name": "Kelvin Quay",
+      "note": "The north bank's working waterfront — wharves, sheds and yards along the strait, under the towers. The only industry on this side of the water, and the first thing the city shows anybody crossing Kelvin Bridge.",
+      "borough": "Kelvin",
+      "district": "industrial",
+      "density": 0.55,
+      "area": [
+        [
+          470,
+          332
+        ],
+        [
+          544,
+          334
+        ],
+        [
+          538,
+          358
+        ],
+        [
+          500,
+          362
+        ],
+        [
+          474,
+          360
+        ],
+        [
+          466,
+          344
+        ]
+      ],
+      "street": {
+        "pitchX": 26,
+        "pitchY": 22,
+        "width": 3,
+        "alleyOver": 0,
+        "angle": 0
+      }
     }
   ],
   "roads": [
@@ -1203,6 +1274,43 @@
         ]
       ],
       "median": 4
+    },
+    {
+      "name": "Quay Road",
+      "note": "Along the wharves under the Spine, from the neck by the Old Bridge round to the Old Quarter's harbour side. The frontage the quay is built along.",
+      "width": 4,
+      "curve": true,
+      "bridges": false,
+      "points": [
+        [
+          432,
+          322
+        ],
+        [
+          448,
+          338
+        ],
+        [
+          462,
+          360
+        ],
+        [
+          480,
+          350
+        ],
+        [
+          506,
+          354
+        ],
+        [
+          530,
+          348
+        ],
+        [
+          536,
+          332
+        ]
+      ]
     },
     {
       "name": "The Parade",
