@@ -37,7 +37,21 @@ export interface WorldgenParams {
    * gangs' names, colours and rivalries stay in gangs.json, where the sim
    * reads them.
    */
-  turf: { cellTiles: number; gangCount: number };
+  turf: {
+    cellTiles: number;
+    gangCount: number;
+    /**
+     * Where each gang's manor is anchored, in tiles. Authored, because which
+     * gang holds the docks is a design decision and not something a formula
+     * knows: the partition below grows outward from these over dry land, so
+     * moving a manor is moving one pair of numbers.
+     *
+     * Empty means "spread them on a ring", which is what this did before it
+     * had ever looked at the map, and is still the only thing available to a
+     * city whose shape nobody has seen (`plangen`'s, a fixture's).
+     */
+    homes: Array<{ gang: number; x: number; y: number }>;
+  };
   /**
    * Seconds in an in-game day. Here rather than in a tuning file for the same
    * reason as `turf`: it ships in the welcome message alongside the seed, so
@@ -51,12 +65,35 @@ export interface WorldgenParams {
   packageCount: number;
 }
 
-function parseTurf(raw: unknown): { cellTiles: number; gangCount: number } {
+function parseTurf(raw: unknown): WorldgenParams['turf'] {
   const r = (raw ?? {}) as Record<string, unknown>;
-  return {
-    cellTiles: num(r['cellTiles'], 'turf.cellTiles'),
-    gangCount: num(r['gangCount'], 'turf.gangCount'),
-  };
+  const count = num(r['gangCount'], 'turf.gangCount');
+  const homes: WorldgenParams['turf']['homes'] = [];
+  const list = r['homes'];
+  if (Array.isArray(list)) {
+    for (const [i, entry] of list.entries()) {
+      const h = (entry ?? {}) as Record<string, unknown>;
+      const gang = num(h['gang'], `turf.homes[${i}].gang`);
+      if (gang > count) {
+        throw new Error(`worldgen: turf.homes[${i}].gang is ${gang}, above gangCount ${count}`);
+      }
+      if (homes.some((o) => o.gang === gang)) {
+        throw new Error(`worldgen: turf.homes has two manors for gang ${gang}`);
+      }
+      homes.push({
+        gang,
+        x: num(h['x'], `turf.homes[${i}].x`),
+        y: num(h['y'], `turf.homes[${i}].y`),
+      });
+    }
+  }
+  // All of them or none: a partition grown from four anchors with seven gangs
+  // in the tuning leaves three gangs holding nothing, and the failure shows up
+  // as a missing colour on the radar rather than as an error.
+  if (homes.length > 0 && homes.length !== count) {
+    throw new Error(`worldgen: turf.homes has ${homes.length} manors for ${count} gangs`);
+  }
+  return { cellTiles: num(r['cellTiles'], 'turf.cellTiles'), gangCount: count, homes };
 }
 
 function num(v: unknown, name: string): number {

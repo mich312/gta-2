@@ -27,6 +27,7 @@ import { loadPalette, render, type PaletteFile, type RenderableMap, type Render 
  *   pnpm mapgen --net                         draw the junction graph routing searches
  *   pnpm mapgen --lanes                       draw each street's line and its two kerb lanes
  *   pnpm mapgen --solid                       stipple everywhere collision says solid
+ *   pnpm mapgen --turf                        wash each gang's manor in its own colour
  *   pnpm mapgen --crop=x,y,w --scale=44       px per tile, for a close-up
  *
  * The ground is the same picture whatever the seed: it comes out of the bake
@@ -357,6 +358,20 @@ function printStats(map: CityMap, plan: CityPlan): void {
 
 /* ------------------------------------------------------------------ */
 
+/**
+ * The gangs' colours by id, for `--turf`. Read straight out of gangs.json
+ * rather than through `initTuning`, because this tool draws a city it has
+ * generated without ever starting a session.
+ */
+function gangColors(): string[] {
+  const raw = JSON.parse(
+    readFileSync(new URL(import.meta.resolve('shared/data/gangs.json')), 'utf8'),
+  ) as { gangs: Array<{ id: number; color: string }> };
+  const out: string[] = [];
+  for (const g of raw.gangs) out[g.id] = g.color;
+  return out;
+}
+
 function main(): void {
   let seed = 1;
   let out = '';
@@ -366,6 +381,7 @@ function main(): void {
   let net = false;
   let lanes = false;
   let solid = false;
+  let turf = false;
   let scaleOverride = 0;
   let rasterOnly = false;
   for (const a of process.argv.slice(2)) {
@@ -379,6 +395,7 @@ function main(): void {
     if (key === 'net') net = true;
     if (key === 'lanes') lanes = true;
     if (key === 'solid') solid = true;
+    if (key === 'turf') turf = true;
     if (key === 'scale' && val) scaleOverride = Number.parseInt(val, 10);
     if (key === 'tiles') rasterOnly = true;
     if (key === 'sheet') sheet = val ?? SHEET_OUT;
@@ -425,12 +442,12 @@ function main(): void {
       ? scaleOverride
       : Math.max(2, Math.min(8, Math.floor(1024 / Math.max(w, h))));
     picture = render(drawable, palette, x, y, w, h, scale, net, lanes, solid, (px, py) =>
-      isSolidAtWorld(drawable, px, py),
+      isSolidAtWorld(drawable, px, py), turf ? gangColors() : undefined,
     );
     if (!out) out = `mapgen-crop-${x}-${y}.png`;
   } else {
     picture = render(drawable, palette, 0, 0, map.widthTiles, map.heightTiles, 2, net, lanes, solid, (px, py) =>
-      isSolidAtWorld(drawable, px, py),
+      isSolidAtWorld(drawable, px, py), turf ? gangColors() : undefined,
     );
     if (!out) out = `mapgen-seed${seed}.png`;
   }

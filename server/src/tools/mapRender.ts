@@ -88,6 +88,11 @@ export interface RenderableMap {
   }>;
   shops?: ReadonlyArray<{ kind: string; doorX: number; doorY: number }>;
   playerSpawns?: ReadonlyArray<{ x: number; y: number }>;
+  /** Gang territory, for the `--turf` wash. Absent on a bare fixture. */
+  turfCells?: Uint8Array | undefined;
+  turfCellsWide?: number | undefined;
+  turfCellTiles?: number | undefined;
+  turfHomes?: ReadonlyArray<{ x: number; y: number; gang: number }> | undefined;
 }
 
 export interface PaletteFile {
@@ -234,6 +239,13 @@ export function render(
   lanes = false,
   solid = false,
   isSolidAt?: (x: number, y: number) => boolean,
+  /**
+   * Gang colours by id (index 0 unused), which turns on the turf wash. The
+   * colours live in gangs.json rather than the palette because they are the
+   * gangs' own; the caller reads them and hands them over, so this file keeps
+   * its one dependency on one palette.
+   */
+  turfColors?: ReadonlyArray<string>,
 ): Render {
   const W = wTiles * scale;
   const H = hTiles * scale;
@@ -728,6 +740,44 @@ export function render(
               dir > 0 ? withEdge : against,
             );
           }
+        }
+      }
+    }
+  }
+
+  // The turf wash: who holds this ground, over the top of the ground itself.
+  // Half strength, because the point of the picture is to read the city
+  // THROUGH the territory — a solid fill tells you where a border is and
+  // nothing about what the border runs along.
+  if (turfColors && map.turfCellsWide && map.turfCellsWide > 0 && map.turfCells) {
+    const cellTiles = map.turfCellTiles ?? 12;
+    const cw = map.turfCellsWide;
+    for (let py = 0; py < H; py++) {
+      for (let px = 0; px < W; px++) {
+        const tx = x0 + px / scale;
+        const ty = y0 + py / scale;
+        const gang = map.turfCells[Math.floor(ty / cellTiles) * cw + Math.floor(tx / cellTiles)] ?? 0;
+        const hex = turfColors[gang];
+        if (!hex) continue;
+        const [r, g, b] = hexToRgb(hex);
+        const i = (py * W + px) * 4;
+        rgba[i] = Math.round(((rgba[i] as number) + r) / 2);
+        rgba[i + 1] = Math.round(((rgba[i + 1] as number) + g) / 2);
+        rgba[i + 2] = Math.round(((rgba[i + 2] as number) + b) / 2);
+      }
+    }
+    // And where each manor is anchored, as a ring you can find at a glance.
+    for (const h of map.turfHomes ?? []) {
+      const hex = turfColors[h.gang];
+      if (!hex) continue;
+      for (let a = 0; a < 64; a++) {
+        const th = (a / 64) * Math.PI * 2;
+        for (const rad of [3.5, 4]) {
+          put(
+            Math.round(((h.x / 16 - x0) + Math.cos(th) * rad) * scale),
+            Math.round(((h.y / 16 - y0) + Math.sin(th) * rad) * scale),
+            [255, 255, 255],
+          );
         }
       }
     }

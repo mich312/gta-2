@@ -4743,3 +4743,112 @@ missing bridges:
 - `maxBridgeSpan` at 96 also allows a deck across the lagoon mouth at 560,669
   if the cap ever goes to 108. Nobody has asked for that crossing; if it is
   wanted it should be an authored road, not a side effect of a number.
+
+---
+
+## 45. Territory that has looked at the map
+
+`REVIEW-MAPDESIGN.md` §2.5: gang turf was a Voronoi partition of the whole
+768×768 square from seven home points on a staggered ring, and it had never
+seen the city. On a map that is half water that produced a territory map
+nobody could read.
+
+Measured, before:
+
+| Gang | cells | dry | land tiles | boroughs straddled |
+| --- | --- | --- | --- | --- |
+| Ostrey | 801 | 67% | 77,517 | 3 |
+| Sunnyside | 573 | 84% | 69,026 | 4 |
+| The Vaults | 448 | 73% | 46,810 | 2 |
+| Halloran | 538 | 46% | 35,573 | 4 |
+| Kessler Row | 525 | 42% | 32,006 | 3 |
+| The Quay | 719 | 27% | 27,792 | 3 |
+| **Marrow Street** | 492 | **12%** | **8,202** | 2 |
+
+Nine and a half times the ground between the biggest manor and the smallest,
+one of them seven-eighths open sea, every gang across two to four boroughs and
+every borough split between two to four gangs. The city has sixteen named
+districts with characters of their own, and the answer to "whose turf is this"
+carried no information about any of them.
+
+### 45.1 One anchor per gang, grown over the ground
+
+`worldgen.json` now authors a manor per gang — a tile, and a note saying which
+place it is: Kessler Row on the Port Vasco docks under the power station,
+Halloran off the building in Ravenhill it took its name from, The Vaults on the
+financial spine, Marrow Street in the Old Quarter's alleys. The partition grows
+outward from those by distance **through** land rather than across it (a small
+Dijkstra over the 64×64 cell grid, step cost 2 plus a 0-or-1 hash of the cell so
+borders stay ragged), which gives three things the ring could not:
+
+- **A manor cannot spill over a strait it has no bridge to.** Territory follows
+  the ground a player drives on.
+- **Water belongs to nobody.** Gang 0, which `gangAt` already returns off the
+  edge of the map and which the radar already declines to tint.
+- **So does ground no anchor can reach** — Gannet Rock's plateau, the barrier
+  islets. Which is the truth about them.
+
+Two rules earn their keep and both were found by measuring:
+
+- **A cell with a bridge deck through it is ground, whatever its water.** A
+  four-lane deck fills exactly a third of a twelve-tile cell, so at the plain
+  threshold some crossings joined their banks and some did not — and Port
+  Vasco, an island with two bridges, came out sharing a border with *nobody*.
+  A gang with no border has no rival it can ever meet, which switches off
+  everything §H1 built. Decks are also the right place for a border: contested
+  ground on a bridge is a fight the map is picking on purpose.
+- **One pass along the shore.** A manor grown over third-dry cells stops a cell
+  short of the water, which left three payphones of 319 on coastal tips
+  belonging to nobody — and `missions.ts` answers those with "nobody works this
+  corner", which is the wrong answer at the end of a North Point street. Any
+  cell with dry ground in it, touching a manor, is that manor's shoreline. One
+  round only: repeated, it would crawl a sandbar and claim an island nobody can
+  drive to.
+
+### 45.2 After
+
+| Gang | cells | dry | land tiles | boroughs |
+| --- | --- | --- | --- | --- |
+| Sunnyside | 452 | 91% | 59,309 | Sunridge, Marsh End |
+| The Vaults | 405 | 95% | 55,420 | Ravenhill, Kelvin, Sunridge |
+| The Quay | 312 | 82% | 37,050 | Sunridge, Port Vasco, Marsh End |
+| Marrow Street | 275 | 86% | 34,131 | Kelvin |
+| Ostrey | 279 | 85% | 34,024 | Sunridge |
+| Halloran | 256 | 90% | 33,017 | Ravenhill |
+| Kessler Row | 256 | 86% | 31,711 | Port Vasco, Ravenhill |
+
+Biggest to smallest: **1.87×**, down from 9.5×. Every manor is 82–95% dry.
+Neighbour agreement — the contiguity figure the test pins — is 92.6% against a
+bar of 85%. Payphones, shops, parking spots and player spawns on nobody's
+ground: **0 of 2,177**, across five seeds.
+
+And the borders became places rather than lines on water. Counting only borders
+where both cells are ground, so a border two gangs can actually meet across:
+
+| | rivalries with a walkable border | border cell-edges on land |
+| --- | --- | --- |
+| the ring | 3 of 8 | 128 |
+| authored manors | **5 of 8** | 145 |
+
+`pnpm mapgen --turf` washes each manor in its gang's colour over the ground it
+holds, with a ring at each anchor — `evidence/mapdesign-turf.png`. It is the
+only way to see any of this, and the picture is the argument: seven manors, each
+a piece of the city a player could name.
+
+### 45.3 Owed
+
+- Three of the eight authored rivalries still have no shared border
+  (`Kessler Row–Sunnyside`, `Kessler Row–Marrow Street` as authored,
+  `The Quay–Halloran`). Which gang sits at which anchor was brute-forced
+  against the border graph — 5 of 8 is the best available while Kessler Row
+  keeps its power station, Halloran its building and The Vaults its spine. The
+  remaining three want either an anchor moved or `gangs.json`'s rivalries
+  re-authored to follow the map, and that is a designer's call, not a
+  refactor's.
+- The Vaults holds the financial spine *and* a bridgehead across Kelvin Bridge,
+  because the deck is ground and the far bank's anchor is not much closer. It
+  is defensible as a manor with a toehold over the water; it is also the one
+  manor on the map that is not a single place.
+- The wash steps at cell granularity — 12 tiles — so a manor's coast is blocky
+  where the coastline is smooth. The radar has always drawn turf this way; it
+  is more obvious now that the tint stops at the water.

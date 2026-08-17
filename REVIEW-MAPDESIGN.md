@@ -17,6 +17,7 @@ the session's amenity passes — and every claim names the file it comes from.
 | --- | --- | --- |
 | `evidence/mapdesign-city.png` | The whole city, 2 px per tile | `pnpm mapgen --out=evidence/mapdesign-city.png` |
 | `evidence/mapdesign-strait.png` | The strait end to end, 3 px per tile | `pnpm mapgen --crop=240,250,470,220 --scale=3 --out=evidence/mapdesign-strait.png` |
+| `evidence/mapdesign-turf.png` | The seven manors, washed over the ground they hold | `pnpm mapgen --turf --out=evidence/mapdesign-turf.png` |
 | `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
 
 ---
@@ -200,6 +201,11 @@ land.
 Two other bare patches worth a look: 2,936 tiles at `497,43` (north of
 Ravenhill Park, at the map edge — probably fine) and 2,496 tiles at `456,637`
 (Marsh End, deliberate countryside).
+
+> **§2.5 is now fixed.** Manors are authored one per gang in `worldgen.json`
+> and grown outward over dry land, water belongs to nobody, and the land spread
+> between the biggest and smallest manor is 1.87× rather than 9.5×.
+> `WORLDGEN.md` §45 has the numbers; `pnpm mapgen --turf` draws it.
 
 ### 2.5 Gang territory is drawn without ever looking at the map
 

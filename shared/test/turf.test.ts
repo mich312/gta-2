@@ -16,7 +16,7 @@ import { generateCity } from '../src/world/generate.js';
 import { gangAt, gangName, rivalsOf } from '../src/world/turf.js';
 import { createGameState } from '../src/sim/state.js';
 import { step } from '../src/sim/step.js';
-import { TILE_SIZE } from '../src/world/types.js';
+import { T_WATER, TILE_SIZE } from '../src/world/types.js';
 
 const worldgen = parseWorldgenParams(worldgenJson);
 
@@ -34,15 +34,53 @@ beforeAll(() => {
 });
 
 describe('turf (H1)', () => {
-  it('every gang holds ground, and all of the map belongs to somebody', () => {
+  it('every gang holds ground, and everything on the ground belongs to somebody', () => {
+    // "All of the map belongs to somebody" is what this asserted while turf
+    // was a Voronoi over the whole square, and it was true of the sea as well
+    // — one gang's manor came out 88% open water. What the game actually
+    // needs is that everything a session PUTS somewhere has an owner: a
+    // payphone with no employer answers "nobody works this corner", a shop on
+    // nobody's ground has no gang to be robbed in front of. So the claim is
+    // now about the furniture rather than about the acreage.
     for (const seed of [1, 42, 777, 6006, 90210]) {
       const map = generateCity(seed, worldgen);
       const held = new Map<number, number>();
       for (const cell of map.turfCells) held.set(cell, (held.get(cell) ?? 0) + 1);
-      expect(held.get(0) ?? 0, `seed ${seed} has unclaimed ground`).toBe(0);
       for (const g of getTuning().gangs.gangs) {
         expect(held.get(g.id) ?? 0, `seed ${seed}: ${g.name} holds nothing`).toBeGreaterThan(0);
       }
+      const orphans = [
+        ...map.payphones.map((p) => [p.x, p.y, 'payphone'] as const),
+        ...map.shops.map((s) => [(s.doorX + 0.5) * TILE_SIZE, (s.doorY + 0.5) * TILE_SIZE, 'shop'] as const),
+        ...map.parkingSpots.map((p) => [p.x, p.y, 'parking'] as const),
+        ...map.playerSpawns.map((p) => [p.x, p.y, 'spawn'] as const),
+      ].filter(([x, y]) => gangAt(map, x, y) === 0);
+      expect(orphans.length, `seed ${seed}: ${orphans[0]?.[2]} on nobody's ground`).toBe(0);
+    }
+  });
+
+  it('nobody owns the sea', () => {
+    // The point of growing turf over the ground instead of over the square.
+    // A cell with no dry tile in it at all is water, and water is not
+    // territory: the radar must not tint it and no gang may claim it.
+    for (const seed of [1, 777]) {
+      const map = generateCity(seed, worldgen);
+      const cell = map.turfCellTiles;
+      const cw = map.turfCellsWide;
+      let claimedSea = 0;
+      for (let i = 0; i < map.turfCells.length; i++) {
+        if (map.turfCells[i] === 0) continue;
+        const cx = i % cw;
+        const cy = (i - cx) / cw;
+        let dry = 0;
+        for (let ty = cy * cell; ty < Math.min(map.heightTiles, (cy + 1) * cell); ty++) {
+          for (let tx = cx * cell; tx < Math.min(map.widthTiles, (cx + 1) * cell); tx++) {
+            if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) dry++;
+          }
+        }
+        if (dry === 0) claimedSea++;
+      }
+      expect(claimedSea, `seed ${seed} has a gang holding open water`).toBe(0);
     }
   });
 
@@ -119,15 +157,37 @@ describe('turf (H1)', () => {
 });
 
 describe('seven gangs (M3)', () => {
-  it('all seven hold ground, and the whole map still belongs to somebody', () => {
+  it('all seven hold a piece of the city, and no two hold wildly different amounts', () => {
     const map = generateCity(777, worldgen);
     const gangs = getTuning().gangs.gangs;
     expect(gangs.length).toBe(7);
     const held = new Set<number>();
     for (const cell of map.turfCells) if (cell !== 0) held.add(cell as number);
     for (const g of gangs) expect(held, g.name).toContain(g.id);
-    // No unclaimed ground.
-    for (const cell of map.turfCells) expect(cell).toBeGreaterThan(0);
+
+    // And the manors are comparable in size, which the ring partition was not:
+    // measured over the square it gave one gang 8,202 tiles of land and
+    // another 77,517, nine and a half times as much. Grown from anchors over
+    // the ground it is 1.87x, and the bar below is set to catch a return to
+    // the old order of thing rather than to pin the exact figure.
+    const land = new Map<number, number>();
+    const cell = map.turfCellTiles;
+    const cw = map.turfCellsWide;
+    for (let i = 0; i < map.turfCells.length; i++) {
+      const g = map.turfCells[i] as number;
+      if (g === 0) continue;
+      const cx = i % cw;
+      const cy = (i - cx) / cw;
+      let dry = 0;
+      for (let ty = cy * cell; ty < Math.min(map.heightTiles, (cy + 1) * cell); ty++) {
+        for (let tx = cx * cell; tx < Math.min(map.widthTiles, (cx + 1) * cell); tx++) {
+          if (map.tiles[ty * map.widthTiles + tx] !== T_WATER) dry++;
+        }
+      }
+      land.set(g, (land.get(g) ?? 0) + dry);
+    }
+    const acres = [...land.values()];
+    expect(Math.max(...acres) / Math.min(...acres)).toBeLessThan(3);
   });
 
   it('rivalry is still mutual, all the way round', () => {

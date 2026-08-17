@@ -5,7 +5,17 @@
   "playerSpawnMinDist": 30,
   "turf": {
     "cellTiles": 12,
-    "gangCount": 7
+    "gangCount": 7,
+    "note": "One manor per gang, anchored on the place it is named for. Territory grows out from these over dry land only, so a manor is a piece of the city rather than a wedge of the square.",
+    "homes": [
+      { "gang": 1, "where": "Kessler Row — the Port Vasco docks, under the power station", "x": 120, "y": 330 },
+      { "gang": 2, "where": "Sunnyside — the Sunridge suburbs and the flats behind them", "x": 480, "y": 560 },
+      { "gang": 3, "where": "The Quay — the Terraces and the south shore below them", "x": 250, "y": 450 },
+      { "gang": 4, "where": "Halloran — Ravenhill, off the building they took the name from", "x": 280, "y": 160 },
+      { "gang": 5, "where": "Marrow Street — the Old Quarter, where the alleys are", "x": 620, "y": 230 },
+      { "gang": 6, "where": "The Vaults — the financial spine", "x": 490, "y": 200 },
+      { "gang": 7, "where": "Ostrey — the Beachfront", "x": 520, "y": 430 }
+    ]
   },
   "dayLengthSec": 1440,
   "nightCrowdScale": 0.55,
