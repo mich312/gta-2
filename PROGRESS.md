@@ -1,5 +1,28 @@
 # PROGRESS
 
+## The suite's exit code learns to tell a failure from starvation
+
+The first run of `test.yml` on a merged main failed with every one of
+its 943 tests passed. The cause is the runner, not the suite: wherever a
+worker's synchronous stretch (a 20-second `bakeCity`, slower still under
+CPU contention) outlives vitest's 60-second worker RPC timeout, the
+worker wakes to find its own timeout timer queued ahead of the reply
+that already arrived, and vitest records an unhandled
+`[vitest-worker]: Timeout calling "onTaskUpdate"` error — then exits 1
+over noise. CI's 4-core runner and the dev containers both do it
+routinely (first chased in wave 2, wrongly thought box-local), and it
+blocked a green main from deploying.
+
+`pnpm test` now runs the suite through vitest's node API (`ci/test.mjs`)
+and decides the exit code itself: any failing test fails, any unhandled
+error fails, EXCEPT that one exact signature, which is printed and
+ignored. A floor on collected files guards against a suite that silently
+did not run, and both paths are verified (a deliberate failing test
+exits 1; the full noisy suite exits 0). This is vitest 4's
+`onUnhandledError` hook hand-rolled for 3.2 — fold it into the config
+and delete the runner when vitest is upgraded. `pnpm test:raw` keeps the
+plain runner for comparison.
+
 ## 3.2 follow-up: the path palette, and the rural saw-tooth
 
 Two things in 3.2's own retakes looked very wrong, and both were.
