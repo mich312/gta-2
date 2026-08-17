@@ -9,6 +9,7 @@ import {
   T_TREES,
   T_WATER,
   LANDMARK_KINDS,
+  smoothPolyline,
   type BakedCity,
 } from 'shared';
 
@@ -265,6 +266,99 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
         severity: 'error',
         message: `${s.kind} shop doorway at ${s.entryX},${s.entryY} is walled up`,
       });
+    }
+  }
+
+  // 3b. The road you drew is the road you got.
+  //
+  //     Every check above this one passed while two of the three named
+  //     crossings of the strait were missing from the city. Kelvin Bridge and
+  //     Marsh Causeway were drawn ending in open water, so their decks landed
+  //     on one bank and §23.1's whole-deck rule deleted them — correctly, and
+  //     silently. The Ring's east leg went the same way for being wider than
+  //     `maxBridgeSpan`. Nothing noticed, because "one street network" is
+  //     still true when a crossing vanishes: the two banks stay joined the
+  //     long way round, and only a person flying over the map can see that
+  //     56% of its width has no way across.
+  //
+  //     So: walk each authored road and ask whether carriageway is actually
+  //     under it. A named road is a promise; this is the check that the bake
+  //     kept it.
+  {
+    // A road's endpoints belong on land. Water is the drawing error that
+    // deletes a bridge; a bridge tile means the road stops in mid-air over
+    // the sea, which is the §23.1 pier by another route.
+    for (const r of plan.roads) {
+      const ends: Array<['start' | 'end', readonly [number, number]]> = [
+        ['start', r.points[0] as readonly [number, number]],
+        ['end', r.points[r.points.length - 1] as readonly [number, number]],
+      ];
+      for (const [which, [px, py]] of ends) {
+        const t = at(Math.round(px), Math.round(py));
+        if (t === T_WATER || t === T_BRIDGE) {
+          problems.push({
+            severity: 'error',
+            message:
+              `${r.name} ${which}s at ${Math.round(px)},${Math.round(py)}, which is ` +
+              `${t === T_WATER ? 'open water' : 'a bridge deck'} — a road has to begin and end on land`,
+          });
+        }
+      }
+    }
+
+    // And no gaps along the way. Sampled every half tile, a point counts as
+    // carried if any tile within half the road's width plus one is
+    // carriageway; the tolerance below is for the rounding at that edge, not
+    // for missing road. GAP_TILES is deliberately small — the failure this
+    // exists to catch is measured in tens of tiles, not ones.
+    const GAP_TILES = 4;
+    for (const r of plan.roads) {
+      // The same curve the carve walks (`layout.ts:834`), not the polyline the
+      // plan holds: a smoothed road leaves its own corners by several tiles,
+      // and measuring the gap against the unsmoothed line reports the
+      // smoothing as missing road.
+      const line = r.curve ? smoothPolyline(r.points, 3) : r.points;
+      const reach = Math.ceil(r.width / 2) + 1;
+      const carried = (px: number, py: number): boolean => {
+        for (let dy = -reach; dy <= reach; dy++) {
+          for (let dx = -reach; dx <= reach; dx++) {
+            const t = at(Math.round(px) + dx, Math.round(py) + dy);
+            if (t === T_ROAD || t === T_BRIDGE) return true;
+          }
+        }
+        return false;
+      };
+      let worst = 0;
+      let worstAt: [number, number] = [0, 0];
+      let run = 0;
+      let runAt: [number, number] = [0, 0];
+      for (let k = 0; k + 1 < line.length; k++) {
+        const [ax, ay] = line[k] as readonly [number, number];
+        const [bx, by] = line[k + 1] as readonly [number, number];
+        const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) * 2));
+        for (let s = 0; s <= steps; s++) {
+          const px = ax + ((bx - ax) * s) / steps;
+          const py = ay + ((by - ay) * s) / steps;
+          if (carried(px, py)) {
+            run = 0;
+            continue;
+          }
+          if (run === 0) runAt = [Math.round(px), Math.round(py)];
+          run += 0.5;
+          if (run > worst) {
+            worst = run;
+            worstAt = runAt;
+          }
+        }
+      }
+      if (worst > GAP_TILES) {
+        problems.push({
+          severity: 'error',
+          message:
+            `${r.name} has ${worst.toFixed(0)} tiles of itself missing from the city, ` +
+            `starting at ${worstAt[0]},${worstAt[1]} — the bake deleted a stretch of an authored road`,
+        });
+      }
     }
   }
 

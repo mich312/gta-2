@@ -4659,3 +4659,87 @@ only way to see this at all: the ground has looked right since §25.
 - `boxInSolid` and the movement faces now agree exactly on a cut tile. They
   agree only to within `EPS` on a bevelled one, for the reason in §43.2 — the
   same fix applies and the same argument against churning it does too.
+
+---
+
+## 44. The crossings that were not there
+
+`REVIEW-MAPDESIGN.md` read the top-down city as a map rather than as a render
+and found that §12.3's "eight crossings, because on an archipelago the question
+'which bridge' is the interesting one" had quietly become four. Of the three
+over the strait, **only the Old Bridge existed**. What was left was two
+crossings sixty tiles apart in the far west, no way over the water across 56%
+of the map's width, and a drive from Market Square to Seaview Infirmary — 203
+tiles apart, in sight of each other — of **1,034 tiles**.
+
+### 44.1 Two causes, and the second is the interesting one
+
+**The Ring's east leg** was the span rule doing its job: 75 tiles of water
+against a `maxBridgeSpan` of 72. Raising the cap to **96** — `plangen`'s own
+default since it was written — brings it back, and the ring is a ring again.
+
+**Kelvin Bridge and Marsh Causeway were drawn ending in the sea.** Kelvin
+Bridge's south endpoint sat 10 tiles off the far bank, the causeway's north
+endpoint 8 tiles off the near one. A deck that reaches only one landfall is
+§23.1's pier, and §23.1's whole-deck rule deletes it — correctly, and in
+silence. Six of the plan's 32 road endpoints were in open water; `Coast Road`
+was worse than an endpoint, with **164 tiles of its length** authored out at
+sea along the south shore, so most of the road named for the coast was never
+built.
+
+None of it failed a check, because every check that could have seen it asks a
+different question. "One street network" stays true when a crossing vanishes:
+the banks are still joined, the long way round. Only a person flying over the
+map can see that the short way is gone.
+
+### 44.2 The check that would have caught it
+
+Two, in `cityCheck.ts`, and the second is the general one:
+
+- **A road begins and ends on land.** Water is the drawing error that deletes
+  a bridge; a bridge tile means the road stops in mid-air, which is the pier
+  by another route.
+- **The road you drew is the road you got.** Walk each authored road — the
+  smoothed curve `layout.ts:834` carves, not the polyline the plan holds — and
+  fail when more than four tiles of it in a row have no carriageway under
+  them. A named road is a promise; this is the check that the bake kept it.
+
+The second one immediately found Coast Road, which had been fiction for its
+middle 164 tiles and never once complained.
+
+### 44.3 What it cost, and what it bought
+
+| | before | after |
+| --- | --- | --- |
+| road-net edges carrying a deck | 6 | 12 |
+| crossings of the strait | 2, both west of x=340 | 5, spread across the map |
+| landmark-to-landmark detour, p50 / p90 / worst | ×1.60 / ×2.49 / ×5.10 | ×1.47 / ×1.88 / ×3.41 |
+| Market Square → Seaview Infirmary | 1,034 tiles | **266** |
+
+Two tests moved, both because the model in them had been leaning on the
+missing bridges:
+
+- `coastCache.test.ts` floods the sea from the map border to tell a pond from
+  the ocean, and flooded over water tiles only. With both mouths of the strait
+  decked, that declared the whole 39,000-tile basin a pond. The flood now runs
+  **under decks**, which is what a deck is: a thing over water, not a piece of
+  coast.
+- `shoreCut.test.ts` measures how often the coast curve and the tile plane
+  agree about which side is wet. Three new landfalls took the whole-map figure
+  from 98.4% to 97.7% — 90 of the 154 disagreeing tiles are within three of a
+  deck, where the bank is cut back for a ramp and the tiles are the abutment's
+  rather than the coast's. Abutments are now counted apart and bounded (one in
+  five may disagree, four in five may not) and the coastline proper is held to
+  the 98% it always was — 98.98%, measured.
+
+### 44.4 Owed
+
+- Eleven junctions still dead-end within six tiles of open water. Three were
+  the stumps of the deleted crossings and are gone; the rest are real streets
+  that stop at the shore, which is §2.3 of the review and a separate job.
+- The ring crosses the strait as **two parallel decks** at each end, because
+  its west and east legs saw-tooth by 18 tiles (`city-plan.json`, The Ring).
+  It reads from above as an accidental dual carriageway.
+- `maxBridgeSpan` at 96 also allows a deck across the lagoon mouth at 560,669
+  if the cap ever goes to 108. Nobody has asked for that crossing; if it is
+  wanted it should be an authored road, not a side effect of a number.

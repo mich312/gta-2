@@ -3,7 +3,7 @@
   "note": "The authored source of the one city. Outlines and courses, not a picture of tiles: shared/src/world/layout.ts turns them into ground, `pnpm citybake` freezes the result into shared/src/world/city.data.ts. See WORLDGEN.md section 12.",
   "widthTiles": 768,
   "heightTiles": 768,
-  "maxBridgeSpan": 72,
+  "maxBridgeSpan": 96,
   "geography": {
     "note": "One long island split by a tidal strait, a second island across a narrow sound to the west, and the rocks and barrier islands you would expect off a coast this shape. The swell comes from the west-south-west: that side is planed straight and takes the weather, the lee keeps its inlets.",
     "swell": [
@@ -1309,7 +1309,7 @@
         ],
         [
           452,
-          400
+          416
         ]
       ]
     },
@@ -1336,8 +1336,8 @@
       "bridges": true,
       "points": [
         [
-          566,
-          292
+          565,
+          274
         ],
         [
           572,
@@ -1384,8 +1384,8 @@
       "bridges": false,
       "points": [
         [
-          86,
-          208
+          87,
+          216
         ],
         [
           102,
@@ -1420,8 +1420,8 @@
           420
         ],
         [
-          136,
-          500
+          138,
+          492
         ]
       ]
     },
@@ -1474,11 +1474,11 @@
         ],
         [
           430,
-          696
+          672
         ],
         [
           520,
-          684
+          668
         ],
         [
           604,
@@ -1489,8 +1489,8 @@
           618
         ],
         [
-          694,
-          596
+          677,
+          607
         ]
       ]
     },
@@ -1541,8 +1541,8 @@
           648
         ],
         [
-          630,
-          634
+          617,
+          638
         ]
       ]
     }

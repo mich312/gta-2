@@ -49,6 +49,14 @@ Everything below assumes that, and is about what the map does *next*.
 
 ## 2. The findings, ranked by how much they change the game
 
+> **§2.1, §2.2 and half of §2.3 are now fixed** — the plan's six offshore road
+> endpoints are on land, Coast Road's middle 164 tiles are no longer authored
+> out at sea, `maxBridgeSpan` is 96, the city is re-baked, and two new checks
+> in `cityCheck.ts` make the failure impossible to repeat. `WORLDGEN.md` §44
+> records what it cost and what it bought. The findings below are left as they
+> were written, because what they say about *why nothing noticed* is the more
+> useful half.
+
 ### 2.1 The strait has two crossings and both of them are in the far west
 
 This is the big one. The plan authors **three** crossings of the strait —

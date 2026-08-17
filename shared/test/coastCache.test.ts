@@ -27,13 +27,24 @@ describe('the water tiles are a rasterisation of the coast rings', () => {
     H,
   );
 
-  /** Water tiles reachable from the map border: the sea, as opposed to a pond. */
+  /**
+   * Water tiles reachable from the map border: the sea, as opposed to a pond.
+   *
+   * The flood runs UNDER bridge decks, because a deck is a thing over water
+   * and not a piece of coast. While the strait had an undecked mouth this
+   * made no difference and the rule was "water tiles only"; the moment the
+   * ring road's east crossing was restored, both mouths were decked, and a
+   * water-only flood declared the entire 39,000-tile basin a pond — with the
+   * three coast tiles inside it that disagree with the rings reported as
+   * water nobody had drawn. Which strait a tile is in is not evidence about
+   * the coastline.
+   */
   const openSea = (): Uint8Array => {
     const seen = new Uint8Array(W * H);
     const stack: number[] = [];
     const push = (x: number, y: number): void => {
       const i = y * W + x;
-      if (seen[i] === 1 || city.tiles[i] !== T_WATER) return;
+      if (seen[i] === 1 || (city.tiles[i] !== T_WATER && city.tiles[i] !== T_BRIDGE)) return;
       seen[i] = 1;
       stack.push(i);
     };

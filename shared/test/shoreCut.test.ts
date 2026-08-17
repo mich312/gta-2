@@ -7,7 +7,7 @@ import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { boxInSolid, isSolidAtWorld, moveWithCollision } from '../src/world/collide.js';
 import { buildShoreCut } from '../src/world/shoreCut.js';
-import { T_WATER, TILE_SIZE, type CityMap } from '../src/world/types.js';
+import { T_BRIDGE, T_WATER, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
 /**
  * Collision on the coastline (WORLDGEN.md §43).
@@ -81,20 +81,55 @@ describe('collision on the coastline', () => {
 
   it('agrees with the tiles about which side of a coast tile is water', () => {
     const cut = map.shoreCut!;
+    const W = map.widthTiles;
+    /** Is this tile within three of a bridge deck? */
+    const atAnAbutment = (tile: number): boolean => {
+      const x = tile % W;
+      const y = (tile - x) / W;
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= map.heightTiles) continue;
+          if (map.tiles[ny * W + nx] === T_BRIDGE) return true;
+        }
+      }
+      return false;
+    };
     let agree = 0;
     let total = 0;
+    let abutment = 0;
+    let abutmentDisagree = 0;
     for (const [tile, slot] of cut.slot) {
-      total++;
       const wet =
         (cut.nx[slot] as number) * (TILE_SIZE / 2) + (cut.ny[slot] as number) * (TILE_SIZE / 2) >
         (cut.c[slot] as number);
-      if (wet === (map.tiles[tile] === T_WATER)) agree++;
+      const same = wet === (map.tiles[tile] === T_WATER);
+      // Where a deck lands, the tiles are the abutment's and not the coast's:
+      // the bank is cut back for the ramp, the bevels hold water the rings
+      // never reach, and the curve is still describing the shoreline that was
+      // there first. Counted apart rather than excused — restoring the three
+      // missing crossings took the whole-map figure from 98.4% to 97.7%, and
+      // 90 of the 154 disagreeing tiles are within three of a deck.
+      if (atAnAbutment(tile)) {
+        abutment++;
+        if (!same) abutmentDisagree++;
+        continue;
+      }
+      total++;
+      if (same) agree++;
     }
     // A tile rasterises by its CENTRE, so the curve and the byte are the same
-    // question asked of the same point: they may differ only where the bevels
-    // hold water the rings never reach.
+    // question asked of the same point: away from a deck they may differ only
+    // where the bevels hold water the rings never reach.
     expect(total).toBeGreaterThan(1000);
     expect(agree / total).toBeGreaterThan(0.98);
+    // And the abutments do not get to be a hiding place. Measured: 450 tiles
+    // near a deck, 90 of them disagreeing — one in five, which is what a
+    // landfall costs. Four in five still agree, and if that stops being true
+    // something is wrong with how decks meet the shore.
+    expect(abutment).toBeGreaterThan(100);
+    expect(abutmentDisagree / abutment).toBeLessThan(0.25);
   });
 
   it('the point test and the box test are the same rule', () => {
