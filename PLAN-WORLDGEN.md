@@ -168,10 +168,9 @@ DECLINED — the flat ramp is a pinned decision (`cityTerrain.test.ts`
 "lays a ramp at street level too") that belongs with `collide3` adoption,
 not before it; night grade, `Lights3dLayer` wiring and outline weight
 DEFERRED to a GPU box for the same reason as 1.6. 3.2 (paths as courses)
-DEFERRED whole: `trimCourses` keeps only carriageway runs, and the course
-index, road net and both painters all assume a course is a road — path
-courses need a per-kind ground rule through all four, which is its own
-wave, not an afternoon inside this one. 3.4 (material transitions)
+was DEFERRED whole here and has since been DELIVERED — the per-kind
+ground rule through the trim, the index, the road net and the painters
+is exactly what it took; see the status under 3.2. 3.4 (material transitions)
 deferred with it — painted-first remains the right approach when it
 comes up.
 
@@ -195,6 +194,22 @@ narrow, no markings, path palette. One mechanism (§16's), second consumer —
 which is also the forcing function that keeps course plumbing honest.
 *Invariant:* paths appear in `courses` with kind `path`; the §19 recovered-
 course simplifier never runs on them (they are authored, not recovered).
+
+*Status: DELIVERED (after 4.5).* The big parks' meander walks ship as
+`kind: 'path'` courses — collected where `fillPark` carves them (the same
+sink pattern as the pond rings), trimmed by `trimCourses` against their
+own ground (pavement, not carriageway — the per-kind rule the deferral
+note asked for), validated by the decode, and pinned per kind by the
+coverage tests. The road machinery never sees them: the course index, the
+road net, the junction discs and the §19 wander pin all filter by kind.
+The painter strokes a walk as one smooth pavement ribbon clipped to lawn
+and pavement, and pavement tiles under a walk ribbon go back to lawn
+per-tile (`pathCover`), so the staircase the carve rasterised never shows
+beside the curve that replaced it. The "countryside footpaths" half of
+the original wording found no owner: outside the parks nothing carves
+footpath tiles from a polyline, and the small parks' straight cross-walks
+are axis-aligned (no staircase to fix) — both left as tiles, deliberately.
+Retakes: `evidence/fixed-park-paths.png`, `fixed-park-paths-south.png`.
 
 **3.3 Woodland stops being a plinth (M, renderer only).** `T_TREES` renders
 as a flat 1-tile-high green slab that reads as a stain from above. The

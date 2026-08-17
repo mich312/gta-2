@@ -62,6 +62,19 @@ const pondBankRings: CoastRing[] = [];
  */
 const POND_BEACH = 1.4;
 
+/**
+ * The park walks carved since the last call, as the polylines they were
+ * carved FROM (3.2): the tiles are the staircase, these are the curves, and
+ * the bake ships them as `kind: 'path'` courses — §16's mechanism, second
+ * consumer. Same sink pattern as the ponds above, for the same reason.
+ */
+const pathPolylines: Array<{ points: PlanPoint[]; width: number }> = [];
+
+/** Take the walks carved since the last call. The bake drains this once. */
+export function takePathCourses(): Array<{ points: PlanPoint[]; width: number }> {
+  return pathPolylines.splice(0, pathPolylines.length);
+}
+
 /** Take the ponds cut since the last call. The bake drains this once. */
 export function takePondRings(): CoastRing[] {
   return pondRings.splice(0, pondRings.length);
@@ -629,6 +642,12 @@ function fillPark(
       3,
       latticeHash,
     );
+    // The curve, kept (3.2): the loop below rasterises it and used to throw
+    // it away, leaving the renderer only the staircase. Two wide, like the
+    // carve. `trimCourses` holds it to the pavement it actually took — the
+    // stretches `parkAt` refused (a bulge past the park's edge, a clipped
+    // corner) are trimmed against the finished tiles like any road's.
+    pathPolylines.push({ points: course, width: 2 });
     for (let k = 0; k + 1 < course.length; k++) {
       const [ax, ay] = course[k] as PlanPoint;
       const [bx, by] = course[k + 1] as PlanPoint;

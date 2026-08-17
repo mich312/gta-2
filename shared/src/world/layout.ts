@@ -83,12 +83,14 @@ export interface LayoutBlock extends BlockRect {
  * the tiles cannot say — the tiles are the staircase, this is the curve —
  * and therefore what the renderer strokes to draw the road in one line
  * (WORLDGEN.md §16). `ring` carriageways are already offset from the
- * median; `avenue` is any other authored road.
+ * median; `avenue` is any other authored road. `path` is a park walk (3.2):
+ * the same mechanism with a different ground — it runs over pavement, not
+ * carriageway, and it carries no lane markings, no junctions and no traffic.
  */
 export interface StreetCourse {
   points: Array<readonly [number, number]>;
   width: number;
-  kind: 'avenue' | 'ring' | 'street';
+  kind: 'avenue' | 'ring' | 'street' | 'path';
 }
 
 export interface CityLayout {

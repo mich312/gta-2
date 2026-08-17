@@ -157,8 +157,11 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   map.junctions = labelJunctions(map);
   // The centrelines, indexed at a point: where the middle of the road is and
   // which way it runs (§41). Built before the graph, which asks it what each
-  // of its streets is made of.
-  map.courseIndex = buildCourseIndex(map.courses ?? []);
+  // of its streets is made of. ROADS only: the index answers "where is the
+  // road" for drivers, lane snaps and route drawing, and a park walk (3.2)
+  // is none of those — a car asked to keep to the centreline must never be
+  // handed a footpath, however close it passes.
+  map.courseIndex = buildCourseIndex((map.courses ?? []).filter((c) => c.kind !== 'path'));
   // And the network the junctions imply: nodes, streets and the flood tree
   // that gets any tile to its own junction without a search. After the
   // labelling, because it is built out of it.

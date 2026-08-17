@@ -16,7 +16,11 @@ import { routeNodes, type RoadNet } from '../src/sim/roadnet.js';
 describe('the course index', () => {
   const map = generateCity(66, parseWorldgenParams(worldgenJson));
   const idx = map.courseIndex!;
-  const courses = map.courses ?? [];
+  // The index is a ROAD index: `generate` filters the park walks out before
+  // building it (3.2), so the obviously-correct scan it is held against must
+  // scan the same set — a walk is deliberately not an answer to "where is
+  // the road", and near the big parks it would otherwise be the nearest line.
+  const courses = (map.courses ?? []).filter((c) => c.kind !== 'path');
 
   /** The same question asked the slow, obviously-correct way. */
   const brute = (x: number, y: number, maxDist: number): number => {

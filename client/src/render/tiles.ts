@@ -348,6 +348,14 @@ export class TileLayer {
   }> = [];
   private courseCover: Uint8Array | null = null;
   /**
+   * Tiles a `path` course runs over (3.2), kept apart from `courseCover`
+   * because the two masks answer different questions: a road tile under a
+   * ribbon keeps its asphalt and loses its MARKS, while a pavement tile
+   * under a walk goes back to being lawn — the smooth stroke is the walk,
+   * and the staircase it rasterised to must not show beside it.
+   */
+  private pathCover: Uint8Array | null = null;
+  /**
    * Where the courses cross, from the CURVES (§26). The centre dash is
    * punched out of these: a junction is bare asphalt, which is the rule the
    * per-tile painter has always followed and the ribbon painter never did.
@@ -427,11 +435,16 @@ export class TileLayer {
   private indexCourses(map: CityMap): void {
     this.ribbons = [];
     this.courseCover = null;
+    this.pathCover = null;
     this.junctionDiscs = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
-    this.junctionDiscs = courseJunctions(courses);
+    // Crossings from the ROAD curves only (3.2): a walk crossing a walk is
+    // not a junction, and a footpath must never punch the centre dash out
+    // of an avenue it happens to end against.
+    this.junctionDiscs = courseJunctions(courses.filter((c) => c.kind !== 'path'));
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);
+    const pathCover = new Uint8Array(map.widthTiles * map.heightTiles);
     for (const c of courses) {
       const pts = new Float64Array(c.points.length * 2);
       let minX = Infinity;
@@ -466,8 +479,14 @@ export class TileLayer {
         maxX: maxX + pad,
         maxY: maxY + pad,
       });
-      // The cover mask, swept exactly as the carve swept its disc.
-      const half = c.width / 2 + 0.05;
+      // The cover mask, swept exactly as the carve swept its disc. A walk's
+      // sweep runs a shade wider than its stroke (3.2): the park carve
+      // rounds outward from offset samples, and a carved pavement tile the
+      // mask missed would keep its slab paint and stick out of the lawn
+      // beside the smooth ribbon. Over-covering is harmless there — the
+      // mask only ever speaks about pavement tiles.
+      const mask = c.kind === 'path' ? pathCover : cover;
+      const half = c.width / 2 + (c.kind === 'path' ? 0.45 : 0.05);
       for (let k = 0; k + 1 < c.points.length; k++) {
         const [ax, ay] = c.points[k] as readonly [number, number];
         const [bx, by] = c.points[k + 1] as readonly [number, number];
@@ -485,12 +504,13 @@ export class TileLayer {
             const t = Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
             const qx = px - t * dx;
             const qy = py - t * dy;
-            if (qx * qx + qy * qy <= half * half) cover[ty * map.widthTiles + tx] = 1;
+            if (qx * qx + qy * qy <= half * half) mask[ty * map.widthTiles + tx] = 1;
           }
         }
       }
     }
     this.courseCover = cover;
+    this.pathCover = pathCover;
   }
 
   /**
@@ -514,7 +534,7 @@ export class TileLayer {
     if (near.length === 0) return;
 
     const t = RENDER_SCALE;
-    const paths = near.map((r) => {
+    const build = (r: (typeof near)[number]): { path: Path2D; w: number; len: number } => {
       const path = new Path2D();
       const px = (i: number): number => ((r.pts[i * 2] as number) - wx0) * t;
       const py = (i: number): number => ((r.pts[i * 2 + 1] as number) - wy0) * t;
@@ -529,11 +549,49 @@ export class TileLayer {
         path.lineTo(px(n - 1), py(n - 1));
       }
       return { path, w: r.widthPx * t, len: r.len };
-    });
+    };
+    const walks = near.filter((r) => r.kind === 'path').map(build);
+    const paths = near.filter((r) => r.kind !== 'path').map(build);
 
     ctx.save();
     ctx.lineJoin = 'round';
     ctx.lineCap = 'butt';
+
+    // The park walks first, under everything a street paints (3.2): one
+    // smooth ribbon of pavement each, no casing hierarchy, no markings, no
+    // junction rules. Clipped to the ground a walk may cross — pavement and
+    // the lawn it was carved through — so the curve can round a corner the
+    // staircase stepped without ever touching a lot, a road or the water.
+    if (walks.length > 0) {
+      ctx.save();
+      ctx.beginPath();
+      for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
+        for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
+          const g = this.tileAt(tx, ty);
+          if (g !== T_PARK && g !== T_SIDEWALK) continue;
+          ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
+        }
+      }
+      ctx.clip();
+      // A joint-coloured rim, then the slab — the two colours the per-tile
+      // pavement is built from, so walk and kerb read as one material where
+      // they meet at a gate.
+      ctx.strokeStyle = shade(palette.sidewalk, 0.3);
+      for (const p of walks) {
+        ctx.lineWidth = p.w + 2 * t;
+        ctx.stroke(p.path);
+      }
+      ctx.strokeStyle = palette.sidewalk;
+      for (const p of walks) {
+        ctx.lineWidth = p.w;
+        ctx.stroke(p.path);
+      }
+      ctx.restore();
+    }
+    if (paths.length === 0) {
+      ctx.restore();
+      return;
+    }
 
     // A course is a curve and the ground under it is not: where a road bends
     // near the water, the stroked ribbon overhangs the tiles the carve
@@ -1133,6 +1191,18 @@ export class TileLayer {
         this.paintRoad(ctx, tx, ty, x, y);
         break;
       case T_SIDEWALK:
+        // A pavement tile under a walk ribbon is the walk's staircase
+        // (3.2): the stroked curve is the path now, so the tile goes back
+        // to being the lawn it was carved through, and the ribbon is the
+        // only pavement in sight.
+        if (
+          this.pathCover !== null &&
+          this.map !== null &&
+          this.pathCover[ty * this.map.widthTiles + tx] === 1
+        ) {
+          this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, plants);
+          break;
+        }
         this.paintSidewalk(ctx, tx, ty, x, y);
         break;
       case T_PARK:

@@ -1,6 +1,6 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { fillBlock, fillRegion, takePondBankRings, takePondRings } from './buildings.js';
+import { fillBlock, fillRegion, takePathCourses, takePondBankRings, takePondRings } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
@@ -819,7 +819,19 @@ export function bakeCity(plan: CityPlan): BakedCity {
     buildings,
     landmarks,
     shops: [],
-    courses: trimCourses(layout.courses, tiles, W, H),
+    // The roads, plus every park walk carved since (3.2). Joined here for
+    // the same reason the ponds join the shores above: one answer to "what
+    // curves does the ground carry", trimmed by one pass against the same
+    // finished tiles — each kind against its own ground.
+    courses: trimCourses(
+      [
+        ...layout.courses,
+        ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
+      ],
+      tiles,
+      W,
+      H,
+    ),
   };
   baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles);
   return baked;
@@ -862,7 +874,8 @@ export function bakeCity(plan: CityPlan): BakedCity {
 const MIN_RUN_WIDTHS = 3;
 
 /**
- * Keep only the stretches of each course that still run over carriageway.
+ * Keep only the stretches of each course that still run over its ground —
+ * carriageway for a road, pavement for a park walk (3.2).
  *
  * The courses were recorded while carving, but a dozen passes have run
  * since — an unbridgeable strait left the road un-laid, a landmark took a
@@ -879,11 +892,16 @@ function trimCourses(
   W: number,
   H: number,
 ): StreetCourse[] {
-  const onCarriageway = (x: number, y: number): boolean => {
+  // Each kind against its own ground (3.2): a road course runs over
+  // carriageway and its decks, a path course over the pavement the park
+  // walk carved — a footpath sample on tarmac is as much of a lie as a
+  // centre dash on grass.
+  const onGround = (kind: StreetCourse['kind'], x: number, y: number): boolean => {
     const tx = Math.floor(x);
     const ty = Math.floor(y);
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
     const t = tiles[ty * W + tx] as number;
+    if (kind === 'path') return t === T_SIDEWALK;
     return t === T_ROAD || t === T_BRIDGE;
   };
   const out: StreetCourse[] = [];
@@ -927,7 +945,7 @@ function trimCourses(
       const steps = Math.max(1, Math.ceil(len * 2));
       let clear = true;
       for (let s = 0; s <= steps; s++) {
-        if (!onCarriageway(ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps)) {
+        if (!onGround(course.kind, ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps)) {
           clear = false;
           break;
         }
@@ -1117,6 +1135,10 @@ export function decodeBakedCity(raw: unknown): BakedCity {
   }
   for (const c of r['courses'] as StreetCourse[]) {
     must(c.points.length >= 2 && c.width > 0, 'a course with no line or no width');
+    must(
+      c.kind === 'avenue' || c.kind === 'ring' || c.kind === 'street' || c.kind === 'path',
+      'a course of unknown kind',
+    );
   }
   return {
     name: r['name'] as string,

@@ -680,12 +680,14 @@ describe('the city, as an asset', () => {
     expect(violations).toBe(0);
   });
 
-  it('keeps every course centreline sample on carriageway', () => {
+  it('keeps every course centreline sample on its own ground', () => {
     // Wave 2.1's gate, measured before it was pinned: `trimCourses` already
     // splits and samples every course against the FINISHED tiles, and on
     // this bake the answer is exactly 100% — so the invariant is exact, not
-    // a threshold. A sample off carriageway means a pass moved road after
+    // a threshold. A sample off its ground means a pass moved road after
     // the trim ran, which is the ordering bug this test exists to catch.
+    // Per kind since 3.2: carriageway for a road course, pavement for a
+    // park walk.
     const W = map.widthTiles;
     const H = map.heightTiles;
     let off = 0;
@@ -702,7 +704,7 @@ describe('the city, as an asset', () => {
             continue;
           }
           const t = map.tiles[ty * W + tx] as number;
-          if (t !== T_ROAD && t !== T_BRIDGE) off++;
+          if (c.kind === 'path' ? t !== T_SIDEWALK : t !== T_ROAD && t !== T_BRIDGE) off++;
         }
       }
     }

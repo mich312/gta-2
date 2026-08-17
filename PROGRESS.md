@@ -1,5 +1,53 @@
 # PROGRESS
 
+## Wave 3.2 of PLAN-WORLDGEN: paths become courses — DELIVERED
+
+The big parks' meander walks were always polylines — `fillPark` built
+each one with `meanderPolyline`, rasterised it to pavement tiles and
+threw the curve away, which is why every walk was a tile staircase
+beside vector-smooth roads. The curve ships now: a module-level sink in
+`buildings.ts` (the pond-ring pattern, third use) collects each walk as
+it is carved, and the bake joins them to the road courses as
+`kind: 'path'`, width 2, trimmed by the same `trimCourses` pass against
+their own ground — pavement, not carriageway. Seventeen walks survive
+the trim on this bake, six to a hundred and twenty-three tiles long.
+
+The per-kind rule the deferral note asked for runs through every
+consumer. The trim and both coverage pins sample a path against
+`T_SIDEWALK` where a road samples carriageway. The course index is a
+ROAD index: `generate` filters walks out before building it, so a driver
+snapped to "the centreline" can never be handed a footpath, and the road
+net and lane machinery behind it never see one. The junction discs are
+computed from road curves only — a walk must not punch the centre dash
+out of an avenue it ends against. The §19 wander pin filters by kind,
+because a walk's wander is authored, not recovered quantisation, and the
+§19 simplifier never touches them.
+
+The painter strokes a walk as one smooth pavement ribbon — a
+joint-coloured rim and the slab colour, no casing hierarchy, no
+markings — clipped to lawn and pavement, drawn under everything a street
+paints. Pavement tiles under a walk ribbon are repainted as lawn
+per-tile (`pathCover`, swept a shade wider than the stroke because the
+park carve rounds outward), so the staircase the carve rasterised never
+shows beside the curve that replaced it. The 3D view pays nothing: its
+ground chunks are painted by the same `TileLayer`.
+
+Scope, decided and written down: the "countryside footpaths" half of the
+plan's wording found no owner — nothing outside the parks carves footpath
+tiles from a polyline — and the small parks' straight cross-walks are
+axis-aligned lines with no staircase to fix; both stay tiles. The ring
+carriageways' stepped edges visible in the south-park retake are the
+wave-1 clip trade (ribbon held to the ground the carve took), shown
+identical in an A/B against the pre-3.2 bake — not a 3.2 regression.
+
+One rebake (`citybake` green, 869 → 873 kB, tiles byte-identical — only
+the course list grew), one test restaged: the course-index
+scan-vs-buckets test now scans the same road-only set the index is built
+from, because near the big parks the nearest line to a random probe is
+now sometimes a walk, and the index is right not to answer with it.
+Retakes: `evidence/fixed-park-paths.png` (the forest park's walk as one
+smooth curve), `fixed-park-paths-south.png`.
+
 ## Wave 4.5 of PLAN-WORLDGEN: `buildLayout` becomes passes — DELIVERED
 
 The two-thousand-line function is now ten named passes and one ordered
