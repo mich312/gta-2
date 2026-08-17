@@ -1,5 +1,27 @@
 # PROGRESS
 
+## 3.2 follow-up: the path palette, and the rural saw-tooth
+
+Two things in 3.2's own retakes looked very wrong, and both were.
+
+The walk was stroked in sidewalk grey, and a two-tile grey band through
+a wood reads as a pale road — the plan's wording was "path palette" and
+it meant it. The walk is packed stone now (`palette.path`, the quays'
+warm tone with a darker rim), and reads as a park path from any height.
+
+The south retake was dominated by saw-toothed carriageway edges: every
+diagonal stretch of the ring through open country had grass teeth a
+half-tile deep along both edges. An A/B against the pre-3.2 bake showed
+it byte-identical — wave 1's clip, which holds the ribbon to ground that
+carries a road, was being absorbed by kerb bands everywhere the city
+retakes looked, and open country has no kerb band to absorb it. The
+clip's predicate now admits SOFT natural ground — grass, field, sand —
+inside the ribbon's own painted reach (`courseApron`, swept stroke plus
+casing wide), so a rural road draws as one smooth ribbon; water, walls,
+lots and woodland stay refused, which keeps the 385 tiles of
+sea-painted-as-tarmac the clip was built against impossible. Renderer
+only, both fixes; no rebake, no test surface.
+
 ## Wave 3.2 of PLAN-WORLDGEN: paths become courses — DELIVERED
 
 The big parks' meander walks were always polylines — `fillPark` built

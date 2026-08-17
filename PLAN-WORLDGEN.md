@@ -209,7 +209,14 @@ beside the curve that replaced it. The "countryside footpaths" half of
 the original wording found no owner: outside the parks nothing carves
 footpath tiles from a polyline, and the small parks' straight cross-walks
 are axis-aligned (no staircase to fix) — both left as tiles, deliberately.
-Retakes: `evidence/fixed-park-paths.png`, `fixed-park-paths-south.png`.
+Two corrections from the retakes' review: the walk is stroked in a real
+path palette (packed stone, `palette.path`) after the first cut's
+sidewalk grey read as a pale road through the woods; and the retakes
+exposed the RURAL saw-tooth — wave 1's clip held road ribbons to the
+rasterised band, which the city's kerb bands absorbed and open country
+did not — fixed by letting soft natural ground under a ribbon's own
+apron take the paint (water, walls and lots stay refused). Retakes:
+`evidence/fixed-park-paths.png`, `fixed-park-paths-south.png`.
 
 **3.3 Woodland stops being a plinth (M, renderer only).** `T_TREES` renders
 as a flat 1-tile-high green slab that reads as a stain from above. The

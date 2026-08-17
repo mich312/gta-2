@@ -356,6 +356,17 @@ export class TileLayer {
    */
   private pathCover: Uint8Array | null = null;
   /**
+   * Tiles within a road ribbon's PAINTED reach — the stroke plus its kerb
+   * casing — a shade wider than `courseCover`. The clip consults it for the
+   * soft-ground exception: where a diagonal road runs through open country
+   * there is no kerb band to hide the rasterised staircase, and holding the
+   * ribbon strictly to the band's tiles saw-toothed every rural carriageway
+   * edge. Soft natural ground under the ribbon's own footprint may take the
+   * paint; everything the clip exists to protect — water, walls, lots — is
+   * still refused, so §2.2's sea-painted-as-tarmac stays fixed.
+   */
+  private courseApron: Uint8Array | null = null;
+  /**
    * Where the courses cross, from the CURVES (§26). The centre dash is
    * punched out of these: a junction is bare asphalt, which is the rule the
    * per-tile painter has always followed and the ribbon painter never did.
@@ -436,6 +447,7 @@ export class TileLayer {
     this.ribbons = [];
     this.courseCover = null;
     this.pathCover = null;
+    this.courseApron = null;
     this.junctionDiscs = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
@@ -445,6 +457,7 @@ export class TileLayer {
     this.junctionDiscs = courseJunctions(courses.filter((c) => c.kind !== 'path'));
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);
     const pathCover = new Uint8Array(map.widthTiles * map.heightTiles);
+    const apron = new Uint8Array(map.widthTiles * map.heightTiles);
     for (const c of courses) {
       const pts = new Float64Array(c.points.length * 2);
       let minX = Infinity;
@@ -484,9 +497,13 @@ export class TileLayer {
       // rounds outward from offset samples, and a carved pavement tile the
       // mask missed would keep its slab paint and stick out of the lawn
       // beside the smooth ribbon. Over-covering is harmless there — the
-      // mask only ever speaks about pavement tiles.
-      const mask = c.kind === 'path' ? pathCover : cover;
-      const half = c.width / 2 + (c.kind === 'path' ? 0.45 : 0.05);
+      // mask only ever speaks about pavement tiles. A road sweeps twice in
+      // one pass: the tight radius into `cover` (marks suppression) and the
+      // painted reach — stroke plus casing plus the quantisation slop — into
+      // `apron`, for the clip's soft-ground exception.
+      const path = c.kind === 'path';
+      const half = c.width / 2 + (path ? 0.45 : 0.55);
+      const inner = c.width / 2 + 0.05;
       for (let k = 0; k + 1 < c.points.length; k++) {
         const [ax, ay] = c.points[k] as readonly [number, number];
         const [bx, by] = c.points[k + 1] as readonly [number, number];
@@ -504,13 +521,32 @@ export class TileLayer {
             const t = Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
             const qx = px - t * dx;
             const qy = py - t * dy;
-            if (qx * qx + qy * qy <= half * half) mask[ty * map.widthTiles + tx] = 1;
+            const d2 = qx * qx + qy * qy;
+            if (d2 > half * half) continue;
+            const i = ty * map.widthTiles + tx;
+            if (path) {
+              pathCover[i] = 1;
+            } else {
+              apron[i] = 1;
+              if (d2 <= inner * inner) cover[i] = 1;
+            }
           }
         }
       }
     }
     this.courseCover = cover;
     this.pathCover = pathCover;
+    this.courseApron = apron;
+  }
+
+  /** Soft natural ground inside a road ribbon's painted reach — see `courseApron`. */
+  private softUnderApron(tx: number, ty: number): boolean {
+    const map = this.map;
+    if (map === null || this.courseApron === null) return false;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+    if (this.courseApron[ty * map.widthTiles + tx] !== 1) return false;
+    const t = map.tiles[ty * map.widthTiles + tx] as number;
+    return t === T_FIELD || t === T_PARK || t === T_SAND;
   }
 
   /**
@@ -573,15 +609,16 @@ export class TileLayer {
         }
       }
       ctx.clip();
-      // A joint-coloured rim, then the slab — the two colours the per-tile
-      // pavement is built from, so walk and kerb read as one material where
-      // they meet at a gate.
-      ctx.strokeStyle = shade(palette.sidewalk, 0.3);
+      // The PATH palette, not the pavement's (the plan's own words): in
+      // sidewalk grey a two-tile walk through a wood read as a pale road.
+      // Packed stone like the quays — warm against the lawn, nothing like
+      // carriageway — with a darker rim for the recessed edge.
+      ctx.strokeStyle = shade(palette.path, 0.35);
       for (const p of walks) {
         ctx.lineWidth = p.w + 2 * t;
         ctx.stroke(p.path);
       }
-      ctx.strokeStyle = palette.sidewalk;
+      ctx.strokeStyle = palette.path;
       for (const p of walks) {
         ctx.lineWidth = p.w;
         ctx.stroke(p.path);
@@ -607,10 +644,20 @@ export class TileLayer {
     // (REVIEW-WORLDGEN.md §2.2). The casing is MEANT to reach past the
     // carriageway onto the kerb band, so pavement stays in. Wave 2.1 trims
     // the courses themselves; this clip stays as defence in depth.
+    //
+    // One refinement (after 3.2's retakes): SOFT natural ground under the
+    // ribbon's own footprint is let in too. In the city a road wears a kerb
+    // band that absorbs the half-tile the stroke overhangs its staircase;
+    // through open country there is no band, the clip cut the ribbon to the
+    // raw diagonal staircase, and every rural carriageway edge came out
+    // saw-toothed. Grass, field and sand within the apron take the paint —
+    // ground a car could roll over anyway — while water, walls, lots and
+    // woodland stay refused, so the 385 tiles of sea-painted-as-tarmac this
+    // clip was built against stay impossible.
     ctx.beginPath();
     for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
       for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
-        if (!courseGround(this.tileAt(tx, ty))) continue;
+        if (!courseGround(this.tileAt(tx, ty)) && !this.softUnderApron(tx, ty)) continue;
         ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
       }
     }
