@@ -4897,13 +4897,21 @@ kind it gets, and there was no tall thing.
 - `downtown` is now **`[6, 18]`** — wider as well as higher, because a
   financial district that is uniformly tall reads as flat as one that is
   uniformly low.
-- The `tower` recipe is a **shaft out of a podium**: a ring of podium at 8
-  storeys and a shaft at 24, both authored. One flat rect at the downtown hash
-  made Vantage Tower the same height as the office block across the road,
+- The `tower` recipe is a **shaft out of a podium**: a one-tile ring of podium
+  at 6 storeys and a shaft at 32, both authored. One flat rect at the downtown
+  hash made Vantage Tower the same height as the office block across the road,
   which is not a landmark. The podium is a ring so the parts never overlap —
   nothing else in `RECIPES` stacks one solid on another, and this was not the
   place to find out what that would mean. `city.test.ts`'s "an inside, not a
   slab" check now covers towers alongside stadiums and power stations.
+
+  The first cut of that recipe was wrong and an outside review said so
+  (§46.3). A two-tile ring leaves a **2×2 shaft** on an 8×8 plot — The Spire
+  and the Halloran Building were flagpoles — and 24 storeys against a downtown
+  that now reaches 18 is a third taller than its neighbours, which from the
+  playing camera is not taller at all. One tile of podium and 32 storeys puts
+  the shafts at 4×4 and 6×6 and the height at 1.8× the tallest thing around
+  them.
 
 Measured after, over 4,080 buildings: p50 3, p90 12, p99 17, max 24. Downtown's
 own median went 3 → **12**; residential stayed at 2.
@@ -4920,14 +4928,40 @@ buildings to buy two towers. The rule, re-run:
 | --- | --- | --- | --- |
 | 12 storeys (before) | 72 px | ×1.14 | 0.42 tile |
 | 18 storeys (downtown now) | 108 px | ×1.22 | 0.67 tile |
-| 24 storeys (a tower's shaft) | 144 px | ×1.32 | 0.65 tile |
+| 32 storeys (a tower's shaft) | 192 px | ×1.48 | 1.45 tiles |
 
-All inside the one-tile pavement, and the towers stand on a plaza besides. The
-2D lean at the frame corner goes 36 px → 72 px for the tallest thing in the
-city, which is the lean doing its job: what leans furthest is what can be seen
-from furthest away. Both constants stay; the comment that read as a ceiling now
-shows its working. `evidence/mapdesign-skyline.png` is the flyover at the
-camera pitch the game is actually played at.
+The ordinary block stays inside its pavement. The tower does not, and is
+allowed not to: three buildings in the city reach 32, each inset two tiles
+inside its own podium with a plaza around that, so what it overhangs is its own
+forecourt. The 2D lean at the frame corner goes 36 px → 96 px for the tallest
+thing in the city, which is the lean doing its job: what leans furthest is what
+can be seen from furthest away. Both constants stay; the comment that read as a
+ceiling now shows its working. `evidence/mapdesign-skyline.png` is the flyover
+at the camera pitch the game is actually played at.
+
+### 46.3 What the height budget does not cover
+
+An independent reviewer, shown the flyover shots and nothing else, made two
+calls this section had missed.
+
+**The towers did not read as landmarks** — "the same box-with-parapet as every
+other building, no setback, no crown, no colour signature… you would never pick
+it out, so you cannot navigate toward it." Measured, that was exactly right:
+2×2 and 4×4 shafts at 24 storeys against neighbours at 17 and 18. The recipe
+above is the fix.
+
+**Height hides the ground behind it, and this file only ever priced the ground
+in front.** Everything above is the overhang rule — a roof may not cover its
+own pavement. At the playing pitch of 42° a building also occludes about
+**1.1× its drawn height** of ground behind it, and downtown going 12 → 18
+storeys took that from roughly 5 tiles to 7.5 — wider than a carriageway and
+both its pavements. The reviewer found whole cross streets gone behind the
+blocks in front of them. That is a real cost of having a skyline, it is paid by
+the player rather than by the renderer, and nothing in `config.ts` was
+measuring it. It is written down in both places now so the next person to move
+the range weighs both sides. Lowering downtown's ceiling to about 14 would put
+the occluded band back under 6 tiles; whether the skyline or the sightline
+matters more is a design call, not an arithmetic one.
 
 Aircraft are unaffected: `cruiseZ` is 54 world px and `Z_PER_STOREY` is 24, so
 a plane already flies below the third floor of everything. Flight has always

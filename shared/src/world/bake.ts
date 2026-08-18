@@ -139,15 +139,24 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   // a landmark, it is a building. The podium is a ring so the parts never
   // overlap — nothing else in this table stacks one solid on another and this
   // is not the place to find out what that would mean.
+  //
+  // The first version of this ring was two tiles thick and the shaft 24
+  // storeys, which an outside eye called correctly: on an 8x8 plot that
+  // leaves a 2x2 shaft — a flagpole, not a tower — and 24 against a downtown
+  // whose blocks reach 18 is a third taller than its neighbours, which from
+  // the playing camera is not taller at all. A landmark has to be in a
+  // different weight class or it is just a building standing on its own. One
+  // tile of podium (4x4 shaft on an 8x8 plot, 6x6 on a 10x10) and 32 storeys,
+  // which is 1.8x the tallest thing around it.
   tower: {
     ground: T_SIDEWALK,
     apron: T_SIDEWALK,
     parts: (w, h) => [
-      [1, 1, w - 2, 2, 8],
-      [1, h - 3, w - 2, 2, 8],
-      [1, 3, 2, h - 6, 8],
-      [w - 3, 3, 2, h - 6, 8],
-      [3, 3, w - 6, h - 6, 24],
+      [1, 1, w - 2, 1, 6],
+      [1, h - 2, w - 2, 1, 6],
+      [1, 2, 1, h - 4, 6],
+      [w - 2, 2, 1, h - 4, 6],
+      [2, 2, w - 4, h - 4, 32],
     ],
   },
   hospital: { ground: T_LOT, apron: T_LOT, parts: (w, h) => [[0, 0, w, h]] },

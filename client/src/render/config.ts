@@ -225,17 +225,31 @@ export const PARALLAX_PX_PER_STOREY = 3.0;
  * which is the whole test.
  *
  * The city has since grown: `heights.ts` puts downtown at 6–18 storeys and the
- * named towers at 24, where it used to top out at 12 and have no skyline to
+ * named towers at 32, where it used to top out at 12 and have no skyline to
  * steer by. Both constants stay, and the arithmetic is why — the budget was
  * never "36 px", it was "the overhang stays inside the pavement":
  *
  *   18 storeys → 108 px drawn, ×1.22, six-tile frontage overhangs 0.67 tile
- *   24 storeys → 144 px drawn, ×1.32, four-tile shaft overhangs 0.65 tile
+ *   32 storeys → 192 px drawn, ×1.48, six-tile shaft overhangs 1.45 tiles
  *
- * Both inside the one-tile pavement, and the towers stand on a plaza besides.
- * The 2D lean at the frame corner goes from 36 px to 72 px for the tallest
+ * The ordinary block is inside its pavement. The tower is not, and is allowed
+ * not to be: three buildings in the city reach 32, each one inset two tiles
+ * inside its own podium with a paved plaza around that, so what it overhangs
+ * is its own forecourt rather than the carriageway. That exception is the
+ * whole reason it reads as a landmark from three districts away.
+ *
+ * The 2D lean at the frame corner goes from 36 px to 96 px for the tallest
  * thing in the city, which is the lean doing its job: what leans furthest is
  * what you can see from furthest away.
+ *
+ * What this rule does NOT cover, and an outside review caught it: at the
+ * playing pitch of 42° a building also hides the ground BEHIND it, about
+ * 1.1x its drawn height. Downtown going 12 → 18 storeys took that from ~5
+ * tiles to ~7.5 — more than a carriageway and both its pavements — so a car
+ * on the far side of a tall block is now hidden where it used to be visible.
+ * That is a real cost of the skyline and it is not paid for by anything in
+ * this file; it is written down here so the next person weighing the height
+ * range weighs both sides of it.
  *
  * It scales EVERYTHING above street level and nothing below it: buildings and
  * woodland, not the river bed, the earth slab or the ramp trench. One knob for

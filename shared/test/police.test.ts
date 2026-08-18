@@ -213,10 +213,17 @@ describe('wanted + police', () => {
       [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: p.pos.x, y: p.pos.y, heading: 0 }],
       map,
     );
-    // A witness, standing right next to the car so line of sight is certain.
+    // A witness, standing close enough that line of sight is certain — but on
+    // ground the map actually has. Twelve pixels due east of the spawn is a
+    // wall as often as it is a pavement, and which one it is depends on where
+    // `placePlayerSpawns` happened to put spawn zero this bake: a cop stood
+    // inside a building sees nothing, the theft goes unwitnessed, and the test
+    // fails describing a police bug that is not there. `clearSpot` asks the
+    // map instead of assuming.
+    const witness = clearSpot(map, p.pos, 12);
     insertEntity(
       state.cops,
-      createCop(90, { x: p.pos.x + 12, y: p.pos.y }, getTuning().police.copHealth),
+      createCop(90, { x: witness.x, y: witness.y }, getTuning().police.copHealth),
     );
     state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
     expect(state.players.byId[1]!.mode).toBe('driving');

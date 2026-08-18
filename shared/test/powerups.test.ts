@@ -220,7 +220,11 @@ describe('power-ups (F3b)', () => {
     const p = s.players.byId[1]!;
     p.heat = 250;
     p.powerFlags = POWER_JAIL_CARD;
-    insertEntity(s.cops, createCop(500, { x: p.pos.x + 8, y: p.pos.y }, 50));
+    // On ground the map has, for the reason `police.test.ts` spells out: eight
+    // pixels east of spawn zero is whatever the bake put there, and an arrest
+    // that never happens makes this look like a jail-card bug.
+    const beat = clearSpot(map, p.pos, 8);
+    insertEntity(s.cops, createCop(500, { x: beat.x, y: beat.y }, 50));
     const events: SimEvent[] = [];
     s = step(s, { 1: NULL_INPUT }, [], map, events);
     expect(events.some((e) => e.type === 'jailCardUsed')).toBe(true);
