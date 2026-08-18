@@ -1,4 +1,4 @@
-import { laneOffset, laneCentreInTile, type Lanes } from 'shared';
+import { laneOffset, laneCentreInTile, RIGHT_SIGN, type Lanes } from 'shared';
 import { readFileSync } from 'node:fs';
 import {
   DISTRICT_TYPES,
@@ -106,6 +106,10 @@ export interface PaletteFile {
   shopClothing: string;
   shopFloor: string;
   roadLane: string;
+  /** The lane furniture the client paints and this tool mirrors (§49). */
+  roadMark: string;
+  roadStop: string;
+  roadCrossing: string;
   water: string;
   bank: string;
   sand: string;
@@ -576,70 +580,6 @@ export function render(
   }
 
 
-  // The lane paint on ordinary streets, BEFORE the curve layer.
-  //
-  // This tool drew markings for authored courses and nothing else, so every
-  // stretch of carriageway a course does not cover — most of the lattice, and
-  // §26 measures course coverage at 76% — came out as bare tarmac. The city
-  // was fine; the instrument was lying, and it lied for the whole of
-  // `REVIEW-MAPDESIGN.md`: downtown was called "one avenue with a centre line
-  // and no other hierarchy" from a picture in which no other street was
-  // ALLOWED a centre line. A review tool that under-draws the thing under
-  // review is worse than no tool.
-  //
-  // The rule is `tiles.ts`'s, via the same `laneCentreInTile` both renderers
-  // share: measure the road's run across the direction of travel, and the
-  // tile holding the middle of that run carries the dashes. Junctions — where
-  // both runs are long — stay bare asphalt, as they do in the game. Drawn
-  // first so a course ribbon paints over it where one exists, which is the
-  // same precedence `courseCover` gives it in the client.
-  {
-    // `tiles.ts` calls this RUN_ROAD: shorter than eight tiles in a direction
-    // and the run is a junction mouth or a stub, not a street going anywhere.
-    const RUN_ROAD = 8;
-    const mark = hexToRgb(palette.roadLane);
-    const isRoad = (tx: number, ty: number): boolean =>
-      tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles
-        ? map.tiles[ty * map.widthTiles + tx] === T_ROAD
-        : false;
-    const runFrom = (tx: number, ty: number, dx: number, dy: number): [number, number] => {
-      let back = 0;
-      while (isRoad(tx - dx * (back + 1), ty - dy * (back + 1))) back++;
-      let fwd = 0;
-      while (isRoad(tx + dx * (fwd + 1), ty + dy * (fwd + 1))) fwd++;
-      return [back + fwd + 1, back];
-    };
-    for (let ty = 0; ty < hTiles; ty++) {
-      const my = y0 + ty;
-      if (my < 0 || my >= map.heightTiles) continue;
-      for (let tx = 0; tx < wTiles; tx++) {
-        const mx = x0 + tx;
-        if (mx < 0 || mx >= map.widthTiles || !isRoad(mx, my)) continue;
-        const [hLen, idxH] = runFrom(mx, my, 1, 0);
-        const [vLen, idxV] = runFrom(mx, my, 0, 1);
-        const horizontal = hLen >= RUN_ROAD;
-        const vertical = vLen >= RUN_ROAD;
-        if (horizontal === vertical) continue; // a junction, or too short to say
-        const width = horizontal ? vLen : hLen;
-        const index = horizontal ? idxV : idxH;
-        if (width > 4) continue; // wider than a carriageway: a diagonal band's stair
-        const centre = laneCentreInTile(width, index);
-        if (centre === null) continue;
-        // Two dashes a tile, on for the middle half of each period, which is
-        // the cadence `paintLaneMarks` draws and the 3D shader recomputes.
-        const at = Math.min(scale - 1, Math.max(0, Math.round(centre * scale) - 1));
-        for (let d = 0; d < 2; d++) {
-          const off = d * (scale / 2) + scale / 8;
-          const len = Math.max(1, Math.round(scale / 4));
-          for (let k = 0; k < len; k++) {
-            if (horizontal) put(tx * scale + Math.round(off) + k, ty * scale + at, mark);
-            else put(tx * scale + at, ty * scale + Math.round(off) + k, mark);
-          }
-        }
-      }
-    }
-  }
-
   // The roads, drawn as the CURVES they are (§16) rather than as the tiles
   // they were rasterised into — in the client's own paint order, because the
   // order IS the behaviour under review: casing for every course, then fill
@@ -893,6 +833,174 @@ export function render(
       }
     }
   }
+
+  // The lane paint on ordinary streets, AFTER the curve layer.
+  //
+  // This tool drew markings for authored courses and nothing else, so every
+  // stretch of carriageway a course does not cover — most of the lattice, and
+  // §26 measures course coverage at 76% — came out as bare tarmac. The city
+  // was fine; the instrument was lying, and it lied for the whole of
+  // `REVIEW-MAPDESIGN.md`: downtown was called "one avenue with a centre line
+  // and no other hierarchy" from a picture in which no other street was
+  // ALLOWED a centre line. A review tool that under-draws the thing under
+  // review is worse than no tool.
+  //
+  // The rule is `tiles.ts`'s, via the same `laneCentreInTile` both renderers
+  // share: measure the road's run across the direction of travel, and the
+  // tile holding the middle of that run carries the dashes. Junctions — where
+  // both runs are long — stay bare asphalt, as they do in the game. Drawn
+  // first so a course ribbon paints over it where one exists, which is the
+  // same precedence `courseCover` gives it in the client.
+  {
+    // `tiles.ts` calls this RUN_ROAD: shorter than eight tiles in a direction
+    // and the run is a junction mouth or a stub, not a street going anywhere.
+    const RUN_ROAD = 8;
+    const ARTERIAL = 4;
+    const mark = hexToRgb(palette.roadLane);
+    const edge = hexToRgb(palette.roadMark);
+    const stopPaint = hexToRgb(palette.roadStop);
+    const zebra = hexToRgb(palette.roadCrossing);
+    // Where two CENTRELINES cross (§35) — not where the raster happens to be
+    // wide. A merged sheet of tarmac is "junction" across its whole area to a
+    // tile test, which is how the client came to stack four zebras in open
+    // ground before it started asking the curves instead.
+    const discs = courseJunctions((map.courses ?? []).filter((c) => c.kind !== 'path'));
+    // `courseCover`, to the client's arithmetic: a tile is the ribbon's when
+    // its CENTRE is within half the course width (plus a hair) of the curve.
+    const covered = new Uint8Array(map.widthTiles * map.heightTiles);
+    for (const c of map.courses ?? []) {
+      if (c.kind === 'path') continue;
+      const inner = c.width / 2 + 0.05;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        const jx0 = Math.max(0, Math.floor(Math.min(ax, bx) - inner - 1));
+        const jx1 = Math.min(map.widthTiles - 1, Math.ceil(Math.max(ax, bx) + inner + 1));
+        const jy0 = Math.max(0, Math.floor(Math.min(ay, by) - inner - 1));
+        const jy1 = Math.min(map.heightTiles - 1, Math.ceil(Math.max(ay, by) + inner + 1));
+        const ddx = bx - ax;
+        const ddy = by - ay;
+        const len2 = ddx * ddx + ddy * ddy || 1;
+        for (let jy = jy0; jy <= jy1; jy++) {
+          for (let jx = jx0; jx <= jx1; jx++) {
+            const px = jx + 0.5 - ax;
+            const py = jy + 0.5 - ay;
+            const tt = Math.max(0, Math.min(1, (px * ddx + py * ddy) / len2));
+            const qx = px - tt * ddx;
+            const qy = py - tt * ddy;
+            if (qx * qx + qy * qy <= inner * inner) covered[jy * map.widthTiles + jx] = 1;
+          }
+        }
+      }
+    }
+    const isRoad = (tx: number, ty: number): boolean =>
+      tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles
+        ? map.tiles[ty * map.widthTiles + tx] === T_ROAD
+        : false;
+    const runFrom = (tx: number, ty: number, dx: number, dy: number): [number, number] => {
+      let back = 0;
+      while (isRoad(tx - dx * (back + 1), ty - dy * (back + 1))) back++;
+      let fwd = 0;
+      while (isRoad(tx + dx * (fwd + 1), ty + dy * (fwd + 1))) fwd++;
+      return [back + fwd + 1, back];
+    };
+    for (let ty = 0; ty < hTiles; ty++) {
+      const my = y0 + ty;
+      if (my < 0 || my >= map.heightTiles) continue;
+      for (let tx = 0; tx < wTiles; tx++) {
+        const mx = x0 + tx;
+        if (mx < 0 || mx >= map.widthTiles || !isRoad(mx, my)) continue;
+        if (covered[my * map.widthTiles + mx] === 1) continue; // the ribbon's tile
+        const [hLen, idxH] = runFrom(mx, my, 1, 0);
+        const [vLen, idxV] = runFrom(mx, my, 0, 1);
+        const horizontal = hLen >= RUN_ROAD;
+        const vertical = vLen >= RUN_ROAD;
+        if (horizontal === vertical) continue; // a junction, or too short to say
+        const width = horizontal ? vLen : hLen;
+        const index = horizontal ? idxV : idxH;
+        if (width > 4) continue; // wider than a carriageway: a diagonal band's stair
+        const px0 = tx * scale;
+        const py0 = ty * scale;
+        const bar = (bx: number, by: number, bw: number, bh: number, c: [number, number, number]): void => {
+          for (let j = 0; j < bh; j++) for (let i2 = 0; i2 < bw; i2++) put(px0 + bx + i2, py0 + by + j, c);
+        };
+        const centre = laneCentreInTile(width, index);
+        if (centre !== null) {
+          // Two dashes a tile, on for the middle half of each period, which is
+          // the cadence `paintLaneMarks` draws and the 3D shader recomputes.
+          const at = Math.min(scale - 1, Math.max(0, Math.round(centre * scale) - 1));
+          const len = Math.max(1, Math.round(scale / 4));
+          for (let d = 0; d < 2; d++) {
+            const off = Math.round(d * (scale / 2) + scale / 8);
+            if (horizontal) bar(off, at, len, 1, mark);
+            else bar(at, off, 1, len, mark);
+          }
+        }
+        // Edge lines, held a pixel off the kerb, on the outermost lane tiles.
+        if (index === 0 || index === width - 1) {
+          const near = index === 0;
+          const t1 = Math.max(1, Math.round(scale / 16));
+          if (horizontal) bar(0, near ? t1 : scale - 2 * t1, scale, t1, edge);
+          else bar(near ? t1 : scale - 2 * t1, 0, t1, scale, edge);
+        }
+
+        // Stop line and zebra, on the last tile before a crossroads — and only
+        // on an arterial, only where the street resumes beyond the junction,
+        // and only where two courses really cross. Every one of those filters
+        // is in `tiles.ts` because without it the city reads as painted rather
+        // than paved (REVIEW-WORLDGEN.md §35).
+        if (width < ARTERIAL) continue;
+        const junctionAt = (jx: number, jy: number): boolean => {
+          if (!isRoad(jx, jy)) return false;
+          const [h] = runFrom(jx, jy, 1, 0);
+          const [v] = runFrom(jx, jy, 0, 1);
+          return h >= RUN_ROAD && v >= RUN_ROAD;
+        };
+        const vertical2 = !horizontal;
+        const forward = vertical2 ? junctionAt(mx, my + 1) : junctionAt(mx + 1, my);
+        const ahead = forward || (vertical2 ? junctionAt(mx, my - 1) : junctionAt(mx - 1, my));
+        if (!ahead) continue;
+        const side = forward ? 1 : -1;
+        let rx = mx + (vertical2 ? 0 : side);
+        let ry = my + (vertical2 ? side : 0);
+        for (let step = 0; step < 8 && junctionAt(rx, ry); step++) {
+          rx += vertical2 ? 0 : side;
+          ry += vertical2 ? side : 0;
+        }
+        if (!isRoad(rx, ry) || junctionAt(rx, ry)) continue;
+        const [rh] = runFrom(rx, ry, 1, 0);
+        const [rv] = runFrom(rx, ry, 0, 1);
+        if (!(vertical2 ? rv >= RUN_ROAD && rh < RUN_ROAD : rh >= RUN_ROAD && rv < RUN_ROAD)) continue;
+        let crossing = false;
+        for (const j of discs) {
+          const r = j.r + 2;
+          const ddx = mx + 0.5 - j.x;
+          const ddy = my + 0.5 - j.y;
+          if (ddx * ddx + ddy * ddy <= r * r) { crossing = true; break; }
+        }
+        if (!crossing) continue;
+
+        // The stop line holds only the traffic going IN, so it covers the
+        // approaching half and stops at the centre line.
+        const dirIdx = vertical2 ? (forward ? 1 : 3) : forward ? 0 : 2;
+        const t1 = Math.max(1, Math.round(scale / 16));
+        if (((RIGHT_SIGN[dirIdx] as number) > 0 ? index >= width / 2 : index < width / 2)) {
+          if (vertical2) bar(0, forward ? scale - 3 * t1 : t1, scale, 2 * t1, stopPaint);
+          else bar(forward ? scale - 3 * t1 : t1, 0, 2 * t1, scale, stopPaint);
+        }
+        // Zebra: three stripes across the tile, whatever the scale.
+        const stripes = 3;
+        const pitch = scale / stripes;
+        const wide = Math.max(1, Math.round(pitch * 0.45));
+        for (let sN = 0; sN < stripes; sN++) {
+          const off = Math.round(sN * pitch + (pitch - wide) / 2);
+          if (vertical2) bar(off, forward ? scale - 9 * t1 : 4 * t1, wide, 5 * t1, zebra);
+          else bar(forward ? scale - 9 * t1 : 4 * t1, off, 5 * t1, wide, zebra);
+        }
+      }
+    }
+  }
+
 
   // Overlay markers: shops (bright), player spawns (white dots).
   for (const s of map.shops ?? []) {

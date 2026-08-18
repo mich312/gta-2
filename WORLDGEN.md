@@ -5242,3 +5242,31 @@ about *hierarchy* were not, and they were made against a lie.
 
 A tool that reviews the city has to draw the city. All seven `mapdesign-*`
 renders are retaken.
+
+### 49.1 The rest of the lane furniture, and the order it has to go in
+
+The first cut drew centre lines and stopped, which was still not what the
+client draws. It now mirrors `paintLaneMarks` whole: the centre dash, the solid
+**edge lines** on the outermost lane tiles, and the **stop line and zebra** on
+the last tile before a crossroads — behind every filter the client applies,
+because each one is there for a reason §35 records. Only an arterial
+(`width >= 4`). Only where the street resumes on the far side of the junction,
+so a stair step of the ring road's diagonal band does not get one. And only
+within a course-crossing disc, because a merged sheet of tarmac reads as
+"junction" across its whole area to a tile test and stacks four zebras in open
+ground.
+
+**Order matters and it took two goes.** Drawn *before* the ribbons, every
+crossing the tool computed was buried under the next course's casing: 21
+computed, none rendered. The client never paints then overpaints — it asks
+whether a tile is under a ribbon (`courseCover`: tile centre within half the
+course width plus a hair) and stays off it entirely. So the tool now computes
+that same mask, skips those tiles, and draws what is left **after** the curve
+layer.
+
+Two numbers worth keeping. Measured with the client's own tight coverage test,
+**23.2%** of carriageway carries no ribbon — that is the share this tool used
+to draw blank, and it is where all the per-tile furniture lives. And the
+crossing rule fires on **21 approach tiles** in the whole city: the filters are
+strict, most arterial approaches are course-covered, and a review picture with
+zebras at every junction would be the wrong picture.
