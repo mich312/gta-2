@@ -27,14 +27,15 @@ the session's amenity passes — and every claim names the file it comes from.
 | --- | --- | --- |
 | `evidence/mapdesign-city.png` | The whole city, 2 px per tile | `pnpm mapgen --out=evidence/mapdesign-city.png` |
 | `evidence/mapdesign-strait.png` | The strait end to end, 3 px per tile | `pnpm mapgen --crop=240,250,470,220 --scale=3 --out=evidence/mapdesign-strait.png` |
-| `evidence/mapdesign-skyline.png` | Downtown at the camera pitch the game is played at | `WAIT_GROUND=25 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,180&h=900&pitch=42&night=0" evidence/mapdesign-skyline.png` |
+| `evidence/mapdesign-skyline.png` | Downtown at the camera pitch the game is played at | `SHOT_TIMEOUT=240000 WAIT_GROUND=25 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,180&h=900&pitch=42&night=0" evidence/mapdesign-skyline.png` |
 | `evidence/mapdesign-creek.png` | The creek and its three new crossings | `pnpm mapgen --crop=330,425,110,90 --scale=9 --out=evidence/mapdesign-creek.png` |
 | `evidence/mapdesign-downtown.png` | The Spine at 26×21, with Exchange Square | `pnpm mapgen --crop=420,120,145,200 --scale=5 --out=evidence/mapdesign-downtown.png` |
 | `evidence/mapdesign-deck.png` | A deck with its parapet, shadow and piers | `pnpm mapgen --crop=545,265,55,125 --scale=8 --out=evidence/mapdesign-deck.png` |
 | `evidence/mapdesign-quay.png` | Kelvin Quay and Bridgefoot on the headland | `pnpm mapgen --crop=410,290,150,100 --scale=6 --out=evidence/mapdesign-quay.png` |
-| `evidence/mapdesign-junction.png` | One crossroads at 48 px per tile (§3) | `pnpm mapgen --crop=348,212,16,16 --scale=48 --out=evidence/mapdesign-junction.png` |
+| `evidence/mapdesign-junction.png` | A signalised crossroads at 44 px per tile — crossings, stop lines, turn arrows, kerb radii (§3) | `pnpm mapgen --crop=462,182,17,17 --scale=44 --out=evidence/mapdesign-junction.png` |
+| `evidence/mapdesign-junction-3d.png` | The same crossroads from the flyover, with its lights (§3.2) | `pnpm --filter client dev`, then `WAIT_GROUND=25 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,190&h=380&pitch=42&tick=30" evidence/mapdesign-junction-3d.png` |
 | `evidence/mapdesign-turf.png` | The seven manors, washed over the ground they hold | `pnpm mapgen --turf --out=evidence/mapdesign-turf.png` |
-| `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
+| `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `SHOT_TIMEOUT=480000 WAIT_MS=900000 WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` — this one paints a whole screen at a fifth of a frame a second, so both waits have to be raised or the shot comes back black |
 
 ---
 
@@ -427,24 +428,35 @@ same call `pnpm mapgen` makes — plus `pnpm citybake --check` and
 Asked for separately, after the waves: what is at a junction in this city, and
 what is missing. Measured over `generateCity(1)` — **779 junctions**.
 
-| | measured |
-| --- | --- |
-| signal heads | **2,990** — every junction is signalised, including all 537 that are 4 tiles or smaller |
-| junction footprint | p50 **2 tiles**, p90 17, max 20 |
-| zebra crossings | **21 approach tiles in the entire city** |
-| stop lines | the same 21 — one rule gates both |
-| bevelled road tiles | **0** of the city's 1,312 bevels; every kerb corner is a right angle |
-| props within 3 tiles of a junction | 252 of 1,600 (164 lamps) |
-| road-net node degree | 32 dead ends, 101 of degree 2, 190 three-way, 225 four-way |
+> **All six findings below were then fixed** (WORLDGEN.md §50), so this
+> section is the evaluation as it stood, kept for the record; the "now" column
+> is what the same census says afterwards, and §3.3 is what was done. The two
+> pictures have been retaken against the fixed city, so they no longer show
+> what §3.1 describes — that is the point of them.
 
-`evidence/mapdesign-junction.png` is one crossroads at 48 px per tile.
+| | measured | now (§50) |
+| --- | --- | --- |
+| junctions | 779 | **725** — one crossroads is one junction, and downtown's avenue crossings are junctions at all |
+| signal heads | **2,990** — every junction is signalised, including all 537 that are 4 tiles or smaller | **561**, at 144 arterial crossings |
+| junction footprint | p50 **2 tiles**, p90 17, max 20 | p50 7, p90 20, max 49 |
+| zebra crossings | **21 approach tiles in the entire city** | **435 arms** |
+| stop lines | the same 21 — one rule gates both | **435** — still one rule, a better one |
+| turn arrows | none | **538** |
+| kerb radii | **0**; every corner is a right angle | **3,160** |
+| bevels, total | 1,312 | 4,472 |
+| props within 3 tiles of a junction | 252 of 1,600 (164 lamps) | unchanged |
+| road-net node degree | 32 dead ends, 101 of degree 2, 190 three-way, 225 four-way | 725 nodes; detours p50 ×1.43→**×1.29**, p90 ×1.86→**×1.68** |
 
-### 3.1 What is missing, ranked
+`evidence/mapdesign-junction.png` is a signalised crossroads at 44 px per
+tile, and `evidence/mapdesign-junction-3d.png` is the same one from the
+flyover — the first picture in this repo with a traffic light in it (§3.2).
+
+### 3.1 What is missing, ranked — and what was done
 
 1. **Crossings and stop lines are effectively absent.** 758 of 779 junctions
-   carry traffic lights and nothing for the traffic to stop at. The junction in
-   the evidence has signals on four arms and a zebra on **one**, which reads
-   worse than none at all. The §35 filters exist for good reasons — each one
+   carry traffic lights and nothing for the traffic to stop at. The junction
+   this was measured at had signals on four arms and a zebra on **one**, which
+   reads worse than none at all. The §35 filters exist for good reasons — each one
    was added against a real defect, from zebras stacked in merged tarmac to
    crossings painted into the ring road's stair steps — but together they have
    overshot: the city has 21.
@@ -475,3 +487,43 @@ than they are in play.
 Items 1-5 are the city. "No signals visible" is the camera, and the flyover
 should build that layer so the evidence stops understating the city a third
 time (§49 was the second).
+
+### 3.3 What was done about all six
+
+Fixed in WORLDGEN.md §50, in the order they are ranked above.
+
+1. **Crossings and stop lines** come off the curves now, not the tile plane —
+   the arms of a course crossing, turned into quads both renderers fill. 21
+   approach tiles became **435 arms with a stop line and a zebra each**, and
+   they are drawn on ribbon-covered carriageway and on diagonal arterials,
+   neither of which the tile path could ever reach.
+2. **Kerb radii**: a fourth bevel phase cuts the sidewalk corner into the
+   carriageway wherever the diagonal neighbour is junction tarmac — **3,160**
+   corners, and a driveway mouth still square.
+3. **Signal policy**: lights only where an arterial crossing lands, **144
+   junctions and 561 heads** against 779 and 2,990. The rest are negotiated,
+   which is what the plazas already were.
+4. **Inside the box**: **538 turn arrows**, one per approach lane, hooked left
+   or right by the arms the junction actually has.
+5. **The merged sheets** are still merged sheets — that is a plan-shape
+   finding, not a paint one — but they no longer collect furniture: a crossing
+   inside an unsignalised plaza is left bare.
+6. **The camera** builds `WorldObjectsLayer`, and `?tick=` freezes the phase so
+   two stills of one junction can be compared. `ci/shot.mjs` grew
+   `SHOT_TIMEOUT` and `WAIT_MS` while retaking the two 3D pictures: at
+   `?h=2400` the flyover paints a screen at a fifth of a frame a second, which
+   is slower than Playwright's default screenshot timeout, and a shot that
+   times out writes a black PNG rather than failing.
+
+And two things found on the way, both worse than any of the six.
+
+A crossroads was routinely labelled as **two junctions**, with two independent
+signal phases — 47 of the 82 lit crossings split in two, 7 in four. It could
+show green to both axes at once.
+
+And **69 of the city's 151 arterial crossings were not junctions at all**:
+`isJunctionTile` wants tarmac that is over-wide along both diagonals too, and
+a four-tile avenue crossing a three-tile street is 4×3, whose diagonal run is
+three. That is every cross street on The Spine — no id, no light, no crossing,
+and no node in the routing graph. Fixing it moved landmark-to-landmark detours
+from p90 ×1.86 to ×1.68. Both are §50.2.

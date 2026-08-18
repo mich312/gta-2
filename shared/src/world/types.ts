@@ -65,6 +65,13 @@ export interface JunctionMap {
   /** Junction index per tile, row-major; -1 where there is no junction. */
   idOf: Int16Array;
   count: number;
+  /**
+   * One byte per junction id: 1 where the junction is signalised. The rest
+   * are junctions in every other sense — the lane model, the road network and
+   * the routing all still see them — but they carry no head and no stop line,
+   * and drivers negotiate them. See `SIGNAL_MIN_WIDTH` in sim/signals.ts.
+   */
+  signalled: Uint8Array;
   heads: SignalHead[];
 }
 

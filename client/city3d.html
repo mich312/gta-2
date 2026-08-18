@@ -29,6 +29,7 @@
         ?wet=    0 dry, 1 just rained
         ?at=tx,ty  (with fly=1) hold the flyover over this tile instead of
                    orbiting — how the shoreline and kerb evidence is retaken
+        ?tick=   (with fly=1) freeze the traffic signals at this tick
     -->
     <div id="hud">building…</div>
     <canvas id="view"></canvas>
@@ -74,6 +75,23 @@
         const ground = new GroundLayer(view.world, painter);
         ground.setMap(map);
         ground.setWeather(wet, night);
+        // Street furniture — signal heads on their posts, and the hidden
+        // packages. `Live` has always built this layer and the flyover never
+        // did (WORLDGEN.md §50.5), so every piece of 3D evidence this repo has ever taken
+        // showed a city with no lights in it: junctions were reviewed, twice,
+        // from pictures that could not have contained a signal. There is no
+        // sim here, so the layer is handed the least a scene can be — no
+        // pickups, no projectiles, nothing found — and a tick, which is all
+        // the signal phase is a function of.
+        const { WorldObjectsLayer } = await import('/src/three/worldObjects.ts');
+        const objects = new WorldObjectsLayer(view.world);
+        objects.setMap(map);
+        const emptyScene = {
+          remotes: { pickups: [], projectiles: [] },
+          foundPackages: new Set(),
+          nowMs: 0,
+          tick: 0,
+        };
         // Hold over a named tile, or orbit the centre as before.
         const at = (q.get('at') ?? '').split(',').map((v) => Number.parseFloat(v));
         const hold = at.length === 2 && at.every(Number.isFinite)
@@ -92,7 +110,14 @@
           view.lookAt(fx, fy);
           // Same guess Live makes: the layer only uses the box to decide
           // which chunks to paint, with a margin either way.
-          ground.update({ x: fx - viewH, y: fy - viewH / 2 }, { w: viewH * 2, h: viewH });
+          const cam = { x: fx - viewH, y: fy - viewH / 2 };
+          const box = { w: viewH * 2, h: viewH };
+          ground.update(cam, box);
+          // `?tick=` freezes the signal phase, so a retake of the same
+          // junction shows the same lights and two stills can be compared.
+          emptyScene.nowMs = now;
+          emptyScene.tick = Number.parseInt(q.get('tick') ?? '', 10) || Math.floor(now / 16.67);
+          objects.update(emptyScene, cam, box);
           view.render();
           frames++;
           if (now - last > 500) {

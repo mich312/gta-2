@@ -5270,3 +5270,235 @@ to draw blank, and it is where all the per-tile furniture lives. And the
 crossing rule fires on **21 approach tiles** in the whole city: the filters are
 strict, most arterial approaches are course-covered, and a review picture with
 zebras at every junction would be the wrong picture.
+
+## 50. The junctions get built
+
+"Evaluate the junctions. Many things are missing." §49 had just finished
+teaching the review tool to draw the city; asked to look at what it now drew, a
+census of the shipped map said this:
+
+| | before |
+| --- | --- |
+| junctions | 779 |
+| signal heads | 2,990 |
+| junctions of four tiles or less, all signalised | 537 |
+| zebra approach tiles, whole city | 21 |
+| stop lines, whole city | 21 |
+| bevels lying against a junction corner | 0 of 1,312 |
+
+Every junction in the city wore four lights, including the 537 that are a
+corner where two residential streets touch. Twenty-one crossings served 779
+junctions. Every kerb corner was a right angle. And none of that was a drawing
+bug — the game rendered exactly what the data said.
+
+Five things came out of it, and the first four are one idea: **a junction is a
+fact about the curves, so ask the curves.**
+
+### 50.1 The crossing comes off the curve
+
+`courseJunctions` has answered "where do two centrelines meet" since §26, and
+it threw away everything except the point and a radius, because punching the
+centre dash out of a stroke was all anybody had asked it for. `courseCrossings`
+keeps the rest: the **arms** — a unit vector out of the crossing and the
+carriageway width of the course it belongs to, four at a crossroads, three at a
+T, and none for a side that ends within two tiles (a course that stops on
+another one makes a T, and a T with a fourth arm painted on it puts a crossing
+across somebody's front garden). Crossings within a carriageway of each other
+are merged, because three courses meeting at a corner cross pairwise and answer
+three points a third of a tile apart.
+
+`shared/world/marks.ts` turns one of those into quads a painter fills: zebra,
+stop line, turn arrows, in tile units, pure. Every renderer fills the same
+quads, so the review tool and the game cannot draw different cities — which is
+the lesson §49 had just paid for.
+
+**Three painters, and there were four.** The 2D painted ground fills the quads
+directly; `mapgen` fills them with its own scanline rasteriser; and the 3D
+instanced ground — the slab layer the game shows until a painted chunk arrives
+— cannot fill a quad at all, because its ground is an atlas of per-tile codes.
+It had its own copy of the §35 gates, reasoned across from the 2D painter one
+clause at a time, and every clause was right about the defect it was added
+for. It now takes the same quads and reduces them to whole tiles: a tile
+carries the stripe when a zebra quad covers its CENTRE, which is the
+rasterisation rule the coast and the course cover already use. Same set of
+crossings, at tile resolution, one source.
+
+**Why it had to move off the tiles.** The per-tile painter has drawn stop lines
+and zebras since §35, behind three gates that are each defensible alone: a tile
+under a course ribbon takes its marks from the ribbon (76% of the carriageway),
+only a four-tile carriageway earns a crossing, and only a cardinal run can be
+measured for one (so no curved arterial ever qualifies). Together they left the
+furniture drawable almost nowhere, and 21 is what "almost nowhere" came to. The
+per-tile path keeps the centre line and the edge lines; the junction's own
+paint is laid from the curves, where a diagonal arterial and a ribbon-covered
+tile are no harder than a straight bare one.
+
+Two rules keep it honest. An arm with no **room** — the next crossing closer
+than the paint is long — is left bare, which stopped a dozen zebras stacking
+across one sheet of tarmac where the arterials fan out above the old town. And
+a crossing with more than four arms gets nothing, for the same reason
+`labelJunctions` refuses to signalise a plaza: no phase governs it.
+
+### 50.2 One crossroads, one junction
+
+Then the flyover showed eight lights round one crossroads, some red and some
+green.
+
+`isJunctionTile` asks a local question — is this tile over-wide in every
+direction, along both axes AND both diagonals — and it is wrong about an
+ordinary crossroads twice over.
+
+**It splits one.** Along a diagonal seam through the middle of a four-tile
+crossing the answer is no, so the flood fill returns the box in two pieces or
+four. Of the 151 arterial crossings in the city, only **25** came back as a
+single component; 47 of the 82 that carried lights were split in two and 7 in
+four. Each piece had its own id, and the id is what the phase is a function
+of: two ids at one crossroads means two independent phases, so it could show
+green to both axes at once — the one property `signalColour` is built to make
+impossible. Eight lights is what that looks like from the air.
+
+**And it misses one entirely.** A four-tile avenue crossing a three-tile
+street makes a 4×3 box whose diagonal run is three, so the diagonal test
+fails on every tile of it and the junction is not labelled at all — no id, no
+light, no crossing, and no node in the routing graph. That is every cross
+street on The Spine: **69 of the 151** arterial crossings were in that state,
+which is why downtown's grid had lights on its residential corners and none
+on its avenue.
+
+The curves fix both. Every labelled component a crossing's disc touches is
+unioned; the tiles inside the disc that the fill left bare are pulled into it,
+so a labelling cannot stop half way across a mouth; an arterial crossing the
+fill missed completely gets an id of its own; and the whole labelling is
+renumbered in row-major order of first appearance, so the ids stay a pure
+function of the map. Crossings with exactly one component: **25 → 129**.
+Crossings with exactly four heads: **13 → 108**. The city has **725**
+junctions where it had 779, and the largest is 49 tiles — four arms, one
+phase, which is the point.
+
+Only the arterial crossings are given new ids. A residential crossing the tile
+test declines is a place drivers negotiate either way, and labelling it would
+put a node in the routing graph for every corner in the city — measured, that
+was 1,083 junctions and a road network noticeably worse to route over.
+
+The plaza cap is deliberately not re-applied to a merged component: it exists
+to refuse a shape with no sensible phase, and a shape that one course crossing
+accounts for has exactly one. What IS re-applied is an arm count — a junction
+left with a single approach is unsignalised again, because a light governing
+a dead end is not a light.
+
+Routing got better on its own account: landmark-to-landmark detours went from
+p50 ×1.43 / p90 ×1.86 to **p50 ×1.29 / p90 ×1.68**, because the graph now has
+a node where the city has a junction.
+
+### 50.3 Lights where a city would pay for them
+
+2,990 heads was not thoroughness, it was noise. A signal is what a city spends
+on a crossing big enough to need governing, and the plan already says which
+roads those are — `MAX_CARRIAGEWAY` is four, so a four-tile course is this
+city's arterial. A junction is signalised when an arterial crossing lands on
+it: **144 of 725**, carrying **561 heads**.
+
+The other 581 are not abolished. They stay junctions for the lane model, the
+road network and the routing; they simply have no head and no stop line, and
+drivers negotiate them the way they did before signals existed — which is what
+the oversized plazas have always done. `stopLineGap` skips them, because a
+driver braking for an unsignalised junction is stopping at nothing.
+
+The threshold lives in `marks.ts` with the paint and is imported by
+`signals.ts`, so the two cannot drift: a stop line nobody is holding and a
+light over an unmarked mouth are the same defect twice. The painters go
+further and ask the tile labelling as well (`signalledCrossing`), so a crossing
+that fell inside a plaza gets no paint either — which is what turned the
+arterial fan above the old town from a heap of overlapping zebras into the
+bare tarmac it actually is.
+
+Final count: **435 zebra arms and 435 stop lines**, against 21 approach tiles
+before, and **538 turn arrows** — one per approach lane, hooked left or right
+by the arms the junction actually has, and only on arms of four tiles or more,
+because a single-lane approach can only say "you may do anything", which is
+what an unmarked lane already says.
+
+### 50.4 The kerb radius
+
+§15's doctrine says built edges stay square, and names the block corner as the
+thing the diagonal-band pass must not touch. That was right about *that* pass —
+ungated, its corner test chamfers every corner in the city while chasing a
+stair step — and wrong about the corner itself. A kerb at a crossroads is the
+one built edge that is not square anywhere, because a vehicle turning into a
+side street sweeps a curve and the kerb is cut back to let it.
+
+Phase 4 cuts it, in the plane that already exists: the sidewalk corner yields
+its half to the carriageway, never the other way about, and only where the
+diagonal neighbour is junction tarmac — road running the painter's `RUN_ROAD`
+in **both** axes. That is true at a crossroads and false at every driveway,
+layby and stair step in the city, which is the difference between this and the
+version §15 refused. **3,160** corners rounded, taking the plane from 1,312
+bevels to 4,472 — of which 3,930 now give their cut half to a carriageway
+(3,160 new radii plus the 770 diagonal-band kerbs §15 already cut) and the
+rest are still coastline. A driveway mouth and a five-tile spur stay square,
+and there is a test that says so.
+
+### 50.5 The flyover could not show a light
+
+`client/city3d.html?fly=1` builds `CityView`, `SceneryLayer`, `TileLayer` and
+`GroundLayer` — and never `WorldObjectsLayer`, whose only caller was
+`main.ts`. Signal heads, hidden packages and pickups live in that layer. So
+every piece of 3D evidence this repo has ever taken showed a city with no
+lights in it, and the junctions were reviewed twice from pictures that could
+not have contained a signal.
+
+It builds it now, handed the least a scene can be — no pickups, no
+projectiles, nothing found — and a tick, which is all the phase is a function
+of. `?tick=` freezes it, so two stills of the same junction are comparable.
+
+That is the third instrument gap in three sections (§49 the lane paint, §49.1
+the crossing furniture and its draw order, this one the street furniture). The
+pattern is the same every time: a tool that shows *most* of the city is trusted
+as if it showed all of it, and the missing part is exactly where nobody is
+looking.
+
+### 50.6 What moved that was not a junction
+
+Relabelling every junction in the city moves every node in the routing graph,
+and four tests noticed. None of them were loosened without a measurement, and
+none of the four is a symptom of a broken junction:
+
+- **The largest junction component** was capped at 40 tiles and is now 60,
+  with a new claim beside it that the largest is under 1% of the carriageway —
+  which is what actually rules out the flood-fill leak the cap was written
+  against. A 49-tile box with four arms and one phase is the fix working.
+- **The lane handover bound** was "the reach asked for plus six tiles" and is
+  now twelve. A bigger junction box means the aim handed to the far side of it
+  is further away: 33 of 1,849 handovers clear the old bound, the worst at
+  eleven tiles, and nine in ten are still inside four.
+- **The ambulance service test** tries a casualty on each of the kerbs nearest
+  a hospital by planned route, because the goto follower closes on only a
+  fraction of arbitrary drives (this file's standing ceiling: three in eight).
+  Which kerbs it manages moved with the graph — measured over the best
+  sixteen, six succeed and the first is the eighth — so the candidate set went
+  from four to twelve. The ceiling did not change; the kerbs did.
+- **"Traffic queues at reds"** staged one incident beside `heads[0]` and
+  counted holds. With a fifth as many lit junctions, whether the cars that
+  spawn around one staging drive at that particular junction inside 900 ticks
+  became a coin toss — four of the first six lit crossroads gave no encounter
+  at all. It now stages twelve, which turns 11 holds into 22 against 4,803
+  cars under way.
+
+### 50.7 What is still owed
+
+- **The tiny junctions.** 323 of 725 components are four tiles or fewer, and
+  most of those are bends and mouths rather than crossroads. They cost nothing
+  now that they carry no lights, but they are nodes in the routing graph, and a
+  graph whose nodes are mostly bends is why §48.6's airfield-to-camp detour is
+  still a graph-shape problem (×6.21, down from ×6.42 and no further).
+- **Seventeen crossings still split in two**, four in three and one in four,
+  where two crossings sit close enough to merge their own tiles but not each
+  other's.
+- **Signal heads stand on the carriageway.** `RIGHT_OFFSET` puts a head at the
+  kerb-most approach *tile* and steps right from its centre, which lands on
+  tarmac at a four-tile arm. Visible for the first time in §50.5's picture,
+  and not fixed here.
+- **No keep-clear box and no give-way line.** The arrows are what §49's
+  fourth finding asked for; the rest of what goes inside a junction is not
+  drawn, and an unsignalised crossroads still has nothing at all to say about
+  who yields.

@@ -1,4 +1,4 @@
-import { laneOffset, laneCentreInTile, RIGHT_SIGN, type Lanes } from 'shared';
+import { laneOffset, laneCentreInTile, type Lanes } from 'shared';
 import { readFileSync } from 'node:fs';
 import {
   DISTRICT_TYPES,
@@ -18,8 +18,17 @@ import {
   bevelOther,
   inCutHalf,
 } from 'shared';
-import { courseJunctions, type RoadNet } from 'shared';
+import {
+  courseCrossings,
+  courseJunctions,
+  isSignalCrossing,
+  signalledCrossing,
+  junctionPaint,
+  arrowOutline,
+  type RoadNet,
+} from 'shared';
 import { hexToRgb } from './png.js';
+import type { JunctionMap } from 'shared';
 
 /**
  * Drawing a map, for the tools that look at one.
@@ -37,6 +46,13 @@ export interface RenderableMap {
   tiles: Uint8Array;
   district: Uint8Array;
   bevel?: Uint8Array | undefined;
+  /**
+   * The junction labelling, when the caller has one. The junction furniture
+   * — crossings, stop lines, arrows — is drawn only where the city puts a
+   * light, and this is how the painter asks. A plan being rendered before it
+   * has ever been generated has none, and gets the geometry's answer alone.
+   */
+  junctions?: JunctionMap | undefined;
   /**
    * The coastline as closed polylines (WORLDGEN.md §18). Given, the painter
    * shades the coast against the CURVE instead of the tile edge, which is
@@ -849,22 +865,16 @@ export function render(
   // share: measure the road's run across the direction of travel, and the
   // tile holding the middle of that run carries the dashes. Junctions — where
   // both runs are long — stay bare asphalt, as they do in the game. Drawn
-  // first so a course ribbon paints over it where one exists, which is the
-  // same precedence `courseCover` gives it in the client.
+  // AFTER the ribbons and skipping every tile they cover, which is the same
+  // precedence `courseCover` gives it in the client — the other way round,
+  // the ribbon buried the paint and the tool showed a city with no lane
+  // markings at all (§49.1).
   {
     // `tiles.ts` calls this RUN_ROAD: shorter than eight tiles in a direction
     // and the run is a junction mouth or a stub, not a street going anywhere.
     const RUN_ROAD = 8;
-    const ARTERIAL = 4;
     const mark = hexToRgb(palette.roadLane);
     const edge = hexToRgb(palette.roadMark);
-    const stopPaint = hexToRgb(palette.roadStop);
-    const zebra = hexToRgb(palette.roadCrossing);
-    // Where two CENTRELINES cross (§35) — not where the raster happens to be
-    // wide. A merged sheet of tarmac is "junction" across its whole area to a
-    // tile test, which is how the client came to stack four zebras in open
-    // ground before it started asking the curves instead.
-    const discs = courseJunctions((map.courses ?? []).filter((c) => c.kind !== 'path'));
     // `courseCover`, to the client's arithmetic: a tile is the ribbon's when
     // its CENTRE is within half the course width (plus a hair) of the curve.
     const covered = new Uint8Array(map.widthTiles * map.heightTiles);
@@ -944,63 +954,84 @@ export function render(
           else bar(near ? t1 : scale - 2 * t1, 0, t1, scale, edge);
         }
 
-        // Stop line and zebra, on the last tile before a crossroads — and only
-        // on an arterial, only where the street resumes beyond the junction,
-        // and only where two courses really cross. Every one of those filters
-        // is in `tiles.ts` because without it the city reads as painted rather
-        // than paved (REVIEW-WORLDGEN.md §35).
-        if (width < ARTERIAL) continue;
-        const junctionAt = (jx: number, jy: number): boolean => {
-          if (!isRoad(jx, jy)) return false;
-          const [h] = runFrom(jx, jy, 1, 0);
-          const [v] = runFrom(jx, jy, 0, 1);
-          return h >= RUN_ROAD && v >= RUN_ROAD;
-        };
-        const vertical2 = !horizontal;
-        const forward = vertical2 ? junctionAt(mx, my + 1) : junctionAt(mx + 1, my);
-        const ahead = forward || (vertical2 ? junctionAt(mx, my - 1) : junctionAt(mx - 1, my));
-        if (!ahead) continue;
-        const side = forward ? 1 : -1;
-        let rx = mx + (vertical2 ? 0 : side);
-        let ry = my + (vertical2 ? side : 0);
-        for (let step = 0; step < 8 && junctionAt(rx, ry); step++) {
-          rx += vertical2 ? 0 : side;
-          ry += vertical2 ? side : 0;
-        }
-        if (!isRoad(rx, ry) || junctionAt(rx, ry)) continue;
-        const [rh] = runFrom(rx, ry, 1, 0);
-        const [rv] = runFrom(rx, ry, 0, 1);
-        if (!(vertical2 ? rv >= RUN_ROAD && rh < RUN_ROAD : rh >= RUN_ROAD && rv < RUN_ROAD)) continue;
-        let crossing = false;
-        for (const j of discs) {
-          const r = j.r + 2;
-          const ddx = mx + 0.5 - j.x;
-          const ddy = my + 0.5 - j.y;
-          if (ddx * ddx + ddy * ddy <= r * r) { crossing = true; break; }
-        }
-        if (!crossing) continue;
-
-        // The stop line holds only the traffic going IN, so it covers the
-        // approaching half and stops at the centre line.
-        const dirIdx = vertical2 ? (forward ? 1 : 3) : forward ? 0 : 2;
-        const t1 = Math.max(1, Math.round(scale / 16));
-        if (((RIGHT_SIGN[dirIdx] as number) > 0 ? index >= width / 2 : index < width / 2)) {
-          if (vertical2) bar(0, forward ? scale - 3 * t1 : t1, scale, 2 * t1, stopPaint);
-          else bar(forward ? scale - 3 * t1 : t1, 0, 2 * t1, scale, stopPaint);
-        }
-        // Zebra: three stripes across the tile, whatever the scale.
-        const stripes = 3;
-        const pitch = scale / stripes;
-        const wide = Math.max(1, Math.round(pitch * 0.45));
-        for (let sN = 0; sN < stripes; sN++) {
-          const off = Math.round(sN * pitch + (pitch - wide) / 2);
-          if (vertical2) bar(off, forward ? scale - 9 * t1 : 4 * t1, wide, 5 * t1, zebra);
-          else bar(forward ? scale - 9 * t1 : 4 * t1, off, 5 * t1, wide, zebra);
-        }
+        // The crossing, the stop line and the arrows belong to the JUNCTION
+        // and are drawn from the curves below, not from this tile walk — see
+        // the pass after this one, and `junctionPaint` in shared/world/marks.
       }
     }
   }
 
+
+  // Junction furniture: the crossings, the stop lines and the turn arrows.
+  //
+  // Off the CURVES, exactly as the client draws them, and from the identical
+  // `junctionPaint` — the review tool having its own opinion about where a
+  // zebra goes is how it came to show a city with three crossings in it while
+  // the game drew twenty-one (§49.1). The only thing local here is the
+  // rasteriser: quads in tile units, filled by testing pixel centres.
+  {
+    const zebraPaint = hexToRgb(palette.roadCrossing);
+    const stopPaint = hexToRgb(palette.roadStop);
+    const arrowPaint = hexToRgb(palette.roadLane);
+    const isRoad = (tx: number, ty: number): boolean =>
+      tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles
+        ? map.tiles[ty * map.widthTiles + tx] === T_ROAD ||
+          map.tiles[ty * map.widthTiles + tx] === T_BRIDGE
+        : false;
+    const fillQuad = (q: readonly number[], colour: [number, number, number]): void => {
+      let lo = Infinity;
+      let hi = -Infinity;
+      let loY = Infinity;
+      let hiY = -Infinity;
+      for (let k = 0; k < 8; k += 2) {
+        lo = Math.min(lo, q[k] as number);
+        hi = Math.max(hi, q[k] as number);
+        loY = Math.min(loY, q[k + 1] as number);
+        hiY = Math.max(hiY, q[k + 1] as number);
+      }
+      const px0 = Math.floor((lo - x0) * scale);
+      const px1 = Math.ceil((hi - x0) * scale);
+      const py0 = Math.floor((loY - y0) * scale);
+      const py1 = Math.ceil((hiY - y0) * scale);
+      for (let py = Math.max(0, py0); py <= Math.min(hTiles * scale - 1, py1); py++) {
+        for (let px = Math.max(0, px0); px <= Math.min(wTiles * scale - 1, px1); px++) {
+          const wx = x0 + (px + 0.5) / scale;
+          const wy = y0 + (py + 0.5) / scale;
+          // Even-odd, the same test `rasteriseRings` uses on the coast.
+          let inside = false;
+          for (let a = 0, b = 3; a < 4; b = a++) {
+            const ax = q[a * 2] as number;
+            const ay = q[a * 2 + 1] as number;
+            const bx = q[b * 2] as number;
+            const by = q[b * 2 + 1] as number;
+            if (ay > wy !== by > wy && wx < ((bx - ax) * (wy - ay)) / (by - ay) + ax) {
+              inside = !inside;
+            }
+          }
+          // Paint stays on the carriageway: a crossing is drawn a fixed
+          // distance out from the junction's centre, and where an arm is
+          // short or bends away that reach can overshoot onto the kerb.
+          if (inside && isRoad(Math.floor(wx), Math.floor(wy))) put(px, py, colour);
+        }
+      }
+    };
+    const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
+    for (const cross of all) {
+      if (!isSignalCrossing(cross) || !signalledCrossing(map, cross)) continue;
+      if (
+        cross.x < x0 - 8 ||
+        cross.y < y0 - 8 ||
+        cross.x > x0 + wTiles + 8 ||
+        cross.y > y0 + hTiles + 8
+      ) {
+        continue;
+      }
+      const paint = junctionPaint(cross, all);
+      for (const q of paint.zebras) fillQuad(q, zebraPaint);
+      for (const q of paint.stops) fillQuad(q, stopPaint);
+      for (const a of paint.arrows) for (const q of arrowOutline(a)) fillQuad(q, arrowPaint);
+    }
+  }
 
   // Overlay markers: shops (bright), player spawns (white dots).
   for (const s of map.shops ?? []) {

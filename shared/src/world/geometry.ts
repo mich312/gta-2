@@ -638,6 +638,40 @@ export function shoreHalf(chain: Float32Array, wantWet: boolean): Array<[number,
  */
 
 /**
+ * One place where the road courses meet: the crossing point, the disc a
+ * painter punches out of a stroke, and — new in §50 — the ARMS.
+ *
+ * The disc alone was enough while the only question was "where does the
+ * centre dash stop". Everything a junction is furnished WITH has to know
+ * which way the roads leave it: a stop line lies across one arm, a zebra
+ * across the same arm one step further out, an arrow points along it. The
+ * tile plane cannot answer that — a merged sheet of tarmac has no direction
+ * — so the arms come off the curves with the crossing.
+ */
+export interface CourseCrossing {
+  x: number;
+  y: number;
+  /** Half the widest carriageway through here: the junction's own radius. */
+  r: number;
+  /**
+   * The ways out, as unit vectors pointing AWAY from the crossing, each with
+   * the carriageway width of the course it belongs to. Four at a crossroads,
+   * three at a T, two where a course simply bends into another.
+   */
+  arms: Array<{ dx: number; dy: number; width: number }>;
+}
+
+/** Two arms are the same arm if they leave within this angle of each other. */
+const ARM_MERGE_COS = Math.cos((25 * Math.PI) / 180);
+
+/**
+ * How far a course must carry on past the crossing for that side to count as
+ * an arm, in tiles. A course that ENDS on another one makes a T, and a T with
+ * a fourth arm painted on it puts a crossing across somebody's front garden.
+ */
+const ARM_MIN_RUN = 2;
+
+/**
  * Where the road courses cross each other — junctions, computed from the
  * CURVES rather than guessed from the tiles.
  *
@@ -648,13 +682,16 @@ export function shoreHalf(chain: Float32Array, wantWet: boolean): Array<[number,
  * not (WORLDGEN.md §23.3). A junction is where two centrelines meet, which is
  * a fact about the lines, so ask the lines.
  *
- * Returned as discs — centre and radius — because that is what a painter
- * needs to punch out of a stroke, and because a junction IS round: it is the
- * area within half a carriageway of the crossing point.
+ * Crossings found within a carriageway of each other are ONE junction. Three
+ * courses meeting at a corner cross pairwise and answer three points a third
+ * of a tile apart; furnished separately that is three sets of stop lines
+ * stacked across one mouth, which is the same failure the per-tile painter
+ * had for the same reason — asking a local question about a thing that is not
+ * local.
  */
-export function courseJunctions(
+export function courseCrossings(
   courses: ReadonlyArray<{ points: ReadonlyArray<readonly [number, number]>; width: number }>,
-): Array<{ x: number; y: number; r: number }> {
+): CourseCrossing[] {
   // Bucket every segment by the 8-tile cell it starts in, so a course is only
   // ever tested against its neighbours. Pairwise over ~7,700 segments would
   // be thirty million tests for a thing that has to run at load.
@@ -677,7 +714,23 @@ export function courseJunctions(
     }
   });
 
-  const out: Array<{ x: number; y: number; r: number }> = [];
+  /** Length of course `i` from vertex `k` plus `t` of segment k, each way. */
+  const runFrom = (i: number, k: number, t: number): [number, number] => {
+    const pts = (courses[i] as { points: ReadonlyArray<readonly [number, number]> }).points;
+    const seg = (j: number): number => {
+      const [ax, ay] = pts[j] as readonly [number, number];
+      const [bx, by] = pts[j + 1] as readonly [number, number];
+      return Math.hypot(bx - ax, by - ay);
+    };
+    const here = seg(k);
+    let back = here * t;
+    for (let j = k - 1; j >= 0 && back < ARM_MIN_RUN; j--) back += seg(j);
+    let fwd = here * (1 - t);
+    for (let j = k + 1; j + 1 < pts.length && fwd < ARM_MIN_RUN; j++) fwd += seg(j);
+    return [back, fwd];
+  };
+
+  const raw: Array<CourseCrossing> = [];
   const seen = new Set<string>();
   for (const bag of bucket.values()) {
     for (let p = 0; p < bag.length; p++) {
@@ -687,8 +740,14 @@ export function courseJunctions(
         // A course crossing ITSELF at the next segment along is a bend, not a
         // junction. Different courses, or the same one doubling back.
         if (A.i === B.i && Math.abs(A.k - B.k) <= 1) continue;
-        const ca = courses[A.i] as { points: ReadonlyArray<readonly [number, number]>; width: number };
-        const cb = courses[B.i] as { points: ReadonlyArray<readonly [number, number]>; width: number };
+        const ca = courses[A.i] as {
+          points: ReadonlyArray<readonly [number, number]>;
+          width: number;
+        };
+        const cb = courses[B.i] as {
+          points: ReadonlyArray<readonly [number, number]>;
+          width: number;
+        };
         const [ax, ay] = ca.points[A.k] as readonly [number, number];
         const [bx, by] = ca.points[A.k + 1] as readonly [number, number];
         const [cx, cy] = cb.points[B.k] as readonly [number, number];
@@ -704,15 +763,105 @@ export function courseJunctions(
         if (t < 0 || t > 1 || u < 0 || u > 1) continue;
         const x = ax + r1x * t;
         const y = ay + r1y * t;
-        // One disc per crossing, not one per segment pair that finds it.
+        // One crossing per meeting, not one per segment pair that finds it.
         const key = `${Math.round(x * 2)},${Math.round(y * 2)}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        out.push({ x, y, r: Math.max(ca.width, cb.width) / 2 });
+        const arms: CourseCrossing['arms'] = [];
+        for (const [c, k, tt, vx, vy] of [
+          [ca, A.k, t, r1x, r1y],
+          [cb, B.k, u, r2x, r2y],
+        ] as const) {
+          const len = Math.hypot(vx, vy) || 1;
+          const [back, fwd] = runFrom(c === ca ? A.i : B.i, k, tt);
+          if (fwd >= ARM_MIN_RUN) arms.push({ dx: vx / len, dy: vy / len, width: c.width });
+          if (back >= ARM_MIN_RUN) arms.push({ dx: -vx / len, dy: -vy / len, width: c.width });
+        }
+        raw.push({ x, y, r: Math.max(ca.width, cb.width) / 2, arms });
       }
     }
   }
+
+  // Merge the pairwise answers into junctions. Union-find over a coarse grid,
+  // so a corner where three courses meet is one place with three arms rather
+  // than three places with two.
+  const parent = raw.map((_, i) => i);
+  const find = (i: number): number => {
+    let r = i;
+    while ((parent[r] as number) !== r) r = parent[r] as number;
+    for (let j = i; (parent[j] as number) !== r; ) {
+      const next = parent[j] as number;
+      parent[j] = r;
+      j = next;
+    }
+    return r;
+  };
+  const grid = new Map<number, number[]>();
+  raw.forEach((c, i) => {
+    const key = (Math.floor(c.y / CELL) << 12) | Math.floor(c.x / CELL);
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const nk = key + (dy << 12) + dx;
+        for (const j of grid.get(nk) ?? []) {
+          const o = raw[j] as CourseCrossing;
+          const reach = Math.max(c.r, o.r);
+          if (Math.hypot(c.x - o.x, c.y - o.y) > reach) continue;
+          const a = find(i);
+          const b = find(j);
+          if (a !== b) parent[a] = b;
+        }
+      }
+    }
+    const bag = grid.get(key);
+    if (bag === undefined) grid.set(key, [i]);
+    else bag.push(i);
+  });
+
+  const groups = new Map<number, number[]>();
+  raw.forEach((_, i) => {
+    const k = find(i);
+    const bag = groups.get(k);
+    if (bag === undefined) groups.set(k, [i]);
+    else bag.push(i);
+  });
+
+  const out: CourseCrossing[] = [];
+  for (const bag of groups.values()) {
+    let sx = 0;
+    let sy = 0;
+    let r = 0;
+    const arms: CourseCrossing['arms'] = [];
+    for (const i of bag) {
+      const c = raw[i] as CourseCrossing;
+      sx += c.x;
+      sy += c.y;
+      r = Math.max(r, c.r);
+      for (const arm of c.arms) {
+        // The same way out, found twice by two pairs of segments, is one arm
+        // — and it is the WIDER course that decides how much of the mouth
+        // gets furniture.
+        const same = arms.find((o) => o.dx * arm.dx + o.dy * arm.dy >= ARM_MERGE_COS);
+        if (same) same.width = Math.max(same.width, arm.width);
+        else arms.push({ ...arm });
+      }
+    }
+    out.push({ x: sx / bag.length, y: sy / bag.length, r, arms });
+  }
+  // Row-major, so every host walks them in the same order.
+  out.sort((a, b) => a.y - b.y || a.x - b.x);
   return out;
+}
+
+/**
+ * The junction discs alone: what a painter punches out of a stroke.
+ *
+ * Kept as its own name because that is all most callers want, and because a
+ * disc is the whole answer to "is this tile inside a junction".
+ */
+export function courseJunctions(
+  courses: ReadonlyArray<{ points: ReadonlyArray<readonly [number, number]>; width: number }>,
+): Array<{ x: number; y: number; r: number }> {
+  return courseCrossings(courses).map((c) => ({ x: c.x, y: c.y, r: c.r }));
 }
 
 /**

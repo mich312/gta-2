@@ -13,7 +13,16 @@ function tileOf(head: { x: number; y: number }): [number, number] {
   return [Math.floor(head.x / TILE_SIZE), Math.floor(head.y / TILE_SIZE)];
 }
 
-/** Junction this tile approaches travelling `dirIdx`, or -1. */
+/**
+ * Junction this tile approaches travelling `dirIdx`, or -1 — counting only
+ * the junctions the city SIGNALISES.
+ *
+ * The unsignalised ones are junctions in every other sense (the lane model,
+ * the road network and the routing all still see them) and they are the
+ * majority: a corner where two residential streets meet gets no lights, the
+ * way it gets none in any city that has to pay for them. A head there would
+ * be the defect, so they are not arms this file has anything to say about.
+ */
 function approaches(tx: number, ty: number, dirIdx: number): number {
   const w = map.widthTiles;
   const h = map.heightTiles;
@@ -23,7 +32,8 @@ function approaches(tx: number, ty: number, dirIdx: number): number {
   const nx = tx + dx;
   const ny = ty + dy;
   if (nx < 0 || ny < 0 || nx >= w || ny >= h) return -1;
-  return junctions.idOf[ny * w + nx] as number;
+  const id = junctions.idOf[ny * w + nx] as number;
+  return id >= 0 && junctions.signalled[id] === 1 ? id : -1;
 }
 
 describe('signal heads', () => {
@@ -88,9 +98,30 @@ describe('signal heads', () => {
     // one crossroads on an arterial carried fourteen.
     expect(Math.max(...counts)).toBeLessThanOrEqual(4);
     expect(Math.min(...counts)).toBeGreaterThanOrEqual(2);
-    // Recursive subdivision makes far more T-junctions than crossroads, but
-    // both have to be there — all-threes would mean an arm was being dropped.
-    expect(counts.filter((c) => c === 4).length).toBeGreaterThan(20);
-    expect(counts.filter((c) => c === 3).length).toBeGreaterThan(20);
+    // Lights go where an arterial crosses something, and an arterial that
+    // simply STOPS at another road is rare, so the signalised set is nearly
+    // all crossroads: 137 of 147, against 6 Ts and 4 two-armed. Before the
+    // policy this read the other way round — far more Ts than crossroads —
+    // because every residential corner in the city was in the set.
+    expect(counts.filter((c) => c === 4).length).toBeGreaterThan(100);
+    expect(counts.filter((c) => c === 3).length).toBeGreaterThan(0);
+    // All-fours would mean an arm was being dropped somewhere.
+    expect(counts.filter((c) => c === 4).length).toBeLessThan(counts.length);
+  });
+
+  it('signalises the arterial crossings and leaves the rest to be negotiated', () => {
+    // The policy, as a number. 779 junctions and 2,990 heads was the city
+    // before: every corner of every block wearing a full set of lights, and
+    // 537 of those junctions four tiles of tarmac or less (§49).
+    const signalled = [...junctions.signalled].filter((v) => v === 1).length;
+    expect(junctions.count).toBeGreaterThan(400);
+    expect(signalled).toBeGreaterThan(50);
+    expect(signalled).toBeLessThan(junctions.count / 3);
+    // And no head stands anywhere else — this is what makes the stop line
+    // and the light the same fact.
+    for (const head of junctions.heads) {
+      expect(junctions.signalled[head.junctionId], `head at ${head.x},${head.y}`).toBe(1);
+    }
+    expect(junctions.heads.length).toBeLessThanOrEqual(signalled * 4);
   });
 });

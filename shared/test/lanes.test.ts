@@ -203,6 +203,7 @@ describe('lanes on the graph', () => {
     let crossed = 0;
     let on = 0;
     let n = 0;
+    const far: number[] = [];
     for (const p of alongLanes(map)) {
       const lp = laneAt(L, p.x, p.y, 1, 0);
       if (!lp || lp.edge !== p.e) continue;
@@ -213,12 +214,25 @@ describe('lanes on the graph', () => {
       if (lp.at + 40 * lp.dir > span || lp.at + 40 * lp.dir < 0) {
         crossed++;
         // Handed over rather than run on: the aim is never further from the
-        // car than the reach it asked for plus a lane's width.
-        expect(Math.hypot(aim.x - p.x, aim.y - p.y)).toBeLessThan(40 + 6 * TILE_SIZE);
+        // car than the reach it asked for plus the junction it crossed.
+        //
+        // The bound was six tiles and is now twelve. §50.2 unions the pieces
+        // one crossroads used to be labelled as, so a junction box is up to
+        // seven tiles across where it used to be three or four, and the aim
+        // handed over on the far side of one is that much further away.
+        // Measured over 1,849 handovers: 33 clear the old six-tile bound and
+        // the worst is eleven. The claim is unchanged — the aim is on the
+        // NEXT street, not running on down this one — and the distribution
+        // below is what keeps it from being vacuous.
+        far.push(Math.hypot(aim.x - p.x, aim.y - p.y));
+        expect(far[far.length - 1]).toBeLessThan(40 + 12 * TILE_SIZE);
       }
     }
     expect(crossed).toBeGreaterThan(1000);
     expect(on / n).toBeGreaterThan(0.97);
+    // And the long ones are the exception: nine handovers in ten are still
+    // inside four tiles of the car.
+    expect(far.filter((d) => d < 40 + 4 * TILE_SIZE).length / far.length).toBeGreaterThan(0.9);
   });
 
   it('is pure: the same city built twice has the same lanes', () => {

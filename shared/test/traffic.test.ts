@@ -946,8 +946,23 @@ describe('traffic signals (J1)', () => {
     // A junction is a few tiles square. If the flood fill ever leaks along a
     // carriageway, one component swallows half the road network and every
     // light in that half turns at once — so cap the largest.
-    expect(areas[0]!).toBeLessThan(40);
-    expect(map.junctions.heads.length).toBeGreaterThan(map.junctions.count);
+    //
+    // The cap was 40 and is now 60. §50.2 unions the pieces one crossroads
+    // was labelled as, and where two arterials meet at a shallow angle the
+    // box that comes out is genuinely 49 tiles — with four arms and one
+    // phase, which is the point. A leak would not look like that: it would
+    // be thousands of tiles, and the ratio below is what actually rules one
+    // out.
+    expect(areas[0]!).toBeLessThan(60);
+    let carriageway = 0;
+    for (const t of map.tiles) if (t === T_ROAD || t === T_BRIDGE) carriageway++;
+    expect(areas[0]! / carriageway).toBeLessThan(0.01);
+    // Heads are counted against the SIGNALISED junctions, not against every
+    // junction: an arterial crossroads carries four lights, and the corners
+    // that carry none are the majority of the city (§50's policy).
+    const signalled = [...map.junctions.signalled].filter((v) => v === 1).length;
+    expect(signalled).toBeGreaterThan(20);
+    expect(map.junctions.heads.length).toBeGreaterThan(signalled * 2);
   });
 
   it('never shows green to both axes, and both arms of one axis agree', () => {
@@ -1107,48 +1122,61 @@ describe('traffic signals (J1)', () => {
     // the bake, and the 4.6 rebake moved it away from every signalled
     // junction: 900 ticks, zero holds, not because nobody queued but
     // because nobody ever met a red.
-    const head = map.junctions.heads[0]!;
-    let post = { x: head.x, y: head.y };
-    outer: for (let r = 1; r <= 5; r++) {
-      for (let oy = -r; oy <= r; oy++) {
-        for (let ox = -r; ox <= r; ox++) {
-          const tx = Math.floor(head.x / TILE_SIZE) + ox;
-          const ty = Math.floor(head.y / TILE_SIZE) + oy;
-          if (map.tiles[ty * map.widthTiles + tx] === T_SIDEWALK) {
-            post = { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
-            break outer;
+    //
+    // Over SEVERAL junctions, because one is not enough any more. §50 stopped
+    // signalising every corner in the city — 147 junctions now carry lights
+    // where 779 did — and with a fifth as many reds, whether the cars that
+    // spawn around one staging happen to drive at that particular one inside
+    // 900 ticks became a coin toss: measured over the first six lit
+    // crossroads, four gave no encounter at all and two gave plenty. The
+    // claim was never about a particular junction, so it is no longer asked
+    // of one. Twelve stagings rather than the six it takes to pass: the
+    // count they produce is 22 holds against 4,803 cars under way, and a
+    // claim that squeaks past on single figures is a claim waiting to flake.
+    const posts = map.junctions.heads.slice(0, 12).map((head) => {
+      for (let r = 1; r <= 5; r++) {
+        for (let oy = -r; oy <= r; oy++) {
+          for (let ox = -r; ox <= r; ox++) {
+            const tx = Math.floor(head.x / TILE_SIZE) + ox;
+            const ty = Math.floor(head.y / TILE_SIZE) + oy;
+            if (map.tiles[ty * map.widthTiles + tx] === T_SIDEWALK) {
+              return { x: (tx + 0.5) * TILE_SIZE, y: (ty + 0.5) * TILE_SIZE };
+            }
           }
         }
       }
-    }
-    let state = createGameState(31);
-    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
-    for (let i = 0; i < 900; i++) {
-      state.players.byId[1]!.pos = { ...post };
-      state = step(state, {}, [], map);
-    }
+      return { x: head.x, y: head.y };
+    });
     let everHeld = 0;
     let everMoved = 0;
-    for (let i = 0; i < 900; i++) {
-      state.players.byId[1]!.pos = { ...post };
-      state = step(state, {}, [], map);
-      if (i % 15) continue;
-      for (const id of state.vehicles.ids) {
-        const v = state.vehicles.byId[id]!;
-        if (!isAiDriver(v.driverId)) continue;
-        const gap = stopLineGap(
-          map,
-          v.pos.x,
-          v.pos.y,
-          nearestCardinal(v.heading),
-          Math.abs(v.speed),
-          getVehicleTuning(v.kind).halfExtent,
-          state.tick,
-          timing,
-          trafficJson.comfortBrake,
-        );
-        if (gap < Infinity && Math.abs(v.speed) < 8) everHeld++;
-        if (Math.abs(v.speed) > 30) everMoved++;
+    for (const post of posts) {
+      let state = createGameState(31);
+      state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+      for (let i = 0; i < 900; i++) {
+        state.players.byId[1]!.pos = { ...post };
+        state = step(state, {}, [], map);
+      }
+      for (let i = 0; i < 900; i++) {
+        state.players.byId[1]!.pos = { ...post };
+        state = step(state, {}, [], map);
+        if (i % 15) continue;
+        for (const id of state.vehicles.ids) {
+          const v = state.vehicles.byId[id]!;
+          if (!isAiDriver(v.driverId)) continue;
+          const gap = stopLineGap(
+            map,
+            v.pos.x,
+            v.pos.y,
+            nearestCardinal(v.heading),
+            Math.abs(v.speed),
+            getVehicleTuning(v.kind).halfExtent,
+            state.tick,
+            timing,
+            trafficJson.comfortBrake,
+          );
+          if (gap < Infinity && Math.abs(v.speed) < 8) everHeld++;
+          if (Math.abs(v.speed) > 30) everMoved++;
+        }
       }
     }
     // Both halves matter: lights that never stop anybody are decoration, and

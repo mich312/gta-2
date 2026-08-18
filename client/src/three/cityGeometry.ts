@@ -29,6 +29,10 @@ import {
   spansAt,
   diagonalMark,
   laneCentreInTile,
+  courseCrossings,
+  isSignalCrossing,
+  signalledCrossing,
+  junctionPaint,
   BEV_NE,
   BEV_SE,
   BEV_SW,
@@ -425,72 +429,70 @@ export function buildCity(map: CityMap): CityBuild {
     return runV >= RUN_ROAD && runH >= RUN_ROAD;
   };
   /**
-   * Crossings, on the road tiles that approach a junction.
+   * Crossings, from the CURVES (§50) — the fourth implementation of this
+   * rule, and the last one to stop having its own opinion.
    *
-   * Returns 1 for stripes across an east-west street, 2 across a north-south
-   * one. Anchored to junctions rather than to kerbs: every kerbside tile
-   * touches a pavement, so a kerb test would stripe the whole length of every
-   * street instead of its mouth.
+   * There used to be a local copy of the §35 gates here: arterial only, axis
+   * carriageway only, and only where the street resumes past the junction.
+   * Every clause was imported from the 2D painter's reasoning, and every
+   * clause was right about the defect it was added for — but the whole thing
+   * measured a raster, and §50 established that a junction is a fact about
+   * the curves. The painted ground and the review tool now fill the same
+   * quads from `junctionPaint`; this layer draws an ATLAS of tile codes and
+   * cannot fill a quad, so it takes those quads and reduces them to whole
+   * tiles. Same set of crossings, at tile resolution.
+   *
+   * 1 means stripes across an east-west street, 2 across a north-south one —
+   * read off each quad's own long axis, which is the direction of travel.
    */
-  const crossing = (tx: number, ty: number): number => {
-    if (!isRoad(tx, ty) || isJunction(tx, ty)) return 0;
-    // A deck is not a crossroads: `isCarriageway` counts T_BRIDGE (it must,
-    // for the centre line to carry over), which brought the crossing rule
-    // onto the deck and stamped a zebra at the strait bridge's mouth
-    // (REVIEW-WORLDGEN.md §2.3). Pedestrians cross streets, not spans. Same
-    // guard as the 2D painter's, kept in step by cityTerrain.test.ts.
-    if (tileAt(tx, ty) === T_BRIDGE) return 0;
-    // Only where a MAIN road meets the junction.
-    //
-    // Marking every arm was the default, and at this city's block density it
-    // covered the place — 2,239 of 15,249 road tiles carried a crossing, so on
-    // a short block the striping ran from one junction straight into the next
-    // and the streets read as painted rather than paved. The 2D painter came
-    // to the same conclusion and gates on `ARTERIAL_WIDTH`; this did not, so
-    // the loudest texture in the 3D frame was a divergence rather than a
-    // decision.
-    //
-    // The width that matters is the one ACROSS the direction of travel: for a
-    // crossing whose junction lies east or west the street runs horizontally,
-    // so its carriageway width is the vertical run.
-    //
-    // A crossing belongs on an AXIS carriageway only — long one way, narrow
-    // the other, the same `RUN_ROAD` test the 2D painter uses. The city's
-    // curved arterials rasterise to stair-stepped diagonal bands whose tiles
-    // are moderately wide both ways; each stair corner passed the old
-    // junction test and stamped a zebra, so the whole ring road came out
-    // striped with phantom crossings at every step of the stairs.
-    // ...and only where the street CONTINUES on the far side. Where a street
-    // merges into the ring road's diagonal band, the tarmac widens into a
-    // pocket that passes the junction test, but there is no crossing street —
-    // walking on across the pocket finds more band, not the same street
-    // resuming. A zebra belongs at a crossroads, and a crossroads is a
-    // junction with your own street on both sides of it.
-    const continues = (sx: number, sy: number, horiz: boolean): boolean => {
-      let x = tx + sx;
-      let y = ty + sy;
-      for (let step = 0; step < 8 && isJunction(x, y); step++) {
-        x += sx;
-        y += sy;
+  const zebra = new Uint8Array(W * H);
+  {
+    const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
+    for (const cross of all) {
+      if (!isSignalCrossing(cross) || !signalledCrossing(map, cross)) continue;
+      for (const q of junctionPaint(cross, all).zebras) {
+        const alongX = (q[2] as number) - (q[0] as number);
+        const alongY = (q[3] as number) - (q[1] as number);
+        const code = Math.abs(alongX) >= Math.abs(alongY) ? 1 : 2;
+        let x0 = Infinity;
+        let x1 = -Infinity;
+        let y0 = Infinity;
+        let y1 = -Infinity;
+        for (let k = 0; k < 8; k += 2) {
+          x0 = Math.min(x0, q[k] as number);
+          x1 = Math.max(x1, q[k] as number);
+          y0 = Math.min(y0, q[k + 1] as number);
+          y1 = Math.max(y1, q[k + 1] as number);
+        }
+        for (let ty = Math.max(0, Math.floor(y0)); ty <= Math.min(H - 1, Math.ceil(y1)); ty++) {
+          for (let tx = Math.max(0, Math.floor(x0)); tx <= Math.min(W - 1, Math.ceil(x1)); tx++) {
+            // A tile takes the stripe when the QUAD covers its centre, which
+            // is the same rasterisation rule the coast and the course cover
+            // use — and it keeps one stripe from claiming three tiles.
+            const cx = tx + 0.5;
+            const cy = ty + 0.5;
+            let inside = false;
+            for (let a = 0, b = 3; a < 4; b = a++) {
+              const ax = q[a * 2] as number;
+              const ay = q[a * 2 + 1] as number;
+              const bx = q[b * 2] as number;
+              const by = q[b * 2 + 1] as number;
+              if (ay > cy !== by > cy && cx < ((bx - ax) * (cy - ay)) / (by - ay) + ax) {
+                inside = !inside;
+              }
+            }
+            if (!inside || !isRoad(tx, ty) || isJunction(tx, ty)) continue;
+            // A deck is not a crossroads (REVIEW-WORLDGEN.md §2.3):
+            // `isCarriageway` counts T_BRIDGE, as it must for the centre line
+            // to carry over. Pedestrians cross streets, not spans.
+            if (tileAt(tx, ty) === T_BRIDGE) continue;
+            zebra[ty * W + tx] = code;
+          }
+        }
       }
-      if (!isRoad(x, y) || isJunction(x, y)) return false;
-      const [rv, rh] = runs(x, y);
-      return horiz ? rh >= RUN_ROAD && rv < RUN_ROAD : rv >= RUN_ROAD && rh < RUN_ROAD;
-    };
-    const [runV, runH] = runs(tx, ty);
-    const horizontal = runH >= RUN_ROAD;
-    const vertical = runV >= RUN_ROAD;
-    if (horizontal === vertical) return 0; // junction interior, or a diagonal band
-    if (horizontal && (isJunction(tx - 1, ty) || isJunction(tx + 1, ty))) {
-      const side = isJunction(tx + 1, ty) ? 1 : -1;
-      return runV >= ARTERIAL_WIDTH && continues(side, 0, true) ? 1 : 0;
     }
-    if (vertical && (isJunction(tx, ty - 1) || isJunction(tx, ty + 1))) {
-      const side = isJunction(tx, ty + 1) ? 1 : -1;
-      return runH >= ARTERIAL_WIDTH && continues(0, side, false) ? 2 : 0;
-    }
-    return 0;
-  };
+  }
+  const crossing = (tx: number, ty: number): number => zebra[ty * W + tx] as number;
   /**
    * 0 plain; 1 centre line along x, 2 along y (mid-tile); 6 along x, 7 along
    * y at the tile's FAR edge; 8 diagonal up-right, 9 diagonal down-right.

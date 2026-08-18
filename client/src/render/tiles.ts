@@ -18,7 +18,6 @@ import {
   T_RAMP,
   T_FLOOR,
   TILE_SIZE,
-  RIGHT_SIGN,
   type DiagonalDir,
   diagonalMark,
   laneCentreInTile,
@@ -31,7 +30,13 @@ import {
   chainSide,
   shoreHalf,
   shoreChains,
-  courseJunctions,
+  courseCrossings,
+  isSignalCrossing,
+  signalledCrossing,
+  junctionPaint,
+  arrowOutline,
+  type JunctionPaint,
+  type MarkQuad,
   buildingCorners,
   buildingMass,
 } from 'shared';
@@ -373,6 +378,14 @@ export class TileLayer {
    */
   private junctionDiscs: Array<{ x: number; y: number; r: number }> = [];
   /**
+   * The junctions the city GOVERNS, with their arms — the ones that get a
+   * crossing, a stop line and arrows (§50). A subset of `junctionDiscs`:
+   * every crossing punches the centre dash out, only an arterial one is
+   * furnished, and the rule is the same one `sim/signals.ts` hangs its
+   * lights on, imported rather than repeated.
+   */
+  private signalCrossings: Array<{ x: number; y: number; paint: JunctionPaint }> = [];
+  /**
    * The coast running through each tile it crosses (§18), in tile-LOCAL
    * units as a flat polyline — the cut `paintShoreTile` divides that tile
    * with, sharing its ends with the neighbouring tiles' cuts.
@@ -449,12 +462,23 @@ export class TileLayer {
     this.pathCover = null;
     this.courseApron = null;
     this.junctionDiscs = [];
+    this.signalCrossings = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
     // Crossings from the ROAD curves only (3.2): a walk crossing a walk is
     // not a junction, and a footpath must never punch the centre dash out
     // of an avenue it happens to end against.
-    this.junctionDiscs = courseJunctions(courses.filter((c) => c.kind !== 'path'));
+    const crossings = courseCrossings(courses.filter((c) => c.kind !== 'path'));
+    this.junctionDiscs = crossings.map((c) => ({ x: c.x, y: c.y, r: c.r }));
+    // Arterial by the curves, and signalised by the tile labelling: the
+    // paint goes where the lights do, or the city is full of stop lines
+    // nobody is holding.
+    // Worked out once for the map, not once per chunk: the room test walks
+    // every other crossing, and a chunk that redid it would pay for the whole
+    // city's junctions to paint one block's.
+    this.signalCrossings = crossings
+      .filter((c) => isSignalCrossing(c) && signalledCrossing(map, c))
+      .map((c) => ({ x: c.x, y: c.y, paint: junctionPaint(c, this.junctionDiscs) }));
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);
     const pathCover = new Uint8Array(map.widthTiles * map.heightTiles);
     const apron = new Uint8Array(map.widthTiles * map.heightTiles);
@@ -754,7 +778,60 @@ export class TileLayer {
       ctx.restore();
     }
     ctx.setLineDash([]);
+    // And the junction furniture, last and inside the same clip: a crossing
+    // is painted ON the carriageway the ribbons just laid, and the ribbons
+    // are the reason it has to be drawn here at all — a tile under one takes
+    // no marks of its own, so before this the covered 77% of the city's
+    // carriageway could not carry a zebra however wide the road was.
+    this.paintJunctions(ctx, tx0, ty0);
     ctx.restore();
+  }
+
+  /**
+   * Crossings, stop lines and turn arrows at the junctions the city governs.
+   *
+   * All of it is `junctionPaint`'s, in tile units, transformed here and
+   * filled — the shape decisions are shared with the map renderer so the
+   * review tool and the game cannot draw different cities (§49.1). What is
+   * local is the order: zebra, then stop line, then arrows, each a flat fill
+   * over the tarmac.
+   */
+  private paintJunctions(ctx: CanvasRenderingContext2D, tx0: number, ty0: number): void {
+    if (this.signalCrossings.length === 0) return;
+    const t = RENDER_SCALE;
+    const wx0 = tx0 * TILE_SIZE;
+    const wy0 = ty0 * TILE_SIZE;
+    const dx = (tile: number): number => (tile * TILE_SIZE - wx0) * t;
+    const dy = (tile: number): number => (tile * TILE_SIZE - wy0) * t;
+    const fill = (q: MarkQuad): void => {
+      ctx.beginPath();
+      ctx.moveTo(dx(q[0]), dy(q[1]));
+      ctx.lineTo(dx(q[2]), dy(q[3]));
+      ctx.lineTo(dx(q[4]), dy(q[5]));
+      ctx.lineTo(dx(q[6]), dy(q[7]));
+      ctx.closePath();
+      ctx.fill();
+    };
+    // A junction's paint reaches about a carriageway and a half past its
+    // centre; anything further out than that cannot touch this chunk.
+    const pad = 6;
+    for (const cross of this.signalCrossings) {
+      if (
+        cross.x < tx0 - pad ||
+        cross.y < ty0 - pad ||
+        cross.x > tx0 + CHUNK_TILES + pad ||
+        cross.y > ty0 + CHUNK_TILES + pad
+      ) {
+        continue;
+      }
+      const paint = cross.paint;
+      ctx.fillStyle = palette.roadCrossing;
+      for (const q of paint.zebras) fill(q);
+      ctx.fillStyle = palette.roadStop;
+      for (const q of paint.stops) fill(q);
+      ctx.fillStyle = palette.roadLane;
+      for (const a of paint.arrows) for (const q of arrowOutline(a)) fill(q);
+    }
   }
 
   /** Drop every cached chunk — used when the sprite sheet finishes loading. */
@@ -2001,8 +2078,8 @@ export class TileLayer {
     const vertical = vLen >= RUN_ROAD;
     if (horizontal && vertical) return; // junction: bare asphalt
 
-    if (horizontal) this.paintLaneMarks(ctx, tx, ty, x, y, vLen, this.idxV[i] as number, false);
-    else if (vertical) this.paintLaneMarks(ctx, tx, ty, x, y, hLen, this.idxH[i] as number, true);
+    if (horizontal) this.paintLaneMarks(ctx, x, y, vLen, this.idxV[i] as number, false);
+    else if (vertical) this.paintLaneMarks(ctx, x, y, hLen, this.idxH[i] as number, true);
     else {
       // Short both ways: a stair step of a carved diagonal band — the ring
       // road, mostly. These used to fall through bare, so every curved
@@ -2060,8 +2137,6 @@ export class TileLayer {
    */
   private paintLaneMarks(
     ctx: CanvasRenderingContext2D,
-    tx: number,
-    ty: number,
     x: number,
     y: number,
     width: number,
@@ -2100,113 +2175,18 @@ export class TileLayer {
       else ctx.fillRect(x, near ? y + t : y + TD - 2 * t, TD, t);
     }
 
-    // A deck is not a crossroads: `paintBridge` routes deck tiles through
-    // these carriageway rules for the centre line, which brought the
-    // stop-line and zebra along and painted a crossing onto the strait
-    // bridge's mouth (REVIEW-WORLDGEN.md §2.3). Pedestrians cross streets,
-    // not spans.
-    if (this.tileAt(tx, ty) === T_BRIDGE) return;
-
-    // Stop line + zebra on the last tile before a junction — but only where a
-    // MAIN road meets it.
+    // The crossing, the stop line and the arrows are NOT drawn here.
     //
-    // Marking every arm of every junction was the default, and at this city's
-    // block density it covered the place: 2589 of 16951 road tiles carried a
-    // crossing, so on a short block the striping ran from one junction
-    // straight into the next and the streets read as painted rather than
-    // paved. Real cities put crossings on main roads. `width` is the
-    // carriageway width, so four tiles or more is an arterial.
-    const ahead = vertical ? this.junctionAt(tx, ty + 1) || this.junctionAt(tx, ty - 1) : this.junctionAt(tx + 1, ty) || this.junctionAt(tx - 1, ty);
-    if (!ahead || width < ARTERIAL_WIDTH) return;
-    const forward = vertical ? this.junctionAt(tx, ty + 1) : this.junctionAt(tx + 1, ty);
-    // ...and only at a real crossroads: the same street resuming on the far
-    // side of the junction. Where a street merges into a curved arterial's
-    // diagonal band the tarmac widens into a pocket that passes the junction
-    // test, and a zebra painted into the mouth of the ring road at every
-    // stair step was a good part of why it read as broken.
-    if (!this.streetResumesBeyond(tx, ty, vertical, forward ? 1 : -1)) return;
-    // ...and only where two COURSES actually cross (§35).
-    //
-    // `junctionAt` reads the tile plane, so a merged sheet of carriageway is
-    // "junction" across its whole area and every tile of it painted its own
-    // crossing: four to seven zebras stacked back to back in open tarmac with
-    // no kerb at either end. The filters above were added to stop exactly
-    // that and could not, because they ask the same raster the same way. A
-    // junction is where two centrelines meet, and §26 already computes that
-    // from the curves — so ask it.
-    if (!this.nearJunction(tx, ty, 2)) return;
-
-    // A stop line holds the traffic going INTO the junction, so it covers that
-    // half of the carriageway and stops at the centre line. Painted across the
-    // full width — which is what it used to do — it told drivers coming the
-    // other way to stop at a junction they were leaving.
-    //
-    // `index` counts from the low edge of the run, so the approaching half is
-    // the one this direction's traffic keeps to: driving on the right, that is
-    // the low side heading south or west and the high side heading north or
-    // east. Only the direction with the junction in front of it is marked.
-    const dirIdx = vertical ? (forward ? 1 : 3) : forward ? 0 : 2;
-    const onHighSide = (RIGHT_SIGN[dirIdx] as number) > 0;
-    const approaching = onHighSide ? index >= width / 2 : index < width / 2;
-    if (approaching) {
-      ctx.fillStyle = palette.roadStop;
-      if (vertical) ctx.fillRect(x, forward ? y + TD - 3 * t : y + t, TD, 2 * t);
-      else ctx.fillRect(forward ? x + TD - 3 * t : x + t, y, 2 * t, TD);
-    }
-
-    // Zebra: stripes spaced to fill exactly one tile, whatever TILE_SIZE is.
-    ctx.fillStyle = palette.roadCrossing;
-    const stripes = 3;
-    const pitch = TD / stripes;
-    const bar = Math.max(2, Math.round(pitch * 0.45));
-    for (let s = 0; s < stripes; s++) {
-      const off = Math.round(s * pitch + (pitch - bar) / 2);
-      if (vertical) ctx.fillRect(x + off, forward ? y + TD - 9 * t : y + 4 * t, bar, 5 * t);
-      else ctx.fillRect(forward ? x + TD - 9 * t : x + 4 * t, y + off, 5 * t, bar);
-    }
-  }
-
-  /** Is this tile inside a course-crossing disc, plus `pad` tiles? */
-  private nearJunction(tx: number, ty: number, pad: number): boolean {
-    for (const j of this.junctionDiscs) {
-      const r = j.r + pad;
-      const dx = tx + 0.5 - j.x;
-      const dy = ty + 0.5 - j.y;
-      if (dx * dx + dy * dy <= r * r) return true;
-    }
-    return false;
-  }
-
-  /**
-   * Does this street continue on the far side of the junction it runs into?
-   *
-   * Walks across the junction tiles (up to 8) and asks whether what is beyond
-   * them is a carriageway of the same orientation. True at a crossroads;
-   * false where the "junction" is really the mouth of a diagonal band, which
-   * has no crossing street and deserves no zebra.
-   */
-  private streetResumesBeyond(tx: number, ty: number, vertical: boolean, side: number): boolean {
-    const map = this.map as CityMap;
-    let x = tx + (vertical ? 0 : side);
-    let y = ty + (vertical ? side : 0);
-    for (let step = 0; step < 8 && this.junctionAt(x, y); step++) {
-      x += vertical ? 0 : side;
-      y += vertical ? side : 0;
-    }
-    if (x < 0 || y < 0 || x >= map.widthTiles || y >= map.heightTiles) return false;
-    const i = y * map.widthTiles + x;
-    if (map.tiles[i] !== T_ROAD || this.junctionAt(x, y)) return false;
-    const hLen = this.runH[i] as number;
-    const vLen = this.runV[i] as number;
-    return vertical ? vLen >= RUN_ROAD && hLen < RUN_ROAD : hLen >= RUN_ROAD && vLen < RUN_ROAD;
-  }
-
-  private junctionAt(tx: number, ty: number): boolean {
-    const map = this.map as CityMap;
-    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
-    const i = ty * map.widthTiles + tx;
-    if (map.tiles[i] !== T_ROAD) return false;
-    return (this.runH[i] as number) >= RUN_ROAD && (this.runV[i] as number) >= RUN_ROAD;
+    // They used to be, and §49 measured what that was worth: 21 zebra tiles
+    // in a city of 779 junctions. Three gates stood in front of them and each
+    // one was defensible on its own — a tile under a course ribbon takes its
+    // marks from the ribbon, only a four-tile carriageway earned a crossing,
+    // and only a cardinal run could be measured for one — and together they
+    // left the furniture drawable almost nowhere. A junction is a fact about
+    // the CURVES, so its paint is laid from the curves in `paintJunctions`,
+    // where a diagonal arterial and a covered tile are no harder than a
+    // straight uncovered one. What is left here is the carriageway's own
+    // paint: the centre line and the edge lines above.
   }
 
   private paintSidewalk(

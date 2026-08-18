@@ -224,14 +224,18 @@ describe('deriveBevels', () => {
     expect(kerbCuts).toBeGreaterThan(10);
   });
 
-  it('leaves every corner of a square junction square', () => {
-    // A plain orthogonal crossroads with its sidewalk ring: the ungated
-    // corner rule would chamfer all four block corners, and the whole city
-    // is made of these.
+  it('cuts a kerb radius into all four corners of a square junction', () => {
+    // The rule this replaces asserted the opposite, and it was right about
+    // the pass it was written for: phase 3's corner test, ungated, chamfers
+    // every block corner in the city while chasing a diagonal band's stair
+    // step. What it was NOT right about is the junction itself. §49 counted
+    // 1,312 bevels in the shipped city and none of them against a road, so
+    // every one of 779 crossroads had four square notches where a turning
+    // vehicle sweeps a curve. Phase 4 cuts exactly those corners and only
+    // those: the diagonal neighbour has to be junction tarmac.
     const N = 24;
     const tiles = new Uint8Array(N * N).fill(T_FIELD);
-    const road = (x: number, y: number): boolean =>
-      (y >= 10 && y <= 12) || (x >= 10 && x <= 12);
+    const road = (x: number, y: number): boolean => (y >= 10 && y <= 12) || (x >= 10 && x <= 12);
     for (let y = 0; y < N; y++) {
       for (let x = 0; x < N; x++) {
         if (road(x, y)) tiles[y * N + x] = T_ROAD;
@@ -244,7 +248,50 @@ describe('deriveBevels', () => {
       }
     }
     const bevel = deriveBevels(tiles, N, N);
-    expect(bevel.every((b) => b === BEV_NONE)).toBe(true);
+    // Four corners, each cut towards the tarmac it is the corner of.
+    const corners: Array<[number, number, number]> = [
+      [9, 9, BEV_SE],
+      [13, 9, BEV_SW],
+      [9, 13, BEV_NE],
+      [13, 13, BEV_NW],
+    ];
+    for (const [x, y, code] of corners) {
+      expect(bevel[y * N + x], `${x},${y}`).toBe(code);
+      // And the half it gives up is carriageway, not more pavement.
+      expect(bevelOther(tiles, bevel, N, x, y)).toBe(T_ROAD);
+    }
+    // Nothing else moves: the rest of the kerb is straight, and straight
+    // kerbs are square.
+    let cuts = 0;
+    for (const b of bevel) if (b !== BEV_NONE) cuts++;
+    expect(cuts).toBe(4);
+  });
+
+  it('leaves a driveway mouth and a stub square', () => {
+    // The gate, stated as its own claim: a corner only rounds where the road
+    // it turns into RUNS somewhere. A three-tile spur off a street is a
+    // mouth, not a crossroads, and rounding it would have the whole city's
+    // laybys and yard entrances wearing kerb radii.
+    const N = 24;
+    const tiles = new Uint8Array(N * N).fill(T_FIELD);
+    const road = (x: number, y: number): boolean =>
+      (y >= 10 && y <= 12) || (x >= 10 && x <= 12 && y >= 10 && y <= 14);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        if (road(x, y)) tiles[y * N + x] = T_ROAD;
+        else if (
+          road(x - 1, y) || road(x + 1, y) || road(x, y - 1) || road(x, y + 1) ||
+          road(x - 1, y - 1) || road(x + 1, y - 1) || road(x - 1, y + 1) || road(x + 1, y + 1)
+        ) {
+          tiles[y * N + x] = T_SIDEWALK;
+        }
+      }
+    }
+    const bevel = deriveBevels(tiles, N, N);
+    // The spur runs five tiles: short of `CARDINAL_RUN`, so its mouth is not
+    // a junction and its two corners stay square.
+    expect(bevel[13 * N + 9]).toBe(BEV_NONE);
+    expect(bevel[13 * N + 13]).toBe(BEV_NONE);
   });
 
   it('is a pure function of the tiles: two runs agree byte for byte', () => {

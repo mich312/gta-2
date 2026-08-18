@@ -282,6 +282,55 @@ export function deriveBevels(tiles: Uint8Array, W: number, H: number): Uint8Arra
     }
   }
 
+  // Phase 4 — the kerb radius at a junction (§50).
+  //
+  // The doctrine above says built edges stay square and names the block
+  // corner as the thing phase 3 must not touch. That was right about phase
+  // 3, which was chasing a stair step and would have chamfered every corner
+  // in the city as a side effect, and wrong about the corner itself: a kerb
+  // at a crossroads is the one built edge that is NOT square anywhere,
+  // because a vehicle turning into a side street sweeps a curve and the kerb
+  // is cut back to let it. §49 measured the consequence — not one of this
+  // city's 1,312 bevels lay against a road tile, so all 779 junctions had
+  // four square notches — and a square notch is exactly what a junction
+  // looks like when nobody has thought about the turn.
+  //
+  // The cut is the corner tile's own half, and it is the SIDEWALK that
+  // yields, never the carriageway: opening the pavement to the tarmac widens
+  // the mouth, which is what a radius does. The gate is what makes this
+  // different from phase 3's ungated version — the diagonal neighbour must
+  // be junction tarmac, road running the painter's `RUN_ROAD` in BOTH axes,
+  // which is true at a crossroads and false at every driveway, layby and
+  // stair step in the city.
+  const junctionTile = (x: number, y: number): boolean => {
+    if (!isRoad(x, y)) return false;
+    let h = 1;
+    for (let s = 1; h < CARDINAL_RUN && isRoad(x - s, y); s++) h++;
+    for (let s = 1; h < CARDINAL_RUN && isRoad(x + s, y); s++) h++;
+    if (h < CARDINAL_RUN) return false;
+    let v = 1;
+    for (let s = 1; v < CARDINAL_RUN && isRoad(x, y - s); s++) v++;
+    for (let s = 1; v < CARDINAL_RUN && isRoad(x, y + s); s++) v++;
+    return v >= CARDINAL_RUN;
+  };
+  for (let y = 1; y < H - 1; y++) {
+    const rowEnd = y * W + W - 1;
+    for (let i = y * W + 1; i < rowEnd; i++) {
+      if (bevel[i] !== BEV_NONE || tiles[i] !== T_SIDEWALK) continue;
+      const x = i - y * W;
+      for (let c = 0; c < 4; c++) {
+        if (tiles[i + (n1[c] as number)] !== T_ROAD) continue;
+        if (tiles[i + (n2[c] as number)] !== T_ROAD) continue;
+        if (tiles[i + (dg[c] as number)] !== T_ROAD) continue;
+        if (tiles[i + (o1[c] as number)] === T_ROAD) continue;
+        if (tiles[i + (o2[c] as number)] === T_ROAD) continue;
+        if (!junctionTile(x + (dgx[c] as number), y + (dgy[c] as number))) continue;
+        bevel[i] = c + 1;
+        break;
+      }
+    }
+  }
+
   return bevel;
 }
 

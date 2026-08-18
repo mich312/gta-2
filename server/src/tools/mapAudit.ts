@@ -8,8 +8,14 @@ import {
   T_LOT,
   T_PARK,
   T_ROAD,
+  T_SIDEWALK,
   T_TREES,
   T_WATER,
+  bevelOther,
+  courseCrossings,
+  isSignalCrossing,
+  signalledCrossing,
+  junctionPaint,
   type CityMap,
 } from 'shared';
 import { loadWorldgenParams } from '../tuning.js';
@@ -46,6 +52,21 @@ interface Audit {
   /** Territory. */
   turfLand: Array<{ gang: number; land: number }>;
   turfSpread: number;
+  /**
+   * What is AT a junction (WORLDGEN.md §50). Here because the review that
+   * asked the question had to write three throwaway scripts to answer it, and
+   * a number nobody can retake is a number that goes stale.
+   */
+  junctions: {
+    count: number;
+    small: number;
+    signalled: number;
+    heads: number;
+    zebraArms: number;
+    stops: number;
+    arrows: number;
+    kerbRadii: number;
+  };
 }
 
 function carriageway(t: number): boolean {
@@ -285,6 +306,52 @@ export function auditCity(map: CityMap, plan: ReturnType<typeof parseCityPlan>):
     barePatches: patches(map, (t) => t === T_FIELD || t === T_TREES, 900).slice(0, 6),
     turfLand,
     turfSpread: acres.length > 0 ? Math.max(...acres) / Math.min(...acres) : 0,
+    junctions: junctionCensus(map),
+  };
+}
+
+/** Junctions, their lights and their paint — see WORLDGEN.md §50. */
+function junctionCensus(map: CityMap): Audit['junctions'] {
+  const J = map.junctions;
+  const size = new Map<number, number>();
+  for (const id of J.idOf) {
+    if (id === -1) continue;
+    size.set(id, (size.get(id) ?? 0) + 1);
+  }
+  let signalled = 0;
+  for (const v of J.signalled) signalled += v;
+  const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
+  let zebraArms = 0;
+  let stops = 0;
+  let arrows = 0;
+  for (const cross of all) {
+    if (!isSignalCrossing(cross) || !signalledCrossing(map, cross)) continue;
+    const paint = junctionPaint(cross, all);
+    zebraArms += paint.stops.length;
+    stops += paint.stops.length;
+    arrows += paint.arrows.length;
+  }
+  let kerbRadii = 0;
+  const bevel = map.bevel;
+  if (bevel) {
+    const W = map.widthTiles;
+    for (let y = 0; y < map.heightTiles; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (bevel[i] === 0 || map.tiles[i] !== T_SIDEWALK) continue;
+        if (bevelOther(map.tiles, bevel, W, x, y) === T_ROAD) kerbRadii++;
+      }
+    }
+  }
+  return {
+    count: J.count,
+    small: [...size.values()].filter((v) => v <= 4).length,
+    signalled,
+    heads: J.heads.length,
+    zebraArms,
+    stops,
+    arrows,
+    kerbRadii,
   };
 }
 
@@ -312,6 +379,20 @@ function report(a: Audit): void {
   console.log('\nground doing no work');
   console.log(`       bare ${(a.barePct * 100).toFixed(1)}% of dry land`);
   for (const p of a.barePatches) console.log(`       ${String(p.tiles).padStart(5)} tiles centred ${p.x},${p.y}`);
+
+  console.log('\njunctions');
+  console.log(
+    `       ${a.junctions.count} junctions, ${a.junctions.small} of them 4 tiles or less`,
+  );
+  console.log(
+    `       ${a.junctions.signalled} signalised, ${a.junctions.heads} heads`,
+  );
+  console.log(
+    `       ${a.junctions.zebraArms} crossings, ${a.junctions.stops} stop lines, ${a.junctions.arrows} turn arrows`,
+  );
+  console.log(
+    `       ${a.junctions.kerbRadii} sidewalk corners cut back to the carriageway`,
+  );
 
   console.log('\nterritory');
   console.log(
