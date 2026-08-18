@@ -616,10 +616,10 @@
         ]
       ],
       "street": {
-        "pitchX": 15,
-        "pitchY": 12,
+        "pitchX": 26,
+        "pitchY": 21,
         "width": 3,
-        "alleyOver": 18
+        "alleyOver": 29
       }
     },
     {
@@ -1958,6 +1958,16 @@
         7
       ],
       "byAir": true
+    },
+    {
+      "kind": "square",
+      "name": "Exchange Square",
+      "rect": [
+        484,
+        188,
+        13,
+        13
+      ]
     },
     {
       "kind": "square",

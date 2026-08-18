@@ -5047,3 +5047,123 @@ the pin that is wrong.**
   read better and add to the angle-cut share; 12° was measured at 38.8%
   against 45.5% for the shape that shipped, so it wants doing with the
   polygons redrawn to suit, not by turning the grid under them.
+
+---
+
+## 48. The plan, worked: crossings, decks, and a downtown that is a place
+
+`PLAN-MAPDESIGN.md` end to end. What follows is what each wave actually cost
+and what it bought, including the two items that closed by being measured
+rather than fixed and the two attempts that were backed out.
+
+### 48.1 The instrument (Wave 0)
+
+`pnpm mapaudit`. The four citywide pins, the crossing census, detour
+percentiles, bare ground and turf spread, in one report meant to be diffed
+across a change. This branch rebuilt those numbers by hand a dozen times and
+§47.2's cross-water surprise is what it cost.
+
+And the detour §44 bought is a pin at last (`city.test.ts`): landmark-to-
+landmark p90, measured 1.95, held to 2.1. "One road network" stays true whether
+a crossing exists or not, which is exactly why nothing noticed when two of them
+did not.
+
+### 48.2 A deck that reads as a deck (Wave 1)
+
+Two reviewers, from different pictures, called the strait crossings "a road
+drawn on the ocean" and "roads laid on the surface of the sea". Both were wrong
+about the cause and right about the reading.
+
+The parapet was already there — `tiles.ts` draws it on every deck edge facing
+open water — at `max(1, TD/10)`, a tenth of a tile, which from the flyover's
+altitude is two thirds of a screen pixel. So both painters now add two things
+drawn in **world** units instead, which survive minification: a shadow on the
+water down-sun of the deck, and piers every nine tiles along its flanks. The
+map renderer additionally stops painting the whole deck kerb-grey — the
+carriageway wears road, the water-facing tiles wear the parapet.
+
+**Two items closed without a code change, which is the better outcome:**
+
+- **Markings on unpaved ground: not real.** The two reviewers contradicted each
+  other, so it was measured: `courseGround` already restricts ribbons to road,
+  bridge, pavement, bank and floor, and 144 of 39,496 course centreline samples
+  pass over other ground with nothing painted there. The 2D reviewer's citywide
+  pixel measurement was right; the 3D reviewer saw park paths and stunt-ramp
+  chevrons, both of which are features.
+- **The checkerboard: a different bug from the one reported.** Not a broken
+  blend, and not the "intended texture" §2.7 recorded either. The tiles are a
+  clean diagonal staircase — FIELD, SIDEWALK, ROAD, stepping five tiles a row —
+  and at an oblique camera a staircase of alternating materials reads as a
+  dither. It is §38's hard material edge on an angled boundary, and the fix is
+  the bevel treatment the shoreline already gets. Bigger than a paint fix.
+
+### 48.3 The creek (Wave 2)
+
+The finding neither the docs nor `REVIEW-MAPDESIGN.md` had: the creek dividing
+the industrial west of the south bank from the residential east ran **9,037
+water tiles with zero decks**, and streets stopped in cul-de-sac caps on both
+banks facing each other across ten tiles of water.
+
+Three crossings, sited where those caps already faced each other — Tanner's
+Bridge, Millrace Bridge, Weir Bridge:
+
+| across the creek | before | after |
+| --- | --- | --- |
+| (360,445) → (410,445) | ×8.1 | **×1.5** |
+| (350,470) → (400,470) | ×7.2 | ×2.1 |
+| (330,520) → (380,520) | ×4.0 | ×1.0 |
+| citywide detour p90 | ×2.00 | **×1.95** |
+
+66 deck tiles where there were none. Four pins held; 29 of 29 landmarks stayed
+on their authored rectangles.
+
+The towers got the crown the reviewer asked for: nine parts at **6/32/40**
+storeys — podium, shaft, spire — rings rather than stacks because parts in
+`RECIPES` may not overlap. `city.test.ts` now requires three authored heights
+of a tower and two of everything else.
+
+### 48.4 The Spine stops being wallpaper (Wave 3)
+
+The plan gated this behind an experiment, and the experiment settled it in one
+run. Holding every other district still and moving only The Spine's pitch:
+
+| The Spine's pitch | merged | empty | citywide road / bldg | inside The Spine road / bldg | blocks | median block |
+| --- | --- | --- | --- | --- | --- | --- |
+| 15×12 (authored) | 221 | 3 | 33.2% / 14.9% | **41.2% / 16.1%** | 153 | 108 |
+| 26×21 | **193** | 3 | 32.4% / 16.4% | **31.5% / 33.2%** | 77 | 270 |
+
+Downtown was 41% carriageway against 16% building — two and a half times as
+much asphalt as city. At 26×21 it is 31% against 33%, building coverage
+**doubles**, the median block goes 108 → 270 tiles, and merged tarmac *falls*
+by 28. Every axis improves at once, which is rare enough to be worth saying
+plainly: the CBD was not badly drawn, it was drawn too fine.
+
+With it, **Exchange Square** — 13×13, in the block a coarser lattice would
+otherwise have left empty, which is how it earns its place twice. The reviewer's
+complaint was "no plaza, no civic mass, nothing to name"; the city already had
+`square` as a landmark kind and three of them elsewhere.
+
+Citywide after both: road 33.2% → **32.4%** of dry land, building 14.9% →
+**16.4%**, angle-cut share 45.6% → 46.5%, all four pins green, 30 of 30
+landmarks fitting, 945 tests passing.
+
+### 48.5 Backed out, and why
+
+- **A finer pitch for Kelvin Quay** (26×22 → 21×18) to close its one empty
+  block: it turned one empty block into two. Reverted.
+- **A country lane between Marsh End Airfield and Pinewatch Camp**, 48 tiles
+  apart and 309 to drive — the worst detour left on the map. Tried at two
+  alignments; both made the measured detour *worse* (304, then 477), because
+  the camp then snaps to a lane whose far end joins the network no closer than
+  before. Reverted. The detour stays owed, and the diagnosis with it: this is a
+  graph-shape problem, not a missing road.
+
+### 48.6 Owed
+
+- The airfield-to-camp detour above.
+- The §38 material-edge staircase (48.2), which wants the shoreline's bevel
+  treatment extended to land materials.
+- The one empty block in Kelvin Quay, and the two residential ones that
+  predate all of this.
+- The x≈545 seam where The Spine meets North Point with no transition — the
+  coarser pitch makes it *more* visible, not less.

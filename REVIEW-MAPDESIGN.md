@@ -18,6 +18,9 @@ the session's amenity passes — and every claim names the file it comes from.
 | `evidence/mapdesign-city.png` | The whole city, 2 px per tile | `pnpm mapgen --out=evidence/mapdesign-city.png` |
 | `evidence/mapdesign-strait.png` | The strait end to end, 3 px per tile | `pnpm mapgen --crop=240,250,470,220 --scale=3 --out=evidence/mapdesign-strait.png` |
 | `evidence/mapdesign-skyline.png` | Downtown at the camera pitch the game is played at | `WAIT_GROUND=25 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,180&h=900&pitch=42&night=0" evidence/mapdesign-skyline.png` |
+| `evidence/mapdesign-creek.png` | The creek and its three new crossings | `pnpm mapgen --crop=330,425,110,90 --scale=9 --out=evidence/mapdesign-creek.png` |
+| `evidence/mapdesign-downtown.png` | The Spine at 26×21, with Exchange Square | `pnpm mapgen --crop=420,120,145,200 --scale=5 --out=evidence/mapdesign-downtown.png` |
+| `evidence/mapdesign-deck.png` | A deck with its parapet, shadow and piers | `pnpm mapgen --crop=545,265,55,125 --scale=8 --out=evidence/mapdesign-deck.png` |
 | `evidence/mapdesign-quay.png` | Kelvin Quay and Bridgefoot on the headland | `pnpm mapgen --crop=410,290,150,100 --scale=6 --out=evidence/mapdesign-quay.png` |
 | `evidence/mapdesign-turf.png` | The seven manors, washed over the ground they hold | `pnpm mapgen --turf --out=evidence/mapdesign-turf.png` |
 | `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
@@ -280,6 +283,12 @@ The same island is also the one with the least redundancy: cut both sound
 bridges and 11% of the city goes with them. (No *single* edge disconnects
 anything: the cut-edge analysis finds 49 cut edges and none isolates as many
 as 20 junctions. Two-edge-connected, but only just.)
+
+> **§2.7 is now fixed for downtown.** The Spine's pitch went 15×12 → 26×21:
+> inside it, road share 41.2% → 31.5% and building 16.1% → **33.2%**, with
+> merged tarmac falling citywide. Exchange Square is the plaza it never had.
+> `WORLDGEN.md` §48.4. The other districts are untouched and the citywide
+> figure is 32.4% road against 16.4% building.
 
 ### 2.7 The city is more asphalt than city
 
