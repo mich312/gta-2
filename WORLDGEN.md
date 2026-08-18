@@ -5167,3 +5167,42 @@ landmarks fitting, 945 tests passing.
   predate all of this.
 - The x≈545 seam where The Spine meets North Point with no transition — the
   coarser pitch makes it *more* visible, not less.
+
+### 48.7 The islets, and a police post that could not exist
+
+The last of the plan's small change, and the second half of it is a finding.
+
+**Packages on the islands nobody can drive to.** `placePackages` scores
+pavement, park and lot by how enclosed it is — a back alley, a courtyard, the
+gap behind a shed — which is the right rule for a city and finds precisely
+nothing on a barrier islet of grass and sand. Measured before: the four
+uninhabited islets carried zero packages, zero pickups and zero props between
+them, on a map with 460 boat spawns. Now every island with no road on it takes
+one package at the tile furthest from its own water — the four islets and
+Gannet Rock's plateau, five in all. An island with no road is not a place that
+needs a hiding place — it *is* one, and rowing out to it is the only reason a
+player would ever go.
+
+Two things the suite corrected on the way in, both fair. The islets are half
+woodland and woodland is solid, so "furthest from the water" put packages in
+the middle of a wood: `secrets.test.ts` asks that every package is somewhere a
+person can stand, and it was right to. And the five come **out of** the
+hundred rather than on top of it — `packageCount` is the number the economy is
+balanced against, and the same test pins the count exactly.
+
+**A country police post for Marsh End: refused, and the refusal is the
+interesting part.** The coast road, the spit and the airfield sit ~200 tiles
+from a station, the worst police cover on the map. A `police` landmark was
+authored at 604,624 to close it, and `citybake --fit` moved it **64 tiles**
+back into the suburbs — where, measured, it changed nothing: p95 stayed at 180.
+
+The cause is in `RECIPES`. `police` is a block-dwelling kind: `T_LOT` ground,
+`T_LOT` apron, one solid rect, and the bake will only stand it on a block.
+`farm`, `campground` and `lighthouse` are "the country kinds: stamped on open
+ground, no block and no apron". So the countryside **cannot have a police
+station** — not because nobody drew one, but because the recipe table has no
+country police. The post was reverted rather than shipped somewhere useless.
+
+Closing it wants a country variant of the police recipe, at which point the
+plan can put a post on the flats where it is needed. That is a worldgen change
+and it is owed, not a placement problem.

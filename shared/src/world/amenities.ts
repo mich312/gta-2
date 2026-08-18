@@ -612,7 +612,69 @@ export function placePackages(map: CityMap, params: WorldgenParams): void {
     }
   }
   scored.sort((a, b) => b.enclosure - a.enclosure || a.y - b.y || a.x - b.x);
-  map.packages = spread(scored, want);
+  const found: Vec2[] = [];
+
+  // And one on every island nobody can drive to.
+  //
+  // The scoring above wants pavement, park or lot with five enclosing sides —
+  // a back alley, a courtyard, the gap behind a shed — which is the right rule
+  // for a city and finds exactly nothing on a barrier islet of grass and sand.
+  // Measured before this: the four uninhabited islets carried zero packages,
+  // zero pickups and zero props between them, on a map with 460 boat spawns
+  // (`REVIEW-MAPDESIGN.md` §2.9). An island with no road on it is not a place
+  // that needs a hiding place; it IS one, and rowing out to it is the only
+  // reason a player would ever go.
+  const island = islandLabels(map);
+  const roads = new Set<number>();
+  const size = new Map<number, number>();
+  const middle = new Map<number, { x: number; y: number; d: number }>();
+  for (let ty = 1; ty < map.heightTiles - 1; ty++) {
+    for (let tx = 1; tx < map.widthTiles - 1; tx++) {
+      const id = island[ty * map.widthTiles + tx] as number;
+      if (id < 0) continue;
+      size.set(id, (size.get(id) ?? 0) + 1);
+      const tile = t(map, tx, ty);
+      if (tile === T_ROAD) roads.add(id);
+      // ...but only where a person can actually stand. Woodland is solid to a
+      // mover, and the islets are half trees: the furthest tile from the water
+      // is in the middle of the wood as often as not, and a package nobody can
+      // reach is worse than no package at all (`secrets.test.ts` says so, and
+      // said so about this).
+      if (tile !== T_FIELD && tile !== T_PARK && tile !== T_SAND && tile !== T_LOT) continue;
+      // The tile furthest from any water is the middle of the island, which is
+      // where a package should be: findable only by getting out and walking.
+      let d = 0;
+      while (d < 8) {
+        const r = d + 1;
+        let clear = true;
+        for (let j = -r; j <= r && clear; j++) {
+          for (let i = -r; i <= r; i++) {
+            if (t(map, tx + i, ty + j) === T_WATER) {
+              clear = false;
+              break;
+            }
+          }
+        }
+        if (!clear) break;
+        d = r;
+      }
+      const best = middle.get(id);
+      if (!best || d > best.d) middle.set(id, { x: tx, y: ty, d });
+    }
+  }
+  for (const [id, n] of [...size].sort((a, b) => a[0] - b[0])) {
+    if (roads.has(id) || n < 400) continue;
+    const m = middle.get(id);
+    if (!m || m.d < 2) continue;
+    found.push({ x: (m.x + 0.5) * TILE_SIZE, y: (m.y + 0.5) * TILE_SIZE });
+  }
+  // The islets come out of the same budget rather than on top of it: a
+  // hundred packages is a hundred packages, and `packageCount` is the number
+  // the economy is balanced against.
+  for (const p of spread(scored, Math.max(0, want - found.length))) {
+    found.push({ x: p.x, y: p.y });
+  }
+  map.packages = found;
 }
 
 /**
