@@ -32,6 +32,7 @@ the session's amenity passes — and every claim names the file it comes from.
 | `evidence/mapdesign-downtown.png` | The Spine at 26×21, with Exchange Square | `pnpm mapgen --crop=420,120,145,200 --scale=5 --out=evidence/mapdesign-downtown.png` |
 | `evidence/mapdesign-deck.png` | A deck with its parapet, shadow and piers | `pnpm mapgen --crop=545,265,55,125 --scale=8 --out=evidence/mapdesign-deck.png` |
 | `evidence/mapdesign-quay.png` | Kelvin Quay and Bridgefoot on the headland | `pnpm mapgen --crop=410,290,150,100 --scale=6 --out=evidence/mapdesign-quay.png` |
+| `evidence/mapdesign-junction.png` | One crossroads at 48 px per tile (§3) | `pnpm mapgen --crop=348,212,16,16 --scale=48 --out=evidence/mapdesign-junction.png` |
 | `evidence/mapdesign-turf.png` | The seven manors, washed over the ground they hold | `pnpm mapgen --turf --out=evidence/mapdesign-turf.png` |
 | `evidence/mapdesign-headland.png` | The 3D city at pitch **0°** over downtown and the headland | `pnpm --filter client dev`, then `WAIT_GROUND=60 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=470,300&h=2400&pitch=0&night=0" evidence/mapdesign-headland.png` |
 
@@ -418,3 +419,59 @@ same call `pnpm mapgen` makes — plus `pnpm citybake --check` and
 - **The bridge experiment (§2.1)**: `buildLayout(parseCityPlan({...raw, roads,
   maxBridgeSpan}))` with the endpoints edited, counting 8-connected `T_BRIDGE`
   components of 20 tiles or more. Layout only — no bake, nothing committed.
+
+---
+
+## 3. The junctions, evaluated
+
+Asked for separately, after the waves: what is at a junction in this city, and
+what is missing. Measured over `generateCity(1)` — **779 junctions**.
+
+| | measured |
+| --- | --- |
+| signal heads | **2,990** — every junction is signalised, including all 537 that are 4 tiles or smaller |
+| junction footprint | p50 **2 tiles**, p90 17, max 20 |
+| zebra crossings | **21 approach tiles in the entire city** |
+| stop lines | the same 21 — one rule gates both |
+| bevelled road tiles | **0** of the city's 1,312 bevels; every kerb corner is a right angle |
+| props within 3 tiles of a junction | 252 of 1,600 (164 lamps) |
+| road-net node degree | 32 dead ends, 101 of degree 2, 190 three-way, 225 four-way |
+
+`evidence/mapdesign-junction.png` is one crossroads at 48 px per tile.
+
+### 3.1 What is missing, ranked
+
+1. **Crossings and stop lines are effectively absent.** 758 of 779 junctions
+   carry traffic lights and nothing for the traffic to stop at. The junction in
+   the evidence has signals on four arms and a zebra on **one**, which reads
+   worse than none at all. The §35 filters exist for good reasons — each one
+   was added against a real defect, from zebras stacked in merged tarmac to
+   crossings painted into the ring road's stair steps — but together they have
+   overshot: the city has 21.
+2. **No kerb radius anywhere.** Every junction corner is square, so a turning
+   car clips pavement. The bevel plane is used 1,312 times and every one of
+   them is shoreline; it has never been pointed at a kerb (§38's open note,
+   from the other side).
+3. **Signals on junctions that should not have them.** Half the junction
+   population is two tiles — a residential corner — and all 537 of the small
+   ones are signalised. The phase logic is running on corners.
+4. **Nothing inside the junction box.** No keep-clear, no turn arrows, no
+   give-way. "A junction is bare asphalt" is a rule written to stop the ribbon
+   dashing straight through a crossing; it was never followed by a rule that
+   says what a junction *does* carry.
+5. **The 17-20 tile junctions** at p90 are §28.3's merged sheets, experienced
+   as a place you drive through rather than measured as a statistic.
+
+### 3.2 And a fourth instrument gap
+
+`city3d.html?fly=1` — the camera every evidence shot in this repo is taken
+with, including both outside reviews — builds `CityView`, `SceneryLayer` and
+the painted ground, and **never constructs `WorldObjectsLayer`**. That is the
+layer which draws traffic signals, pickups and hidden packages
+(`client/src/main.ts:56` is its only caller). So no flyover picture ever taken
+here has shown a signal head, and the junctions look barer in every one of them
+than they are in play.
+
+Items 1-5 are the city. "No signals visible" is the camera, and the flyover
+should build that layer so the evidence stops understating the city a third
+time (§49 was the second).
