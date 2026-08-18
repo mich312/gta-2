@@ -1,4 +1,4 @@
-import { laneOffset, type Lanes } from 'shared';
+import { laneOffset, laneCentreInTile, type Lanes } from 'shared';
 import { readFileSync } from 'node:fs';
 import {
   DISTRICT_TYPES,
@@ -575,6 +575,70 @@ export function render(
     }
   }
 
+
+  // The lane paint on ordinary streets, BEFORE the curve layer.
+  //
+  // This tool drew markings for authored courses and nothing else, so every
+  // stretch of carriageway a course does not cover — most of the lattice, and
+  // §26 measures course coverage at 76% — came out as bare tarmac. The city
+  // was fine; the instrument was lying, and it lied for the whole of
+  // `REVIEW-MAPDESIGN.md`: downtown was called "one avenue with a centre line
+  // and no other hierarchy" from a picture in which no other street was
+  // ALLOWED a centre line. A review tool that under-draws the thing under
+  // review is worse than no tool.
+  //
+  // The rule is `tiles.ts`'s, via the same `laneCentreInTile` both renderers
+  // share: measure the road's run across the direction of travel, and the
+  // tile holding the middle of that run carries the dashes. Junctions — where
+  // both runs are long — stay bare asphalt, as they do in the game. Drawn
+  // first so a course ribbon paints over it where one exists, which is the
+  // same precedence `courseCover` gives it in the client.
+  {
+    // `tiles.ts` calls this RUN_ROAD: shorter than eight tiles in a direction
+    // and the run is a junction mouth or a stub, not a street going anywhere.
+    const RUN_ROAD = 8;
+    const mark = hexToRgb(palette.roadLane);
+    const isRoad = (tx: number, ty: number): boolean =>
+      tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles
+        ? map.tiles[ty * map.widthTiles + tx] === T_ROAD
+        : false;
+    const runFrom = (tx: number, ty: number, dx: number, dy: number): [number, number] => {
+      let back = 0;
+      while (isRoad(tx - dx * (back + 1), ty - dy * (back + 1))) back++;
+      let fwd = 0;
+      while (isRoad(tx + dx * (fwd + 1), ty + dy * (fwd + 1))) fwd++;
+      return [back + fwd + 1, back];
+    };
+    for (let ty = 0; ty < hTiles; ty++) {
+      const my = y0 + ty;
+      if (my < 0 || my >= map.heightTiles) continue;
+      for (let tx = 0; tx < wTiles; tx++) {
+        const mx = x0 + tx;
+        if (mx < 0 || mx >= map.widthTiles || !isRoad(mx, my)) continue;
+        const [hLen, idxH] = runFrom(mx, my, 1, 0);
+        const [vLen, idxV] = runFrom(mx, my, 0, 1);
+        const horizontal = hLen >= RUN_ROAD;
+        const vertical = vLen >= RUN_ROAD;
+        if (horizontal === vertical) continue; // a junction, or too short to say
+        const width = horizontal ? vLen : hLen;
+        const index = horizontal ? idxV : idxH;
+        if (width > 4) continue; // wider than a carriageway: a diagonal band's stair
+        const centre = laneCentreInTile(width, index);
+        if (centre === null) continue;
+        // Two dashes a tile, on for the middle half of each period, which is
+        // the cadence `paintLaneMarks` draws and the 3D shader recomputes.
+        const at = Math.min(scale - 1, Math.max(0, Math.round(centre * scale) - 1));
+        for (let d = 0; d < 2; d++) {
+          const off = d * (scale / 2) + scale / 8;
+          const len = Math.max(1, Math.round(scale / 4));
+          for (let k = 0; k < len; k++) {
+            if (horizontal) put(tx * scale + Math.round(off) + k, ty * scale + at, mark);
+            else put(tx * scale + at, ty * scale + Math.round(off) + k, mark);
+          }
+        }
+      }
+    }
+  }
 
   // The roads, drawn as the CURVES they are (§16) rather than as the tiles
   // they were rasterised into — in the client's own paint order, because the

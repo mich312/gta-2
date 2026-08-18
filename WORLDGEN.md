@@ -5206,3 +5206,39 @@ country police. The post was reverted rather than shipped somewhere useless.
 Closing it wants a country variant of the police recipe, at which point the
 plan can put a post on the flats where it is needed. That is a worldgen change
 and it is owed, not a placement problem.
+
+---
+
+## 49. The review tool was under-drawing the city
+
+"But roads still seem to be broken." They were not; the instrument was.
+
+`mapgen` renders the roads as the curves they are (§16) — casing, fill, edge
+lines, centre dash, course by course, in the client's own paint order. What it
+never did was paint anything on carriageway that **no course covers**, and §26
+measures course coverage at 76% of the tarmac. So on every review render in
+this repo, three quarters of the street lattice carried its markings and the
+rest was flat asphalt: no centre line, no lane paint, nothing. Downtown's grid
+in particular, where the authored avenues are courses and every other street is
+lattice.
+
+The game has never looked like that. `tiles.ts` paints a tile under a course
+from the ribbon and every other road tile from the shared rule in `marks.ts` —
+measure the run across the direction of travel, dash the tile holding its
+middle, leave junctions bare. A flyover of the same block shows dashed centre
+lines, zebras, kerbs and manholes on every street.
+
+So the tool now does what the client does, in the same order: per-tile lane
+paint first, from the same `laneCentreInTile`, then the course ribbons over the
+top, which is the precedence `courseCover` gives them in the client.
+
+**What this cost, stated plainly.** Every top-down PNG in `REVIEW-MAPDESIGN.md`
+was drawn by the faulty tool, and one of the two independent reviewers called
+downtown "one avenue with a centre line and no other hierarchy" — from a
+picture in which no other street was allowed a centre line. The measurements in
+that review are unaffected: block sizes, road and building shares, crossing
+counts and detours were all taken from tile data. The judgements made by eye
+about *hierarchy* were not, and they were made against a lie.
+
+A tool that reviews the city has to draw the city. All seven `mapdesign-*`
+renders are retaken.

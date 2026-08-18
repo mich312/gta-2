@@ -11,6 +11,16 @@ on the map (territory, spawns, amenities) know what the map looks like.
 Everything below is measured off `generateCity(1)` — the shipped bake plus
 the session's amenity passes — and every claim names the file it comes from.
 
+> **A warning about the pictures, added after the fact.** Every render in this
+> review was taken with `pnpm mapgen`, and until `WORLDGEN.md` §49 that tool
+> drew lane markings **only for authored courses** — so most of the street
+> lattice appeared as bare tarmac with no centre line and no kerb paint. The
+> city was never like that; the game's painter marks every road tile. Judgements
+> here that rest on *measurement* stand. Judgements that rest on how a render
+> *looked* — anything about hierarchy, or a district reading as undifferentiated
+> — were made from a picture that under-drew its own subject. The renders have
+> been retaken.
+
 **The pictures.**
 
 | File | What it is | Retake |
