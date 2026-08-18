@@ -328,6 +328,53 @@ export function render(
       } else {
         c = colors[tile] ?? [255, 0, 255];
       }
+      // A deck is a road held above the water, and this render used to paint
+      // it flat kerb grey, which from above is a pale stripe on the sea
+      // (PLAN-MAPDESIGN 1.1). The carriageway wears road; the tiles of it that
+      // face open water wear the kerb as a parapet; and the water down-sun of
+      // a deck takes its shadow. Three rules, and a crossing stops reading as
+      // paint on the ocean.
+      if (tile === T_BRIDGE) {
+        const wet = (nx: number, ny: number): boolean =>
+          nx >= 0 && ny >= 0 && nx < map.widthTiles && ny < map.heightTiles
+            ? map.tiles[ny * map.widthTiles + nx] === T_WATER
+            : false;
+        const edge = wet(mx - 1, my) || wet(mx + 1, my) || wet(mx, my - 1) || wet(mx, my + 1);
+        c = edge ? (colors[T_BRIDGE] as [number, number, number]) : hexToRgb(palette.road);
+      } else if (tile === T_WATER) {
+        // A pier every span along the deck's flanks, for the same reason the
+        // shadow is here: it is drawn in world units, so it is still there
+        // when the whole map is two pixels a tile.
+        const abut = (nx: number, ny: number): boolean =>
+          nx >= 0 && ny >= 0 && nx < map.widthTiles && ny < map.heightTiles
+            ? map.tiles[ny * map.widthTiles + nx] === T_BRIDGE
+            : false;
+        if (
+          (mx + my) % 9 === 0 &&
+          (abut(mx - 1, my) || abut(mx + 1, my) || abut(mx, my - 1) || abut(mx, my + 1))
+        ) {
+          const w = colors[T_WATER] as [number, number, number];
+          c = [
+            Math.round((w[0] as number) * 0.4),
+            Math.round((w[1] as number) * 0.4),
+            Math.round((w[2] as number) * 0.4),
+          ];
+        }
+        for (let d = 1; d <= 2; d++) {
+          const sx = mx - d;
+          const sy = my - d;
+          if (sx < 0 || sy < 0) break;
+          if (map.tiles[sy * map.widthTiles + sx] !== T_BRIDGE) continue;
+          const w = colors[T_WATER] as [number, number, number];
+          const k = d === 1 ? 0.55 : 0.78;
+          c = [
+            Math.round((w[0] as number) * k),
+            Math.round((w[1] as number) * k),
+            Math.round((w[2] as number) * k),
+          ];
+          break;
+        }
+      }
       // The diagonal shoreline, at whatever this render's scale can show of
       // it: the cut half of a bevelled tile wears the neighbour's colour.
       const code = map.bevel ? (map.bevel[my * map.widthTiles + mx] as number) : 0;

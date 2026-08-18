@@ -1708,6 +1708,40 @@ export class TileLayer {
       const bx = x + (((h >> (i * 3 + 2)) & 15) / 16) * (TD - bw);
       ctx.fillRect(bx | 0, by, bw, Math.max(1, (TD / 12) | 0));
     }
+    // What a deck throws on the water under it (PLAN-MAPDESIGN 1.1).
+    //
+    // The parapet in `paintBridge` is drawn as a fraction of a tile, which is
+    // right up close and worth nothing from altitude: at the flyover's height
+    // a tenth of a tile is two thirds of a screen pixel, so a crossing seen
+    // from above is a grey ribbon with a centreline on open sea, and two
+    // independent reviewers called it a road painted on the ocean. A shadow
+    // and a pier are drawn in WORLD units instead — they are the width of the
+    // water tiles they land on — so they survive being minified, and they say
+    // the one thing the parapet cannot: the road is ABOVE the water.
+    //
+    // The sun is down and to the right (SUN_X/SUN_Y), and the deck stands
+    // BRIDGE_DECK_Z above the surface, which is two and a half tiles: a deck
+    // up-sun of this tile puts its shadow here.
+    for (let d = 1; d <= 2; d++) {
+      const up = this.tileAt(tx - d, ty - d);
+      if (up !== T_BRIDGE) continue;
+      ctx.fillStyle = shade(palette.water, d === 1 ? 0.5 : 0.28, '#04070d');
+      ctx.fillRect(x, y, TD, TD);
+      break;
+    }
+    // Piers, at a span's interval along the deck's flanks: a dark block in the
+    // water beside the deck, which from above is the difference between a
+    // bridge and a stripe.
+    const flank =
+      this.tileAt(tx - 1, ty) === T_BRIDGE ||
+      this.tileAt(tx + 1, ty) === T_BRIDGE ||
+      this.tileAt(tx, ty - 1) === T_BRIDGE ||
+      this.tileAt(tx, ty + 1) === T_BRIDGE;
+    if (flank && (tx + ty) % 9 === 0) {
+      ctx.fillStyle = shade(palette.water, 0.62, '#04070d');
+      const p = Math.max(1, (TD / 3) | 0);
+      ctx.fillRect(x + ((TD - p) >> 1), y + ((TD - p) >> 1), p, p);
+    }
     // Shore lip against any non-water neighbour.
     if (!lip) return;
     ctx.fillStyle = shade(palette.water, 0.3, '#bfe0ef');

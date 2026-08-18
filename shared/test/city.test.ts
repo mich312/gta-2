@@ -784,6 +784,75 @@ describe('the city, as an asset', () => {
     expect(wet).toBe(0);
   });
 
+  it('keeps the city small to drive across', () => {
+    // The pin §44 bought and nothing was holding. Restoring the three missing
+    // strait crossings took the landmark-to-landmark detour from p50 x1.60 /
+    // p90 x2.49 to p50 x1.50 / p90 x2.00 — and "one road network" stays true
+    // whether a crossing exists or not, so without this a plan edit can delete
+    // a bridge and no test notices. Measured today: p90 exactly 2.00.
+    //
+    // Ratio, not absolute distance: a big map is allowed to be big. What is
+    // not allowed is two places in sight of each other with a detour between
+    // them.
+    const net = map.roadNet;
+    expect(net, 'no road graph to measure').toBeDefined();
+    const places = map.landmarks.map((l) => ({
+      x: (l.doorX ?? l.x) / 16,
+      y: (l.doorY ?? l.y) / 16,
+    }));
+    const nearest = (x: number, y: number): number => {
+      let best = -1;
+      let bd = Infinity;
+      for (let i = 0; i < net!.nodeX.length; i++) {
+        const d = Math.hypot((net!.nodeX[i] as number) / 16 - x, (net!.nodeY[i] as number) / 16 - y);
+        if (d < bd) {
+          bd = d;
+          best = i;
+        }
+      }
+      return best;
+    };
+    const dijkstra = (src: number): Float64Array => {
+      const n = net!.nodeX.length;
+      const dist = new Float64Array(n).fill(Infinity);
+      dist[src] = 0;
+      const q: Array<[number, number]> = [[0, src]];
+      while (q.length > 0) {
+        q.sort((a, b) => a[0] - b[0]);
+        const [d, u] = q.shift() as [number, number];
+        if (d > (dist[u] as number)) continue;
+        for (let k = net!.nodeOff[u] as number; k < (net!.nodeOff[u + 1] as number); k++) {
+          const e = net!.nodeEdges[k] as number;
+          const v = net!.edgeA[e] === u ? (net!.edgeB[e] as number) : (net!.edgeA[e] as number);
+          const nd = d + (net!.edgeCost[e] as number);
+          if (nd < (dist[v] as number)) {
+            dist[v] = nd;
+            q.push([nd, v]);
+          }
+        }
+      }
+      return dist;
+    };
+    const nodes = places.map((p) => nearest(p.x, p.y));
+    const ratios: number[] = [];
+    for (const [i, p] of places.entries()) {
+      const dist = dijkstra(nodes[i] as number);
+      for (const [j, q] of places.entries()) {
+        if (j <= i) continue;
+        const straight = Math.hypot(p.x - q.x, p.y - q.y);
+        const drive = dist[nodes[j] as number] as number;
+        // Closer than 40 tiles the ratio is noise: both ends snap to the same
+        // junction. An unreachable pair is the byAir island, not a detour.
+        if (straight < 40 || !Number.isFinite(drive)) continue;
+        ratios.push(drive / straight);
+      }
+    }
+    expect(ratios.length).toBeGreaterThan(100);
+    ratios.sort((a, b) => a - b);
+    const p90 = ratios[Math.floor(ratios.length * 0.9)] as number;
+    expect(p90, 'the city got harder to drive across').toBeLessThanOrEqual(2.1);
+  });
+
   it('keeps merged tarmac sheets rare, and shrinking', () => {
     // Wave 4.6's gate, on the metric this repo can re-run: tiles at the
     // centre of a 7×7 all-carriageway window. One-shore banding took it
@@ -836,7 +905,12 @@ describe('the city, as an asset', () => {
       );
       expect(parts.length, `${l.name} has too few parts`).toBeGreaterThanOrEqual(3);
       const heights = new Set(parts.map((b) => b.storeys));
-      expect(heights.size, `${l.name} is one flat mass`).toBeGreaterThanOrEqual(2);
+      // Two for a stadium or a power station; three for a tower, which is a
+      // podium, a shaft and a crown. A landmark whose parts are all one height
+      // is the slab this test was written against.
+      expect(heights.size, `${l.name} is one flat mass`).toBeGreaterThanOrEqual(
+        l.kind === 'tower' ? 3 : 2,
+      );
       let open = 0;
       for (let y = l.y; y < l.y + l.h; y++) {
         for (let x = l.x; x < l.x + l.w; x++) {

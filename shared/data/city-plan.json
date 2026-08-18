@@ -1276,6 +1276,57 @@
       "median": 4
     },
     {
+      "name": "Tanner's Bridge",
+      "note": "The top crossing of the creek, where the terraces meet the works.",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          389,
+          440
+        ],
+        [
+          408,
+          440
+        ]
+      ]
+    },
+    {
+      "name": "Millrace Bridge",
+      "note": "Mid-creek, at its narrowest: two streets that have faced each other across ten tiles of water since the map was drawn.",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          376,
+          476
+        ],
+        [
+          391,
+          476
+        ]
+      ]
+    },
+    {
+      "name": "Weir Bridge",
+      "note": "The bottom crossing, above the head, so the coast road is not the only way round.",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          327,
+          524
+        ],
+        [
+          343,
+          524
+        ]
+      ]
+    },
+    {
       "name": "Quay Road",
       "note": "Along the wharves under the Spine, from the neck by the Old Bridge round to the Old Quarter's harbour side. The frontage the quay is built along.",
       "width": 4,

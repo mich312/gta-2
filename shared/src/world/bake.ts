@@ -148,6 +148,12 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   // different weight class or it is just a building standing on its own. One
   // tile of podium (4x4 shaft on an 8x8 plot, 6x6 on a 10x10) and 32 storeys,
   // which is 1.8x the tallest thing around it.
+  //
+  // The same reviewer's other half — "no setback, no crown" — is why there are
+  // three rings and not two: podium at 6, shaft at 32, and a spire at 40
+  // standing in the middle of it. Rings, again, because parts may not overlap;
+  // a crown on this table has to be a smaller footprint standing INSIDE the
+  // thing it crowns rather than a box stacked on top of one.
   tower: {
     ground: T_SIDEWALK,
     apron: T_SIDEWALK,
@@ -156,7 +162,11 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
       [1, h - 2, w - 2, 1, 6],
       [1, 2, 1, h - 4, 6],
       [w - 2, 2, 1, h - 4, 6],
-      [2, 2, w - 4, h - 4, 32],
+      [2, 2, w - 4, 1, 32],
+      [2, h - 3, w - 4, 1, 32],
+      [2, 3, 1, h - 6, 32],
+      [w - 3, 3, 1, h - 6, 32],
+      [3, 3, w - 6, h - 6, 40],
     ],
   },
   hospital: { ground: T_LOT, apron: T_LOT, parts: (w, h) => [[0, 0, w, h]] },
