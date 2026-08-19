@@ -584,3 +584,68 @@ The lesson worth keeping is not any of the individual defects. It is that
 one of these was a place where two systems each held a definition and nobody
 had asked them the same question. The reviewers were not smarter; they were
 outside.
+
+## 6. Looking at it, and what looking at it got wrong
+
+The pass after §5 was to render the city and *look* — crops at 22 pixels a tile
+across every borough, and one at 110 where something read oddly. It produced
+five items. **Two were real. Three were not, and the three failed in the same
+way.**
+
+### 6.1 The two that were real
+
+**A crossing needs a mouth, not just tarmac.** The ground test of §51.3 asks
+whether the paint lands on road. It never asked how much road, so an arm
+running into a dockside apron or a bus turning circle passed everything and got
+a full zebra, stop line and turn arrows across open ground with nothing on the
+far side to cross to. The old town had two of them at right angles in the
+middle of an apron, drawing an X no driver can obey. `JunctionGround` now
+answers a third question — sweep the arm's perpendicular until the tarmac stops
+— and both painters refuse an arm whose tarmac is more than three tiles wider
+than the street feeding it.
+
+**The junctions the curves never described.** A district's internal lattice is
+stamped into the tile plane by the block layout, not authored as curves, so
+from the curve layer's point of view whole boroughs contained no junctions.
+216 of 725 labelled junctions carried any priority marking. `tileCrossings`
+reads them out of the tiles instead. With it, and with the §52.3 fix below,
+priority marking reaches **388 of 725**.
+
+Wiring the second in exposed a bug in the first that the counters had hidden:
+both painters asked the labelled walk where a junction's tarmac ends, but most
+crossings the curves describe carry no label, so the walk gave up on its first
+quarter-tile step and answered 0.25. The mark went in the middle of the box and
+the width sweep measured across the *cross street* — twenty-four tiles, the
+walk's own ceiling — and threw the arm away as an apron. 757 cardinal arms hit
+that ceiling; over half of all arms were being refused. Taking the further-out
+of the geometric and labelled answers fixes both directions at once, and the
+ceiling hits fall to 35.
+
+### 6.2 The three that were not
+
+| claimed | measured |
+|---|---|
+| 13 courses double back for >50% of their length; the centre line is drawn twice | 0 by four independent measures; at 110 px/tile the place is an acute Y junction |
+| the tool paints sand over water no tile contains | 10,385 of 4,659,440 water pixels carry the sand colour, and **every one is exactly one tile from a real sand or quay tile** — the sub-tile waterline, working |
+| too few lit junctions; arterial crossroads in the core unlit | 82 lit, median 14 tiles apart; of the 71 refused, 135 arms are oblique crossings where the two carriageways genuinely overlap and a zebra would sit across both |
+
+A guard was written for the coastline mechanism — which is real: the coast pass
+reaches 1.1 tiles, the bank pass 1.6, and the flag between them cannot tell a
+dried-out pixel from an unvisited one — and then **reverted**, because it
+changed zero pixels. A branch that never fires, under a comment describing a
+defect the city does not have, is worse than no branch: the comment is a lie
+that the next reader has to disprove.
+
+### 6.3 What the three had in common
+
+Each was a number measured once, in the middle of a change, and carried forward
+as a before/after fact. That is exactly the failure §5's number audit found
+fourteen times — and all three of these were written down *after* that audit,
+by the same author, in the section describing it.
+
+The audit fixed the fourteen numbers. It did not fix the habit. The thing that
+caught these was not another reviewer: it was refusing to write the fix until
+the defect had been reproduced from the shipped city. Two survived that and
+three did not, and the three cost about as much to disprove as they would have
+cost to "fix" — with the difference that the repo now has no code in it
+defending against problems it does not have.

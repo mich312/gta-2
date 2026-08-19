@@ -5811,3 +5811,54 @@ prevent.
 Paint now lands on: 3,910 road tiles, 237 pavement (the outermost dash of a
 give-way ladder grazing a kerb, clipped by all three painters), 16 field, 7
 quay, 4 lot, 3 park. Zero water, zero building, zero bridge deck.
+
+### 52.5 Three findings that did not survive being measured
+
+The visual review produced five items. Two were real and are §52.1–§52.4. The
+other three were mine, and none of them reproduces. They are recorded because
+a section that only lists the defects it found is not a record of a review.
+
+**The doubled centre line.** Claimed: thirteen courses double back on
+themselves for more than half their length, so the dash is drawn twice and the
+street reads as having two centre lines; fix by de-duplicating in the layout
+and rebaking. Four measures were run over the 329 road courses of the shipped
+city — consecutive segments reversing on each other, a course lying within one
+tile of a *different* course and parallel to it, a course folding within one
+tile of a part of ITSELF at least eight tiles away along its own arc, and pairs
+of courses running within 2.5 tiles and parallel for at least eight tiles of
+run. All four answer zero. At 110 pixels a tile the place the claim came from
+is an acute Y junction: two streets meeting at about fifteen degrees, each with
+its own correct centre line, converging. There is nothing to de-duplicate and
+no reason to rebake.
+
+**The review tool's phantom coastline.** Claimed: `mapRender` paints the shore
+band from the bank curve and refuses only the pixels its own coast curve calls
+wet, so sand appears over water that no tile contains. The mechanism is real —
+the coast pass reaches 1.1 tiles from a shore polyline, the bank pass 1.6, and
+`wetPixel` cannot distinguish a pixel the coast pass dried out from one it
+never visited. The consequence is not. Rendering the whole city at four pixels
+a tile and testing every pixel whose tile is water: 10,385 of 4,659,440 (0.22%)
+carry the sand or quay colour, and **every one of them is exactly one tile from
+a real sand or quay tile.** Not one is further. That is the sub-tile waterline
+the curve repaint exists to draw, not a phantom. A guard was written for the
+mechanism and reverted: it changed zero pixels, and a branch that never fires
+under a comment describing a defect the city does not have is worse than no
+branch.
+
+**Signal density.** Claimed: too few lit junctions, and arterial crossroads in
+the core with no lights. The city has 151 arterial crossings and lights 82
+junctions, a median 14 tiles from the next lit one. Of the 71 the policy
+refuses, 4 have more than four arms, 12 have an arm whose paint would land on
+field, pavement, deck, quay or water, and 135 arms fail the apron test of
+§52.1. Those 135 were the ones worth checking, and they are oblique crossings:
+an arm three or four tiles wide meeting a five-tile road at about sixty
+degrees, so the two carriageways overlap for several tiles past where the
+labelling stops calling it a junction. The sweep reads eight to thirteen tiles
+because eight to thirteen tiles of tarmac are genuinely there. A zebra painted
+into that overlap would sit across both roads at once. The policy is right to
+refuse them, and the density that results is the city's shape, not a bug.
+
+What the three have in common: each was a number measured once, in the middle
+of a change, and carried forward as a before/after fact. That is the same
+mistake §51.7's audit caught fourteen times, and it survived the audit by
+being written down after it.
