@@ -26,6 +26,7 @@ import {
   signalledCrossing,
   junctionGround,
   junctionGiveWay,
+  tileCrossings,
   junctionPaint,
   arrowOutline,
   type RoadNet,
@@ -1026,7 +1027,10 @@ export function render(
     };
     const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
     const ground = junctionGround(map);
-    for (const cross of all) {
+    // The junctions the curves never described (§52.2) — a district's lattice
+    // is not authored as courses, so these carry the give-way marks too.
+    const lattice = tileCrossings(map);
+    for (const cross of [...all, ...lattice]) {
       if (
         cross.x < x0 - 8 ||
         cross.y < y0 - 8 ||

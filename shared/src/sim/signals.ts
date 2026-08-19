@@ -1,5 +1,5 @@
 import { TILE_SIZE, type CityMap, type JunctionMap, type SignalHead } from '../world/types.js';
-import { courseCrossings } from '../world/geometry.js';
+import { courseCrossings, type CourseCrossing } from '../world/geometry.js';
 import {
   isSignalCrossing,
   junctionPaint,
@@ -12,6 +12,7 @@ import {
   T_FIELD,
   T_LOT,
   T_PARK,
+  T_BRIDGE,
   T_ROAD,
   T_SAND,
   T_SIDEWALK,
@@ -554,6 +555,21 @@ export function junctionGround(
       // NOT paintable.
       return map.tiles[ty * w + tx] === T_ROAD;
     },
+    spread(x: number, y: number, nx: number, ny: number): number {
+      // Half a tile at a time, out both ways, until the tarmac stops.
+      let wide = 1;
+      for (const sign of [1, -1]) {
+        for (let s = 0.5; s < 12; s += 0.5) {
+          const tx = Math.floor(x + nx * s * sign);
+          const ty = Math.floor(y + ny * s * sign);
+          if (tx < 0 || ty < 0 || tx >= w || ty >= h) break;
+          const t = map.tiles[ty * w + tx] as number;
+          if (t !== T_ROAD && t !== T_BRIDGE) break;
+          wide += 0.5;
+        }
+      }
+      return wide;
+    },
     mouth:
       idOf === undefined
         ? undefined
@@ -571,6 +587,146 @@ export function junctionGround(
             return 12;
           },
   };
+}
+
+/**
+ * The junctions the CURVES do not describe, as crossings.
+ *
+ * §51.5 gave the city a give-way mark and it reached 216 of 725 junctions,
+ * because the mark comes off the course crossings and **331 junctions sit on
+ * no course crossing at all**. They are the bends, the mouths, and every
+ * place a lattice street meets another lattice street — a district's internal
+ * grid is not authored as courses, so from the curves' point of view it is
+ * not there. Whole boroughs had no marking of any kind.
+ *
+ * Where a curve exists it decides; where none does, the tiles are all there
+ * is. So the labelling is read back into the same shape `junctionGiveWay`
+ * takes: a centre, a radius, and arms with a width and a length to rank them
+ * by. 283 of the 331 turn out to have a genuinely narrower minor road, and
+ * none has all its arms the same width, so there is a priority to mark at
+ * nearly every one.
+ *
+ * Eight directions, not four. Half this city's boroughs are laid at 45° —
+ * their lattice IS the diagonal — and a cardinal-only search finds fewer than
+ * three arms at every junction in them, so the whole east grid came back with
+ * nothing to mark.
+ */
+export function tileCrossings(map: {
+  widthTiles: number;
+  heightTiles: number;
+  tiles: Uint8Array;
+  courses?:
+    | ReadonlyArray<{
+        points: ReadonlyArray<readonly [number, number]>;
+        width: number;
+        kind: string;
+      }>
+    | undefined;
+  junctions?: JunctionMap | undefined;
+}): CourseCrossing[] {
+  const table = map.junctions;
+  if (!table || table.count === 0) return [];
+  const w = map.widthTiles;
+  const h = map.heightTiles;
+  const idOf = table.idOf;
+  // Component centroids, in one pass.
+  const sumX = new Float64Array(table.count);
+  const sumY = new Float64Array(table.count);
+  const n = new Int32Array(table.count);
+  for (let i = 0; i < idOf.length; i++) {
+    const id = idOf[i] as number;
+    if (id < 0) continue;
+    const x = i % w;
+    sumX[id] = (sumX[id] as number) + x;
+    sumY[id] = (sumY[id] as number) + (i - x) / w;
+    n[id] = (n[id] as number) + 1;
+  }
+  // `drivableTile` wants a whole CityMap; this function needs only the tiles,
+  // and taking the minimum lets the review tool call it too.
+  const drivable = (x: number, y: number): boolean => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return false;
+    const t = map.tiles[y * w + x] as number;
+    return t === T_ROAD || t === T_BRIDGE;
+  };
+  const described = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
+  const out: CourseCrossing[] = [];
+  for (let id = 0; id < table.count; id++) {
+    if ((n[id] as number) === 0) continue;
+    const cx = (sumX[id] as number) / (n[id] as number) + 0.5;
+    const cy = (sumY[id] as number) / (n[id] as number) + 0.5;
+    // Already spoken for by a curve.
+    let taken = false;
+    for (const c of described) {
+      const dx = c.x - cx;
+      const dy = c.y - cy;
+      if (dx * dx + dy * dy < 16) {
+        taken = true;
+        break;
+      }
+    }
+    if (taken) continue;
+    const arms: CourseCrossing['arms'] = [];
+    let widest = 0;
+    for (const [sx, sy] of NEIGHBOURS_8) {
+      // The step is a whole tile on the axes and a tile diagonally, so the
+      // measurements below are in STEPS; the arm's direction is normalised.
+      const stepLen = sx !== 0 && sy !== 0 ? Math.SQRT2 : 1;
+      const dx = sx;
+      const dy = sy;
+      // Step out of the component itself.
+      let s = 1;
+      while (s < 10) {
+        const tx = Math.round(cx) + dx * s;
+        const ty = Math.round(cy) + dy * s;
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) break;
+        if ((idOf[ty * w + tx] as number) !== id) break;
+        s++;
+      }
+      const ax = Math.round(cx) + dx * s;
+      const ay = Math.round(cy) + dy * s;
+      if (!drivable(ax, ay) || (idOf[ay * w + ax] as number) >= 0) continue;
+      // Across the arm: a quarter turn from its own direction, which on a
+      // diagonal is the other diagonal.
+      // Carriageway width across the arm, and how far the road runs along it
+      // — width first and then length is the seniority the ribbon painter
+      // ranks two roads by, and the give-way mark follows it.
+      let width = 1;
+      for (let k = 1; k < 8 && drivable(ax + dy * k, ay - dx * k); k++) width++;
+      for (let k = 1; k < 8 && drivable(ax - dy * k, ay + dx * k); k++) width++;
+      width *= stepLen;
+      let len = 0;
+      // Far enough to tell two streets apart. Capped at 40 the lattice's
+      // arms all reached the cap and tied, and a tie means no priority and no
+      // mark: 156 of 263 junctions came back bare for want of a longer look.
+      for (let k = 1; k < 200 && drivable(ax + dx * k, ay + dy * k); k++) len++;
+      arms.push({ dx: dx / stepLen, dy: dy / stepLen, width, len: len * stepLen });
+      widest = Math.max(widest, width);
+    }
+    // Eight directions round one junction will find the same road twice —
+    // the cardinal arm and the diagonal that clips the corner of its own box
+    // — and five arms make a plaza to `junctionGiveWay`, which then marks
+    // nothing. Merge anything within 30°, which keeps a cardinal and a
+    // diagonal apart at 45°, then keep the four strongest by width times
+    // length: a junction has four ways out at most, and the four that carry
+    // the most road are the ones a driver would call its arms.
+    const merged: CourseCrossing['arms'] = [];
+    for (const arm of arms) {
+      const same = merged.find((o) => o.dx * arm.dx + o.dy * arm.dy > 0.86);
+      if (same === undefined) {
+        merged.push({ ...arm });
+      } else if (arm.width * arm.len > same.width * same.len) {
+        same.dx = arm.dx;
+        same.dy = arm.dy;
+        same.width = arm.width;
+        same.len = arm.len;
+      }
+    }
+    merged.sort((a, b) => b.width * b.len - a.width * a.len);
+    const kept = merged.slice(0, 4);
+    if (kept.length < 3) continue;
+    out.push({ x: cx, y: cy, r: widest / 2, arms: kept });
+  }
+  return out;
 }
 
 /**

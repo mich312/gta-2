@@ -6,6 +6,9 @@ import {
   laneCentreInTile,
   isSignalCrossing,
   junctionPaint,
+  junctionGiveWay,
+  armMouth,
+  armReach,
   type IsRoad,
   type MarkQuad,
 } from '../src/world/marks.js';
@@ -257,5 +260,63 @@ describe('junctionPaint', () => {
         ],
       }),
     ).toBe(false);
+  });
+});
+
+describe('armReach', () => {
+  /** A crossroads of two three-tile streets, the arms unit vectors. */
+  const cross = {
+    x: 20.5,
+    y: 20.5,
+    r: 1.5,
+    arms: [
+      { dx: 1, dy: 0, width: 3, len: 60 },
+      { dx: -1, dy: 0, width: 3, len: 60 },
+      { dx: 0, dy: 1, width: 3, len: 40 },
+      { dx: 0, dy: -1, width: 3, len: 40 },
+    ],
+  };
+
+  it('takes the labelled edge when the labelling knows about this junction', () => {
+    // A box that runs three tiles out along the arm — further than the
+    // geometry alone would say.
+    const ground = { paintable: () => true, mouth: () => 3 };
+    expect(armReach(cross, cross.arms[0]!, ground)).toBe(3);
+    expect(armMouth(cross, cross.arms[0]!)).toBeLessThan(3);
+  });
+
+  it('keeps the geometric mouth when the labelling gives up on step one', () => {
+    // The failure this exists for: most crossings the curves describe carry
+    // no junction label at all, so the walk answers 0.25 and every mark
+    // landed in the middle of the box — which then measured its own width
+    // ACROSS the cross street and threw the arm away as an apron.
+    const blind = { paintable: () => true, mouth: () => 0.25 };
+    expect(armReach(cross, cross.arms[0]!, blind)).toBe(armMouth(cross, cross.arms[0]!));
+    expect(armReach(cross, cross.arms[0]!, blind)).toBeGreaterThan(1);
+  });
+
+  it('marks the minor arms of an unlabelled crossing all the same', () => {
+    // Straight through the two functions: a minor arm on a crossing whose
+    // labelling knows nothing keeps its give-way dashes, because the mark
+    // and the width test both sit outside the box.
+    const tJunction = {
+      x: 20.5,
+      y: 20.5,
+      r: 2,
+      arms: [
+        { dx: 1, dy: 0, width: 5, len: 90 },
+        { dx: -1, dy: 0, width: 5, len: 90 },
+        { dx: 0, dy: 1, width: 3, len: 30 },
+      ],
+    };
+    const blind = {
+      paintable: () => true,
+      mouth: () => 0.25,
+      // Three tiles across the minor arm once the sweep is clear of the
+      // box, and the walk's own twenty-four-tile limit inside it, where the
+      // perpendicular runs down the major road instead of across the minor.
+      spread: (_x: number, y: number) => (Math.abs(y - 20.5) < 2.5 ? 24 : 3),
+    };
+    expect(junctionGiveWay(tJunction, [], blind).length).toBeGreaterThan(0);
   });
 });

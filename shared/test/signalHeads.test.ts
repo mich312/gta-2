@@ -116,10 +116,10 @@ describe('signal heads', () => {
     expect(Math.min(...counts)).toBeGreaterThanOrEqual(2);
     // Lights go where an arterial crosses something, and an arterial that
     // simply STOPS at another road is rare, so the signalised set is nearly
-    // all crossroads: 98 of 102, against one T and three two-armed. Before
+    // all crossroads: 79 of 82, against one T and two two-armed. Before
     // the policy this read the other way round — far more Ts than crossroads
     // — because every residential corner in the city was in the set.
-    expect(counts.filter((c) => c === 4).length).toBeGreaterThan(80);
+    expect(counts.filter((c) => c === 4).length).toBeGreaterThan(70);
     expect(counts.filter((c) => c === 3).length).toBeGreaterThan(0);
     // All-fours would mean an arm was being dropped somewhere.
     expect(counts.filter((c) => c === 4).length).toBeLessThan(counts.length);
@@ -129,9 +129,10 @@ describe('signal heads', () => {
     // The policy, as a number. 779 junctions and 2,990 heads was the city
     // before: every corner of every block wearing a full set of lights, and
     // 537 of those junctions four tiles of tarmac or less (§49). It is now
-    // 628 junctions and 102 of them lit, because §51 also made a junction
+    // 725 junctions and 82 of them lit, because §51 also made a junction
     // the whole sheet of tarmac rather than the pieces a 4-connected fill
-    // left it in.
+    // left it in, and §52 refuses an arm whose tarmac is an apron rather
+    // than a mouth.
     const signalled = [...junctions.signalled].filter((v) => v === 1).length;
     expect(junctions.count).toBeGreaterThan(400);
     expect(signalled).toBeGreaterThan(50);

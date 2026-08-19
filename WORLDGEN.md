@@ -5702,3 +5702,112 @@ Still owed:
   an arm is now refused where the ground or the room will not take it. That is
   the right trade — the ones it dropped were in the creek, through a wall or
   inside a cul-de-sac — but it is a drop, and it is not obviously the floor.
+
+## 52. Looking at it: what the pictures said the numbers did not
+
+§51 closed with a list of things still owed. The next pass was to render the
+city and *look* — no diff, no counters, just crops at twenty-two pixels a tile
+across every borough — and two of the owed items turned out to be the same
+defect wearing different clothes.
+
+### 52.1 A crossing needs a mouth, not just tarmac
+
+The ground test of §51.3 asks whether the three sample points along a mark land
+on road. It never asked how much road. So an arm running into a dockside apron,
+a bus turning circle or a supermarket car park passed every test — the samples
+were on tarmac, the room was there, the geometry was clean — and got a full
+zebra, stop line and turn arrows painted across open ground, with nothing on
+the far side to cross to. The old town has one crop where two of these sit at
+right angles in the middle of an apron, drawing an X nobody can obey.
+
+The fix is a third question for `JunctionGround`:
+
+```ts
+spread?(x: number, y: number, nx: number, ny: number): number;
+```
+
+Sweep the arm's *perpendicular* in half-tile steps both ways until the tarmac
+stops, and answer how wide it ran. `junctionPaint` and `junctionGiveWay` both
+refuse an arm where that exceeds the arm's own width by more than `MOUTH_SLACK`
+(3 tiles — a kerb lane either side and a tile of slop). A three-tile street
+answers 3 to 5. An apron answers twelve, twenty, or the walk's own limit.
+
+Wide arms fell 117 → 33, signalised junctions 116 → 83, heads 457 → 327, and
+the X in the old-town apron is gone.
+
+### 52.2 The junctions the curves never described
+
+`courseCrossings` finds junctions by intersecting the authored road curves. But
+a district's internal lattice is not authored as curves — it is stamped into
+the tile plane by the block layout — so from the curve layer's point of view
+whole boroughs contain no junctions at all and had nothing to mark. 216 of 725
+labelled junctions carried any priority marking.
+
+`tileCrossings(map)` reads them out of the tile plane instead: take each
+junction label's component centroid, skip any within four tiles of a crossing
+the curves already found, then probe all eight directions — measuring width
+across and run along, normalising the diagonals by √2, merging arms within 30°
+and keeping the four strongest. Three arms minimum, or it is a bend.
+
+### 52.3 The mouth that was measured inside the box
+
+Wiring §52.2 in exposed a bug in §52.1 that the counters had hidden. Both
+painters asked `ground.mouth` — the labelled walk — for where the junction's
+tarmac ends, falling back to the geometric `armMouth` only when no ground was
+supplied at all. But ground is always supplied, and **most crossings the curves
+describe carry no junction label**: the walk's first quarter-tile step finds no
+label, gives up, and answers 0.25.
+
+So the mark was placed 0.6 tiles from the crossing centre — the middle of the
+box — and the width sweep, run from there, measured *across the cross street*
+rather than across the approach. It answered twenty-four tiles, the walk's own
+limit, and the apron test threw the arm away. 757 cardinal arms hit that limit;
+1,759 of 3,822 arms were being refused, over half of them arms that were
+perfectly ordinary streets.
+
+`armReach` takes the max of the two answers, and neither failure can happen:
+
+```ts
+export function armReach(cross, arm, ground?): number {
+  const geometric = armMouth(cross, arm);
+  const labelled = ground?.mouth?.(cross.x, cross.y, arm.dx, arm.dy);
+  return labelled === undefined ? geometric : Math.max(geometric, labelled);
+}
+```
+
+The labelled answer is the better one where a junction *was* found in the
+tiles, because its point is the centroid of a patch that may run three tiles
+along the arm and the geometric mouth lands short of that patch's edge. The
+geometric answer is the only one available everywhere else. Neither is
+sufficient alone; the further-out of the two always is.
+
+Arms hitting the sweep limit: 757 → 35. Arms refused as aprons: 1,759 → 501,
+and those 501 measure a median 17.5 tiles wider than the street feeding them.
+
+### 52.4 Where the priority marks now reach
+
+Of 725 labelled junctions in the shipped city:
+
+| | junctions |
+|---|---|
+| signalised — zebra, stop line, turn arrows | 82 |
+| give way on the minor arms | 306 |
+| **carrying priority marking** | **388** |
+| no minor arm — equal priority, correctly bare | 4 |
+| two arms — a bend, not a junction | 19 |
+| a label fragment with no crossing in it (median 1 tile) | 94 |
+| every arm refused by room or ground | 232 |
+
+Against §51's 216 marked. The 232 refusals break down by the test that killed
+them: 176 arms had a neighbouring junction closer than the mark's own reach,
+415 would have put paint on something that is not road, 79 measured as apron.
+The tiles the 415 would have landed on: 124 pavement, 67 field, 56 water, 50
+building, 42 quay, 39 lot, 25 park, 12 trees and deck.
+
+None of that is a gap worth closing by relaxing a test. Closing it means
+painting give-way lines into the creek, which is the defect §51.3 exists to
+prevent.
+
+Paint now lands on: 3,910 road tiles, 237 pavement (the outermost dash of a
+give-way ladder grazing a kerb, clipped by all three painters), 16 field, 7
+quay, 4 lot, 3 park. Zero water, zero building, zero bridge deck.

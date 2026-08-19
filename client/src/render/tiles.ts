@@ -35,6 +35,7 @@ import {
   signalledCrossing,
   junctionGround,
   junctionGiveWay,
+  tileCrossings,
   junctionPaint,
   arrowOutline,
   type JunctionPaint,
@@ -491,8 +492,11 @@ export class TileLayer {
     this.signalCrossings = crossings
       .filter((c) => isSignalCrossing(c) && signalledCrossing(map, c))
       .map((c) => ({ x: c.x, y: c.y, paint: junctionPaint(c, this.junctionDiscs, ground) }));
-    this.giveWayCrossings = crossings
-      .filter((c) => !(isSignalCrossing(c) && signalledCrossing(map, c)))
+    // Every crossing the city does not govern, plus the junctions the curves
+    // never described at all — a district's internal lattice is not authored
+    // as courses, so from the curves' point of view whole boroughs had no
+    // junctions in them and nothing to mark (§52.2).
+    this.giveWayCrossings = [...crossings.filter((c) => !(isSignalCrossing(c) && signalledCrossing(map, c))), ...tileCrossings(map)]
       .map((c) => ({ x: c.x, y: c.y, marks: junctionGiveWay(c, this.junctionDiscs, ground) }))
       .filter((c) => c.marks.length > 0);
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);

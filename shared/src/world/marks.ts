@@ -224,6 +224,15 @@ const ARM_RUN = 2;
 const GIVE_WAY_SETBACK = 0.35;
 const GIVE_WAY_PITCH = 0.55;
 const GIVE_WAY_THICK = 0.2;
+/**
+ * How much wider than its own road the tarmac at a crossing may be, in tiles.
+ *
+ * One tile of slack is the kerb band and the bevels; the histogram of the
+ * shipped city is 249 arms at +1 and a long tail out to +8, and the tail is
+ * where the aprons are. Three keeps every ordinary mouth, including the ones
+ * a turning lane widens, and refuses the sheets.
+ */
+const MOUTH_SLACK = 3;
 /** How far a turn arrow's hook reaches off the shaft, in tiles. */
 const HOOK_REACH = 0.5;
 /** Stripes across one crossing, and how much of the pitch each one fills. */
@@ -274,6 +283,36 @@ export function armMouth(
   return mouth;
 }
 
+/**
+ * How far out along an arm the crossing's own tarmac reaches.
+ *
+ * Two answers, and the honest one is the further out. `armMouth` is geometry:
+ * where the arm's own half-width clears the crossing point. `ground.mouth`
+ * reads the labelling: where the tiles stop belonging to this junction. The
+ * labelled answer is the better one where a junction was found in the tiles,
+ * because its point is the centroid of a patch that may run three tiles along
+ * the arm and the geometric mouth lands short of the patch's edge. But most
+ * crossings the curves describe carry no label at all, and there the labelled
+ * walk gives up on its first quarter-tile step and answers 0.25 — a stop line
+ * in the middle of the box, and a width measured ACROSS the cross street,
+ * which then reads as twenty-four tiles of open apron and throws the arm away.
+ * Take the max and neither failure can happen.
+ */
+export function armReach(
+  cross: {
+    x: number;
+    y: number;
+    r: number;
+    arms: ReadonlyArray<{ dx: number; dy: number; width: number }>;
+  },
+  arm: { dx: number; dy: number; width: number },
+  ground?: JunctionGround,
+): number {
+  const geometric = armMouth(cross, arm);
+  const labelled = ground?.mouth?.(cross.x, cross.y, arm.dx, arm.dy);
+  return labelled === undefined ? geometric : Math.max(geometric, labelled);
+}
+
 /** The furthest any arm's mouth reaches: the radius of the whole junction. */
 export function junctionReach(cross: {
   r: number;
@@ -309,6 +348,19 @@ export interface JunctionGround {
    * 1.9 tiles beyond where the car stops. Same box, one measurement.
    */
   mouth?(x: number, y: number, dx: number, dy: number): number;
+  /**
+   * How wide the carriageway is ACROSS the arm at a point, in tiles.
+   *
+   * A crossing belongs at a mouth, and a mouth is where the tarmac is about
+   * as wide as the road that made it. Without this test the paint went down
+   * wherever the ground was road and the room was clear, which in the merged
+   * aprons where several arterials converge meant two crossings at 45° to
+   * each other in the middle of an open sheet with no kerb near either — the
+   * exact debris §35 was written against, arrived at from the other side.
+   * 117 of 435 painted arms were on tarmac more than three tiles wider than
+   * their own road, and 63 of those on tarmac wider by eight.
+   */
+  spread?(x: number, y: number, nx: number, ny: number): number;
 }
 
 /** Is this crossing one the city governs — and therefore paints? */
@@ -380,7 +432,7 @@ export function junctionPaint(
     const nx = dy;
     const ny = -dx;
     const half = width / 2;
-    const z0 = (ground?.mouth?.(cross.x, cross.y, dx, dy) ?? armMouth(cross, arm)) + ZEBRA_SETBACK;
+    const z0 = armReach(cross, arm, ground) + ZEBRA_SETBACK;
     const z1 = z0 + ZEBRA_DEPTH;
     const sMid = z1 + STOP_GAP + STOP_THICK / 2;
     // How far out the paint reaches, arrows included. The room test used to
@@ -433,6 +485,13 @@ export function junctionPaint(
         const px = cross.x + dx * along;
         const py = cross.y + dy * along;
         if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+      }
+      // And is this a MOUTH? Tarmac much wider than the road it belongs to is
+      // an apron, and a zebra laid across an apron is a zebra in open ground.
+      if (ok && ground.spread) {
+        const mid = (z0 + z1) / 2;
+        const wide = ground.spread(cross.x + dx * mid, cross.y + dy * mid, nx, ny);
+        if (wide > width + MOUTH_SLACK) ok = false;
       }
       if (!ok) continue;
     }
@@ -537,7 +596,9 @@ export function junctionGiveWay(
     const nx = dy;
     const ny = -dx;
     const half = width / 2;
-    const at = armMouth(cross, arm) + GIVE_WAY_SETBACK;
+    // Where the crossing's own tarmac ends, on exactly the terms the crossing
+    // paint uses (§51.1).
+    const at = armReach(cross, arm, ground) + GIVE_WAY_SETBACK;
     // Room, and ground, on the same terms the signalised kit asks for — a
     // give-way line in the creek is no better than a zebra in it.
     let room = Infinity;
@@ -555,6 +616,13 @@ export function junctionGiveWay(
         const px = cross.x + dx * at + nx * off;
         const py = cross.y + dy * at + ny * off;
         if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+      }
+      // The same mouth test the crossings get: a give-way line laid across an
+      // apron is as much debris as a zebra is, and the junctions read out of
+      // the tile plane are exactly the ones that can be aprons.
+      if (ok && ground.spread) {
+        const wide = ground.spread(cross.x + dx * at, cross.y + dy * at, nx, ny);
+        if (wide > width + MOUTH_SLACK) ok = false;
       }
       if (!ok) continue;
     }
