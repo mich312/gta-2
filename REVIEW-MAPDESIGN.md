@@ -440,12 +440,12 @@ what is missing. Measured over `generateCity(1)` — **779 junctions**.
 | signal heads | **2,990** — every junction is signalised, including all 537 that are 4 tiles or smaller | **561**, at 144 arterial crossings |
 | junction footprint | p50 **2 tiles**, p90 17, max 20 | p50 7, p90 20, max 49 |
 | zebra crossings | **21 approach tiles in the entire city** | **435 arms** |
-| stop lines | the same 21 — one rule gates both | **435** — still one rule, a better one |
+| stop lines | **9** — the same rule as the zebras, but the line covers only the approaching half, so fewer tiles take paint | **435** — still one rule, a better one |
 | turn arrows | none | **538** |
 | kerb radii | **0**; every corner is a right angle | **3,160** |
 | bevels, total | 1,312 | 4,472 |
-| props within 3 tiles of a junction | 252 of 1,600 (164 lamps) | unchanged |
-| road-net node degree | 32 dead ends, 101 of degree 2, 190 three-way, 225 four-way | 725 nodes; detours p50 ×1.43→**×1.29**, p90 ×1.86→**×1.68** |
+| props within 3 tiles of a junction | 252 of 1,600 (164 lamps) | the props did not move, but the junctions did, so the statistic does — 229 → 285 on a 3-tile Chebyshev rule |
+| road-net node degree | 32 dead ends, 101 of degree 2, 190 three-way, 225 four-way — and 231 more of degree 5 or above, 30% of the graph | 725 nodes; detours p50 ×1.48→**×1.29**, p90 ×1.94→**×1.68** |
 
 `evidence/mapdesign-junction.png` is a signalised crossroads at 44 px per
 tile, and `evidence/mapdesign-junction-3d.png` is the same one from the
@@ -453,20 +453,22 @@ flyover — the first picture in this repo with a traffic light in it (§3.2).
 
 ### 3.1 What is missing, ranked — and what was done
 
-1. **Crossings and stop lines are effectively absent.** 758 of 779 junctions
-   carry traffic lights and nothing for the traffic to stop at. The junction
+1. **Crossings and stop lines are effectively absent.** About 761 of the 779
+   junctions carry traffic lights and nothing for the traffic to stop at (the
+   21 zebra tiles sit at roughly eighteen places). The junction
    this was measured at had signals on four arms and a zebra on **one**, which
    reads worse than none at all. The §35 filters exist for good reasons — each one
    was added against a real defect, from zebras stacked in merged tarmac to
    crossings painted into the ring road's stair steps — but together they have
    overshot: the city has 21.
 2. **No kerb radius anywhere.** Every junction corner is square, so a turning
-   car clips pavement. The bevel plane is used 1,312 times and every one of
-   them is shoreline; it has never been pointed at a kerb (§38's open note,
-   from the other side).
-3. **Signals on junctions that should not have them.** Half the junction
-   population is two tiles — a residential corner — and all 537 of the small
-   ones are signalised. The phase logic is running on corners.
+   car clips pavement. Not one of the plane's 1,312 bevels lies against a
+   junction corner. (An earlier draft of this line said every bevel was
+   shoreline, which is wrong and §50.4 contradicts it: 770 of the 1,312 are
+   §15's diagonal-avenue kerbs. The true claim is the narrower one.)
+3. **Signals on junctions that should not have them.** 361 of the 779
+   junctions are a SINGLE tile and 53% are two or fewer — a residential corner
+   — and all 537 of the four-tiles-or-fewer ones are signalised. The phase logic is running on corners.
 4. **Nothing inside the junction box.** No keep-clear, no turn arrows, no
    give-way. "A junction is bare asphalt" is a rule written to stop the ribbon
    dashing straight through a crossing; it was never followed by a rule that
@@ -506,8 +508,11 @@ Fixed in WORLDGEN.md §50, in the order they are ranked above.
 4. **Inside the box**: **538 turn arrows**, one per approach lane, hooked left
    or right by the arms the junction actually has.
 5. **The merged sheets** are still merged sheets — that is a plan-shape
-   finding, not a paint one — but they no longer collect furniture: a crossing
-   inside an unsignalised plaza is left bare.
+   finding, not a paint one — but they no longer collect furniture. Not
+   because a plaza is left unsignalised, as this line first claimed (that
+   filter rejects none of the 151 arterial crossings on the shipped city), but
+   because an arm with no room for the paint, and a crossing with more than
+   four arms, are both left bare: 95 arms and 24 arms respectively.
 6. **The camera** builds `WorldObjectsLayer`, and `?tick=` freezes the phase so
    two stills of one junction can be compared. `ci/shot.mjs` grew
    `SHOT_TIMEOUT` and `WAIT_MS` while retaking the two 3D pictures: at
@@ -524,6 +529,6 @@ show green to both axes at once.
 And **69 of the city's 151 arterial crossings were not junctions at all**:
 `isJunctionTile` wants tarmac that is over-wide along both diagonals too, and
 a four-tile avenue crossing a three-tile street is 4×3, whose diagonal run is
-three — no id, no light, no crossing, and no node in the routing graph. 39 of
-the 69 are in downtown. Fixing it moved landmark-to-landmark detours from p90
-×1.86 to ×1.68. Both are §50.2.
+three — no id, no light, no crossing, and no node in the routing graph. 32 of
+the 69 stand on downtown ground. Fixing it moved landmark-to-landmark detours
+from p90 ×1.94 to ×1.68. Both are §50.2.

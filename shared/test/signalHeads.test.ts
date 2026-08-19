@@ -100,7 +100,7 @@ describe('signal heads', () => {
     expect(Math.min(...counts)).toBeGreaterThanOrEqual(2);
     // Lights go where an arterial crosses something, and an arterial that
     // simply STOPS at another road is rare, so the signalised set is nearly
-    // all crossroads: 137 of 147, against 6 Ts and 4 two-armed. Before the
+    // all crossroads: 133 of 144, against 7 Ts and 4 two-armed. Before the
     // policy this read the other way round — far more Ts than crossroads —
     // because every residential corner in the city was in the set.
     expect(counts.filter((c) => c === 4).length).toBeGreaterThan(100);

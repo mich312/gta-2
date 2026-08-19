@@ -1124,15 +1124,17 @@ describe('traffic signals (J1)', () => {
     // because nobody ever met a red.
     //
     // Over SEVERAL junctions, because one is not enough any more. §50 stopped
-    // signalising every corner in the city — 147 junctions now carry lights
+    // signalising every corner in the city — 144 junctions now carry lights
     // where 779 did — and with a fifth as many reds, whether the cars that
     // spawn around one staging happen to drive at that particular one inside
-    // 900 ticks became a coin toss: measured over the first six lit
-    // crossroads, four gave no encounter at all and two gave plenty. The
-    // claim was never about a particular junction, so it is no longer asked
-    // of one. Twelve stagings rather than the six it takes to pass: the
-    // count they produce is 22 holds against 4,803 cars under way, and a
-    // claim that squeaks past on single figures is a claim waiting to flake.
+    // 900 ticks became a coin toss: measured over the first six HEADS, four
+    // gave no encounter at all and two gave plenty. The claim was never about
+    // a particular junction, so it is no longer asked of one.
+    //
+    // Twelve stagings rather than the six it takes to pass — twelve
+    // HEADS, which is three junctions, not twelve. They produce 97 holds
+    // against 4,321 cars under way, and a claim that squeaks past on single
+    // figures is a claim waiting to flake.
     const posts = map.junctions.heads.slice(0, 12).map((head) => {
       for (let r = 1; r <= 5; r++) {
         for (let oy = -r; oy <= r; oy++) {

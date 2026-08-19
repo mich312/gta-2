@@ -5283,13 +5283,16 @@ census of the shipped map said this:
 | signal heads | 2,990 |
 | junctions of four tiles or less, all signalised | 537 |
 | zebra approach tiles, whole city | 21 |
-| stop lines, whole city | 21 |
+| stop lines, whole city | 9 |
 | bevels lying against a junction corner | 0 of 1,312 |
 
-Every junction in the city wore four lights, including the 537 that are a
-corner where two residential streets touch. Twenty-one crossings served 779
-junctions. Every kerb corner was a right angle. And none of that was a drawing
-bug — the game rendered exactly what the data said.
+696 of the 779 junctions wore four lights (43 wore two and 40 three),
+including the 537 that are a corner where two residential streets touch.
+Twenty-one approach *tiles* carried a zebra — about eighteen places, since one
+arm can be three tiles wide — and nine of them a stop line, because the line
+covers only the approaching half of the carriageway. Every kerb corner was a
+right angle. And none of that was a drawing bug: the game rendered exactly
+what the data said.
 
 Five things came out of it, and the first four are one idea: **a junction is a
 fact about the curves, so ask the curves.**
@@ -5325,7 +5328,7 @@ crossings, at tile resolution, one source.
 
 **Why it had to move off the tiles.** The per-tile painter has drawn stop lines
 and zebras since §35, behind three gates that are each defensible alone: a tile
-under a course ribbon takes its marks from the ribbon (76% of the carriageway),
+under a course ribbon takes its marks from the ribbon (76.7% of the carriageway),
 only a four-tile carriageway earns a crossing, and only a cardinal run can be
 measured for one (so no curved arterial ever qualifies). Together they left the
 furniture drawable almost nowhere, and 21 is what "almost nowhere" came to. The
@@ -5351,8 +5354,8 @@ ordinary crossroads twice over.
 **It splits one.** Along a diagonal seam through the middle of a four-tile
 crossing the answer is no, so the flood fill returns the box in two pieces or
 four. Of the 151 arterial crossings in the city, only **25** came back as a
-single component; 47 of the 82 that carried lights were split in two and 7 in
-four. Each piece had its own id, and the id is what the phase is a function
+single component; of the 82 that carried lights, 47 were split in two, 3 in
+three and 7 in four. Each piece had its own id, and the id is what the phase is a function
 of: two ids at one crossroads means two independent phases, so it could show
 green to both axes at once — the one property `signalColour` is built to make
 impossible. Eight lights is what that looks like from the air.
@@ -5361,10 +5364,11 @@ impossible. Eight lights is what that looks like from the air.
 street makes a 4×3 box whose diagonal run is three, so the diagonal test
 fails on every tile of it and the junction is not labelled at all — no id, no
 light, no crossing, and no node in the routing graph. **69 of the 151**
-arterial crossings were in that state, and it happens wherever a four-tile
-road meets a three-tile one: 39 of them in downtown, on The Spine and the
-avenues beside it, which is why that grid had lights on its residential
-corners and none where its avenues cross.
+arterial crossings were in that state, wherever a four-tile road meets a
+three-tile one: 32 of them stand on downtown ground, which is why that grid
+had lights on its residential corners and none where its avenues cross, and
+the rest are spread across the commercial, industrial and residential
+boroughs.
 
 The curves fix both. Every labelled component a crossing's disc touches is
 unioned; the tiles inside the disc that the fill left bare are pulled into it,
@@ -5372,14 +5376,14 @@ so a labelling cannot stop half way across a mouth; an arterial crossing the
 fill missed completely gets an id of its own; and the whole labelling is
 renumbered in row-major order of first appearance, so the ids stay a pure
 function of the map. Crossings with exactly one component: **25 → 129**.
-Crossings with exactly four heads: **13 → 108**. The city has **725**
+Crossings with exactly four heads: **14 → 108**. The city has **725**
 junctions where it had 779, and the largest is 49 tiles — four arms, one
 phase, which is the point.
 
 Only the arterial crossings are given new ids. A residential crossing the tile
 test declines is a place drivers negotiate either way, and labelling it would
 put a node in the routing graph for every corner in the city — measured, that
-was 1,083 junctions and a road network noticeably worse to route over.
+is 1,052 junctions.
 
 The plaza cap is deliberately not re-applied to a merged component: it exists
 to refuse a shape with no sensible phase, and a shape that one course crossing
@@ -5388,7 +5392,7 @@ left with a single approach is unsignalised again, because a light governing
 a dead end is not a light.
 
 Routing got better on its own account: landmark-to-landmark detours went from
-p50 ×1.43 / p90 ×1.86 to **p50 ×1.29 / p90 ×1.68**, because the graph now has
+p50 ×1.48 / p90 ×1.94 to **p50 ×1.29 / p90 ×1.68**, because the graph now has
 a node where the city has a junction.
 
 ### 50.3 Lights where a city would pay for them
@@ -5407,11 +5411,13 @@ driver braking for an unsignalised junction is stopping at nothing.
 
 The threshold lives in `marks.ts` with the paint and is imported by
 `signals.ts`, so the two cannot drift: a stop line nobody is holding and a
-light over an unmarked mouth are the same defect twice. The painters go
-further and ask the tile labelling as well (`signalledCrossing`), so a crossing
-that fell inside a plaza gets no paint either — which is what turned the
-arterial fan above the old town from a heap of overlapping zebras into the
-bare tarmac it actually is.
+light over an unmarked mouth are the same defect twice. The painters ask the
+tile labelling as well (`signalledCrossing`), so a crossing with no signalised
+junction under it gets no paint — though on the shipped city that filter
+rejects **none** of the 151, because §50.2 goes on to give every arterial
+crossing a label. What actually cleared the arterial fan above the old town,
+where a dozen zebras had stacked across one sheet of tarmac, is the room rule
+(95 of 554 arterial arms left bare) and the four-arm cap (a further 24 arms).
 
 Final count: **435 zebra arms and 435 stop lines**, against 21 approach tiles
 before, and **538 turn arrows** — one per approach lane, hooked left or right
@@ -5465,13 +5471,14 @@ and four tests noticed. None of them were loosened without a measurement, and
 none of the four is a symptom of a broken junction:
 
 - **The largest junction component** was capped at 40 tiles and is now 60,
-  with a new claim beside it that the largest is under 1% of the carriageway —
-  which is what actually rules out the flood-fill leak the cap was written
-  against. A 49-tile box with four arms and one phase is the fix working.
+  with a new claim beside it that the largest is under 1% of the carriageway.
+  That is the shape of claim that rules out the flood-fill leak the cap was
+  written against, and it is slack: measured, 0.051%. A 49-tile box with four arms and one phase is the fix working.
 - **The lane handover bound** was "the reach asked for plus six tiles" and is
   now twelve. A bigger junction box means the aim handed to the far side of it
-  is further away: 33 of 1,849 handovers clear the old bound, the worst at
-  eleven tiles, and nine in ten are still inside four.
+  is further away: over the test's own 9,693 handovers, 176 clear the old
+  bound — 1.8% — the worst at eleven tiles, and nine in ten are still inside
+  four.
 - **The ambulance service test** tries a casualty on each of the kerbs nearest
   a hospital by planned route, because the goto follower closes on only a
   fraction of arbitrary drives (this file's standing ceiling: three in eight).
@@ -5481,9 +5488,9 @@ none of the four is a symptom of a broken junction:
 - **"Traffic queues at reds"** staged one incident beside `heads[0]` and
   counted holds. With a fifth as many lit junctions, whether the cars that
   spawn around one staging drive at that particular junction inside 900 ticks
-  became a coin toss — four of the first six lit crossroads gave no encounter
-  at all. It now stages twelve, which turns 11 holds into 22 against 4,803
-  cars under way.
+  became a coin toss — four of the first six HEADS gave no encounter at all.
+  It now stages twelve, which is twelve heads on three junctions rather than
+  twelve junctions, and gives 97 holds against 4,321 cars under way.
 
 ### 50.7 What is still owed
 
@@ -5491,14 +5498,15 @@ none of the four is a symptom of a broken junction:
   most of those are bends and mouths rather than crossroads. They cost nothing
   now that they carry no lights, but they are nodes in the routing graph, and a
   graph whose nodes are mostly bends is why §48.6's airfield-to-camp detour is
-  still a graph-shape problem (×6.21, down from ×6.42 and no further).
+  still a graph-shape problem (×6.21, down from ×6.44 and no further).
 - **Seventeen crossings still split in two**, four in three and one in four,
   where two crossings sit close enough to merge their own tiles but not each
   other's.
-- **Signal heads stand on the carriageway.** `RIGHT_OFFSET` puts a head at the
-  kerb-most approach *tile* and steps right from its centre, which lands on
-  tarmac at a four-tile arm. Visible for the first time in §50.5's picture,
-  and not fixed here.
+- **Seven signal posts in ten stand on the carriageway.** `RIGHT_OFFSET` puts
+  a head at the kerb-most approach *tile* and steps right from its centre,
+  which lands on tarmac wherever the arm is wide: 398 of 561 posts sit on
+  road, 148 on the pavement where they belong, the rest on field, lot and
+  deck. Visible for the first time in §50.5's picture, and not fixed here.
 - **No keep-clear box and no give-way line.** The arrows are what §49's
   fourth finding asked for; the rest of what goes inside a junction is not
   drawn, and an unsignalised crossroads still has nothing at all to say about
