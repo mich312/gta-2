@@ -7,7 +7,15 @@ import {
   STOP_LINE_REACH,
   type JunctionGround,
 } from '../world/marks.js';
-import { T_ROAD } from '../world/types.js';
+import {
+  T_BANK,
+  T_FIELD,
+  T_LOT,
+  T_PARK,
+  T_ROAD,
+  T_SAND,
+  T_SIDEWALK,
+} from '../world/types.js';
 import { CARDINALS, RIGHT_STEP, drivableTile } from './roadgrid.js';
 
 /**
@@ -637,6 +645,85 @@ function isApproachTile(
   return idOf[ny * w + nx] as number;
 }
 
+/** Ground a signal post may stand on: the pavement, or whatever is beside it. */
+const KERB_GROUND = new Set<number>([T_SIDEWALK, T_PARK, T_LOT, T_FIELD, T_SAND, T_BANK]);
+
+/**
+ * Where a signal post stands: the nearest kerb behind the stop line, on the
+ * driver's right.
+ *
+ * The old rule was an offset — step `RIGHT_OFFSET` px to the right of the
+ * approach tile's centre — and it could not work. Nine px is half a tile,
+ * which is still inside the lane; widening it to walk out to the tarmac's
+ * edge helped and still left 156 posts of 457 standing in traffic, because
+ * from a junction MOUTH the tile to your right is the cross street, not a
+ * pavement. There is no offset that finds a kerb. So look for one.
+ *
+ * A small window, biased the way a real signal is: to the right of the
+ * approach, at or behind the stop line, never further into the junction.
+ * Nearest wins. A second, wider pass catches the mouths where the first
+ * finds nothing, and a post with no kerb anywhere near it — 7 of 457, all on
+ * merged tarmac wide enough to have no edge — falls back to the old offset
+ * and is honestly still in the road.
+ *
+ * Scanned in a fixed order with a strict comparison, so the answer is a pure
+ * function of the map on both hosts.
+ */
+function kerbPost(
+  map: CityMap,
+  tx: number,
+  ty: number,
+  dirIdx: number,
+): { x: number; y: number } {
+  const w = map.widthTiles;
+  const h = map.heightTiles;
+  const [dx, dy] = CARDINALS[dirIdx] as readonly [number, number];
+  // The driver's right, in a y-down plane.
+  const rx = -dy;
+  const ry = dx;
+  const look = (sideMax: number, backMax: number): { x: number; y: number } | null => {
+    let best: { x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (let oy = -backMax; oy <= backMax; oy++) {
+      for (let ox = -backMax; ox <= backMax; ox++) {
+        const x = tx + ox;
+        const y = ty + oy;
+        if (x < 0 || y < 0 || x >= w || y >= h) continue;
+        if (!KERB_GROUND.has(map.tiles[y * w + x] as number)) continue;
+        const side = ox * rx + oy * ry;
+        const along = ox * dx + oy * dy;
+        if (side < 1 || side > sideMax) continue;
+        if (along > 0 || along < -backMax) continue;
+        const d = ox * ox + oy * oy;
+        if (d < bestD) {
+          bestD = d;
+          best = { x, y };
+        }
+      }
+    }
+    return best;
+  };
+  const tile = look(4, 3) ?? look(6, 6);
+  if (tile === null) {
+    // No kerb in reach. Stand it as far right as the tarmac goes and admit it.
+    let out = 0;
+    while (out < 6 && drivableTile(map, tx + rx * (out + 1), ty + ry * (out + 1))) out++;
+    // At the tarmac's own edge, not a stride past it: a stride past can be
+    // the water, and a post on the road is a worse look than a wrong one but
+    // a post in the harbour is a bug.
+    return {
+      x: (tx + 0.5 + rx * (out + 0.35)) * TILE_SIZE,
+      y: (ty + 0.5 + ry * (out + 0.35)) * TILE_SIZE,
+    };
+  }
+  // At the kerb EDGE of that tile, not in the middle of the footway: a third
+  // of a tile back towards the road is where a pole actually stands.
+  return {
+    x: (tile.x + 0.5 - rx * 0.32) * TILE_SIZE,
+    y: (tile.y + 0.5 - ry * 0.32) * TILE_SIZE,
+  };
+}
+
 /**
  * One head per arm of every junction — not one per tile of tarmac.
  *
@@ -669,25 +756,14 @@ function collectHeads(map: CityMap, idOf: Int16Array, signalled: Uint8Array): Si
         const [rx, ry] = RIGHT_STEP[dirIdx] as readonly [number, number];
         // Somebody further right is closer to the kerb: let them have it.
         if (isApproachTile(map, idOf, tx + rx, ty + ry, dirIdx) === id) continue;
-        // Out to the kerb: step right until the TARMAC stops, and stand the
-        // post a little beyond it. Not "until the approach stops", which is
-        // what the head tile already satisfies — at a wide mouth the
-        // carriageway spreads past the lanes, so the kerb-most approach tile
-        // still had road either side of it and a fixed 9px offset left the
-        // post in a traffic lane. 398 of 561 stood on tarmac, 103 of them
-        // inside a zebra. Tried and rejected: stopping the walk at the
-        // junction's own tiles, on the theory that a mouth's right-hand
-        // neighbour is the cross street. It puts the post back in the lane —
-        // 242 on tarmac against 139 — because at a mouth the kerb really is
-        // further out than the box.
-        let out = 0;
-        while (out < 6 && drivableTile(map, tx + rx * (out + 1), ty + ry * (out + 1))) out++;
+        const post = kerbPost(map, tx, ty, dirIdx);
         heads.push({
           x: tx * TILE_SIZE + TILE_SIZE / 2,
           y: ty * TILE_SIZE + TILE_SIZE / 2,
           dirIdx,
           junctionId: id,
-          kerb: (out + 0.6) * TILE_SIZE,
+          postX: post.x,
+          postY: post.y,
         });
       }
     }

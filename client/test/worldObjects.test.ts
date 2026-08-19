@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  CARDINALS,
   type CityMap,
   getTrafficTuning,
   initTuning,
@@ -197,11 +196,10 @@ describe('world objects in 3D', () => {
     // `signalColour` is the function the drivers consult. Reading the phase off
     // anything else is how a renderer ends up showing green to a player while
     // the cars in front of them sit at a red.
-    // `kerb` rather than a constant: §51 measures each head's own distance
-    // out to the pavement, because a fixed 9px is half a tile and the
-    // approach half of a four-tile arterial is two tiles wide — 398 of the
-    // city's 561 posts were standing in a traffic lane.
-    const heads = [{ x: 200, y: 160, junctionId: 3, dirIdx: 1, kerb: 26 }];
+    // The post carries its own position (`postX/postY`), found on the map by
+    // `kerbPost`: no offset from the lane lands on a kerb, and 398 of the
+    // city's 561 posts used to stand in a traffic lane.
+    const heads = [{ x: 200, y: 160, junctionId: 3, dirIdx: 1, postX: 226, postY: 165 }];
     const fx = layer();
     fx.setMap(emptyMap({ junctions: { heads } } as unknown as Partial<CityMap>));
 
@@ -209,16 +207,18 @@ describe('world objects in 3D', () => {
       fx.update(emptyScene({ tick }), CAM, VIEW);
       const want = signalColour(3, 1, tick, getTrafficTuning().signals);
       const drawn = instances(fx);
-      // A post and a head.
-      expect(drawn).toHaveLength(2);
+      // A pole, the housing on top of it, and one lit lamp.
+      expect(drawn).toHaveLength(3);
       const head = drawn.find((d) => sameColor(d.color, expected(SIGNAL_COLORS[want])));
       expect(head, `no ${want} head at tick ${tick}`).toBeDefined();
-      // The head stands above its post, at the kerb on the driver's right.
-      const ax = CARDINALS[1]![0]!;
-      const ay = CARDINALS[1]![1]!;
-      expect(head!.x).toBeCloseTo(200 + ax * 5 - ay * heads[0]!.kerb, 5);
-      expect(head!.y).toBeCloseTo(160 + ay * 5 + ax * heads[0]!.kerb, 5);
-      expect(head!.z).toBeGreaterThan(drawn.find((d) => d !== head)!.z);
+      // The lamp is at the post's position, give or take the housing's
+      // overhang, and above the pole rather than beside it.
+      expect(Math.hypot(head!.x - heads[0]!.postX, head!.y - heads[0]!.postY)).toBeLessThan(3);
+      const pole = drawn.reduce((lo, d) => (d.z < lo.z ? d : lo));
+      expect(head!.z).toBeGreaterThan(pole.z);
+      // And its HEIGHT says which colour it is: red highest, green lowest.
+      if (want === 'red') expect(head!.z).toBeGreaterThan(27);
+      if (want === 'green') expect(head!.z).toBeLessThan(27);
     }
   });
 

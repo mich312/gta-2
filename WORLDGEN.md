@@ -5631,18 +5631,39 @@ same the junction stays bare, because "give way to nobody in particular" is not
 a thing paint can say. **2,973 marks at 524 crossings**, and the residential
 grid now tells a driver which street is the through road.
 
-### 51.6 The small ones, all measured
+### 51.6 A signal that stands where a signal stands
+
+Told the posts were still in the road, and they were: an OFFSET cannot find a
+kerb. Nine px is half a tile, which is inside the lane; widening it to walk out
+to the tarmac's edge helped and still left 156 posts of 457 in traffic, because
+from a junction mouth the tile to your right is the cross street's carriageway,
+not a pavement. 169 of the heads had no non-carriageway tile within six tiles
+of that walk at all.
+
+So `kerbPost` looks for one instead: the nearest pavement, park, yard or verge
+tile to the driver's right, at or behind the stop line and never further into
+the junction, in a small window and then a wider one. Found once at generation
+time and carried on the head as `postX/postY`, because it is a fact about the
+map rather than about the frame. **409 of 457 posts now stand on pavement**, 37
+on verge or yard, and **six** — all on merged tarmac with no kerb within reach
+— fall back to the old offset and are honestly still in the road.
+
+And it is built like a signal now rather than drawn as one box: a slim pole, a
+dark housing leaning out over the kerb, and one lit lamp proud of its face,
+whose HEIGHT says which colour it is — red at the top, amber in the middle,
+green at the bottom. At the game's 42° camera the stack reads as clearly as
+the hue does.
+
+### 51.7 The small ones, all measured
 
 | | before | after |
 | --- | --- | --- |
 | turn-arrow hooks reaching over the kerb | 135 of 207 | **6 of 338** |
-| signal posts standing on carriageway | 398 of 561 | **156 of 457** |
+| signal posts standing on carriageway | 398 of 561 | **6 of 457** |
 | junctions with a rounded corner | 460 of 725 | **588 of 725** |
 | `T_RAMP` tiles rendered magenta by the review tool | 224 | **0** |
 
-The hook is clamped to the carriageway it is painted on. The post is measured
-out to the kerb rather than offset a fixed 9px — half a tile, on a road whose
-approach half is two tiles wide. The kerb radius now cuts a yard or a lawn
+The hook is clamped to the carriageway it is painted on. The kerb radius now cuts a yard or a lawn
 corner and not only a pavement one, which is why one crossroads had three
 corners cut and a fourth square. And the review tool had no colour for a stunt
 ramp, so 224 tiles came out `[255, 0, 255]` in every picture this repo has ever
@@ -5655,7 +5676,7 @@ rule: sqrt is pinned to the exactly rounded IEEE result and hypot is not, so a
 last-ulp disagreement between two engines would be two players seeing different
 lights at the same crossroads.
 
-### 51.7 What the reviewers got wrong, and what is still owed
+### 51.8 What the reviewers got wrong, and what is still owed
 
 One claim did not survive checking. The map-design review reported that the 3D
 evidence is seed 7 while every number is seed 1, so the two junction pictures
@@ -5673,8 +5694,8 @@ Still owed:
 - **The 3D fallback has no give-way mark.** Its ground is an atlas of per-tile
   codes and a give-way line is sub-tile, so a junction pops from crossing-only
   to the full set as its painted chunk arrives.
-- **156 signal posts still stand on tarmac**, where the walk to the kerb runs
-  into the cross street's carriageway instead of a pavement.
+- **Six signal posts still stand on tarmac** — the ones on merged sheets wide
+  enough to have no kerb within six tiles of the approach.
 - **Eight tiles carry two heads.** They agree about the colour now, but two
   posts on one tile is still two posts on one tile.
 - **The city has fewer crossings than it did**: 312 against §50's 435, because

@@ -59,14 +59,17 @@ export interface SignalHead {
   dirIdx: number;
   junctionId: number;
   /**
-   * How far to the driver's right the post stands, in px from `x, y`.
+   * Where the POST stands, in world px — on the pavement, not on the road.
    *
-   * Measured out to the kerb of this approach rather than fixed, because a
-   * fixed 9px is half a tile and a four-tile arterial is two tiles wide on
-   * the approach side: 398 of the city's 561 posts stood in a traffic lane,
-   * and 103 of them inside a zebra crossing.
+   * A fixed offset to the driver's right cannot find a kerb: half a tile is
+   * inside the approach lane, and stepping right along the cardinal from a
+   * junction mouth walks into the cross street's carriageway, not onto a
+   * pavement. 398 of the city's 561 posts stood in a traffic lane. This is
+   * the nearest kerb tile behind the stop line on the driver's right, found
+   * once at generation time — see `kerbPost` in sim/signals.ts.
    */
-  kerb: number;
+  postX: number;
+  postY: number;
 }
 
 /** Junction labelling and signal heads; see sim/signals.ts. */

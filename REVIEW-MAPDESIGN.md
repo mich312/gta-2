@@ -571,7 +571,7 @@ All of it is fixed in WORLDGEN.md §51, and the numbers below are that section's
 | crossings drawn complete in 3D | 46 of 151 | **all of them** |
 | junctions with no marking of any kind | 4 in 5 | give way on 524 crossings, 2,973 marks |
 | turn-arrow hooks over the kerb | 135 of 207 | **6 of 338** |
-| signal posts on the carriageway | 398 of 561 | **156 of 457** |
+| signal posts on the carriageway | 398 of 561 | **6 of 457** — the rest stand on a found kerb, not at an offset |
 | `T_RAMP` tiles rendered magenta | 224 | **0** |
 
 One reviewer claim did not survive checking: that the 3D evidence is a

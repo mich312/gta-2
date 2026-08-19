@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {
-  CARDINALS,
   type CityMap,
   PART_HEADLIGHT_L,
   PART_HEADLIGHT_R,
@@ -433,11 +432,9 @@ export class Lights3dLayer {
             scene.tick,
             timing,
           );
-          const ax = CARDINALS[head.dirIdx]![0]!;
-          const ay = CARDINALS[head.dirIdx]![1]!;
           wants.push({
-            x: head.x + ax * 5 - ay * head.kerb,
-            y: head.y + ay * 5 + ax * head.kerb,
+            x: head.postX,
+            y: head.postY,
             z: 26,
             radius: 7,
             kind: colour === 'green' ? 'lamp' : 'red',

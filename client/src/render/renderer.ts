@@ -9,7 +9,6 @@ import {
   nightAmount,
   timeOfDay,
   wetness,
-  CARDINALS,
   getTrafficTuning,
   PART_BONNET,
   PART_BUMPER_F,
@@ -1115,14 +1114,10 @@ function drawSignals(
       tick,
       timing,
     );
-    // Stand the head at the kerb on the driver's right, facing back down the
-    // arm — where a real one is, and out of the carriageway the car uses.
-    const ax = CARDINALS[head.dirIdx]![0]!;
-    const ay = CARDINALS[head.dirIdx]![1]!;
-    const px = head.x + ax * 5 - ay * head.kerb;
-    const py = head.y + ay * 5 + ax * head.kerb;
-    const sx = dx(px);
-    const sy = dy(py);
+    // The post's own position, worked out on the map at generation time
+    // (`kerbPost`): there is no offset from the lane that lands on a kerb.
+    const sx = dx(head.postX);
+    const sy = dy(head.postY);
     ctx.fillStyle = '#1b2028';
     ctx.fillRect(sx - 2 * R, sy - 2 * R, 4 * R, 4 * R);
     ctx.fillStyle = SIGNAL_COLORS[colour];

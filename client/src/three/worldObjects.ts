@@ -39,7 +39,16 @@ const MARGIN = 24;
 /** How high things sit off the road, in world px. */
 const PICKUP_Z = 5;
 const PACKAGE_Z = 4;
-const SIGNAL_HEAD_Z = 26;
+/**
+ * The signal, in pieces: a pole, the housing at the top of it, and the lit
+ * lamp on its face. `LAMP_STEP` is the gap between the three lamp positions,
+ * so the colour is legible from its height as well as its hue.
+ */
+const POLE_Z = 23;
+const POLE_COLOR = '#1b2028';
+const HOUSING_Z = 27.5;
+const HOUSING_H = 7.5;
+const LAMP_STEP = 2.3;
 const PROJECTILE_Z = 6;
 
 /**
@@ -277,17 +286,37 @@ export class WorldObjectsLayer {
             scene.tick,
             timing,
           );
-          // At the kerb on the driver's right, facing back down the arm —
-          // where a real one is, and out of the carriageway the car uses.
-          const ax = CARDINALS[head.dirIdx]![0]!;
-          const ay = CARDINALS[head.dirIdx]![1]!;
-          const px = head.x + ax * 5 - ay * head.kerb;
-          const py = head.y + ay * 5 + ax * head.kerb;
-          // A post, which the 2D view cannot show and this one gets for free:
-          // from overhead a signal is a dark square either way, but at the
-          // frame's edge it now stands up like the street furniture it is.
-          this.posts.putBox(px, py, SIGNAL_HEAD_Z / 2, 1.6, 1.6, SIGNAL_HEAD_Z, 0, '#1b2028');
-          this.heads.putBox(px, py, SIGNAL_HEAD_Z, 3.4, 3.4, 4.2, 0, SIGNAL_COLORS[colour]);
+          // A signal, built like one: a slim pole, a dark housing on top of
+          // it turned to face the traffic it governs, and one lit lamp whose
+          // HEIGHT says which colour it is — red at the top, amber in the
+          // middle, green at the bottom, as on every signal ever built. From
+          // straight overhead the colour carries it; from the frame's edge
+          // the stack does, and a player can read a junction they are not
+          // yet at.
+          //
+          // The post's position is the map's, not an offset from the lane:
+          // `kerbPost` finds the nearest kerb behind the stop line, because
+          // no fixed offset can (398 of 561 posts used to stand in traffic).
+          const px = head.postX;
+          const py = head.postY;
+          // Facing back down the arm, towards the drivers it is talking to.
+          const face = Math.atan2(-CARDINALS[head.dirIdx]![1]!, -CARDINALS[head.dirIdx]![0]!);
+          this.posts.putBox(px, py, POLE_Z / 2, 1.3, 1.3, POLE_Z, face, POLE_COLOR);
+          // The housing overhangs the kerb a little, the way a real one does.
+          const hx = px + Math.cos(face) * -1.2;
+          const hy = py + Math.sin(face) * -1.2;
+          this.posts.putBox(hx, hy, HOUSING_Z, 2.4, 3.6, HOUSING_H, face, POLE_COLOR);
+          const lamp = colour === 'red' ? 1 : colour === 'amber' ? 0 : -1;
+          this.heads.putBox(
+            hx + Math.cos(face) * 1.5,
+            hy + Math.sin(face) * 1.5,
+            HOUSING_Z + lamp * LAMP_STEP,
+            1.8,
+            2.7,
+            2.7,
+            face,
+            SIGNAL_COLORS[colour],
+          );
         }
       }
     }
