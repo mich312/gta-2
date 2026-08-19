@@ -1033,63 +1033,28 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
       if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, LONG);
     }
   }
-  // Piers, on the same cadence the 2D painter uses.
+  // No piers here, and the attempt is worth recording.
   //
-  // `paintWater` draws a deck shadow and a pier block on the water tiles
-  // beside a deck, and says in as many words that from above that is the
-  // difference between a bridge and a stripe. None of it survives in 3D: the
-  // ground painting is alpha-cut out of every water tile and replaced by the
-  // 3D water slab, so the painted shadow and piers are holes.
+  // `paintWater` draws a deck shadow and pier blocks on the water beside a
+  // deck, and says that from above this is the difference between a bridge
+  // and a stripe. In 3D none of it survives — the ground painting is
+  // alpha-cut out of every water tile and replaced by the water slab — and a
+  // review pointed out that while the DECK has to stay at zero (see
+  // `drawnSpans`), a pier does not.
   //
-  // The deck itself has to stay at zero — `drawnSpans` explains why, and the
-  // simulation still pins every land vehicle there — but a pier does not. It
-  // stands in the water beside the deck, from the bed up to just under the
-  // surface, and it is the one thing that can say "this road is carried"
-  // without moving the road (§56.5).
-  const piers = new Map<number, Boxes>();
-  for (let ty = 0; ty < H; ty++) {
-    for (let tx = 0; tx < W; tx++) {
-      if (at(tx, ty) !== T_WATER) continue;
-      if ((tx + ty) % 9 !== 0) continue;
-      // Which way the deck lies, so the pier can hug it.
-      //
-      // Centred on its own water tile it stands a full tile clear of the
-      // carriageway, and a small dark square floating beside a bridge is the
-      // "isolated half-tile blocks that read as debris" the FIRST review
-      // complained about in the 2D tool. A pier touches what it carries: it
-      // sits against the deck's edge, runs along the flank rather than being
-      // square, and is drawn in kerb concrete so it reads as structure and
-      // not as a hole in the water.
-      let dx = 0;
-      let dy = 0;
-      if (at(tx - 1, ty) === T_BRIDGE) dx = -1;
-      else if (at(tx + 1, ty) === T_BRIDGE) dx = 1;
-      else if (at(tx, ty - 1) === T_BRIDGE) dy = -1;
-      else if (at(tx, ty + 1) === T_BRIDGE) dy = 1;
-      else continue;
-      const along = T * 0.8;
-      const out = T * 0.55;
-      // Pushed most of the way to the shared edge, so it meets the deck.
-      const px = (tx + 0.5 + dx * 0.34) * T;
-      const py = (ty + 0.5 + dy * 0.34) * T;
-      // Up to −1: clear of the water surface at −8 so it reads as standing in
-      // the river, and short of 0 so it never z-fights the deck beside it.
-      intoChunk(
-        piers,
-        tx,
-        ty,
-        dx !== 0 ? out : along,
-        dx !== 0 ? along : out,
-        EARTH - -1,
-        px,
-        py,
-        (EARTH + -1) / 2,
-      );
-    }
-  }
-  let n = addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);
-  n += addChunkedBoxes(group, piers, col('bridgePier', 0x5f646b), 0.45);
-  return n;
+  // It was built twice and thrown away twice (§56.5). Centred on its own
+  // water tile it stood a tile clear of the carriageway and read as floating
+  // black debris, which is the same complaint that review made of the 2D pier
+  // marks. Moved to hug the deck edge, run along the flank and drawn in
+  // concrete, it reads at flyover zoom as dots and at game zoom as dark
+  // rectangles hanging off the parapet — like damage, not structure.
+  //
+  // The idea is still right and the geometry is not the hard part. What is
+  // missing is a form: a pier reads as a pier because you can see it meet the
+  // water and carry something, and neither is available from overhead with a
+  // deck whose underside is at EARTH and whose surface is at zero. Anyone
+  // returning to this should solve that before writing the boxes.
+  return addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);
 }
 
 /**

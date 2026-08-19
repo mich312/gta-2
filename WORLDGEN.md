@@ -6462,20 +6462,39 @@ And the flyover never called `scenery.updateProps`, so the night shot had light
 pools with no visible source — `setMap` plants only trees. One line, and the
 lamp posts, bins, barrels and fences arrive with it.
 
-### 56.5 The piers the 2D painter has always drawn
+### 56.5 The piers the 2D painter has always drawn — built twice, thrown away twice
 
 The reviewer agreed the flat deck is a decision (§55.8) and then found the
 option that decision had hidden. `paintWater` **already draws** a deck shadow
 and a pier block on the water tiles beside a deck, with a comment saying that
 from above this is the difference between a bridge and a stripe. **None of it
 survives in 3D**: the ground painting is alpha-cut out of every water tile and
-replaced by the 3D water slab, so the shadow and the piers are holes.
+replaced by the 3D water slab, so the shadow and the piers are holes. And while
+the deck has to stay at zero, a pier does not.
 
-The deck has to stay at zero. A pier does not. Pier boxes now stand on the
-same `(tx + ty) % 9` cadence and the same flank test the 2D painter uses, from
-the bed up to −1 — clear of the water surface at −8 so they read as standing in
-the river, short of 0 so they never z-fight the deck. **The road does not move
-and the bridge reads as carried.** A defect of omission, not a decision.
+That reasoning is sound. Two implementations of it were not.
+
+**Centred on its own water tile**, on the 2D painter's `(tx + ty) % 9` cadence,
+a pier stands a full tile clear of the carriageway. It rendered as small dark
+squares floating beside the deck — which is, precisely, the *"isolated
+half-tile black squares floating clear of the deck"* the first review had
+already complained about in the 2D tool. The defect was reproduced in the act
+of fixing it.
+
+**Hugging the deck edge**, running along the flank rather than square, in kerb
+concrete: at flyover zoom (~4 screen px to the tile) still dots; at something
+near game zoom, dark rectangles hanging off the parapet that read as damage.
+
+So there are no piers. The idea is still right and the geometry is not the hard
+part — what is missing is a **form**. A pier reads as a pier because you can
+see it meet the water and carry something, and with a deck whose underside is
+at `EARTH` and whose surface is at zero, neither is available from overhead.
+Anyone returning to this should solve that before writing the boxes.
+
+Recorded rather than quietly dropped because the failure is the useful part: it
+is the same lesson as §52.5 from the other end. There, a defect was dismissed
+because the measurement was too tight. Here, a fix was committed before the
+picture had been looked at properly — and the picture said no, twice.
 
 ### 56.6 What the verification confirmed
 
