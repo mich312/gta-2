@@ -86,12 +86,29 @@
         const { WorldObjectsLayer } = await import('/src/three/worldObjects.ts');
         const objects = new WorldObjectsLayer(view.world);
         objects.setMap(map);
+        // Street lamps, from the map's own prop list.
+        //
+        // `Lights3dLayer` is wired up in `main.ts` and never was here, so the
+        // flyover has no street lighting at any hour — which made every night
+        // shot this repo has taken a picture of an unlit city, and made the
+        // one thing a night shot is FOR impossible to review (§55.7). The
+        // layer reads lamps off `scene.remotes.props`, and the sim streams
+        // those from `map.propSpawns`; with no sim here, the same list is
+        // handed over directly. Ids are the index, so a lamp's flicker
+        // character is stable between retakes exactly as it is in the game.
+        const lamps = (map.propSpawns ?? [])
+          .map((p, i) => ({ ...p, id: i, pos: { x: p.x, y: p.y }, intact: true }))
+          .filter((p) => p.kind === 'lamp');
         const emptyScene = {
-          remotes: { pickups: [], projectiles: [] },
+          remotes: { pickups: [], projectiles: [], props: lamps, vehicles: [], peds: [] },
           foundPackages: new Set(),
           nowMs: 0,
           tick: 0,
         };
+        const noEffects = { flashPool: [], particlePool: [] };
+        const { Lights3dLayer } = await import('/src/three/lights3d.ts');
+        const lights3d = new Lights3dLayer(view.world);
+        lights3d.setMap(map);
         // Hold over a named tile, or orbit the centre as before.
         const at = (q.get('at') ?? '').split(',').map((v) => Number.parseFloat(v));
         const hold = at.length === 2 && at.every(Number.isFinite)
@@ -118,6 +135,10 @@
           emptyScene.nowMs = now;
           emptyScene.tick = Number.parseInt(q.get('tick') ?? '', 10) || Math.floor(now / 16.67);
           objects.update(emptyScene, cam, box);
+          lights3d.update(emptyScene, noEffects, night, { x: fx, y: fy }, cam, {
+            w: box.w,
+            h: box.h,
+          });
           view.render();
           frames++;
           if (now - last > 500) {

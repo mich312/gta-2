@@ -969,7 +969,14 @@ function buildRoofDetail(
   }
 
   let instances = 0;
-  instances += addChunkedBoxes(group, parapets, col('roofEdgeLight', 0x8f97a6), 0.4);
+  // The parapet, at the palette's own `roofEdgeLight` (#8f97a6), was three
+  // times the albedo of the roof it rims and about 1.8x the tarmac. Every
+  // building in an overhead frame wore a glaring white picture frame, and
+  // the frames were the dominant texture of the city (§55.1). A parapet is
+  // the same coping the roof is; it catches a little more light because it
+  // is an edge, and that is all. `roofUnit` is the roof clutter's own tone
+  // and reads as one material with it.
+  instances += addChunkedBoxes(group, parapets, col('roofEdge', 0x767d8a), 0.4);
   instances += addChunkedBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
   return instances;
 }
@@ -992,7 +999,10 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const T = TILE_SIZE;
-  const RAIL_H = 5;
+  // 1.27 m of parapet at 2.9 m to the tile. Five was 0.9 m, which is a
+  // handrail rather than the thing that stops a car going over the side, and
+  // on a deck the game drives at zero it is most of what says "bridge".
+  const RAIL_H = 7;
   const RAIL_W = 2;
   const at = (tx: number, ty: number): number =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
@@ -1006,10 +1016,21 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
       const rail = (x: number, y: number, w: number, d: number): void => {
         intoChunk(rails, tx, ty, w, d, RAIL_H, x, y, RAIL_H / 2);
       };
-      if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, T, RAIL_W);
-      if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, T, RAIL_W);
-      if (at(tx - 1, ty) === T_WATER) rail(cx - T / 2 + RAIL_W / 2, cy, RAIL_W, T);
-      if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, T);
+      // A rail-width longer than its tile at BOTH ends, so consecutive rails
+      // overlap instead of meeting.
+      //
+      // A deck taken at an angle is a staircase of tiles, and at every step
+      // one tile rails its north side while its neighbour rails its west.
+      // Ending each rail exactly on the tile boundary left the little square
+      // where the two turn uncovered — a triangular opening onto the water at
+      // every step, 394 of the city's 1,550 bridge edge sides (§55.3). The
+      // overlap is two world px on a sixteen px tile and invisible; the hole
+      // was not.
+      const LONG = T + RAIL_W * 2;
+      if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, LONG, RAIL_W);
+      if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, LONG, RAIL_W);
+      if (at(tx - 1, ty) === T_WATER) rail(cx - T / 2 + RAIL_W / 2, cy, RAIL_W, LONG);
+      if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, LONG);
     }
   }
   return addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);

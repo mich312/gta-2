@@ -95,8 +95,15 @@ const DAYLIGHT = Object.freeze({ sun: 2.95, ambient: 1.18, hemi: 0.62 });
  *
  * Shared by the rig and by `lookAt`, which needs it to work out how big a
  * shadow texel is before it can snap the camera to one.
+ *
+ * REVIEW-3D.md records cutting this from 900 to 460 to buy shadow resolution.
+ * That overshot: at the shipped camera the far edge of the frame is 525 world
+ * px beyond the shadow camera's centre, so every building in the top and outer
+ * thirds of the picture cast no shadow at all (§55.2) — and a building with no
+ * shadow beside one with a shadow reads as a bug, whatever the texel density
+ * bought. 560 covers the frame with room for the sun's own slant.
  */
-export const SHADOW_HALF_EXTENT = 460;
+export const SHADOW_HALF_EXTENT = 560;
 
 /** Sun and sky colours at each end of the day, for the night grade. */
 const SUN_DAY = new THREE.Color(0xffeccd);

@@ -1971,6 +1971,16 @@ export class TileLayer {
   ): void {
     ctx.fillStyle = palette.bank;
     ctx.fillRect(x, y, TD, TD);
+    // Grain, like every other ground surface in the city has.
+    //
+    // The bank was a single `fillRect` and nothing else — road, grass, sand,
+    // pavement and lot all speckle, and the shore did not. Tracing every inlet
+    // and spit at the same one-to-three tile width in one flat tone, it read
+    // as a marker-pen outline of the landmass rather than as ground (§55.5).
+    // Two passes at the same weights the road uses, so the shore is made of
+    // the same stuff as everywhere else.
+    this.speckle(ctx, tx, ty, x, y, palette.bankShade, 6, 2, 29);
+    this.speckle(ctx, tx, ty, x, y, palette.bankLight, 4, 1, 31);
     if (!coping) return;
     ctx.fillStyle = palette.bankEdge;
     const lip = Math.max(1, (TD / 8) | 0);
@@ -2197,6 +2207,23 @@ export class TileLayer {
     // is worse than either alone. Base asphalt above still paints — the
     // rasterised band overhangs the stroke by up to half a tile.
     if (this.courseCover !== null && this.courseCover[i] === 1) return;
+    // On a DECK, the ribbon's wider apron counts as cover.
+    //
+    // A bridge taken at an angle is a staircase of tiles, and the stair's
+    // outer tiles fall outside `courseCover`'s inner radius while the course
+    // itself runs straight through them. Each one then drew its own per-tile
+    // centre mark a tile away from the ribbon's, so every diagonal deck in
+    // the city carried two centre lines down its whole length, one faint and
+    // one bright, in different dash phases (§55.4). There is no lattice street
+    // on a deck for the per-tile painter to be describing — the ribbon is the
+    // road — so where the ribbon reaches at all, it owns the marks.
+    if (
+      this.tileAt(tx, ty) === T_BRIDGE &&
+      this.courseApron !== null &&
+      this.courseApron[i] === 1
+    ) {
+      return;
+    }
 
     const hLen = this.runH[i] as number;
     const vLen = this.runV[i] as number;

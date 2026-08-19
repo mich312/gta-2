@@ -6229,3 +6229,154 @@ whole way. It now takes an optional `flank` half-width and probes ±that as
 well, which costs two more rays and rejects the lane instead of failing a
 physics test with a staging bug. Same shape as the `lateral` parameter added
 for the same reason two reviews ago.
+
+### 54.9 A four-tile apron round a thirteen-tile square
+
+The visual sweep found "a 23 × 18 blank plaza in the middle of downtown" at
+(479,186) — 414 tiles, 318 of them pavement, not one building. It is the
+largest genuinely empty urban block in the city, and the cause is one
+constant.
+
+A landmark's block is filled like any other and the landmark then takes its
+plot back: every building whose box overlaps the landmark **plus a four-tile
+apron on every side** is demolished. That is right for a police station in a
+twelve-tile block — the apron is the setting that makes a small building read
+as a landmark. Exchange Square is a 13 × 13 civic square, so its clearing box
+is 21 × 21, and the block it stands in is 23 × 18. Every building in the block
+was raised.
+
+The apron now shrinks as the landmark grows:
+`Math.max(1, APRON - Math.floor(Math.min(lw, lh) / 4))` — four tiles at two
+wide, one at thirteen. A big landmark already supplies its own setting.
+
+Buildings 4,170 → 4,204, and the square has frontage on it instead of being a
+414-tile hole. Genuinely empty urban blocks 13 → 12, the largest now 234 tiles.
+
+**A number worth correcting while it is here.** The sweep reported "32 of 458
+blocks (7%) are empty", and a first pass at re-measuring it citywide came back
+69 of 579 — which reads as a regression and is not one: the sweep covered the
+northern landmass only, and the citywide filter counts parkland and shoreline.
+Of the 69, thirty are more than 30% water, fifteen are park district and
+twelve are rural. **A park block with no buildings in it is a park.** The
+number that means anything — blocks of 60 tiles or more, not rural, not park,
+under 15% water, with nothing built — is 13, and now 12.
+
+## 55. What the 3D pass found, and which of it was a decision
+
+A fifth reviewer flew the city and took twelve shots. Its ranked list is worth
+reading in full; what follows is what was done about it, including the two
+items that turned out to be decisions rather than defects.
+
+### 55.1 A grid of white-rimmed dark rectangles
+
+From an overhead camera roofs are most of the frame, and the roof branch of
+`facade.ts` does `mix(diffuse, slate, 0.72) * 0.46`. A pastel mass lands on an
+albedo of **0.12** where the carriageway's own palette colour is 0.20, so the
+**sunlit roof measured darker than the tarmac it overlooks** — (71,76,81)
+against (78,84,91). Meanwhile the parapet was drawn at `roofEdgeLight`
+(#8f97a6), undarkened, three times the roof's albedo and 1.8× the road's.
+
+The reasoning behind the 0.46 is sound — a roof faces the sun square on and
+collects more irradiance than anything else in the city, so a slate that reads
+correctly in isolation comes out mid-grey once lit. It just overcorrected by
+about 50%. Real tar and real asphalt are within a few points of each other and
+the roof should sit just above the road, not below it: **0.46 → 0.72**, and the
+parapet onto a new `roofEdge` (#767d8a) that reads as the same material.
+
+### 55.2 Buildings at the frame edge cast no shadow
+
+`SHADOW_HALF_EXTENT` was cut from 900 to 460 in REVIEW-3D.md to buy texel
+density. At the shipped camera — FOV_Y 34, pitch 42, viewHeight 420, camHeight
+687 — the far edge of the frame is **525 world px beyond the shadow camera's
+centre**, so the top and outer thirds of every picture had no cast shadows at
+all. A building with no shadow beside one with a shadow reads as a bug whatever
+the density bought. **460 → 560.**
+
+### 55.3 A hole in the parapet at every step of a diagonal bridge
+
+A deck taken at an angle is a staircase, and at each step one tile rails its
+north side while its neighbour rails its west. Each rail spanned exactly its
+tile, so the little square where the two turn was covered by neither: **a
+triangular opening onto the water at every step, at 394 of the city's 1,550
+bridge edge sides.** Rails now run a rail-width past their tile at both ends —
+two world px on a sixteen px tile, invisible, where the hole was not.
+
+`RAIL_H` also went 5 → 7. At 2.9 m to the tile that is 0.9 m → 1.27 m: a
+parapet rather than a handrail, and on a deck the game drives at zero it is
+most of what says "bridge".
+
+### 55.4 Two centre lines down every diagonal deck
+
+`paintBridge` calls `paintRoad`, which draws the per-tile lane mark, and
+`paintCourses` then strokes the curve-based dash into the same chunk. There is
+already a rule for exactly this — *"a tile under a stroked course gets its
+marks from the ribbon… two centre lines disagreeing about where the road runs
+is worse than either alone"* — but it tests `courseCover`, whose inner radius
+the outer tiles of a stair fall outside. So every diagonal deck carried two
+centre lines its whole length, one faint and one bright, in different dash
+phases.
+
+On a deck the wider `courseApron` counts as cover. There is no lattice street
+on a bridge for the per-tile painter to be describing; the ribbon is the road.
+
+### 55.5 The only ground surface with no texture
+
+Road, grass, sand, pavement and lot all speckle. `paintBank` was a single
+`fillRect`, so the shore traced every inlet and spit at the same 1–3 tile width
+in one flat tone and read as a marker-pen outline of the landmass. Two speckle
+passes at the road's own weights, on two new palette tones.
+
+### 55.6 A test that measured a player pinned against a wall
+
+Not a 3D finding — the fallout of §54 — but the same shape as §54.8 and worth
+recording beside it. `busyKerb` picks the kerb with the most other kerbs around
+it, and every caller stands a player there and walks them east for the length
+of the test. Nothing ever checked they could take a step. The rebake gave the
+busiest kerb in the city a building four tiles east; the player stood still for
+600 ticks, the wave that had already fielded never made room for the next, and
+a test about police waves reported that waves do not arrive. `busyKerb` now
+takes a required walkable run east.
+
+**Three tests in two sections, all the same class**: a helper that stages a
+body at a fixed spot and validates the ground with a rule weaker than the body
+it is about to put there. A zero-width ray for a car with flanks; a kerb chosen
+for its neighbours by a caller that needs to walk.
+
+### 55.7 A night shot of an unlit city
+
+`Lights3dLayer` is wired up in `main.ts` and never was in the flyover, so every
+3D still this repo holds shows a city with no street lighting at any hour — and
+the reviewer could not take a night shot worth looking at. The layer reads
+lamps off `scene.remotes.props`; with no sim in the flyover, `map.propSpawns`
+is handed over directly, ids being the index so a lamp's flicker character is
+stable between retakes. This is §50.5 again, one layer along.
+
+### 55.8 The two that were decisions, not defects
+
+**"Bridges are causeways: the deck lies flat on the sea with no clearance."**
+True, and deliberate. `drawnSpans` documents it at length: `volume.ts` and
+`collide3.ts` describe a deck 40 px up with a river underneath, and **nothing
+in the simulation uses either yet** — `step()` collides on the flat tile grid
+and `integrateVehicle` pins every land vehicle to `z = 0`. Drawing the volume
+literally built a city the game was not being played in: traffic drove
+underneath its own bridge and vanished for the length of the span. The function
+says its own deletion is the change, and that change belongs to the sim
+adopting `collide3`, not to a lighting pass.
+
+**"There is no kerb geometry anywhere."** The same call, for the same reason,
+recorded in the same place: drawing `KERB_Z = 3` literally buried every ped,
+officer and player to the hips.
+
+Both are real complaints about how the city looks. Neither is fixable from the
+renderer without breaking the game, and neither should be "fixed" by someone
+who has not read why the constant is there.
+
+### 55.9 What is still owed
+
+Reported, not acted on: the sea is a single flat colour (σ < 1.3 over a
+400 × 300 sample); trees are flat-topped extruded discs with no trunk, which
+`scenery.ts` already documents as wanting a per-shape floor; lone woodland
+tiles stand on their own raised dark square; facades alias into speckle at
+glancing angles; the debug HUD reads "draws 1 … tris 0k" because `stats()`
+reads `renderer.info.render` after the composer has reset it; and a drawn
+storey is 6 world px against a 9 px pedestrian.

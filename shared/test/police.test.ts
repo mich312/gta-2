@@ -1024,7 +1024,12 @@ describe('waves and equipment (P3)', () => {
     state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'x' }], map);
     // On the busiest kerb in the city, for the reason `forceAt` is: a wave is
     // only a composition where there is enough kerb for one to turn out on.
-    const lane = busyKerb(map);
+    // And with room to WALK east, because the loop below walks the player for
+    // the length of the test: without it the §54 rebake put the busiest kerb
+    // four tiles from a building, the player stood still for six hundred
+    // ticks, and the wave that had already fielded never made room for the
+    // next one (§55.6).
+    const lane = busyKerb(map, 260, 640, 384);
     state.players.byId[1]!.pos = { x: lane.x, y: lane.y };
     const spawnTicks: number[] = [];
     const kinds: string[] = [];

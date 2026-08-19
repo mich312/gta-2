@@ -1,7 +1,7 @@
 import { rayWallDistance } from '../src/sim/weapons.js';
 import { drivableTile } from '../src/sim/roadgrid.js';
 import { isSolidAtWorld, isSolidTile } from '../src/world/collide.js';
-import { T_BUILDING, TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.js';
+import { T_BUILDING, T_WATER, TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.js';
 
 /**
  * Geometry helpers for tests.
@@ -417,10 +417,42 @@ export function openSquare(map: CityMap, size = 12): { x: number; y: number } {
  * the busiest corner of the city and says so, instead of taking whatever the
  * first kerb in scan order happens to be.
  */
-export function busyKerb(map: CityMap, near = 260, far = 640): VehicleSpawn {
-  let best = map.vehicleSpawns[0];
+export function busyKerb(
+  map: CityMap,
+  near = 260,
+  far = 640,
+  /**
+   * Walkable ground required due EAST of the kerb, in px.
+   *
+   * Every caller of this stands a player on the kerb and then walks them at
+   * `walkSpeed` in +x for the length of the test, because a player who never
+   * moves is not what the police machinery is being asked about. The kerb was
+   * picked purely for how many other kerbs are near it, so nothing ever
+   * checked that the player could take a step: the §54 rebake handed the
+   * busiest kerb in the city a building four tiles east, and the wave test
+   * measured a player pinned against a wall for six hundred ticks (§55.6).
+   *
+   * Zero keeps the old behaviour for any caller that does not walk.
+   */
+  runEastPx = 0,
+): VehicleSpawn {
+  let best: VehicleSpawn | undefined;
   let bestCount = -1;
+  const walkable = (px: number, py: number): boolean => {
+    const tx = Math.floor(px / TILE_SIZE);
+    const ty = Math.floor(py / TILE_SIZE);
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+    const t = map.tiles[ty * map.widthTiles + tx] as number;
+    return t !== T_BUILDING && t !== T_WATER;
+  };
   for (const s of map.vehicleSpawns) {
+    if (runEastPx > 0) {
+      let clear = true;
+      for (let d = 0; d <= runEastPx && clear; d += TILE_SIZE / 2) {
+        if (!walkable(s.x + d, s.y)) clear = false;
+      }
+      if (!clear) continue;
+    }
     let n = 0;
     for (const o of map.vehicleSpawns) {
       const d = Math.hypot(o.x - s.x, o.y - s.y);

@@ -529,10 +529,24 @@ export function bakeCity(plan: CityPlan): BakedCity {
   for (const [li, l] of plan.landmarks.entries()) {
     if (!claimed.has(li)) continue;
     const [lx, ly, lw, lh] = l.rect;
-    const x0 = lx - APRON;
-    const y0 = ly - APRON;
-    const x1 = lx + lw + APRON;
-    const y1 = ly + lh + APRON;
+    // The apron shrinks as the landmark grows.
+    //
+    // Four tiles is right for a police station in a twelve-tile block: it is
+    // the setting that makes a small building read as a landmark. It is
+    // ruinous for a thirteen-by-thirteen public square, because the box that
+    // clears buildings out of the way is the landmark plus the apron on every
+    // side — 21 x 21 for Exchange Square — and the block it stands in is
+    // 23 x 18. Every building in the block was raised, and downtown carried a
+    // 414-tile plaza with 318 tiles of pavement and nothing on it (§54.9).
+    //
+    // A big landmark already supplies its own setting; a small one needs the
+    // ground around it. So: one tile of pavement ring at thirteen wide, four
+    // at two wide, monotone in between.
+    const apron = Math.max(1, APRON - Math.floor(Math.min(lw, lh) / 4));
+    const x0 = lx - apron;
+    const y0 = ly - apron;
+    const x1 = lx + lw + apron;
+    const y1 = ly + lh + apron;
     for (let bi = buildings.length - 1; bi >= 0; bi--) {
       const bd = buildings[bi] as Building;
       if (bd.x >= x1 || bd.x + bd.w <= x0 || bd.y >= y1 || bd.y + bd.h <= y0) continue;
