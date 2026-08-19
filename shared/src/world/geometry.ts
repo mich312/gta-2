@@ -658,11 +658,31 @@ export interface CourseCrossing {
    * the carriageway width of the course it belongs to. Four at a crossroads,
    * three at a T, two where a course simply bends into another.
    */
-  arms: Array<{ dx: number; dy: number; width: number }>;
+  arms: Array<{ dx: number; dy: number; width: number; len: number }>;
 }
 
-/** Two arms are the same arm if they leave within this angle of each other. */
-const ARM_MERGE_COS = Math.cos((25 * Math.PI) / 180);
+/** How long a course is, end to end, in tiles. */
+function courseLength(points: ReadonlyArray<readonly [number, number]>): number {
+  let n = 0;
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1] as readonly [number, number];
+    const [bx, by] = points[i] as readonly [number, number];
+    n += Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+  }
+  return n;
+}
+
+/**
+ * Two arms are the same arm if they leave within 25° of each other.
+ *
+ * Written as the literal cosine rather than `Math.cos(25°)` for the reason
+ * §43 gives at `shoreChains` below: ECMA-262 leaves the transcendental
+ * functions approximated, and this threshold now helps decide junction IDS,
+ * which the traffic-signal phase is a pure function of. A last-ulp
+ * disagreement between two engines would be two players seeing different
+ * lights at the same crossroads.
+ */
+const ARM_MERGE_COS = 0.9063077870366499;
 
 /**
  * How far a course must carry on past the crossing for that side to count as
@@ -707,7 +727,12 @@ export function courseCrossings(
     for (let k = 0; k + 1 < c.points.length; k++) {
       const [ax, ay] = c.points[k] as readonly [number, number];
       const [bx, by] = c.points[k + 1] as readonly [number, number];
-      const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / CELL));
+      // `Math.sqrt`, not `Math.hypot`, here and below: this function decides
+      // junction ids now (sim/signals.ts calls it from `labelJunctions`), and
+      // the exactness rule §43 states for the coast chains applies for the
+      // same reason — sqrt is pinned to the exactly rounded IEEE result and
+      // hypot is not.
+      const steps = Math.max(1, Math.ceil(Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay)) / CELL));
       for (let s = 0; s <= steps; s++) {
         add(ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps, i, k);
       }
@@ -720,7 +745,7 @@ export function courseCrossings(
     const seg = (j: number): number => {
       const [ax, ay] = pts[j] as readonly [number, number];
       const [bx, by] = pts[j + 1] as readonly [number, number];
-      return Math.hypot(bx - ax, by - ay);
+      return Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
     };
     const here = seg(k);
     let back = here * t;
@@ -772,10 +797,21 @@ export function courseCrossings(
           [ca, A.k, t, r1x, r1y],
           [cb, B.k, u, r2x, r2y],
         ] as const) {
-          const len = Math.hypot(vx, vy) || 1;
+          const len = Math.sqrt(vx * vx + vy * vy) || 1;
           const [back, fwd] = runFrom(c === ca ? A.i : B.i, k, tt);
-          if (fwd >= ARM_MIN_RUN) arms.push({ dx: vx / len, dy: vy / len, width: c.width });
-          if (back >= ARM_MIN_RUN) arms.push({ dx: -vx / len, dy: -vy / len, width: c.width });
+          // The whole course's length rides along with the arm, because
+          // seniority at a junction is width first and then LENGTH — the same
+          // order the ribbon painter ranks two roads by when it decides whose
+          // centre line carries on through (§16). Without it, two three-tile
+          // streets meeting are indistinguishable and neither can be given
+          // way to.
+          const whole = courseLength(c.points);
+          if (fwd >= ARM_MIN_RUN) {
+            arms.push({ dx: vx / len, dy: vy / len, width: c.width, len: whole });
+          }
+          if (back >= ARM_MIN_RUN) {
+            arms.push({ dx: -vx / len, dy: -vy / len, width: c.width, len: whole });
+          }
         }
         raw.push({ x, y, r: Math.max(ca.width, cb.width) / 2, arms });
       }
@@ -805,7 +841,9 @@ export function courseCrossings(
         for (const j of grid.get(nk) ?? []) {
           const o = raw[j] as CourseCrossing;
           const reach = Math.max(c.r, o.r);
-          if (Math.hypot(c.x - o.x, c.y - o.y) > reach) continue;
+          const gx = c.x - o.x;
+          const gy = c.y - o.y;
+          if (gx * gx + gy * gy > reach * reach) continue;
           const a = find(i);
           const b = find(j);
           if (a !== b) parent[a] = b;
@@ -841,8 +879,10 @@ export function courseCrossings(
         // — and it is the WIDER course that decides how much of the mouth
         // gets furniture.
         const same = arms.find((o) => o.dx * arm.dx + o.dy * arm.dy >= ARM_MERGE_COS);
-        if (same) same.width = Math.max(same.width, arm.width);
-        else arms.push({ ...arm });
+        if (same) {
+          same.width = Math.max(same.width, arm.width);
+          same.len = Math.max(same.len, arm.len);
+        } else arms.push({ ...arm });
       }
     }
     out.push({ x: sx / bag.length, y: sy / bag.length, r, arms });

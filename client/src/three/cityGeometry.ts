@@ -32,6 +32,7 @@ import {
   courseCrossings,
   isSignalCrossing,
   signalledCrossing,
+  junctionGround,
   junctionPaint,
   BEV_NE,
   BEV_SE,
@@ -417,18 +418,6 @@ export function buildCity(map: CityMap): CityBuild {
     return [up + down + 1, left + right + 1];
   };
   /**
-   * Wide both ways: where two streets actually meet.
-   *
-   * `RUN_ROAD` is the 2D painter's own threshold, imported rather than
-   * approximated. The two renderers using different numbers here is how the
-   * 3D city grew crossings the 2D one never painted.
-   */
-  const isJunction = (tx: number, ty: number): boolean => {
-    if (!isRoad(tx, ty)) return false;
-    const [runV, runH] = runs(tx, ty);
-    return runV >= RUN_ROAD && runH >= RUN_ROAD;
-  };
-  /**
    * Crossings, from the CURVES (§50) — the fourth implementation of this
    * rule, and the last one to stop having its own opinion.
    *
@@ -448,9 +437,10 @@ export function buildCity(map: CityMap): CityBuild {
   const zebra = new Uint8Array(W * H);
   {
     const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
+    const ground = junctionGround(map);
     for (const cross of all) {
       if (!isSignalCrossing(cross) || !signalledCrossing(map, cross)) continue;
-      for (const q of junctionPaint(cross, all).zebras) {
+      for (const q of junctionPaint(cross, all, ground).zebras) {
         const alongX = (q[2] as number) - (q[0] as number);
         const alongY = (q[3] as number) - (q[1] as number);
         const code = Math.abs(alongX) >= Math.abs(alongY) ? 1 : 2;
@@ -481,11 +471,15 @@ export function buildCity(map: CityMap): CityBuild {
                 inside = !inside;
               }
             }
-            if (!inside || !isRoad(tx, ty) || isJunction(tx, ty)) continue;
-            // A deck is not a crossroads (REVIEW-WORLDGEN.md §2.3):
-            // `isCarriageway` counts T_BRIDGE, as it must for the centre line
-            // to carry over. Pedestrians cross streets, not spans.
-            if (tileAt(tx, ty) === T_BRIDGE) continue;
+            // No raster gate here any more. The tile test this layer used to
+            // keep as a second opinion (road runs long both ways) dropped 296
+            // of the city's 877 zebra tiles, so only 46 of 151 crossings
+            // showed a complete crossing in 3D while the painted ground drew
+            // all of them. The whole point of laying paint from the curves is
+            // that the raster is wrong about where the box ends; keeping the
+            // raster's veto meant keeping the bug and paying for the fix.
+            // Ground and decks are `junctionGround`'s business, upstream.
+            if (!inside) continue;
             zebra[ty * W + tx] = code;
           }
         }

@@ -33,6 +33,8 @@ import {
   courseCrossings,
   isSignalCrossing,
   signalledCrossing,
+  junctionGround,
+  junctionGiveWay,
   junctionPaint,
   arrowOutline,
   type JunctionPaint,
@@ -386,6 +388,12 @@ export class TileLayer {
    */
   private signalCrossings: Array<{ x: number; y: number; paint: JunctionPaint }> = [];
   /**
+   * The crossings the city does NOT govern, with their give-way marks: the
+   * third treatment (§51), for the four junctions in five that carry no
+   * lights and used to carry nothing at all.
+   */
+  private giveWayCrossings: Array<{ x: number; y: number; marks: MarkQuad[] }> = [];
+  /**
    * The coast running through each tile it crosses (§18), in tile-LOCAL
    * units as a flat polyline — the cut `paintShoreTile` divides that tile
    * with, sharing its ends with the neighbouring tiles' cuts.
@@ -463,6 +471,7 @@ export class TileLayer {
     this.courseApron = null;
     this.junctionDiscs = [];
     this.signalCrossings = [];
+    this.giveWayCrossings = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
     // Crossings from the ROAD curves only (3.2): a walk crossing a walk is
@@ -470,15 +479,22 @@ export class TileLayer {
     // of an avenue it happens to end against.
     const crossings = courseCrossings(courses.filter((c) => c.kind !== 'path'));
     this.junctionDiscs = crossings.map((c) => ({ x: c.x, y: c.y, r: c.r }));
-    // Arterial by the curves, and signalised by the tile labelling: the
-    // paint goes where the lights do, or the city is full of stop lines
-    // nobody is holding.
+    // Arterial by the curves, signalised by the tile labelling, and only
+    // where the ground will take it — one rule, shared with the map renderer,
+    // the 3D builder and the signal policy itself. Without it this painter
+    // put zebra stripes on open water at (383,472), because a curve knows
+    // nothing about what was built under it.
+    const ground = junctionGround(map);
     // Worked out once for the map, not once per chunk: the room test walks
     // every other crossing, and a chunk that redid it would pay for the whole
     // city's junctions to paint one block's.
     this.signalCrossings = crossings
       .filter((c) => isSignalCrossing(c) && signalledCrossing(map, c))
-      .map((c) => ({ x: c.x, y: c.y, paint: junctionPaint(c, this.junctionDiscs) }));
+      .map((c) => ({ x: c.x, y: c.y, paint: junctionPaint(c, this.junctionDiscs, ground) }));
+    this.giveWayCrossings = crossings
+      .filter((c) => !(isSignalCrossing(c) && signalledCrossing(map, c)))
+      .map((c) => ({ x: c.x, y: c.y, marks: junctionGiveWay(c, this.junctionDiscs, ground) }))
+      .filter((c) => c.marks.length > 0);
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);
     const pathCover = new Uint8Array(map.widthTiles * map.heightTiles);
     const apron = new Uint8Array(map.widthTiles * map.heightTiles);
@@ -797,7 +813,7 @@ export class TileLayer {
    * over the tarmac.
    */
   private paintJunctions(ctx: CanvasRenderingContext2D, tx0: number, ty0: number): void {
-    if (this.signalCrossings.length === 0) return;
+    if (this.signalCrossings.length === 0 && this.giveWayCrossings.length === 0) return;
     const t = RENDER_SCALE;
     const wx0 = tx0 * TILE_SIZE;
     const wy0 = ty0 * TILE_SIZE;
@@ -831,6 +847,18 @@ export class TileLayer {
       for (const q of paint.stops) fill(q);
       ctx.fillStyle = palette.roadLane;
       for (const a of paint.arrows) for (const q of arrowOutline(a)) fill(q);
+    }
+    ctx.fillStyle = palette.roadStop;
+    for (const cross of this.giveWayCrossings) {
+      if (
+        cross.x < tx0 - pad ||
+        cross.y < ty0 - pad ||
+        cross.x > tx0 + CHUNK_TILES + pad ||
+        cross.y > ty0 + CHUNK_TILES + pad
+      ) {
+        continue;
+      }
+      for (const q of cross.marks) fill(q);
     }
   }
 

@@ -736,6 +736,12 @@ describe('errand driving (goto)', () => {
     // for one drivable pair among the nearest few, and the follower's
     // ceilings stay visible here instead of failing the suite on whichever
     // pair the bake happens to put first.
+    //
+    // Eight pairs, not three, since §51: the driver model now stops a tile
+    // and a half further back at every red — at the painted line rather than
+    // at the mouth of the box — so a journey through a lit corridor takes
+    // longer, and three pairs stopped being enough to find one that finishes
+    // inside the tick budget.
     const tryErrand = (from: VehicleSpawn, to: VehicleSpawn): boolean => {
       let state = createGameState(601);
       state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
@@ -769,7 +775,7 @@ describe('errand driving (goto)', () => {
       }
       return false;
     };
-    const pairs = journeys(3);
+    const pairs = journeys(8);
     expect(pairs.length).toBeGreaterThan(0);
     expect(
       pairs.some(({ from, to }) => tryErrand(from, to)),
@@ -947,13 +953,14 @@ describe('traffic signals (J1)', () => {
     // carriageway, one component swallows half the road network and every
     // light in that half turns at once — so cap the largest.
     //
-    // The cap was 40 and is now 60. §50.2 unions the pieces one crossroads
-    // was labelled as, and where two arterials meet at a shallow angle the
-    // box that comes out is genuinely 49 tiles — with four arms and one
-    // phase, which is the point. A leak would not look like that: it would
-    // be thousands of tiles, and the ratio below is what actually rules one
-    // out.
-    expect(areas[0]!).toBeLessThan(60);
+    // The cap was 40, then 60, and is now 150. §50.2 unions the pieces one
+    // crossroads was labelled as, and §51 widened the disc it unions over to
+    // the junction's true extent — so where a fan of arterials meets on one
+    // sheet of tarmac the box that comes out is genuinely 106 tiles, with
+    // four arms and one phase, which is the point. A leak would not look
+    // like that: it would be thousands of tiles, and the ratio below is what
+    // actually rules one out.
+    expect(areas[0]!).toBeLessThan(150);
     let carriageway = 0;
     for (const t of map.tiles) if (t === T_ROAD || t === T_BRIDGE) carriageway++;
     expect(areas[0]! / carriageway).toBeLessThan(0.01);
@@ -1033,7 +1040,12 @@ describe('traffic signals (J1)', () => {
   /** A point one tile back from a head, i.e. approaching but not yet at the line. */
   function approach(head: { x: number; y: number; dirIdx: number }): { x: number; y: number } {
     const [dx, dy] = CARDINALS[head.dirIdx] as readonly [number, number];
-    return { x: head.x - dx * TILE_SIZE, y: head.y - dy * TILE_SIZE };
+    // THREE tiles back, not one. §51 moved the stop line out to where it is
+    // painted — about a tile and a half short of the junction's mouth rather
+    // than 6px short of it — so a sample point one tile back is already past
+    // the line, the gap clamps to zero, and this file's own `signalledHead`
+    // could not find a head that ever showed it a red.
+    return { x: head.x - dx * TILE_SIZE * 3, y: head.y - dy * TILE_SIZE * 3 };
   }
 
   /**
@@ -1088,10 +1100,11 @@ describe('traffic signals (J1)', () => {
       );
       if (gap === Infinity) continue;
       sawRed = true;
-      // A tile and a half back from the junction edge; stopping there must
-      // leave the whole car outside the box with room to spare.
+      // Stopping there must leave the whole car behind the painted line,
+      // which is itself outside the box: three tiles of approach, less the
+      // tile and a half the line sits back from the mouth.
       expect(gap).toBeGreaterThan(0);
-      expect(gap + halfExtent).toBeLessThan(TILE_SIZE * 2);
+      expect(gap + halfExtent).toBeLessThan(TILE_SIZE * 3);
     }
     expect(sawRed).toBe(true);
   });
@@ -1102,7 +1115,12 @@ describe('traffic signals (J1)', () => {
     // Find a tick where this arm is on amber.
     let amberTick = -1;
     for (let tick = 0; tick < 400 && amberTick < 0; tick++) {
-      if (signalColour(head.junctionId, head.dirIdx, tick, timings) === 'amber') amberTick = tick;
+      // The PHASE, not the id: §51 made the phase a property of the sheet of
+      // tarmac so that two pieces of one crossroads cannot show green to both
+      // axes, and `stopLineGap` asks the phase. Asking the id here found an
+      // amber the driver model was not looking at.
+      const ph = map.junctions.phase[head.junctionId]!;
+      if (signalColour(ph, head.dirIdx, tick, timings) === 'amber') amberTick = tick;
     }
     expect(amberTick).toBeGreaterThanOrEqual(0);
     const brake = trafficJson.comfortBrake;

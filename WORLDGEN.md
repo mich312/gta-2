@@ -5511,3 +5511,173 @@ none of the four is a symptom of a broken junction:
   fourth finding asked for; the rest of what goes inside a junction is not
   drawn, and an unsignalised crossroads still has nothing at all to say about
   who yields.
+
+## 51. What three reviewers found in §50
+
+§50 built the junctions. Three independent reviews were then run over it — one
+on the diff, one on the pictures, one re-measuring every number the section
+quoted — and between them they found that the geometry was right and almost
+everything it was bolted to was inconsistent with it.
+
+The through-line: **four systems each held their own definition of where a
+junction is.** The sim's labelled tiles, the merge's `r + 0.5` disc, the
+policy's `ceil(r) + 1` square, and the paint's angle-aware mouth. Nearly every
+defect below is two of those four disagreeing.
+
+### 51.1 The stop line the traffic ignored
+
+The worst of it, and it was invisible to every test: `stopLineGap` halts a car
+6px short of the first junction-LABELLED tile — the mouth — and `junctionPaint`
+draws the stop line about a tile and a half further out than that. Measured
+over the city's painted approaches, the median driver came to rest **past its
+own stop line**, and **261 of 441 approaches** parked their queue **on the
+zebra crossing**.
+
+That is worse than not painting a crossing at all. A stop line the traffic
+ignores tells the player the paint is scenery.
+
+`STOP_LINE_REACH` is now exported from `world/marks.ts` — the painter's own
+number for how far past the mouth the line sits — and the driver model stops at
+it.
+
+The two used to measure from different places: the paint from the geometric
+mouth, the sim from the first labelled tile. So `junctionGround` grew a `mouth`
+that measures the paint's own mouth on the same labelling, walked at the same
+quarter-tile step the driver's lookahead uses. The difference is now a
+constant: **every one of the city's 435 painted approaches stops the nose
+exactly a quarter of a tile behind its own stop line**, and **none** comes to
+rest on a crossing, against 261 of 441.
+
+### 51.2 One extent, and a phase that is not an id
+
+`junctionReach` is now the single answer to "how big is this junction", and the
+policy's square is gone — a square reaches past the mouth into the next street,
+and it was lighting 13 junctions and 42 heads by their corners.
+
+The harder half was the split crossroads. §50.2 claimed to have made "green to
+both axes at once" impossible; the review measured **17 crossroads where it was
+still possible**, because the 4-connected flood fill leaves a diagonal seam of
+declined tiles through a skew crossing and the merge disc was too small to
+reach the fragments.
+
+The obvious fix — union everything the junction's true extent touches, or make
+the fill 8-connected — works and costs too much. Both were tried and measured:
+the arterial fan above the old town comes back as one **106-tile** component,
+route steps grow from 96px to 144, the straight line between two graph nodes
+starts leaving the carriageway, and the ambulance service dispatches a second
+van because the first cannot find a lane across it. A junction is a **node**,
+and nodes want to be small.
+
+So the two questions are separated, which is what they always were:
+
+- **The id** is the routing graph's. 4-connected, small, 725 of them, the
+  largest 49 tiles — 0.049% of the city's carriageway.
+- **The phase** is the sheet of tarmac's. 8-connected over the finished
+  labelling, 654 groups, and `signalColour` is asked about it.
+
+Tarmac that meets at a corner is tarmac a car can be standing on both sides
+of, so it shares a light; it does not have to share a node. **Conflicting
+greens: 17 → 0.** Eight tiles still carry heads of two junctions, and they now
+show the same colour.
+
+### 51.3 Ground the paint can land on
+
+A curve knows nothing about what was built under it. Ungated, the furniture put
+zebra stripes in the creek at (383,472), a stop line through a building at
+(171,237), a full signalised kit inside the turning head of a cul-de-sac at
+(144,467), and crossings on bridge decks that the 3D layer had been refusing
+on its own since §2.3.
+
+`junctionGround` is one predicate — carriageway, and not a deck — supplied by
+the caller because only the caller has a map, and asked by all three painters
+*and* by the signal policy. An arm is refused if the ground under the paint
+will not take it, or if the road does not carry on past it, which is what a
+cul-de-sac fails.
+
+Sampled at the middle of each half of the carriageway rather than at its outer
+edge: the first cut sampled the edge and threw away 136 of 530 arterial arms
+for grazing a kerb the painters clip against anyway.
+
+Paint off the carriageway: **36 tile centres of 1,103 → 5 of 1,022** — and
+those five are kerb band, which the painters clip against anyway. None is
+water, wall or deck.
+
+And the policy now follows the paint. A junction the painters cannot furnish —
+too many arms, no room, wrong ground — does not get lights either. That closes
+§50's own hole, where four six-way aprons wore traffic signals over a lake of
+unmarked asphalt.
+
+### 51.4 The third painter, again
+
+`cityGeometry.ts` kept the raster `isJunction` test as a second opinion under a
+comment claiming it drew the same crossings as everyone else. It dropped **296
+of 877 zebra tiles**, so only **46 of 151** crossings showed a complete
+crossing in 3D. The whole point of laying paint from the curves is that the
+raster is wrong about where the box ends; keeping the raster's veto was keeping
+the bug and paying for the fix.
+
+### 51.5 Give way: the third word
+
+§49 found the city had two vocabulary words — the full arterial kit, or nothing
+— and four junctions in five had the second. Worse than unmarked: the centre
+dash is punched out of every crossing disc, so at a residential crossroads both
+lines stop and nothing replaces them.
+
+`junctionGiveWay` is the third word: a broken line across the minor arms, at the
+mouth. Which arms are minor is the seniority the ribbon painter already ranks
+by (§16) — width first, then how long the road runs — so the give-way marks
+agree with the centre line that carries on through. Where both roads rank the
+same the junction stays bare, because "give way to nobody in particular" is not
+a thing paint can say. **2,973 marks at 524 crossings**, and the residential
+grid now tells a driver which street is the through road.
+
+### 51.6 The small ones, all measured
+
+| | before | after |
+| --- | --- | --- |
+| turn-arrow hooks reaching over the kerb | 135 of 207 | **6 of 338** |
+| signal posts standing on carriageway | 398 of 561 | **156 of 457** |
+| junctions with a rounded corner | 460 of 725 | **588 of 725** |
+| `T_RAMP` tiles rendered magenta by the review tool | 224 | **0** |
+
+The hook is clamped to the carriageway it is painted on. The post is measured
+out to the kerb rather than offset a fixed 9px — half a tile, on a road whose
+approach half is two tiles wide. The kerb radius now cuts a yard or a lawn
+corner and not only a pavement one, which is why one crossroads had three
+corners cut and a fourth square. And the review tool had no colour for a stunt
+ramp, so 224 tiles came out `[255, 0, 255]` in every picture this repo has ever
+published, including the before/after pairs used to argue about downtown.
+
+`courseCrossings` also drops `Math.hypot` for `Math.sqrt` and `Math.cos(25°)`
+for its literal value. Neither changes a number on this city — the output is
+byte-identical — but the function decides junction ids now, and §43 states the
+rule: sqrt is pinned to the exactly rounded IEEE result and hypot is not, so a
+last-ulp disagreement between two engines would be two players seeing different
+lights at the same crossroads.
+
+### 51.7 What the reviewers got wrong, and what is still owed
+
+One claim did not survive checking. The map-design review reported that the 3D
+evidence is seed 7 while every number is seed 1, so the two junction pictures
+"are not the same junction". They are: seed 1 and seed 7 differ in 433 tiles of
+589,824 (shop interiors and parked cars — the city is baked, not seeded), in
+**zero** junction ids and zero heads.
+
+Still owed:
+
+- **Thirteen courses double back on themselves** for more than half their
+  length, so the ribbon painter strokes the centre dash twice a tile apart and
+  five of the largest residential district's east-west streets carry a doubled
+  centre line. This is in the baked plan, not in any painter, and it predates
+  every junction change.
+- **The 3D fallback has no give-way mark.** Its ground is an atlas of per-tile
+  codes and a give-way line is sub-tile, so a junction pops from crossing-only
+  to the full set as its painted chunk arrives.
+- **156 signal posts still stand on tarmac**, where the walk to the kerb runs
+  into the cross street's carriageway instead of a pavement.
+- **Eight tiles carry two heads.** They agree about the colour now, but two
+  posts on one tile is still two posts on one tile.
+- **The city has fewer crossings than it did**: 312 against §50's 435, because
+  an arm is now refused where the ground or the room will not take it. That is
+  the right trade — the ones it dropped were in the creek, through a wall or
+  inside a cul-de-sac — but it is a drop, and it is not obviously the floor.

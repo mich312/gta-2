@@ -1094,6 +1094,10 @@ function drawSignals(
 ): void {
   const heads = map.junctions?.heads;
   if (!heads) return;
+  // The phase is a property of the sheet of tarmac, not of the junction id
+  // (world/types.ts on `JunctionMap.phase`): two pieces of one crossroads
+  // must not run independent lights.
+  const phase = map.junctions?.phase;
   const timing = getTrafficTuning().signals;
   const R = RENDER_SCALE;
   for (const head of heads) {
@@ -1105,13 +1109,18 @@ function drawSignals(
     ) {
       continue;
     }
-    const colour = signalColour(head.junctionId, head.dirIdx, tick, timing);
+    const colour = signalColour(
+      phase?.[head.junctionId] ?? head.junctionId,
+      head.dirIdx,
+      tick,
+      timing,
+    );
     // Stand the head at the kerb on the driver's right, facing back down the
     // arm — where a real one is, and out of the carriageway the car uses.
     const ax = CARDINALS[head.dirIdx]![0]!;
     const ay = CARDINALS[head.dirIdx]![1]!;
-    const px = head.x + ax * 5 - ay * RIGHT_OFFSET;
-    const py = head.y + ay * 5 + ax * RIGHT_OFFSET;
+    const px = head.x + ax * 5 - ay * head.kerb;
+    const py = head.y + ay * 5 + ax * head.kerb;
     const sx = dx(px);
     const sy = dy(py);
     ctx.fillStyle = '#1b2028';
@@ -1123,9 +1132,6 @@ function drawSignals(
     lights.point(sx, sy, 7 * R, colour === 'green' ? 'lamp' : 'red', 0.22, 'static');
   }
 }
-
-/** How far off the centre of the arm a signal head stands, in world px. */
-export const RIGHT_OFFSET = 9;
 
 function drawProps(
   ctx: CanvasRenderingContext2D,

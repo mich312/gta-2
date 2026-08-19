@@ -18,7 +18,6 @@ import {
   PACKAGE_COLOR,
   PACKAGE_TAKEN,
   PICKUP_COLORS,
-  RIGHT_OFFSET,
   SIGNAL_COLORS,
   type Scene,
 } from '../src/render/renderer.js';
@@ -198,7 +197,11 @@ describe('world objects in 3D', () => {
     // `signalColour` is the function the drivers consult. Reading the phase off
     // anything else is how a renderer ends up showing green to a player while
     // the cars in front of them sit at a red.
-    const heads = [{ x: 200, y: 160, junctionId: 3, dirIdx: 1 }];
+    // `kerb` rather than a constant: §51 measures each head's own distance
+    // out to the pavement, because a fixed 9px is half a tile and the
+    // approach half of a four-tile arterial is two tiles wide — 398 of the
+    // city's 561 posts were standing in a traffic lane.
+    const heads = [{ x: 200, y: 160, junctionId: 3, dirIdx: 1, kerb: 26 }];
     const fx = layer();
     fx.setMap(emptyMap({ junctions: { heads } } as unknown as Partial<CityMap>));
 
@@ -213,8 +216,8 @@ describe('world objects in 3D', () => {
       // The head stands above its post, at the kerb on the driver's right.
       const ax = CARDINALS[1]![0]!;
       const ay = CARDINALS[1]![1]!;
-      expect(head!.x).toBeCloseTo(200 + ax * 5 - ay * RIGHT_OFFSET, 5);
-      expect(head!.y).toBeCloseTo(160 + ay * 5 + ax * RIGHT_OFFSET, 5);
+      expect(head!.x).toBeCloseTo(200 + ax * 5 - ay * heads[0]!.kerb, 5);
+      expect(head!.y).toBeCloseTo(160 + ay * 5 + ax * heads[0]!.kerb, 5);
       expect(head!.z).toBeGreaterThan(drawn.find((d) => d !== head)!.z);
     }
   });

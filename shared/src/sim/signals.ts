@@ -1,6 +1,13 @@
 import { TILE_SIZE, type CityMap, type JunctionMap, type SignalHead } from '../world/types.js';
 import { courseCrossings } from '../world/geometry.js';
-import { isSignalCrossing } from '../world/marks.js';
+import {
+  isSignalCrossing,
+  junctionPaint,
+  junctionReach,
+  STOP_LINE_REACH,
+  type JunctionGround,
+} from '../world/marks.js';
+import { T_ROAD } from '../world/types.js';
 import { CARDINALS, RIGHT_STEP, drivableTile } from './roadgrid.js';
 
 /**
@@ -54,6 +61,18 @@ const MAX_LANE_TILES = 4;
  */
 const MAX_JUNCTION_TILES = 20;
 
+/** The eight tiles round one, for the flood fill above. */
+const NEIGHBOURS_8 = [
+  [-1, -1],
+  [-1, 0],
+  [-1, 1],
+  [0, -1],
+  [0, 1],
+  [1, -1],
+  [1, 0],
+  [1, 1],
+] as const;
+
 /**
  * How far short of the junction the stop line sits, in px, beyond the car's
  * own nose.
@@ -66,6 +85,27 @@ const MAX_JUNCTION_TILES = 20;
  * 4% of samples to 20%, and traffic under way fell by a third.
  */
 const STOP_LINE_SETBACK = 6;
+
+/**
+ * And how far short of the junction the PAINTED line is, in px.
+ *
+ * `STOP_LINE_SETBACK` alone stops a car with its nose at the mouth of the
+ * junction — which is where the box begins and about a tile past where the
+ * stop line is drawn. Measured over the city's 437 painted approaches, the
+ * median driver came to rest 0.4 tiles beyond its own stop line and **261 of
+ * them stopped on the crossing itself**. A stop line the traffic ignores is
+ * worse than no stop line: it says the paint is scenery.
+ *
+ * So the model stops at the line, and the distance comes off the painter's
+ * own `STOP_LINE_REACH` — less half a tile, because the two measure from
+ * different places — or rather, they used to. `junctionGround.mouth` now
+ * measures the paint's mouth on the same labelling this walks, at the same
+ * quarter-tile resolution, so the only difference left is the quarter tile
+ * the sim's own lookahead steps in. The nose rests an eighth of a tile behind
+ * the painted line, uniformly, instead of 0.4 tiles past it.
+ */
+const BOX_ROUNDING = 0.25;
+const PAINTED_LINE_PX = (STOP_LINE_REACH - BOX_ROUNDING) * TILE_SIZE;
 
 /**
  * How far the drivable road runs either side of a tile along one direction,
@@ -151,7 +191,13 @@ export function labelJunctions(map: CityMap): JunctionMap {
       // wrapped id is a junction whose arms disagree. Stop labelling instead.
       if (count >= 32767) {
         const early = signalPolicy(map, idOf, count);
-        return { idOf, count, signalled: early, heads: collectHeads(map, idOf, early) };
+        return {
+          idOf,
+          count,
+          signalled: early,
+          phase: phaseGroups(idOf, count, w, h),
+          heads: collectHeads(map, idOf, early),
+        };
       }
       const id = count++;
       idOf[seed] = id;
@@ -161,6 +207,16 @@ export function labelJunctions(map: CityMap): JunctionMap {
       for (let q = 0; q < queue.length; q += 2) {
         const cx = queue[q] as number;
         const cy = queue[q + 1] as number;
+        // FOUR neighbours, deliberately.
+        //
+        // Eight would join the diagonal-seam fragments a four-tile crossing
+        // taken at an angle leaves lying about — and it does, but it also
+        // swallows the arterial fan above the old town into one 106-tile
+        // component, and a junction is a NODE in the routing graph. Measured:
+        // route steps went from 96px to 144, and the straight line between
+        // two nodes started leaving the carriageway. What shares a sheet of
+        // tarmac and what is one node in the graph are different questions;
+        // `phaseGroups` below answers the first, this answers the second.
         for (let n = 0; n < 4; n++) {
           const nx = cx + (n === 0 ? 1 : n === 2 ? -1 : 0);
           const ny = cy + (n === 1 ? 1 : n === 3 ? -1 : 0);
@@ -199,8 +255,67 @@ export function labelJunctions(map: CityMap): JunctionMap {
     idOf,
     count: merged,
     signalled,
+    phase: phaseGroups(idOf, merged, w, h),
     heads: heads.filter((h) => signalled[h.junctionId] === 1),
   };
+}
+
+/**
+ * Which junctions share a signal phase: tarmac that TOUCHES is one phase.
+ *
+ * The id is the routing graph's, and it is deliberately fine-grained — a
+ * 4-connected fill leaves a skew crossroads in two or four pieces, and
+ * joining them all would swallow the arterial fan above the old town into one
+ * hundred-tile node whose route steps leave the carriageway. But two pieces
+ * of one sheet of tarmac running independent phases is the defect this whole
+ * section exists to kill: measured on the shipped city, 17 crossroads could
+ * show green to both axes at once, which is the one thing `signalColour`'s
+ * arithmetic is built to make impossible.
+ *
+ * So the two questions are answered separately. Eight-connected, because
+ * tarmac that meets at a CORNER is tarmac a car can be standing on both
+ * sides of.
+ */
+function phaseGroups(idOf: Int16Array, count: number, w: number, h: number): Int32Array {
+  const parent = new Int32Array(count);
+  for (let i = 0; i < count; i++) parent[i] = i;
+  const find = (i: number): number => {
+    let r = i;
+    while ((parent[r] as number) !== r) r = parent[r] as number;
+    for (let j = i; (parent[j] as number) !== r; ) {
+      const next = parent[j] as number;
+      parent[j] = r;
+      j = next;
+    }
+    return r;
+  };
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const a = idOf[y * w + x] as number;
+      if (a < 0) continue;
+      for (const [ox, oy] of NEIGHBOURS_8) {
+        const nx = x + ox;
+        const ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const b = idOf[ny * w + nx] as number;
+        if (b < 0 || b === a) continue;
+        const ra = find(a);
+        const rb = find(b);
+        if (ra !== rb) parent[ra] = rb;
+      }
+    }
+  }
+  // Numbered in id order, so the phase — like the id — is a pure function of
+  // the map on both hosts.
+  const phase = new Int32Array(count);
+  const seen = new Int32Array(count).fill(-1);
+  let next = 0;
+  for (let i = 0; i < count; i++) {
+    const r = find(i);
+    if ((seen[r] as number) < 0) seen[r] = next++;
+    phase[i] = seen[r] as number;
+  }
+  return phase;
 }
 
 /**
@@ -242,9 +357,20 @@ function mergeAtCrossings(map: CityMap, idOf: Int16Array, count: number): number
   const h = map.heightTiles;
   let next = count;
   for (const cross of courseCrossings(courses)) {
-    // The disc itself, not its bounding box: a box wide enough to cover a
-    // four-tile crossing also reaches the mouth of the next street along.
-    const reach = Math.ceil(cross.r + 0.5);
+    // Half a carriageway, and no more.
+    //
+    // The obvious fix for the seam fragments a 4-connected fill leaves round
+    // a skew crossroads is to widen this to the junction's true extent
+    // (`junctionReach`, up to 2.2 times the radius). It works, and it costs
+    // too much: the arterial fan above the old town comes back as one
+    // 106-tile component, `lanes.ts` strips its lane edges over that whole
+    // area, and the ambulance service starts dispatching a second van
+    // because the first cannot find a lane to follow across it. A junction
+    // is a NODE, and nodes want to be small. The fragments are handled where
+    // they actually matter instead — `phaseGroups`, which makes touching
+    // tarmac share a light without making it share an id.
+    const span = cross.r + 0.5;
+    const reach = Math.ceil(span);
     let root = -1;
     const box: number[] = [];
     for (let dy = -reach; dy <= reach; dy++) {
@@ -254,7 +380,7 @@ function mergeAtCrossings(map: CityMap, idOf: Int16Array, count: number): number
         if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
         const ox = tx + 0.5 - cross.x;
         const oy = ty + 0.5 - cross.y;
-        if (ox * ox + oy * oy > (cross.r + 0.5) * (cross.r + 0.5)) continue;
+        if (ox * ox + oy * oy > span * span) continue;
         if (!drivableTile(map, tx, ty)) continue;
         const i = ty * w + tx;
         box.push(i);
@@ -357,23 +483,86 @@ function signalPolicy(map: CityMap, idOf: Int16Array, count: number): Uint8Array
   }
   const w = map.widthTiles;
   const h = map.heightTiles;
-  for (const cross of courseCrossings(courses)) {
+  const ground = junctionGround(map, idOf);
+  const all = courseCrossings(courses);
+  for (const cross of all) {
     if (!isSignalCrossing(cross)) continue;
+    // The PAINT decides. A junction the painters cannot furnish — because it
+    // has more ways in than a crossroads, because its arms run into the next
+    // junction, or because the ground under them is water, a building or a
+    // cul-de-sac's turning head — must not be given lights either. Six lit
+    // junctions had no stop line anywhere in the city, four of them six-way
+    // aprons wearing traffic signals over a lake of unmarked asphalt.
+    //
+    // Two arms, because a light governing one approach governs nothing.
+    if (junctionPaint(cross, all, ground).stops.length < 2) continue;
     // The crossing point is a point on a curve; the junction is a patch of
-    // tiles that may sit half a carriageway off it (the curve crosses where
-    // the centrelines do, the tarmac spreads to the kerbs). Search the disc.
-    const reach = Math.ceil(cross.r) + 1;
+    // tiles that spreads to the kerbs. Search the same disc the merge above
+    // used — a SQUARE, which is what this was, reaches past the mouth into
+    // the next street and lit 13 junctions and 42 heads by their corners.
+    const span = junctionReach(cross) + 0.5;
+    const reach = Math.ceil(span);
     for (let dy = -reach; dy <= reach; dy++) {
       for (let dx = -reach; dx <= reach; dx++) {
         const tx = Math.floor(cross.x) + dx;
         const ty = Math.floor(cross.y) + dy;
         if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+        const ox = tx + 0.5 - cross.x;
+        const oy = ty + 0.5 - cross.y;
+        if (ox * ox + oy * oy > span * span) continue;
         const id = idOf[ty * w + tx] as number;
         if (id >= 0) signalled[id] = 1;
       }
     }
   }
   return signalled;
+}
+
+/**
+ * What the ground will take a crossing on: carriageway, and not a deck.
+ *
+ * One rule, exported, because three painters and the signal policy all have
+ * to agree about it — and until now they did not: the 3D layer refused decks,
+ * the review tool painted them, and the 2D game checked nothing at all and
+ * put zebra stripes in the creek.
+ */
+export function junctionGround(
+  map: {
+    widthTiles: number;
+    heightTiles: number;
+    tiles: Uint8Array;
+    junctions?: { idOf: Int16Array } | undefined;
+  },
+  /** The labelling to measure the mouth against; defaults to the map's own. */
+  idOf: Int16Array | undefined = map.junctions?.idOf,
+): JunctionGround {
+  const w = map.widthTiles;
+  const h = map.heightTiles;
+  return {
+    paintable(tx: number, ty: number): boolean {
+      if (tx < 0 || ty < 0 || tx >= w || ty >= h) return false;
+      // A deck is not a crossroads (REVIEW-WORLDGEN.md §2.3): pedestrians
+      // cross streets, not spans. `T_BRIDGE` is drivable and is deliberately
+      // NOT paintable.
+      return map.tiles[ty * w + tx] === T_ROAD;
+    },
+    mouth:
+      idOf === undefined
+        ? undefined
+        : (x: number, y: number, dx: number, dy: number): number => {
+            // Walk out from the crossing along the arm until the tiles stop
+            // being this junction's. Quarter-tile steps, which is the same
+            // resolution `stopLineGap` walks its lookahead at, so the two
+            // agree about where the box ends rather than nearly agreeing.
+            for (let s = 0.25; s < 12; s += 0.25) {
+              const tx = Math.floor(x + dx * s);
+              const ty = Math.floor(y + dy * s);
+              if (tx < 0 || ty < 0 || tx >= w || ty >= h) return s;
+              if ((idOf[ty * w + tx] as number) < 0) return s;
+            }
+            return 12;
+          },
+  };
 }
 
 /**
@@ -395,18 +584,27 @@ export function signalledCrossing(
     heightTiles: number;
     junctions?: JunctionMap | undefined;
   },
-  cross: { x: number; y: number; r: number },
+  cross: {
+    x: number;
+    y: number;
+    r: number;
+    arms: ReadonlyArray<{ dx: number; dy: number; width: number }>;
+  },
 ): boolean {
   const table = map.junctions;
   if (!table || table.count === 0) return true;
   const w = map.widthTiles;
   const h = map.heightTiles;
-  const reach = Math.ceil(cross.r) + 1;
+  const span = junctionReach(cross) + 0.5;
+  const reach = Math.ceil(span);
   for (let dy = -reach; dy <= reach; dy++) {
     for (let dx = -reach; dx <= reach; dx++) {
       const tx = Math.floor(cross.x) + dx;
       const ty = Math.floor(cross.y) + dy;
       if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+      const ox = tx + 0.5 - cross.x;
+      const oy = ty + 0.5 - cross.y;
+      if (ox * ox + oy * oy > span * span) continue;
       const id = table.idOf[ty * w + tx] as number;
       if (id >= 0 && table.signalled[id] === 1) return true;
     }
@@ -471,11 +669,25 @@ function collectHeads(map: CityMap, idOf: Int16Array, signalled: Uint8Array): Si
         const [rx, ry] = RIGHT_STEP[dirIdx] as readonly [number, number];
         // Somebody further right is closer to the kerb: let them have it.
         if (isApproachTile(map, idOf, tx + rx, ty + ry, dirIdx) === id) continue;
+        // Out to the kerb: step right until the TARMAC stops, and stand the
+        // post a little beyond it. Not "until the approach stops", which is
+        // what the head tile already satisfies — at a wide mouth the
+        // carriageway spreads past the lanes, so the kerb-most approach tile
+        // still had road either side of it and a fixed 9px offset left the
+        // post in a traffic lane. 398 of 561 stood on tarmac, 103 of them
+        // inside a zebra. Tried and rejected: stopping the walk at the
+        // junction's own tiles, on the theory that a mouth's right-hand
+        // neighbour is the cross street. It puts the post back in the lane —
+        // 242 on tarmac against 139 — because at a mouth the kerb really is
+        // further out than the box.
+        let out = 0;
+        while (out < 6 && drivableTile(map, tx + rx * (out + 1), ty + ry * (out + 1))) out++;
         heads.push({
           x: tx * TILE_SIZE + TILE_SIZE / 2,
           y: ty * TILE_SIZE + TILE_SIZE / 2,
           dirIdx,
           junctionId: id,
+          kerb: (out + 0.6) * TILE_SIZE,
         });
       }
     }
@@ -617,10 +829,10 @@ export function stopLineGap(
     const id = junctionAt(map, px, py);
     // An unsignalised junction has no line to stop at: no head stands there,
     // so a driver braking for one would be stopping at nothing.
-    if (id === -1 || (map.junctions?.signalled[id] ?? 1) !== 1) continue;
-    const colour = signalColour(id, dirIdx, tick, t);
+    if (id === -1 || (map.junctions?.signalled?.[id] ?? 1) !== 1) continue;
+    const colour = signalColour(map.junctions?.phase?.[id] ?? id, dirIdx, tick, t);
     if (colour === 'green') return Infinity;
-    const gap = Math.max(0, i * stepPx - halfExtent - STOP_LINE_SETBACK);
+    const gap = Math.max(0, i * stepPx - halfExtent - STOP_LINE_SETBACK - PAINTED_LINE_PX);
     if (colour === 'amber') {
       // v^2 / 2a: the shortest comfortable stop from here.
       const need = (speed * speed) / (2 * Math.max(1, comfortBrake));

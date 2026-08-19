@@ -175,6 +175,11 @@ export interface MarkArrow {
   /** Whether this lane's arrow carries a hook to the left / to the right. */
   left: boolean;
   right: boolean;
+  /**
+   * How far the hook reaches off the shaft, in tiles — clamped so the tip
+   * stays on the carriageway rather than over the kerb.
+   */
+  hook: number;
 }
 
 export interface JunctionPaint {
@@ -208,9 +213,103 @@ const ARROW_SETBACK = 0.35;
 /** Arrow shaft length and head half-width, in tiles. */
 const ARROW_LEN = 1.3;
 const ARROW_HEAD = 0.36;
+/**
+ * How much carriageway an arm must still have beyond the paint before it is
+ * worth painting, in tiles. A cul-de-sac's turning head and a three-tile stub
+ * both pass every test that looks only at the junction. Short, because the
+ * arm is a straight ray and the road it stands for is often a curve.
+ */
+const ARM_RUN = 2;
+/** Where the give-way line sits past the mouth, its pitch and thickness. */
+const GIVE_WAY_SETBACK = 0.35;
+const GIVE_WAY_PITCH = 0.55;
+const GIVE_WAY_THICK = 0.2;
+/** How far a turn arrow's hook reaches off the shaft, in tiles. */
+const HOOK_REACH = 0.5;
 /** Stripes across one crossing, and how much of the pitch each one fills. */
 const ZEBRA_STRIPES = 4;
 const ZEBRA_DUTY = 0.55;
+
+/**
+ * How far past the junction's mouth the paint reaches, in tiles: the far edge
+ * of the stop line.
+ *
+ * Exported because the SIM has to know it. `stopLineGap` used to halt a car
+ * 6px short of the first junction-labelled tile, which is the mouth — and the
+ * stop line is painted a tile and a half further out than that, so every AI
+ * driver in the city came to rest past its own stop line and, two times in
+ * five, on the crossing itself. A stop line the traffic ignores is worse than
+ * no stop line: it says the paint is scenery. One number, read by the painter
+ * that draws the line and by the model that stops at it.
+ */
+export const STOP_LINE_REACH = ZEBRA_SETBACK + ZEBRA_DEPTH + STOP_GAP + STOP_THICK;
+
+/**
+ * How far the junction BOX reaches along one arm, in tiles.
+ *
+ * The disc radius is the right answer only where the roads meet square: two
+ * four-tile arterials crossing at 45° make a box half again as long along
+ * each arm as it is wide, and anything laid at the disc's radius sits inside
+ * the tarmac. Each other arm's carriageway, projected along this one, is
+ * `w / 2 / sin θ`; the mouth is the furthest of them.
+ *
+ * This is THE definition of how big a junction is, and everything that needs
+ * to know now asks it: the paint, the labelling merge in `sim/signals.ts`,
+ * and the policy that decides which junctions get lights. Three different
+ * answers to this question — a disc of `r + 0.5`, a square of `ceil(r) + 1`,
+ * and this — is what left 17 crossroads showing green to both axes at once,
+ * because the merge's disc was too small to reach the fragments the flood
+ * fill had left lying around the box.
+ */
+export function armMouth(
+  cross: { r: number; arms: ReadonlyArray<{ dx: number; dy: number; width: number }> },
+  arm: { dx: number; dy: number },
+): number {
+  let mouth = cross.r;
+  for (const o of cross.arms) {
+    const sin = Math.abs(arm.dx * o.dy - arm.dy * o.dx);
+    if (sin < 0.2) continue; // parallel enough to be this same road
+    mouth = Math.max(mouth, Math.min(o.width / 2 / sin, cross.r * 2.2));
+  }
+  return mouth;
+}
+
+/** The furthest any arm's mouth reaches: the radius of the whole junction. */
+export function junctionReach(cross: {
+  r: number;
+  arms: ReadonlyArray<{ dx: number; dy: number; width: number }>;
+}): number {
+  let reach = cross.r;
+  for (const arm of cross.arms) reach = Math.max(reach, armMouth(cross, arm));
+  return reach;
+}
+
+/**
+ * What the ground will take, so a crossing is never painted where a driver
+ * cannot be.
+ *
+ * The furniture comes off the curves, and a curve knows nothing about what
+ * was built under it. Left ungated it put zebra stripes in the creek at
+ * (383,472), a stop line through a building at (171,237), and a full
+ * signalised kit inside the turning head of a cul-de-sac at (144,467).
+ * Supplied by the caller because only the caller has a map.
+ */
+export interface JunctionGround {
+  /** May a crossing be painted on this tile? Carriageway, and not a deck. */
+  paintable(tx: number, ty: number): boolean;
+  /**
+   * How far the junction BOX actually reaches along this arm, in tiles —
+   * measured on the labelling rather than worked out from the angles.
+   *
+   * `armMouth` below is the geometric answer and it is the one to use when
+   * there is no map to ask. On a skew crossing it is up to 2.2 times the
+   * radius while the labelled box stops near the radius, and that gap is a
+   * gap between the PAINT and the SIM: the driver model measures from the
+   * first labelled tile, so paint drawn from the geometry sat as much as
+   * 1.9 tiles beyond where the car stops. Same box, one measurement.
+   */
+  mouth?(x: number, y: number, dx: number, dy: number): number;
+}
 
 /** Is this crossing one the city governs — and therefore paints? */
 export function isSignalCrossing(cross: { arms: ReadonlyArray<{ width: number }> }): boolean {
@@ -266,6 +365,8 @@ export function junctionPaint(
    * single junction in a fixture wants.
    */
   neighbours: ReadonlyArray<{ x: number; y: number; r: number }> = [],
+  /** What the ground will take. Absent means "anything", for a fixture. */
+  ground?: JunctionGround,
 ): JunctionPaint {
   const out: JunctionPaint = { zebras: [], stops: [], arrows: [] };
   // More ways in than a crossroads has is not a junction, it is a place where
@@ -279,27 +380,19 @@ export function junctionPaint(
     const nx = dy;
     const ny = -dx;
     const half = width / 2;
-    // How far the junction BOX reaches along this arm. The disc radius is the
-    // right answer only where the roads meet square: two four-tile arterials
-    // crossing at 45° make a box half again as long along each arm as it is
-    // wide, and a crossing laid at the disc's radius sat inside the tarmac
-    // with cars stopped on top of it. Each other arm's carriageway, projected
-    // along this one, is `w / 2 / sin θ`; the mouth is the furthest of them.
-    let mouth = cross.r;
-    for (const o of cross.arms) {
-      const sin = Math.abs(dx * o.dy - dy * o.dx);
-      if (sin < 0.2) continue; // parallel enough to be this same road
-      mouth = Math.max(mouth, Math.min(o.width / 2 / sin, cross.r * 2.2));
-    }
-    const z0 = mouth + ZEBRA_SETBACK;
+    const z0 = (ground?.mouth?.(cross.x, cross.y, dx, dy) ?? armMouth(cross, arm)) + ZEBRA_SETBACK;
     const z1 = z0 + ZEBRA_DEPTH;
-    // And does the arm have room for it? Where two junctions are a few tiles
+    const sMid = z1 + STOP_GAP + STOP_THICK / 2;
+    // How far out the paint reaches, arrows included. The room test used to
+    // stop at the stop line and let the arrows run on another 1.65 tiles,
+    // which filled the four-tile link between two close junctions end to end.
+    const reach = sMid + STOP_THICK / 2 + ARROW_SETBACK + ARROW_LEN;
+    // Does the arm have room for it? Where two junctions are a few tiles
     // apart — the fan of arterials at the top of the old town, mostly — each
     // one laid its crossing into the other's mouth, and a dozen zebras came
     // out stacked across one sheet of tarmac. An arm that runs into the next
     // junction before the paint has finished is left bare, which is what a
     // city does with a block too short to cross in.
-    const stopEnd = z1 + STOP_GAP + STOP_THICK;
     let room = Infinity;
     for (const o of neighbours) {
       const t = (o.x - cross.x) * dx + (o.y - cross.y) * dy;
@@ -308,7 +401,41 @@ export function junctionPaint(
       if (p > Math.max(half, o.r) + 0.5) continue;
       room = Math.min(room, t - o.r);
     }
-    if (room < stopEnd + 0.5) continue;
+    if (room < reach + 0.5) continue;
+    // And will the ground take it?
+    //
+    // Two questions, and they are not the same one. First: is the ground the
+    // paint actually covers carriageway — sampled across the width of the
+    // crossing and along its depth, which is what stops a zebra landing in
+    // the creek or a stop line running through a building. Second: does the
+    // arm GO anywhere — sampled down the centreline only, and only a couple
+    // of tiles further, because an arm is a straight ray and the road it
+    // stands for may be a curve. That is what refuses a cul-de-sac's turning
+    // head, which passes every test that looks only at the junction.
+    if (ground) {
+      let ok = true;
+      // Sampled at the middle of each half of the carriageway, not at its
+      // outer edge: a rasterised road is not exactly `width` tiles across
+      // everywhere, so the outermost zebra stripe legitimately grazes the
+      // kerb band on a curve. Refusing the arm for that threw away 136 of
+      // the city's 530 arterial arms for touching a pavement the painters
+      // clip against anyway. What this is looking for is a crossing laid
+      // somewhere it has no business being at all.
+      const edge = half / 2;
+      for (const along of [z0, (z0 + z1) / 2, z1, sMid]) {
+        for (const off of [-edge, 0, edge]) {
+          const px = cross.x + dx * along + nx * off;
+          const py = cross.y + dy * along + ny * off;
+          if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+        }
+      }
+      for (const along of [reach + 0.5, reach + ARM_RUN]) {
+        const px = cross.x + dx * along;
+        const py = cross.y + dy * along;
+        if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+      }
+      if (!ok) continue;
+    }
     // Zebra: stripes laid ALONG the direction of travel, spaced across the
     // carriageway — which is the way round a real one goes, and the way the
     // per-tile painter has always drawn it.
@@ -321,7 +448,6 @@ export function junctionPaint(
       out.zebras.push(quad(cx, cy, (dx * ZEBRA_DEPTH) / 2, (dy * ZEBRA_DEPTH) / 2, nx * bar, ny * bar));
     }
     // Stop line: across the approaching half only.
-    const sMid = z1 + STOP_GAP + STOP_THICK / 2;
     const sOff = half / 2;
     out.stops.push(
       quad(
@@ -355,11 +481,101 @@ export function junctionPaint(
           y: cross.y + dy * (at + ARROW_LEN) + ny * off,
           dx: -dx,
           dy: -dy,
-          // The kerb lane turns right, the median lane turns left.
+          // The kerb lane turns right, the median lane turns left. The hook
+          // is held inside the carriageway: at 0.72 tiles off a lane centre
+          // 1.5 tiles from the middle of a four-tile road, two thirds of them
+          // used to reach over the kerb.
           left: leftArm && l === 0,
           right: rightArm && l === lanes - 1,
+          hook: Math.min(HOOK_REACH, half - off - 0.15),
         });
       }
+    }
+  }
+  return out;
+}
+
+/**
+ * Give way: the mark an UNSIGNALISED crossing wears.
+ *
+ * §49 found the city had exactly two vocabulary words — the full arterial kit,
+ * or nothing — and 581 of its junctions had the second. Worse than unmarked:
+ * the centre dash is punched out of every crossing disc, so at a residential
+ * crossroads both lines simply stop and nothing replaces them. Nothing on the
+ * ground says two streets meet, or which of them is the through road.
+ *
+ * This is the third word, and it is cheap: a broken line across the minor
+ * arms, at the mouth. Which arms are minor is the seniority the ribbon
+ * painter already ranks by (§16) — width first, then how long the road runs —
+ * so the marks agree with the centre line that carries on through. Where both
+ * roads rank the same the junction stays bare, because "give way to nobody in
+ * particular" is not a thing paint can say.
+ */
+export function junctionGiveWay(
+  cross: {
+    x: number;
+    y: number;
+    r: number;
+    arms: ReadonlyArray<{ dx: number; dy: number; width: number; len: number }>;
+  },
+  neighbours: ReadonlyArray<{ x: number; y: number; r: number }> = [],
+  ground?: JunctionGround,
+): MarkQuad[] {
+  const out: MarkQuad[] = [];
+  if (cross.arms.length < 3 || cross.arms.length > 4) return out;
+  // Seniority: the widest road, and among equals the longest one.
+  let best = cross.arms[0] as { width: number; len: number };
+  for (const a of cross.arms) {
+    if (a.width > best.width || (a.width === best.width && a.len > best.len)) best = a;
+  }
+  const minor = (a: { width: number; len: number }): boolean =>
+    a.width < best.width || (a.width === best.width && a.len < best.len - 1);
+  if (!cross.arms.some(minor)) return out;
+  for (const arm of cross.arms) {
+    if (!minor(arm)) continue;
+    const { dx, dy, width } = arm;
+    const nx = dy;
+    const ny = -dx;
+    const half = width / 2;
+    const at = armMouth(cross, arm) + GIVE_WAY_SETBACK;
+    // Room, and ground, on the same terms the signalised kit asks for — a
+    // give-way line in the creek is no better than a zebra in it.
+    let room = Infinity;
+    for (const o of neighbours) {
+      const t = (o.x - cross.x) * dx + (o.y - cross.y) * dy;
+      if (t <= 0.01) continue;
+      const p = Math.abs((o.x - cross.x) * nx + (o.y - cross.y) * ny);
+      if (p > Math.max(half, o.r) + 0.5) continue;
+      room = Math.min(room, t - o.r);
+    }
+    if (room < at + 1) continue;
+    if (ground) {
+      let ok = true;
+      for (const off of [-half / 2, 0, half / 2]) {
+        const px = cross.x + dx * at + nx * off;
+        const py = cross.y + dy * at + ny * off;
+        if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+      }
+      if (!ok) continue;
+    }
+    // Broken, not solid: a solid line is a stop line, and this is not one.
+    // Across the approaching half only, like the stop line, so it speaks to
+    // the traffic coming in.
+    const span = half;
+    const dashes = Math.max(2, Math.round(span / GIVE_WAY_PITCH));
+    for (let d = 0; d < dashes; d++) {
+      const off = ((d + 0.5) * span) / dashes;
+      const bar = (span / dashes) * 0.55;
+      out.push(
+        quad(
+          cross.x + dx * at + nx * off,
+          cross.y + dy * at + ny * off,
+          (dx * GIVE_WAY_THICK) / 2,
+          (dy * GIVE_WAY_THICK) / 2,
+          (nx * bar) / 2,
+          (ny * bar) / 2,
+        ),
+      );
     }
   }
   return out;
@@ -406,7 +622,7 @@ export function arrowOutline(a: MarkArrow): MarkQuad[] {
     const hy = ny * side;
     const rootX = a.x + dx * (bodyLen * 0.55);
     const rootY = a.y + dy * (bodyLen * 0.55);
-    const reach = 0.5;
+    const reach = Math.max(0.18, a.hook);
     parts.push(
       quad(
         rootX + hx * (reach / 2),

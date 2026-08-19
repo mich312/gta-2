@@ -9,7 +9,6 @@ import {
   PACKAGE_COLOR,
   PACKAGE_TAKEN,
   PICKUP_COLORS,
-  RIGHT_OFFSET,
   SIGNAL_COLORS,
   type Scene,
 } from '../render/renderer.js';
@@ -272,13 +271,18 @@ export class WorldObjectsLayer {
         const timing = getTrafficTuning().signals;
         for (const head of heads) {
           if (!inView(head.x, head.y)) continue;
-          const colour = signalColour(head.junctionId, head.dirIdx, scene.tick, timing);
+          const colour = signalColour(
+            map.junctions?.phase?.[head.junctionId] ?? head.junctionId,
+            head.dirIdx,
+            scene.tick,
+            timing,
+          );
           // At the kerb on the driver's right, facing back down the arm —
           // where a real one is, and out of the carriageway the car uses.
           const ax = CARDINALS[head.dirIdx]![0]!;
           const ay = CARDINALS[head.dirIdx]![1]!;
-          const px = head.x + ax * 5 - ay * RIGHT_OFFSET;
-          const py = head.y + ay * 5 + ax * RIGHT_OFFSET;
+          const px = head.x + ax * 5 - ay * head.kerb;
+          const py = head.y + ay * 5 + ax * head.kerb;
           // A post, which the 2D view cannot show and this one gets for free:
           // from overhead a signal is a dark square either way, but at the
           // frame's edge it now stands up like the street furniture it is.

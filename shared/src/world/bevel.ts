@@ -1,5 +1,16 @@
 import { diagonalRoadDir } from './marks.js';
-import { T_BRIDGE, T_FIELD, T_PARK, T_ROAD, T_SAND, T_SIDEWALK, T_TREES, T_WATER, TILE_SIZE } from './types.js';
+import {
+  T_BRIDGE,
+  T_FIELD,
+  T_LOT,
+  T_PARK,
+  T_ROAD,
+  T_SAND,
+  T_SIDEWALK,
+  T_TREES,
+  T_WATER,
+  TILE_SIZE,
+} from './types.js';
 
 /**
  * Half-tile bevels: the diagonal, finally in the ground itself.
@@ -28,8 +39,10 @@ import { T_BRIDGE, T_FIELD, T_PARK, T_ROAD, T_SAND, T_SIDEWALK, T_TREES, T_WATER
  *   diagonal bands (the ring road, the curved arterials) stair-step, and
  *   their kerbs stair-step with them; the sidewalk yields its step corners
  *   to the carriageway wherever `diagonalRoadDir` says the road mass
- *   genuinely runs at 45° — and nowhere else, so every square junction
- *   corner in the city stays the square it was drawn as.
+ *   genuinely runs at 45° — and nowhere else. A junction's corner is phase
+ *   4's business, not this one's (§50.4): a kerb at a crossroads is cut back
+ *   for the turn, which is the one built edge in the city that is not square
+ *   anywhere.
  * - **Built and sheer edges stay square.** A quay (`T_BANK`) is coursed
  *   masonry; a bridge is a deck; a cliff (the sheer-shore `T_TREES` wall) is
  *   rock; a building is a building. Squareness is what makes them read as
@@ -316,7 +329,13 @@ export function deriveBevels(tiles: Uint8Array, W: number, H: number): Uint8Arra
   for (let y = 1; y < H - 1; y++) {
     const rowEnd = y * W + W - 1;
     for (let i = y * W + 1; i < rowEnd; i++) {
-      if (bevel[i] !== BEV_NONE || tiles[i] !== T_SIDEWALK) continue;
+      // Pavement, yard or lawn — whatever the block's corner is made of.
+      // Sidewalk alone left 265 of the city's junctions with no rounded
+      // corner at all, and one crossroads with three corners cut and the
+      // fourth square because that one happened to be a car park.
+      const corner = tiles[i] as number;
+      if (bevel[i] !== BEV_NONE) continue;
+      if (corner !== T_SIDEWALK && corner !== T_LOT && corner !== T_PARK) continue;
       const x = i - y * W;
       for (let c = 0; c < 4; c++) {
         if (tiles[i + (n1[c] as number)] !== T_ROAD) continue;

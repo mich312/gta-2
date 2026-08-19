@@ -15,6 +15,7 @@ import {
   T_SAND,
   T_SIDEWALK,
   T_FLOOR,
+  T_RAMP,
   bevelOther,
   inCutHalf,
 } from 'shared';
@@ -23,6 +24,8 @@ import {
   courseJunctions,
   isSignalCrossing,
   signalledCrossing,
+  junctionGround,
+  junctionGiveWay,
   junctionPaint,
   arrowOutline,
   type RoadNet,
@@ -284,6 +287,12 @@ export function render(
     [T_RUNWAY]: hexToRgb(palette.runway),
     [T_BRIDGE]: hexToRgb(palette.kerb),
     [T_FLOOR]: hexToRgb(palette.shopFloor),
+    // A stunt ramp is `paintLot` with chevrons on it in the game, so it is
+    // lot-coloured here. It had no entry at all and fell through to the
+    // `[255, 0, 255]` below: 224 tiles of magenta scattered across every
+    // review render this repo has ever taken, including the ones used to
+    // argue about downtown.
+    [T_RAMP]: hexToRgb(palette.lot),
   };
 
   const put = (x: number, y: number, c: [number, number, number]): void => {
@@ -1016,8 +1025,8 @@ export function render(
       }
     };
     const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
+    const ground = junctionGround(map);
     for (const cross of all) {
-      if (!isSignalCrossing(cross) || !signalledCrossing(map, cross)) continue;
       if (
         cross.x < x0 - 8 ||
         cross.y < y0 - 8 ||
@@ -1026,7 +1035,13 @@ export function render(
       ) {
         continue;
       }
-      const paint = junctionPaint(cross, all);
+      if (!isSignalCrossing(cross) || !signalledCrossing(map, cross)) {
+        // The third treatment: give way on the minor arms of a crossing the
+        // city does not govern (§51).
+        for (const q of junctionGiveWay(cross, all, ground)) fillQuad(q, stopPaint);
+        continue;
+      }
+      const paint = junctionPaint(cross, all, ground);
       for (const q of paint.zebras) fillQuad(q, zebraPaint);
       for (const q of paint.stops) fillQuad(q, stopPaint);
       for (const a of paint.arrows) for (const q of arrowOutline(a)) fillQuad(q, arrowPaint);

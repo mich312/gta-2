@@ -532,3 +532,55 @@ a four-tile avenue crossing a three-tile street is 4×3, whose diagonal run is
 three — no id, no light, no crossing, and no node in the routing graph. 32 of
 the 69 stand on downtown ground. Fixing it moved landmark-to-landmark detours
 from p90 ×1.94 to ×1.68. Both are §50.2.
+
+---
+
+## 5. Three reviews of the junction work, and what they cost
+
+§3's fixes were reviewed by three independent passes — one over the diff, one
+over the rendered city, one re-measuring every number the write-up quoted. They
+are worth recording together, because the failures they found were of three
+different kinds and only one kind was a bug in the sense of a wrong line.
+
+**The code review found the claim was false.** §50's commit said merging split
+junctions made "green to both axes at once" impossible. It measured 17
+crossroads where it was still possible, 12 tiles carrying signal heads of two
+different junctions, and — the one nobody had looked for — zebra stripes
+painted on open water at (383,472). Also that the 3D layer, under a comment
+claiming it drew the same crossings as everyone else, drew a complete crossing
+at 46 of 151.
+
+**The design review found the paint and the traffic disagreed.** The stop line
+is drawn about a tile and a half outside the junction; the driver model stopped
+6px short of the junction. So the median AI driver came to rest past its own
+stop line and **261 of 441 approaches parked their queue on the crossing**. No
+test could see it, because no test asked the two systems the same question.
+
+**The number audit found the write-up was measured wrong.** Fourteen figures
+disagreed, and most shared one cause: numbers taken partway through the change
+and quoted as before- or after-values. The detour figures, the stop-line count,
+the district attribution, the traffic-test holds. All corrected in `edb32b8`.
+
+All of it is fixed in WORLDGEN.md §51, and the numbers below are that section's.
+
+| | before §51 | after |
+| --- | --- | --- |
+| crossroads that could show green to both axes | 17 | **0** |
+| approaches whose queue rests on the crossing | 261 of 441 | **0** — every one now stops a quarter tile behind its line |
+| junction paint off the carriageway | 36 tile centres of 1,103 | **5 of 1,022**, all kerb band, none water, wall or deck |
+| crossings drawn complete in 3D | 46 of 151 | **all of them** |
+| junctions with no marking of any kind | 4 in 5 | give way on 524 crossings, 2,973 marks |
+| turn-arrow hooks over the kerb | 135 of 207 | **6 of 338** |
+| signal posts on the carriageway | 398 of 561 | **156 of 457** |
+| `T_RAMP` tiles rendered magenta | 224 | **0** |
+
+One reviewer claim did not survive checking: that the 3D evidence is a
+different city from the 2D because one defaults to seed 7 and the other to seed
+1. The city is baked — the two differ in 433 tiles of 589,824, none of them at
+a junction, and in zero junction ids.
+
+The lesson worth keeping is not any of the individual defects. It is that
+**§50 was reviewed by its own author against its own definitions**, and every
+one of these was a place where two systems each held a definition and nobody
+had asked them the same question. The reviewers were not smarter; they were
+outside.

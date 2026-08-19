@@ -58,6 +58,15 @@ export interface SignalHead {
   y: number;
   dirIdx: number;
   junctionId: number;
+  /**
+   * How far to the driver's right the post stands, in px from `x, y`.
+   *
+   * Measured out to the kerb of this approach rather than fixed, because a
+   * fixed 9px is half a tile and a four-tile arterial is two tiles wide on
+   * the approach side: 398 of the city's 561 posts stood in a traffic lane,
+   * and 103 of them inside a zebra crossing.
+   */
+  kerb: number;
 }
 
 /** Junction labelling and signal heads; see sim/signals.ts. */
@@ -72,6 +81,18 @@ export interface JunctionMap {
    * and drivers negotiate them. See `SIGNAL_MIN_WIDTH` in sim/signals.ts.
    */
   signalled: Uint8Array;
+  /**
+   * Phase group per junction id: junctions whose tarmac TOUCHES share one.
+   *
+   * A junction is a node in the routing graph, so it is deliberately kept
+   * small — the flood fill is 4-connected and a crossroads taken at an angle
+   * comes back as two or four pieces. Two pieces of one sheet of tarmac must
+   * not run independent signal phases, though, or the same crossroads can
+   * show green to both axes at once. So the phase is a property of the SHEET
+   * and the id is a property of the graph, and `signalColour` is asked about
+   * the phase. See `phaseGroups` in sim/signals.ts.
+   */
+  phase: Int32Array;
   heads: SignalHead[];
 }
 

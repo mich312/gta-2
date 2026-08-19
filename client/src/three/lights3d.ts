@@ -16,7 +16,7 @@ import {
   flicker,
   lampCharacter,
 } from '../render/lighting.js';
-import { RIGHT_OFFSET, type Scene } from '../render/renderer.js';
+import { type Scene } from '../render/renderer.js';
 import type { Effects } from '../render/effects.js';
 
 /**
@@ -427,12 +427,17 @@ export class Lights3dLayer {
         for (let hi = 0; hi < heads.length; hi++) {
           const head = heads[hi]!;
           if (!inView(head.x, head.y)) continue;
-          const colour = signalColour(head.junctionId, head.dirIdx, scene.tick, timing);
+          const colour = signalColour(
+            map.junctions?.phase?.[head.junctionId] ?? head.junctionId,
+            head.dirIdx,
+            scene.tick,
+            timing,
+          );
           const ax = CARDINALS[head.dirIdx]![0]!;
           const ay = CARDINALS[head.dirIdx]![1]!;
           wants.push({
-            x: head.x + ax * 5 - ay * RIGHT_OFFSET,
-            y: head.y + ay * 5 + ax * RIGHT_OFFSET,
+            x: head.x + ax * 5 - ay * head.kerb,
+            y: head.y + ay * 5 + ax * head.kerb,
             z: 26,
             radius: 7,
             kind: colour === 'green' ? 'lamp' : 'red',
