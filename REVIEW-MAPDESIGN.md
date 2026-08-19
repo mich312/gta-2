@@ -524,6 +524,6 @@ show green to both axes at once.
 And **69 of the city's 151 arterial crossings were not junctions at all**:
 `isJunctionTile` wants tarmac that is over-wide along both diagonals too, and
 a four-tile avenue crossing a three-tile street is 4×3, whose diagonal run is
-three. That is every cross street on The Spine — no id, no light, no crossing,
-and no node in the routing graph. Fixing it moved landmark-to-landmark detours
-from p90 ×1.86 to ×1.68. Both are §50.2.
+three — no id, no light, no crossing, and no node in the routing graph. 39 of
+the 69 are in downtown. Fixing it moved landmark-to-landmark detours from p90
+×1.86 to ×1.68. Both are §50.2.

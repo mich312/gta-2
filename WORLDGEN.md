@@ -5360,10 +5360,11 @@ impossible. Eight lights is what that looks like from the air.
 **And it misses one entirely.** A four-tile avenue crossing a three-tile
 street makes a 4×3 box whose diagonal run is three, so the diagonal test
 fails on every tile of it and the junction is not labelled at all — no id, no
-light, no crossing, and no node in the routing graph. That is every cross
-street on The Spine: **69 of the 151** arterial crossings were in that state,
-which is why downtown's grid had lights on its residential corners and none
-on its avenue.
+light, no crossing, and no node in the routing graph. **69 of the 151**
+arterial crossings were in that state, and it happens wherever a four-tile
+road meets a three-tile one: 39 of them in downtown, on The Spine and the
+avenues beside it, which is why that grid had lights on its residential
+corners and none where its avenues cross.
 
 The curves fix both. Every labelled component a crossing's disc touches is
 unioned; the tiles inside the disc that the fill left bare are pulled into it,
