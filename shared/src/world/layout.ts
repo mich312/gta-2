@@ -286,9 +286,46 @@ function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>
       }
       at = best;
     }
-    if (chain.length >= 6) out.push(chain);
+    const line = untangle(chain);
+    if (line.length >= 6) out.push(line);
   }
   return out;
+}
+
+/**
+ * Cut a chain at the point where it turns round and comes back.
+ *
+ * Greedy nearest-neighbour has no memory of where it was going. Run it over a
+ * band two tiles wide and it walks the length of one row — every step a
+ * distance of one — reaches the end, finds the other row's last tile also one
+ * step away, and walks the whole way back. The result is a single course
+ * shaped like a hairpin: 109 tiles out and 109 tiles back, one tile apart,
+ * with a bounding box of 109 x 1.
+ *
+ * Eleven streets in the shipped city were this, and the ribbon painter dashed
+ * every one of them twice — a doubled centre line, and a visible U-turn of
+ * lane paint inside a cul-de-sac head. §52.5 measured the claim four ways and
+ * reported zero, because the test that would have found it asked for the two
+ * legs to lie within one tile of each other and they lie at exactly one tile
+ * plus whatever the return leg is offset along its own run. It was 6% too
+ * tight, and 6% reads the same as absent.
+ *
+ * A road does not run back alongside itself. Where the chain does, keep the
+ * leg it went out on.
+ */
+function untangle(chain: ReadonlyArray<[number, number]>): Array<[number, number]> {
+  for (let k = 3; k + 1 < chain.length; k++) {
+    const [nx, ny] = chain[k + 1] as [number, number];
+    // Against everything before the turn itself, so an ordinary corner — where
+    // consecutive points are always close — does not read as a fold.
+    for (let j = 0; j <= k - 3; j++) {
+      const [px, py] = chain[j] as [number, number];
+      const dx = nx - px;
+      const dy = ny - py;
+      if (dx * dx + dy * dy <= 2.25) return chain.slice(0, k + 1);
+    }
+  }
+  return [...chain];
 }
 
 /**
@@ -1606,7 +1643,14 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
           const chain = [...back.reverse(), ...fwd];
           if (chain.length < 6) continue;
-          let pts = chain.map((i) => [(i % W) + 0.5, Math.floor(i / W) + 0.5] as [number, number]);
+          // `step` is greedy nearest-neighbour with no memory of its heading,
+          // so on a band two tiles wide it walks the length of one row and
+          // then the whole way back along the other — one course shaped like
+          // a hairpin, and the ribbon painter dashes both legs (§53.5).
+          let pts = untangle(
+            chain.map((i) => [(i % W) + 0.5, Math.floor(i / W) + 0.5] as [number, number]),
+          );
+          if (pts.length < 6) continue;
           for (let r = 0; r < 4; r++) {
             pts = pts.map((p, i) => {
               if (i === 0 || i === pts.length - 1) return p;

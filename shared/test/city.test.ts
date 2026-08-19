@@ -353,6 +353,52 @@ describe('the city, as an asset', () => {
     expect(tips).toBeLessThanOrEqual(80);
   });
 
+  it('lays no street that runs back alongside itself', () => {
+    // Both course chainers walk greedily to the nearest unused tile with no
+    // memory of their heading. Over a band two tiles wide that walks the
+    // length of one row and then the whole way back along the other: one
+    // course shaped like a hairpin, and the ribbon painter dashes both legs.
+    // Eleven streets were this, the worst running 109 tiles out along y=408
+    // and 109 back along y=409 — arc 217, bounding box 109 x 1 (§53.5).
+    //
+    // The measure that missed it in §52.5 asked for the two legs to lie
+    // within ONE tile of each other, and they lie at exactly one tile plus
+    // whatever the return leg is offset along its own run. This one asks the
+    // question the shape answers instead: a road that goes somewhere covers
+    // ground, so its arc length cannot greatly exceed the diagonal of the box
+    // it fits in.
+    const hairpins: string[] = [];
+    for (const c of map.courses ?? []) {
+      // A ring is a closed loop, which is a different thing from a road that
+      // doubles back: its arc exceeds its box legitimately.
+      if (c.kind === 'ring') continue;
+      const p = c.points;
+      let arc = 0;
+      let x0 = Infinity;
+      let x1 = -Infinity;
+      let y0 = Infinity;
+      let y1 = -Infinity;
+      for (let k = 0; k < p.length; k++) {
+        const [x, y] = p[k] as readonly [number, number];
+        x0 = Math.min(x0, x);
+        x1 = Math.max(x1, x);
+        y0 = Math.min(y0, y);
+        y1 = Math.max(y1, y);
+        if (k === 0) continue;
+        const [ax, ay] = p[k - 1] as readonly [number, number];
+        arc += Math.sqrt((x - ax) * (x - ax) + (y - ay) * (y - ay));
+      }
+      const box = Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0));
+      if (arc > 20 && arc > box * 1.6) {
+        hairpins.push(`${c.kind} at ${p[0]?.[0]},${p[0]?.[1]} arc ${arc.toFixed(0)} box ${box.toFixed(0)}`);
+      }
+    }
+    expect(hairpins, hairpins.join(' | ')).toEqual([]);
+    // Non-vacuous: there are streets long enough for the test to bite on.
+    const long = (map.courses ?? []).filter((c) => c.kind === 'street' && c.points.length > 20);
+    expect(long.length).toBeGreaterThan(20);
+  });
+
   it('has an island you can only reach by air', () => {
     // Gannet Rock. The claim is exact and worth pinning tile by tile, because
     // every way of getting somewhere in this game is a different question:

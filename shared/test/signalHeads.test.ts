@@ -104,7 +104,7 @@ describe('signal heads', () => {
     for (const arm of armsWithTraffic) expect(armsWithHeads.has(arm)).toBe(true);
   });
 
-  it('gives a crossroads four lights and a T-junction three', () => {
+  it('gives every signalised junction a light and a line on all four arms', () => {
     const perJunction = new Map<number, number>();
     for (const head of junctions.heads) {
       perJunction.set(head.junctionId, (perJunction.get(head.junctionId) ?? 0) + 1);
@@ -113,29 +113,34 @@ describe('signal heads', () => {
     // A junction has four arms at most, and the head is the arm. Before this,
     // one crossroads on an arterial carried fourteen.
     expect(Math.max(...counts)).toBeLessThanOrEqual(4);
-    expect(Math.min(...counts)).toBeGreaterThanOrEqual(2);
-    // Lights go where an arterial crosses something, and an arterial that
-    // simply STOPS at another road is rare, so the signalised set is nearly
-    // all crossroads: 79 of 82, against one T and two two-armed. Before
-    // the policy this read the other way round — far more Ts than crossroads
-    // — because every residential corner in the city was in the set.
-    expect(counts.filter((c) => c === 4).length).toBeGreaterThan(70);
-    expect(counts.filter((c) => c === 3).length).toBeGreaterThan(0);
-    // All-fours would mean an arm was being dropped somewhere.
-    expect(counts.filter((c) => c === 4).length).toBeLessThan(counts.length);
+    // And four at least. This used to read "a crossroads four and a T three",
+    // and it allowed a mixture — which was how 99 of 323 signalled approaches
+    // came to carry a head with no stop line under it, at 61 of the 88 lit
+    // crossings. The rule is now all-or-nothing (§53.1): a junction is
+    // signalised only where the paint reaches every one of its arms, so an
+    // incomplete crossroads is not a partly-lit crossroads, it is an unlit
+    // one wearing give-way marks. All-fours is the invariant, not a symptom.
+    expect(Math.min(...counts)).toBe(4);
+    expect(counts.length).toBeGreaterThan(25);
+    // Every junction the table calls signalled carries its heads, and nothing
+    // else does.
+    const lit = new Set<number>();
+    for (let id = 0; id < junctions.count; id++) if (junctions.signalled[id] === 1) lit.add(id);
+    expect(perJunction.size).toBe(lit.size);
+    for (const id of perJunction.keys()) expect(lit.has(id)).toBe(true);
   });
 
   it('signalises the arterial crossings and leaves the rest to be negotiated', () => {
     // The policy, as a number. 779 junctions and 2,990 heads was the city
     // before: every corner of every block wearing a full set of lights, and
     // 537 of those junctions four tiles of tarmac or less (§49). It is now
-    // 725 junctions and 82 of them lit, because §51 also made a junction
-    // the whole sheet of tarmac rather than the pieces a 4-connected fill
-    // left it in, and §52 refuses an arm whose tarmac is an apron rather
-    // than a mouth.
+    // 725 junctions and 40 of them lit: §51 made a junction the whole sheet
+    // of tarmac rather than the pieces a 4-connected fill left it in, §52
+    // refused an arm whose tarmac is an apron rather than a mouth, and §53
+    // refuses the whole JUNCTION unless the paint reaches all of its arms.
     const signalled = [...junctions.signalled].filter((v) => v === 1).length;
     expect(junctions.count).toBeGreaterThan(400);
-    expect(signalled).toBeGreaterThan(50);
+    expect(signalled).toBeGreaterThan(25);
     expect(signalled).toBeLessThan(junctions.count / 3);
     // And no head stands anywhere else — this is what makes the stop line
     // and the light the same fact.
@@ -209,9 +214,18 @@ describe('what a junction promises', () => {
         expect(ok, `junctions ${a} and ${b} both green at tick ${tick}`).toBe(true);
       }
     }
-    // And the case is real: touching pairs that BOTH carry lights exist, so
-    // this is not passing because there is nothing to check.
-    expect(lit2).toBeGreaterThan(0);
+    // The green check above can only run where two touching ids are BOTH lit,
+    // and since §53 cut the lit set to 40 well-separated crossroads there are
+    // none — so on its own it is now a test of nothing. The guarantee under
+    // it is not conditional though: `phaseGroups` unions every 8-connected
+    // run of ids, so two ids sharing a sheet of tarmac share a phase whether
+    // or not either is lit, and a phase cannot show green to both axes. That
+    // is the thing worth pinning, and it is checked on every touching pair.
+    for (const key of pairs) {
+      const [a, b] = key.split(',').map(Number) as [number, number];
+      expect(junctions.phase[a], `junctions ${a} and ${b} touch`).toBe(junctions.phase[b]);
+    }
+    expect(lit2).toBeGreaterThanOrEqual(0);
   });
 
   it('paints no crossing on water, on a wall or on a bridge deck', () => {
@@ -258,7 +272,7 @@ describe('what a junction promises', () => {
         }
       }
     }
-    expect(cells).toBeGreaterThan(500);
+    expect(cells).toBeGreaterThan(400);
     // And it is nearly all on the carriageway, not merely off the water.
     expect(offRoad / cells).toBeLessThan(0.02);
   });
@@ -285,6 +299,6 @@ describe('what a junction promises', () => {
         expect(nose - stopAt).toBeCloseTo(0.25, 6);
       }
     }
-    expect(approaches).toBeGreaterThan(300);
+    expect(approaches).toBeGreaterThan(120);
   });
 });

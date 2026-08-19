@@ -649,3 +649,201 @@ the defect had been reproduced from the shipped city. Two survived that and
 three did not, and the three cost about as much to disprove as they would have
 cost to "fix" — with the difference that the repo now has no code in it
 defending against problems it does not have.
+
+## 7. Five reviewers, and the one that found the thing three passes had missed
+
+Five independent reviews were run over the finished city: a road architect, a
+visual sweep of the northern landmass, a visual sweep of the south and west, a
+traffic engineer on signage and markings, and a 3D flyover pass. Every claim
+below was re-measured against the shipped bake before being recorded.
+
+### 7.1 The network is over-streeted, and it has no hierarchy
+
+A tile is about **2.9 m** — no metre scale exists in the code, but a saloon's
+`halfLength` is 12 world units, so a car is 24 units = 1.5 tiles, and a 4.4 m
+car fixes the rest. Building footprints corroborate: median 9 × 9 m, largest
+41 × 41 m. The city is 2.3 km across.
+
+| | Anywhere City | real |
+|---|---|---|
+| built land that is carriageway | **36.4%** | Manhattan ~20–22% |
+| carriageway + pavement | **53.4%** | Manhattan 27%, Barcelona 30%, Paris 25%, Portland OR 41% |
+| street length density | **33.6 km/km²** | Manhattan 16, Portland 25, US suburb 10 |
+| median block | **29 × 41 m** | 80–200 m; Portland's famously tiny ones 61 m |
+| blocks holding ≤ 2 buildings | **52%** | a real block holds 10–40 |
+
+**Nine of thirteen built districts exceed Manhattan's total street share using
+carriageway alone.** The Old Quarter is 53.8% carriageway and 72.8% including
+pavement; the median point *in that district* is on a road. Its blocks are
+23 × 26 m.
+
+And there is no width hierarchy. Every one of the 20 authored plan roads is
+`width: 4`; district streets are 2 or 3. The shipped course layer is ring ×2 and
+avenue ×22 at width 4, street ×305 at width 3, path ×22 at width 2. **76% of
+the network is within one tile of the same width, and the top of the hierarchy
+is 1.33× the bottom.** The ring road is 11.7 m — an ordinary two-lane urban
+street. The cap is structural: §12.8 forbids a carriageway over 4 tiles because
+the signal pass calls anything wider a junction, so the plan schema cannot
+*express* an arterial, only a doubled street.
+
+The lever is a closed form. For a grid of pitch *p* and street width *w*,
+carriageway share = (2wp − w²)/p², and that model predicts the shipped numbers
+within 5 points across every grid district. With w = 3 you need **p ≥ 22 tiles
+(64 m)** to land under 25%. Eight districts are below that.
+
+### 7.2 "More roads on top" — half right, and not for the reason it looked
+
+The user's read was that a second road network is drawn over the block lattice.
+Sweeping all 351 courses at their recorded widths covers 83,316 tiles, of which
+**91.95% are already carriageway in the tile plane**; the 6,708 that are not are
+5,838 pavement, 257 quay, 221 field, 218 park, 27 building — kerb-casing
+overhang on the outside of curves, which is what a kerb is. **The curve layer is
+a faithful vector record of the same ground, not a second network.** As a
+rendering complaint it is refuted.
+
+As a *ground* complaint it is confirmed, and worse than it looked. The 20
+authored roads were carved before the lattice ever ran, and they account for
+**24.5% of all carriageway and 24.0% of all centreline length, from 21 of 351
+courses.** In a real network arterials are 5–10% of street length.
+
+**A third of that arterial network duplicates a local street that already
+exists** — sampling each arterial centreline at 1-tile intervals for a parallel
+local street within 10 tiles at under 25°: avenues 40.4%, ring 25.6%, combined
+33.6%. The Parade runs 222 tiles with a lattice street 21 m away for its whole
+length, because Ravenhill's fabric anchors its lattice *to* The Parade. Four
+avenues — Dockside, The Esplanade, Longacre Road, Kelvin Street — have a
+contour street course sitting on their own tarmac at gap 0.0.
+
+Worst of all, in empty parkland: a vertical transect at x = 560 crosses **five
+separate four-lane arterials at y = 521, 619, 629, 643 and 659** — gaps of 17 m,
+32 m and 38 m. Four to five four-lane roads packed into 130 m of grass, serving
+nothing.
+
+### 7.3 The ring road costs 6.4% of the city and saves 4.8% of a long trip
+
+Two 4-tile carriageways plus a 4-tile median is 12 tiles — 35 m — wide, a total
+of **18,988 tiles, 6.36% of all land in the city** and 12.7% of all carriageway,
+for one road.
+
+Removing its non-bridge edges from the routing graph and re-running Dijkstra
+from 30 sources to every node:
+
+| trip length | detour without the ring |
+|---|---|
+| 0–200 tiles | **1.438** |
+| 200–500 | 1.079 |
+| 500–1000 | **1.048** |
+
+It saves 4.8% on long cross-city trips and 44% on short ones — exactly
+backwards, and it helps short trips only because it severs their local streets
+and forces them onto itself. Only 21 of 725 junction nodes are ring-only. And
+`roadnet.ts:365` documents that routing ignores `edgeWidth`, so nothing in the
+game prefers it anyway.
+
+It touches **205 of 1,092 blocks** with only 71 access patches totalling 355
+tiles of contact over ~3,160 tiles of length. Between y = 240 and y = 450 on its
+west side there are three single-tile touches over 200 tiles of road.
+
+And its central reservation is not a reservation. The 4-tile strip between the
+carriageways holds 6,280 tiles, of which **623 are building, 1,515 pavement, 355
+road and 338 lot** — **109 of the city's 4,037 buildings sit more than half
+inside the ring's median**, with pavements, unreachable.
+
+### 7.4 Content defects, verified
+
+- **32 blocks of 458 in the north are completely unbuilt**, including a
+  **23 × 18 blank plaza at (479,186)** in the middle of downtown — 322 tiles of
+  grey pavement. 45 more are under 5% built. It is why the east borough reads
+  as a car park.
+- **The western island's southern two-thirds has no cross streets at all**:
+  x 100–160, y 252–408, blocks 17 tiles wide and **158 tiles long**. 10% of its
+  building tiles are more than 8 tiles from a road, against 0–2% everywhere else.
+- **A road drives across the airfield runway and stops dead in the grass**
+  (x 519–520, y 598→606), a 3×3 building stands inside the runway rectangle at
+  its west threshold (x 504–506, y 599–601), and the runway carries no markings
+  at all. The SW island's airstrip has a building on it too and **no road or
+  pavement tile anywhere within 140 tiles**.
+- **A 45-tile bridge across the SE bay lands on a cul-de-sac** (deck x 625–667,
+  y 613–640; landing tip (673,601)) whose road stub never reaches the mainland
+  network 19 tiles away. The bridge is the only way in, and it delivers you to a
+  dead end.
+- **Nine four-lane avenues terminate in open ground**, including Vantage Row
+  stopping 18 tiles short of Kelvin Bridge at (470,292), and both ends of Coast
+  Road stopping in fields.
+- **Twenty patches of bare field sit fully enclosed by carriageway** — a 4×2
+  hole punched in a 7-lane boulevard at (216–219, 511–512), a 33-tile one at
+  (568–575, 616–621).
+- **In the rotated grids the streets have merged into one sheet of asphalt.**
+  Percentage of a district's road whose narrowest span in any direction is ≥ 7
+  tiles: Old Quarter (angle 20°) **31.5%**, North Point (26°) 22.2%, Vasco
+  Heights (12°) 18.6% — against Ravenhill (0°) 4.5%. The correlation with
+  rotation angle is exact: a 3-tile lattice at 9–14 tile pitch stair-steps until
+  adjacent bands touch. A third of the Old Quarter's street network is a car park.
+
+### 7.5 Signage: the camera settles it
+
+`GAME_PITCH` defaults to **10°**, at roughly 64 CSS px per tile. A vertical
+plate of height *H* projects to *H*·sin(10°) ≈ 0.17*H* of screen height, so a
+sign face 10 world px tall is a **7-px smear**. **You cannot read a sign in this
+game.** You can read colour, and you can read anything flat on the ground.
+
+The traffic engineer's verdict is therefore to **paint, not post** — and the
+inventory backs it: Chebyshev distance from every road tile to the nearest
+painted tile is 0 for 62,153 tiles, 1 for 22,934, 2 for 6,148, and ≥10 for
+**eight**. The city is not short of paint. The gaps are specific:
+
+1. **Finish the stop lines** — done, §53.
+2. **Kerbside parking bays.** 1,455 of 1,475 parking positions sit on
+   carriageway and the only bay paint in the game is 186 tiles of off-street lot
+   stripe. Every parked car in the city stands on unmarked road. All the data
+   needed (x, y, heading, `crosswise`) is already carried.
+3. **Lane dividers on the four-tile arterials.** 22,291 road tiles are on a
+   4-tile carriageway with two lanes each way — `junctionPaint` asserts it by
+   drawing one arrow per lane — and nothing separates them.
+4. **Kerbside restriction lines at junction approaches**, but only shipped
+   together with (2); on their own they paint "no parking" along kerbs that also
+   carry unmarked parked cars.
+
+Everything vertical was rejected, with reasons: stop/give-way/no-entry/speed
+plates, street-name signs, fingerposts, bollards and parking meters are all
+7-px smears at 10°, and the city is already at a hard prop cap of 1,600. The
+signal head is the exception that proves the rule — it works because it is a
+coloured *lamp*, and colour survives any projection. Painted text was rejected
+too: `mapRender` is a raw pixel rasteriser and the 3D atlas is per-tile codes,
+so neither can call `fillText`, and a course carries no name, no speed limit
+and no direction to write.
+
+### 7.6 What the existing markings get wrong
+
+- **Two different edge lines in two different colours, both called edge lines.**
+  74,147 road tiles get cream `roadLane` #b9b183 from the ribbon painter;
+  **10,514 get `roadMark` #4c525a** from the per-tile painter — RGB(76,82,90)
+  against tarmac at (43,48,54), a faint grey seam rather than paint. The
+  128-tile straight street at (300,566)→(428,566) has a bright centre dash and
+  invisible edges, running past ribbon roads with bright cream ones.
+- **The 3D slab atlas draws one third of the junction.** It reduces
+  `junctionPaint().zebras` to tiles and never touches `stops`, `arrows` or the
+  give-way marks — under a comment claiming it draws the same crossings as
+  everyone else. Survivable, because the painted ground layer covers it within a
+  frame or two, but the comment is wrong.
+- **The turn-arrow hooks are asymmetric at every signalised junction.** On a
+  four-tile arm the median lane gets the full 0.5-tile hook and the kerb lane
+  gets 0.35 — 30% shorter, on the same approach, everywhere.
+- **Zebra bars are about 3× real width** — 1.6 m against 0.5–0.6 m, four bars
+  where a real continental crossing has 10–12. Deliberate and correct at this
+  zoom, but it is a legibility choice, not the real thing.
+
+### 7.7 Render-tool artefacts, not game defects
+
+Both visual sweeps independently flagged the bridges, and both traced it to the
+same place: `mapRender.ts` casts the deck shadow per tile at a fixed diagonal
+offset, so it detaches into a 1–2 tile staircase running the full span, and it
+gates the pier marks on `(mx+my) % 9 === 0`, which a 45° deck satisfies on
+almost no tile. The client draws bridges from a different path. Worth fixing —
+this tool is how the bridges get reviewed — but not a defect in the city.
+
+Likewise the park "roads" that stop in the grass: mapgen strokes every course
+with road casing and round caps, while the client draws `kind: 'path'` as
+butt-capped pavement with no casing. The 16 fragments are footpaths. *Their
+content is still broken* — every endpoint is 4–8.5 tiles from the nearest road,
+and six fragments are 6–14 tiles long — but they are not roads.

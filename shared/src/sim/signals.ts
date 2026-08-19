@@ -251,7 +251,18 @@ export function labelJunctions(map: CityMap): JunctionMap {
   }
   const merged = mergeAtCrossings(map, idOf, count);
   const signalled = signalPolicy(map, idOf, merged);
-  const heads = collectHeads(map, idOf, signalled);
+  let heads = collectHeads(map, idOf, signalled);
+  // The same rule the policy applies to the curves, applied to the ground: if
+  // any approach carrying traffic into a lit junction has no line under its
+  // head, the junction is not fit to be signalled and joins the negotiated
+  // majority. The policy cannot see these because no course describes them.
+  const painted = paintedApproaches(map, idOf, signalled);
+  const unlit = new Set<number>();
+  for (const head of heads) {
+    if (!painted.has(head.junctionId * 4 + head.dirIdx)) unlit.add(head.junctionId);
+  }
+  for (const id of unlit) signalled[id] = 0;
+  if (unlit.size > 0) heads = heads.filter((head) => !unlit.has(head.junctionId));
   // A junction with one arm is not a junction, and a light on it is a light
   // governing a dead end. It happens where a crossing's box has only one way
   // in that a driver can approach along a cardinal — the mouth of a slip, a
@@ -503,8 +514,30 @@ function signalPolicy(map: CityMap, idOf: Int16Array, count: number): Uint8Array
     // junctions had no stop line anywhere in the city, four of them six-way
     // aprons wearing traffic signals over a lake of unmarked asphalt.
     //
-    // Two arms, because a light governing one approach governs nothing.
-    if (junctionPaint(cross, all, ground).stops.length < 2) continue;
+    // EVERY arm, not two of them.
+    //
+    // Two competing facts, and only one rule satisfies both. A head with no
+    // stop line under it is an instruction with no object — `stopLineGap`
+    // halts a car AT the line, so a red over bare tarmac is a light the
+    // traffic model cannot obey. But an ARM with no head at a junction that
+    // is otherwise lit is worse: that traffic never stops at all, and drives
+    // through while the cross street has green.
+    //
+    // So the choice is not which of the two to break. It is made here: a
+    // junction is signalised only if the paint reaches all of its arms, and
+    // otherwise it joins the negotiated majority and wears give-way marks
+    // like its neighbours. Before this, 99 of 323 signalled approaches — 31%,
+    // at 61 of the 88 lit crossings, 4 of them with a light on every arm and
+    // no paint anywhere — showed a red light over nothing (§53.1).
+    //
+    // Three arms minimum as well. Two courses crossing at a shallow angle
+    // give a two-armed crossing, which is a BEND — traffic on it has nowhere
+    // to conflict, and a light there governs nothing. Four such junctions
+    // were lit, and every head on them stood over an approach the curves do
+    // not describe at all.
+    if (cross.arms.length < 3) continue;
+    const paint = junctionPaint(cross, all, ground);
+    if (paint.stops.length < 2 || paint.stops.length < cross.arms.length) continue;
     // The crossing point is a point on a curve; the junction is a patch of
     // tiles that spreads to the kerbs. Search the same disc the merge above
     // used — a SQUARE, which is what this was, reaches past the mouth into
@@ -521,6 +554,33 @@ function signalPolicy(map: CityMap, idOf: Int16Array, count: number): Uint8Array
         if (ox * ox + oy * oy > span * span) continue;
         const id = idOf[ty * w + tx] as number;
         if (id >= 0) signalled[id] = 1;
+      }
+    }
+  }
+  // And a second pass to take the lights away again.
+  //
+  // One junction id can be touched by more than one crossing — a curved
+  // arterial meeting a grid throws two or three crossing points onto one
+  // sheet of tarmac. If the first pass lit an id from a complete crossing
+  // and a second, incomplete crossing shares it, that second crossing's bare
+  // arm is dark at a lit junction, which is the case this whole rule exists
+  // to prevent. The id loses its lights.
+  for (const cross of all) {
+    if (!isSignalCrossing(cross)) continue;
+    const paint = junctionPaint(cross, all, ground);
+    if (paint.stops.length >= 2 && paint.stops.length >= cross.arms.length) continue;
+    const span = junctionReach(cross) + 0.5;
+    const reach = Math.ceil(span);
+    for (let dy = -reach; dy <= reach; dy++) {
+      for (let dx = -reach; dx <= reach; dx++) {
+        const tx = Math.floor(cross.x) + dx;
+        const ty = Math.floor(cross.y) + dy;
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+        const ox = tx + 0.5 - cross.x;
+        const oy = ty + 0.5 - cross.y;
+        if (ox * ox + oy * oy > span * span) continue;
+        const id = idOf[ty * w + tx] as number;
+        if (id >= 0) signalled[id] = 0;
       }
     }
   }
@@ -611,6 +671,13 @@ export function junctionGround(
  * three arms at every junction in them, so the whole east grid came back with
  * nothing to mark.
  */
+/**
+ * The widest thing in this city that is a road rather than an apron: two
+ * four-tile avenues side by side. A sweep that answers more than this has
+ * measured a car park, and its answer is not a width.
+ */
+const MAX_ARM_WIDTH = 8;
+
 export function tileCrossings(map: {
   widthTiles: number;
   heightTiles: number;
@@ -666,7 +733,6 @@ export function tileCrossings(map: {
     }
     if (taken) continue;
     const arms: CourseCrossing['arms'] = [];
-    let widest = 0;
     for (const [sx, sy] of NEIGHBOURS_8) {
       // The step is a whole tile on the axes and a tile diagonally, so the
       // measurements below are in STEPS; the arm's direction is normalised.
@@ -687,12 +753,31 @@ export function tileCrossings(map: {
       if (!drivable(ax, ay) || (idOf[ay * w + ax] as number) >= 0) continue;
       // Across the arm: a quarter turn from its own direction, which on a
       // diagonal is the other diagonal.
+      //
       // Carriageway width across the arm, and how far the road runs along it
       // — width first and then length is the seniority the ribbon painter
       // ranks two roads by, and the give-way mark follows it.
-      let width = 1;
-      for (let k = 1; k < 8 && drivable(ax + dy * k, ay - dx * k); k++) width++;
-      for (let k = 1; k < 8 && drivable(ax - dy * k, ay + dx * k); k++) width++;
+      //
+      // The NARROWEST the road gets over the first few tiles, not the width
+      // at the first tile outside the junction's label. `isJunctionTile`
+      // wants a road run of eight tiles on both axes, so the labelled box is
+      // smaller than the physical junction and one tile past it the sweep is
+      // still in the flared mouth. It reported a median arm of 5.7 tiles and
+      // a p75 of 11 in a city whose authored courses are every one of them 3
+      // or 4 tiles wide — and since the radius, the seniority ranking and the
+      // apron test all read this number, all three were being fed a junction
+      // where they had asked for a street.
+      let width = Infinity;
+      for (const along of [1, 3, 5]) {
+        const bx = ax + dx * along;
+        const by = ay + dy * along;
+        if (!drivable(bx, by)) break;
+        let here = 1;
+        for (let k = 1; k < 8 && drivable(bx + dy * k, by - dx * k); k++) here++;
+        for (let k = 1; k < 8 && drivable(bx - dy * k, by + dx * k); k++) here++;
+        width = Math.min(width, here);
+      }
+      if (!Number.isFinite(width)) continue;
       width *= stepLen;
       let len = 0;
       // Far enough to tell two streets apart. Capped at 40 the lattice's
@@ -700,7 +785,6 @@ export function tileCrossings(map: {
       // mark: 156 of 263 junctions came back bare for want of a longer look.
       for (let k = 1; k < 200 && drivable(ax + dx * k, ay + dy * k); k++) len++;
       arms.push({ dx: dx / stepLen, dy: dy / stepLen, width, len: len * stepLen });
-      widest = Math.max(widest, width);
     }
     // Eight directions round one junction will find the same road twice —
     // the cardinal arm and the diagonal that clips the corner of its own box
@@ -724,7 +808,22 @@ export function tileCrossings(map: {
     merged.sort((a, b) => b.width * b.len - a.width * a.len);
     const kept = merged.slice(0, 4);
     if (kept.length < 3) continue;
-    out.push({ x: cx, y: cy, r: widest / 2, arms: kept });
+    // The radius comes from the arms this junction KEPT, and it is capped.
+    //
+    // Taking it from `widest` — the widest of all eight probes, including the
+    // ones just thrown away — let a single spurious sweep across an apron set
+    // the radius of a junction none of whose arms is anything like that wide.
+    // And the sweep itself believes up to 15 tiles either way, so an apron
+    // answered 21 and gave r = 10.6.
+    //
+    // `armMouth` starts at `cross.r`, so the radius is where every mark on
+    // this junction begins: 434 give-way dashes were being painted more than
+    // six tiles from their own junction, out in the middle of a block, and
+    // 233 of them landed on the pavement. A junction between two four-tile
+    // avenues has r = 2. Nothing in this city is a road eight tiles across,
+    // so nothing here is a junction with a radius over four.
+    const widestKept = kept.reduce((m, a) => Math.max(m, a.width), 0);
+    out.push({ x: cx, y: cy, r: Math.min(widestKept, MAX_ARM_WIDTH) / 2, arms: kept });
   }
   return out;
 }
@@ -900,6 +999,66 @@ function kerbPost(
  * model steers by: heading east you keep to the south half, so the light you
  * obey is the one on the southern kerb.
  */
+/**
+ * Every approach that came away with a stop line, keyed `id * 4 + dirIdx`.
+ *
+ * `signalPolicy` refuses a crossing whose arms the paint cannot all reach,
+ * but it asks the question of the CURVES. A junction is a patch of tiles, and
+ * a street can enter it on the ground without any course describing it — the
+ * district lattices are stamped by the block layout, not authored (§52.2). At
+ * three junctions that left a fourth approach with traffic on it, a head over
+ * it, and no line under the head.
+ *
+ * `dirIdx` is the direction a driver TRAVELS to reach the junction, and an
+ * arm points OUT from the crossing, so the arm an approach comes down is the
+ * one closest to `-CARDINALS[dirIdx]`.
+ */
+function paintedApproaches(map: CityMap, idOf: Int16Array, signalled: Uint8Array): Set<number> {
+  const out = new Set<number>();
+  const w = map.widthTiles;
+  const h = map.heightTiles;
+  const courses = (map.courses ?? []).filter((c) => c.kind !== 'path');
+  if (courses.length === 0) return out;
+  const ground = junctionGround(map, idOf);
+  const all = courseCrossings(courses);
+  for (const cross of all) {
+    if (!isSignalCrossing(cross)) continue;
+    const paint = junctionPaint(cross, all, ground);
+    if (paint.stopArms.length === 0) continue;
+    const span = junctionReach(cross) + 0.5;
+    const reach = Math.ceil(span);
+    const ids: number[] = [];
+    for (let dy = -reach; dy <= reach; dy++) {
+      for (let dx = -reach; dx <= reach; dx++) {
+        const tx = Math.floor(cross.x) + dx;
+        const ty = Math.floor(cross.y) + dy;
+        if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+        const ox = tx + 0.5 - cross.x;
+        const oy = ty + 0.5 - cross.y;
+        if (ox * ox + oy * oy > span * span) continue;
+        const id = idOf[ty * w + tx] as number;
+        if (id >= 0 && signalled[id] === 1 && !ids.includes(id)) ids.push(id);
+      }
+    }
+    for (const armIdx of paint.stopArms) {
+      const arm = cross.arms[armIdx] as { dx: number; dy: number };
+      let bestDir = -1;
+      let bestDot = 0.5; // within 60 degrees, or it is not this cardinal
+      for (let d = 0; d < 4; d++) {
+        const [cx, cy] = CARDINALS[d] as readonly [number, number];
+        const dot = -arm.dx * cx - arm.dy * cy;
+        if (dot > bestDot) {
+          bestDot = dot;
+          bestDir = d;
+        }
+      }
+      if (bestDir < 0) continue;
+      for (const id of ids) out.add(id * 4 + bestDir);
+    }
+  }
+  return out;
+}
+
 function collectHeads(map: CityMap, idOf: Int16Array, signalled: Uint8Array): SignalHead[] {
   const w = map.widthTiles;
   const h = map.heightTiles;

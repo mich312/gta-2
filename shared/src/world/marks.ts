@@ -187,6 +187,15 @@ export interface JunctionPaint {
   zebras: MarkQuad[];
   /** Stop lines: one per arm, across the approaching half only. */
   stops: MarkQuad[];
+  /**
+   * Which arm each stop line in `stops` came from, as an index into
+   * `cross.arms`. The signal heads are chosen from this: a light facing an
+   * approach with no line under it is an instruction with no object, and
+   * before §53.1 the city had 99 of them because the head was decided from
+   * the junction's `signalled` flag and the line from the paint, and nothing
+   * asked the two to agree.
+   */
+  stopArms: number[];
   /** Turn arrows: one per approach lane per arm. */
   arrows: MarkArrow[];
 }
@@ -420,13 +429,14 @@ export function junctionPaint(
   /** What the ground will take. Absent means "anything", for a fixture. */
   ground?: JunctionGround,
 ): JunctionPaint {
-  const out: JunctionPaint = { zebras: [], stops: [], arrows: [] };
+  const out: JunctionPaint = { zebras: [], stops: [], arrows: [], stopArms: [] };
   // More ways in than a crossroads has is not a junction, it is a place where
   // several roads spill into one apron. `sim/signals.ts` refuses to signalise
   // those for the same reason — no phase governs them — and paint that says
   // otherwise is paint nobody can obey.
   if (cross.arms.length > 4) return out;
-  for (const arm of cross.arms) {
+  for (let armIdx = 0; armIdx < cross.arms.length; armIdx++) {
+    const arm = cross.arms[armIdx] as (typeof cross.arms)[number];
     const { dx, dy, width } = arm;
     // The right hand of a driver coming IN along this arm.
     const nx = dy;
@@ -435,10 +445,19 @@ export function junctionPaint(
     const z0 = armReach(cross, arm, ground) + ZEBRA_SETBACK;
     const z1 = z0 + ZEBRA_DEPTH;
     const sMid = z1 + STOP_GAP + STOP_THICK / 2;
-    // How far out the paint reaches, arrows included. The room test used to
-    // stop at the stop line and let the arrows run on another 1.65 tiles,
-    // which filled the four-tile link between two close junctions end to end.
-    const reach = sMid + STOP_THICK / 2 + ARROW_SETBACK + ARROW_LEN;
+    // TWO reaches, because the kit is two things a driver needs differently.
+    //
+    // A stop line is where the light's promise is kept: if a head faces this
+    // approach there must be a line under it, or the red is an instruction
+    // with no object. It finishes 1.525 tiles out.
+    //
+    // The arrows are advice about turning, and they run another 1.65 tiles
+    // beyond that. Testing the whole kit against the SHORT block that only
+    // ever had room for the line is how 99 of 323 signalled approaches — 31%,
+    // at 61 of the 88 lit crossings, 4 of them with a light on every arm and
+    // no paint anywhere — came to show a red light over bare tarmac (§53.1).
+    const stopReach = sMid + STOP_THICK / 2;
+    const reach = stopReach + ARROW_SETBACK + ARROW_LEN;
     // Does the arm have room for it? Where two junctions are a few tiles
     // apart — the fan of arterials at the top of the old town, mostly — each
     // one laid its crossing into the other's mouth, and a dozen zebras came
@@ -453,7 +472,8 @@ export function junctionPaint(
       if (p > Math.max(half, o.r) + 0.5) continue;
       room = Math.min(room, t - o.r);
     }
-    if (room < reach + 0.5) continue;
+    if (room < stopReach + 0.5) continue;
+    let arrowsFit = room >= reach + 0.5;
     // And will the ground take it?
     //
     // Two questions, and they are not the same one. First: is the ground the
@@ -481,10 +501,20 @@ export function junctionPaint(
           if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
         }
       }
-      for (const along of [reach + 0.5, reach + ARM_RUN]) {
+      // Does the arm GO anywhere? Measured from the stop line, because that
+      // is what the line itself needs — a stop line on a cul-de-sac's
+      // turning head is still wrong, and an arm two tiles longer than the
+      // line is still a street.
+      for (const along of [stopReach + 0.5, stopReach + ARM_RUN]) {
         const px = cross.x + dx * along;
         const py = cross.y + dy * along;
         if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+      }
+      // The arrows reach further, so they ask again further out.
+      for (const along of [reach + 0.5, reach + ARM_RUN]) {
+        const px = cross.x + dx * along;
+        const py = cross.y + dy * along;
+        if (!ground.paintable(Math.floor(px), Math.floor(py))) arrowsFit = false;
       }
       // And is this a MOUTH? Tarmac much wider than the road it belongs to is
       // an apron, and a zebra laid across an apron is a zebra in open ground.
@@ -508,6 +538,7 @@ export function junctionPaint(
     }
     // Stop line: across the approaching half only.
     const sOff = half / 2;
+    out.stopArms.push(armIdx);
     out.stops.push(
       quad(
         cross.x + dx * sMid + nx * sOff,
@@ -523,7 +554,7 @@ export function junctionPaint(
     // could only say "you may do anything", which is what an unmarked lane
     // already says; drawn anyway it put a symbol every few tiles down every
     // side street in the city.
-    if (width >= SIGNAL_MIN_WIDTH) {
+    if (arrowsFit && width >= SIGNAL_MIN_WIDTH) {
       // Which turns exist is a fact about the junction and not about the arm,
       // so it is read off the OTHER arms: a hook painted towards a wall is
       // worse than no hook at all.

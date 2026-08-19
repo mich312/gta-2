@@ -500,7 +500,48 @@ describe('ambient traffic', () => {
     expect(c.moving / c.samples).toBeGreaterThan(0.35);
     // ...and the lights genuinely stop people, so none of the above is
     // passing because signals quietly did nothing.
-    expect(c.heldAtRed).toBeGreaterThan(0);
+    //
+    // Asked DIRECTLY, not by waiting for a sampled car to happen upon a red.
+    // §53 cut the signalised set from 88 junctions to 40 — every one now a
+    // complete crossroads with a stop line under every head, where before a
+    // third of the heads had no line at all — and that halved the share of
+    // carriageway within four tiles of a light from about 7% to 3.54%. Six
+    // hundred cars over forty seconds of sim stopped meeting one at all on
+    // this seed, so the proxy started reading zero while the signals worked
+    // perfectly. That is the same trap this test already fell into once, two
+    // paragraphs up: a proxy for a thing is not the thing.
+    //
+    // Every head must show red at some point in a cycle, and a car sitting on
+    // its approach must be told to stop. That is what "the lights stop
+    // people" means, and it cannot be diluted by where the traffic happened
+    // to drive.
+    const heads = map.junctions?.heads ?? [];
+    expect(heads.length).toBeGreaterThan(100);
+    const lights = trafficJson.signals;
+    const cycle = (lights.greenTicks + lights.amberTicks) * 2;
+    for (const head of heads) {
+      const phase = map.junctions?.phase?.[head.junctionId] ?? head.junctionId;
+      const axis = head.dirIdx === 0 || head.dirIdx === 2 ? 0 : 1;
+      let red = false;
+      for (let t = 0; t < cycle * 2 && !red; t++) {
+        if (signalColour(phase, axis, t, lights) === 'red') red = true;
+      }
+      expect(red, `head ${head.x},${head.y} never shows red`).toBe(true);
+      const [cx, cy] = CARDINALS[head.dirIdx] as readonly [number, number];
+      let stopped = false;
+      for (let back = 1; back <= 4 && !stopped; back++) {
+        const x = head.x - cx * back * TILE_SIZE;
+        const y = head.y - cy * back * TILE_SIZE;
+        for (let t = 0; t < cycle * 2; t += 6) {
+          const gap = stopLineGap(map, x, y, head.dirIdx, 60, 12, t, lights, 200);
+          if (Number.isFinite(gap)) {
+            stopped = true;
+            break;
+          }
+        }
+      }
+      expect(stopped, `nothing stops a car approaching ${head.x},${head.y}`).toBe(true);
+    }
   });
 });
 

@@ -5818,18 +5818,34 @@ The visual review produced five items. Two were real and are §52.1–§52.4. Th
 other three were mine, and none of them reproduces. They are recorded because
 a section that only lists the defects it found is not a record of a review.
 
-**The doubled centre line.** Claimed: thirteen courses double back on
-themselves for more than half their length, so the dash is drawn twice and the
-street reads as having two centre lines; fix by de-duplicating in the layout
-and rebaking. Four measures were run over the 329 road courses of the shipped
-city — consecutive segments reversing on each other, a course lying within one
-tile of a *different* course and parallel to it, a course folding within one
-tile of a part of ITSELF at least eight tiles away along its own arc, and pairs
-of courses running within 2.5 tiles and parallel for at least eight tiles of
-run. All four answer zero. At 110 pixels a tile the place the claim came from
-is an acute Y junction: two streets meeting at about fifteen degrees, each with
-its own correct centre line, converging. There is nothing to de-duplicate and
-no reason to rebake.
+**The doubled centre line. THIS ONE WAS REAL, and the dismissal below was
+wrong.** See §53.5 — eleven courses were out-and-back hairpins and the claim of
+"thirteen" was almost exactly right. The reasoning that follows is left
+standing because the way it failed is worth more than the conclusion it
+reached.
+
+Claimed: thirteen courses double back on themselves for more than half their
+length, so the dash is drawn twice; fix by de-duplicating in the layout and
+rebaking. Four measures were run over the 329 road courses of the shipped city
+— consecutive segments reversing on each other, a course lying within one tile
+of a *different* course and parallel to it, a course folding within one tile of
+a part of ITSELF at least eight tiles away along its own arc, and pairs of
+courses running within 2.5 tiles and parallel for at least eight tiles of run.
+All four answered zero.
+
+The third measure was the right one and it was **6% too tight**. The two legs
+of a hairpin lie at exactly one tile apart, and the test asked for
+`dx*dx + dy*dy <= 1`. Any offset along the run — and the return leg's samples
+are never exactly abreast of the outbound leg's — makes that 1.06, and 1.06
+reads the same as absent. Four measures were run and the conclusion was stated
+with the confidence of four, when three of them could never have found it and
+the fourth missed by a hair.
+
+At 110 pixels a tile the place *that particular crop* came from really is an
+acute Y junction, two streets meeting at fifteen degrees. The crop was fine.
+Choosing it, and then generalising from one clean crop plus four measures that
+agreed with it, is how a defect eleven streets wide survived the pass that was
+looking for it.
 
 **The review tool's phantom coastline.** Claimed: `mapRender` paints the shore
 band from the bank curve and refuses only the pixels its own coast curve calls
@@ -5862,3 +5878,180 @@ What the three have in common: each was a number measured once, in the middle
 of a change, and carried forward as a before/after fact. That is the same
 mistake §51.7's audit caught fourteen times, and it survived the audit by
 being written down after it.
+
+## 53. A light is a promise, and the city was not keeping it
+
+Five reviewers were run over the finished city — a road architect, two visual
+sweeps, a signage engineer and a 3D pass. §53 is what the signage pass found,
+which was the worst defect still in the junction machinery and had survived
+three previous reviews because every one of them counted crossings and none
+counted *approaches*.
+
+### 53.1 Ninety-nine red lights over bare tarmac
+
+`junctionPaint` refuses an arm as a unit. If the room test or the ground test
+fails, the arm gets nothing — no arrows, and no stop line either. But the
+signal head was decided somewhere else entirely: `collectHeads` reads approach
+tiles out of the tile plane and lights every one whose junction the policy has
+flagged. Nothing asked the two to agree.
+
+Measured on the shipped city: **99 of 323 signalled approaches — 31% — carried
+a red light with no stop line under it, at 61 of the 88 lit crossings. Four
+crossings had a light on every arm and no paint anywhere**, the worst being
+(171,234): ten tiles of bare tarmac wearing four sets of signals.
+
+This is the defect §51.1 was supposed to have closed. §51.1 made the driver
+model stop *at* the painted line instead of a tile and a half past it — and
+then a third of the lines were never painted, so a third of the traffic was
+obeying a line that did not exist.
+
+**The room test asked the wrong question.** The kit is two things, and a driver
+needs them differently:
+
+```ts
+const stopReach = sMid + STOP_THICK / 2;              // 1.525 tiles
+const reach = stopReach + ARROW_SETBACK + ARROW_LEN;  // 3.175 tiles
+```
+
+A stop line is where the light's promise is kept. The arrows are advice about
+turning, and they run more than twice as far. Testing the whole kit against a
+short block that only ever had room for the line threw the line away with the
+arrows. Splitting the gate — `stopReach` for the line, `reach` for the arrows
+alone — took the unpainted approaches from 99 to 72.
+
+### 53.2 Which of the two invariants to break
+
+The remaining 72 forced a choice, because two things are true at once and the
+obvious fix breaks one of them:
+
+- **A head with no line under it is an instruction with no object.**
+  `stopLineGap` halts a car *at* the line; a red over bare tarmac is a light
+  the traffic model cannot obey.
+- **An arm with no head, at a junction that is otherwise lit, is worse.** That
+  traffic never stops at all, and drives through while the cross street has
+  green. `shared/test/signalHeads.test.ts` has asserted this since §49 —
+  "leaves no arm of any junction dark".
+
+Dropping the head to match the paint satisfies the first and breaks the second.
+Painting a line under every head satisfies the second and puts stop lines in
+the creek. Neither is the answer, because the choice does not belong at the
+head or at the line. It belongs at the junction:
+
+> **A junction is signalised only if the paint reaches every one of its arms.**
+> Otherwise it is not a partly-lit crossroads — it is an unlit one, wearing
+> give-way marks like its neighbours.
+
+Three rules implement it, all in `signalPolicy`:
+
+1. Every arm painted, not two of them: `stops.length >= cross.arms.length`.
+2. A second pass that takes the lights away again, because one junction id can
+   be touched by more than one crossing — a curved arterial meeting a grid
+   throws two or three crossing points onto one sheet of tarmac, and if either
+   of them is incomplete the id loses its lights.
+3. Three arms minimum. Two courses crossing at a shallow angle give a
+   two-armed crossing, which is a *bend*: traffic on it has nowhere to
+   conflict and a light there governs nothing. Four such junctions were lit,
+   and every head on them stood over an approach the curves do not describe.
+
+And one more in `labelJunctions`, because the policy asks the question of the
+**curves** while a junction is a patch of **tiles**: a district lattice is
+stamped by the block layout, not authored (§52.2), so a street can enter a
+junction on the ground with no course describing it. At three junctions that
+left a fourth approach carrying traffic, a head over it, and no line. Any lit
+junction with such an approach is un-lit.
+
+### 53.3 What it cost, and what it bought
+
+| | before | after |
+|---|---|---|
+| signalised junctions | 88 | **40** |
+| signal heads | 323 | **160** |
+| **approaches with a head and no stop line** | **99 (31%)** | **0** |
+| lit junctions that are complete crossroads | 79 of 88 | **40 of 40** |
+| heads per lit junction | 2, 3 or 4 | **always 4** |
+
+Fewer than half the lights, and every one of them means something. 40 signalised
+crossroads in a city 2.3 km across is not sparse — it is what a city signalises.
+
+The test that read *"gives a crossroads four lights and a T-junction three"* is
+now *"gives every signalised junction a light and a line on all four arms"*,
+and asserts `Math.min(...counts) === 4`. All-fours used to be the symptom of an
+arm being dropped. It is now the invariant.
+
+### 53.4 The arm that was twenty-one tiles wide
+
+The same review found 434 give-way dashes painted **more than six tiles from
+their own junction**, out in the middle of blocks, 233 of them on the pavement.
+
+`tileCrossings` (§52.2) measures each arm by sweeping perpendicular to it. The
+sweep set the crossing's radius, and `armMouth` starts at that radius, so the
+radius is where every mark on the junction begins. Two faults compounded:
+
+- The radius came from `widest` — the widest of all **eight** probe
+  directions, including the ones immediately thrown away. One spurious sweep
+  across an apron set the radius of a junction none of whose arms was
+  anything like that wide.
+- The sweep believed up to 15 tiles either way, so an apron answered 21 and
+  gave a junction radius of 10.6.
+
+Radius now comes from the arms the junction **kept**, capped at
+`MAX_ARM_WIDTH / 2 = 4`. Crossing radii went from a maximum of 10.6 to 4.0.
+
+Then the deeper one. The sweep steps out of the junction's labelled component
+before measuring — but `isJunctionTile` wants a road run of eight tiles on both
+axes, so **the labelled box is smaller than the physical junction**, and one
+tile past it the sweep is still in the flared mouth. It reported a median arm
+of **5.7 tiles and a p75 of 11, in a city whose authored courses are every one
+of them 3 or 4 tiles wide.** The radius, the seniority ranking and the apron
+test all read that number, so all three were being handed a junction where they
+had asked for a street.
+
+A street's width is the **narrowest** it gets, not the widest. Sampling at 1, 3
+and 5 tiles along the arm and taking the minimum brings the median arm to 4.2
+and the p75 to 7.1, and the stray marks from 434 to 271.
+
+The residual is not a measurement error. In the rotated districts a 3-tile
+lattice at 9-tile pitch stair-steps until adjacent streets touch, and the
+Old Quarter genuinely has 31.5% of its road surface more than 7 tiles across.
+Those arms *are* twelve tiles wide. That is a worldgen defect, recorded in
+REVIEW-MAPDESIGN.md §7, and no amount of care in the sweep will measure it away.
+
+### 53.5 Eleven streets that ran back alongside themselves
+
+The south sweep found what §52.5 had dismissed: **eleven street courses stored
+as out-and-back hairpins.** The worst runs 109 tiles east along y=408, folds
+180°, and runs 109 tiles back along y=409 — one course, arc 217, bounding box
+109 × 1. The ribbon painter dashes the whole polyline, so both legs get a
+centre line: a doubled dash down one street, and a visible U-turn of lane paint
+inside the cul-de-sac head at the fold.
+
+| course | runs | arc | bounding box |
+|---|---|---|---|
+| 186 | (283,408) → (392,409) | 217 | 109 × 1 |
+| 210 | (286,493) | 203 | 102 × 1 |
+| 201 | (284,459) | 188 | 94 × 1 |
+| 206 | (291,476) | 182 | 91 × 1 |
+| 214 | (265,511) | 112 | 57 × 1 |
+| + six shorter | (198,391) (308,391) (388,476) (393,459) (406,406) (422,423) | 22–51 | |
+
+**Both course chainers walk greedily to the nearest unused tile and keep no
+memory of their heading.** Run either over a band two tiles wide and it walks
+the length of one row — every step a distance of one — reaches the end, finds
+the other row's last tile also one step away, and walks the whole way back.
+`chainTiles` (the esplanade) and the contour-street builder each grew their own
+copy of the same loop and each has the same flaw. The comment above the
+esplanade band even anticipates the shape of it, and fixes it there by picking
+one `shoreDist` contour rather than two — which is why the esplanade is clean
+and the eleven contour streets are not.
+
+`untangle` cuts a chain at the point where it comes back: walking forward, the
+first vertex whose successor lands within 1.5 tiles of anything three or more
+steps behind it is the fold, and everything after it is the return leg. Both
+chainers now run their output through it.
+
+Hairpins 11 → 0. Courses 351 → 326, the difference being return legs and the
+stubs left below the six-point minimum. `pnpm citybake`; `city.data.ts` 874 kB
+→ 862 kB.
+
+The ring's two carriageways still measure arc ≫ bounding box, and correctly so:
+they are closed loops, which is a different thing from a road that doubles back.
