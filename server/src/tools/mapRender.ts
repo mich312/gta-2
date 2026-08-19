@@ -29,6 +29,10 @@ import {
   tileCrossings,
   junctionPaint,
   arrowOutline,
+  parkingBay,
+  kerbRestriction,
+  inRestriction,
+  TILE_SIZE,
   type RoadNet,
 } from 'shared';
 import { hexToRgb } from './png.js';
@@ -108,6 +112,8 @@ export interface RenderableMap {
   }>;
   shops?: ReadonlyArray<{ kind: string; doorX: number; doorY: number }>;
   playerSpawns?: ReadonlyArray<{ x: number; y: number }>;
+  /** Kerbside parking, for the bay outlines (§54.5). World px, plus heading. */
+  parkingSpots?: ReadonlyArray<{ x: number; y: number; heading: number; crosswise?: boolean }>;
   /** Gang territory, for the `--turf` wash. Absent on a bare fixture. */
   turfCells?: Uint8Array | undefined;
   turfCellsWide?: number | undefined;
@@ -655,19 +661,19 @@ export function render(
       return true;
     };
     const order = [...ribbons].sort((a, b) => a.w - b.w || a.len - b.len);
+    const bareOnly = (px: number, py: number, c: [number, number, number]): void => {
+      if (bare(px, py)) put(px, py, c);
+    };
     for (const r of order) {
       strokeLine(put, W, H, r.pts, (r.w - 4 * tPx) / 2, road);
-      strokeLine(
-        (px, py, c) => {
-          if (bare(px, py)) put(px, py, c);
-        },
-        W,
-        H,
-        r.pts,
-        lane / 2,
-        mark,
-        { on: 4 * tPx, period: 10 * tPx },
-      );
+      // Lane dividers on a carriageway with lanes to divide (§54.6), by the
+      // same two strokes the client uses: a dashed band half the carriageway
+      // wide, then a solid repaint of its interior, leaving paint at ±w/4.
+      if (r.w >= 4 * scale) {
+        strokeLine(bareOnly, W, H, r.pts, r.w / 4, mark, { on: 4 * tPx, period: 10 * tPx });
+        strokeLine(bareOnly, W, H, r.pts, r.w / 4 - tPx, road);
+      }
+      strokeLine(bareOnly, W, H, r.pts, lane / 2, mark, { on: 4 * tPx, period: 10 * tPx });
     }
   }
 
@@ -983,6 +989,7 @@ export function render(
     const zebraPaint = hexToRgb(palette.roadCrossing);
     const stopPaint = hexToRgb(palette.roadStop);
     const arrowPaint = hexToRgb(palette.roadLane);
+    const restrictPaint = hexToRgb('#8a7420'); // kerbside waiting restriction
     const isRoad = (tx: number, ty: number): boolean =>
       tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles
         ? map.tiles[ty * map.widthTiles + tx] === T_ROAD ||
@@ -1025,11 +1032,55 @@ export function render(
         }
       }
     };
+    // Kerbside parking bays (§54.5). Every parked car in the city stood on
+    // unmarked carriageway; the spot already carries where it is and which
+    // way it faces, so the bay costs the city no new data. `crosswise` spots
+    // are the ones the kerb's guess got wrong and the session refuses to
+    // park a car on — they get no bay either.
     const all = courseCrossings((map.courses ?? []).filter((c) => c.kind !== 'path'));
     const ground = junctionGround(map);
+    for (const spot of map.parkingSpots ?? []) {
+      if (spot.crosswise === true) continue;
+      const bx = spot.x / TILE_SIZE;
+      const by = spot.y / TILE_SIZE;
+      if (bx < x0 - 3 || by < y0 - 3 || bx > x0 + wTiles + 3 || by > y0 + hTiles + 3) continue;
+      // No bay inside a junction's kerb restriction (§54.7): the two are one
+      // system, and a bay across a mouth parks a car in the give-way line's
+      // sightline.
+      let blocked = false;
+      for (const cross of all) {
+        const dx = cross.x - bx;
+        const dy = cross.y - by;
+        if (dx * dx + dy * dy > 144) continue;
+        if (inRestriction(cross, bx, by, ground)) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+      for (const q of parkingBay(bx, by, spot.heading)) fillQuad(q, stopPaint);
+    }
     // The junctions the curves never described (§52.2) — a district's lattice
     // is not authored as courses, so these carry the give-way marks too.
     const lattice = tileCrossings(map);
+    // Kerbside waiting restrictions (§54.7), on the crossings the CURVES
+    // describe and no others. A restriction line runs ALONG its arm, so the
+    // arm's direction has to be the road's direction — and a course arm is
+    // the road's own tangent by construction, while a lattice arm is one of
+    // eight directions probed out of the tile plane and lands diagonal on a
+    // cardinal street about as often as not. Drawn from those, the line was
+    // a yellow stripe laid across the carriageway.
+    for (const cross of all) {
+      if (
+        cross.x < x0 - 8 ||
+        cross.y < y0 - 8 ||
+        cross.x > x0 + wTiles + 8 ||
+        cross.y > y0 + hTiles + 8
+      ) {
+        continue;
+      }
+      for (const q of kerbRestriction(cross, ground)) fillQuad(q, restrictPaint);
+    }
     for (const cross of [...all, ...lattice]) {
       if (
         cross.x < x0 - 8 ||

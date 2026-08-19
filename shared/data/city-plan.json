@@ -552,7 +552,7 @@
     },
     {
       "name": "Gannet Rock",
-      "note": "The plateau in the western approaches. Cliff the whole way round, so there is nowhere to bring a boat alongside \u2014 the strip on top is the only way in and the only way out."
+      "note": "The plateau in the western approaches. Cliff the whole way round, so there is nowhere to bring a boat alongside — the strip on top is the only way in and the only way out."
     }
   ],
   "districts": [
@@ -584,10 +584,10 @@
         ]
       ],
       "street": {
-        "pitchX": 17,
-        "pitchY": 14,
+        "pitchX": 26,
+        "pitchY": 22,
         "width": 3,
-        "alleyOver": 20,
+        "alleyOver": 29,
         "fabric": "spine",
         "spine": "The Parade"
       }
@@ -646,10 +646,10 @@
         ]
       ],
       "street": {
-        "pitchX": 17,
-        "pitchY": 14,
+        "pitchX": 26,
+        "pitchY": 22,
         "width": 3,
-        "alleyOver": 20,
+        "alleyOver": 29,
         "angle": 26
       }
     },
@@ -677,10 +677,10 @@
         ]
       ],
       "street": {
-        "pitchX": 11,
-        "pitchY": 9,
+        "pitchX": 24,
+        "pitchY": 20,
         "width": 3,
-        "alleyOver": 13,
+        "alleyOver": 27,
         "angle": 20
       }
     },
@@ -738,10 +738,10 @@
         ]
       ],
       "street": {
-        "pitchX": 17,
-        "pitchY": 13,
+        "pitchX": 26,
+        "pitchY": 21,
         "width": 3,
-        "alleyOver": 20,
+        "alleyOver": 29,
         "fabric": "contour",
         "bandShore": [
           176,
@@ -775,10 +775,10 @@
         ]
       ],
       "street": {
-        "pitchX": 16,
-        "pitchY": 13,
+        "pitchX": 26,
+        "pitchY": 21,
         "width": 3,
-        "alleyOver": 19,
+        "alleyOver": 29,
         "fabric": "contour",
         "bandShore": [
           404,
@@ -812,8 +812,8 @@
         ]
       ],
       "street": {
-        "pitchX": 19,
-        "pitchY": 15,
+        "pitchX": 26,
+        "pitchY": 21,
         "width": 3,
         "alleyOver": 0
       }
@@ -973,8 +973,8 @@
         ]
       ],
       "street": {
-        "pitchX": 17,
-        "pitchY": 14,
+        "pitchX": 26,
+        "pitchY": 22,
         "width": 3,
         "alleyOver": 0,
         "angle": 12
@@ -1129,10 +1129,10 @@
         ]
       ],
       "street": {
-        "pitchX": 16,
-        "pitchY": 13,
+        "pitchX": 24,
+        "pitchY": 20,
         "width": 3,
-        "alleyOver": 19
+        "alleyOver": 27
       }
     },
     {
@@ -1561,32 +1561,8 @@
       ]
     },
     {
-      "name": "Dockside",
-      "width": 4,
-      "curve": true,
-      "bridges": false,
-      "points": [
-        [
-          150,
-          232
-        ],
-        [
-          162,
-          320
-        ],
-        [
-          154,
-          420
-        ],
-        [
-          138,
-          492
-        ]
-      ]
-    },
-    {
       "name": "The Esplanade",
-      "note": "The seafront road, following the shore rather than the grid \u2014 which is what leaves the triangular blocks behind it.",
+      "note": "The seafront road, following the shore rather than the grid — which is what leaves the triangular blocks behind it.",
       "width": 4,
       "curve": true,
       "bridges": false,
@@ -1618,42 +1594,6 @@
       ]
     },
     {
-      "name": "Coast Road",
-      "width": 4,
-      "curve": true,
-      "bridges": true,
-      "points": [
-        [
-          248,
-          626
-        ],
-        [
-          330,
-          682
-        ],
-        [
-          430,
-          672
-        ],
-        [
-          520,
-          668
-        ],
-        [
-          604,
-          654
-        ],
-        [
-          660,
-          618
-        ],
-        [
-          677,
-          607
-        ]
-      ]
-    },
-    {
       "name": "Longacre Road",
       "width": 4,
       "curve": true,
@@ -1680,30 +1620,6 @@
           540
         ]
       ]
-    },
-    {
-      "name": "Airfield Road",
-      "width": 4,
-      "curve": true,
-      "bridges": false,
-      "points": [
-        [
-          470,
-          606
-        ],
-        [
-          520,
-          640
-        ],
-        [
-          580,
-          648
-        ],
-        [
-          617,
-          638
-        ]
-      ]
     }
   ],
   "landmarks": [
@@ -1711,8 +1627,8 @@
       "kind": "tower",
       "name": "Vantage Tower",
       "rect": [
-        488,
-        90,
+        483,
+        95,
         10,
         10
       ]
@@ -1721,8 +1637,8 @@
       "kind": "tower",
       "name": "The Spire",
       "rect": [
-        407,
-        298,
+        406,
+        297,
         8,
         8
       ]
@@ -1731,8 +1647,8 @@
       "kind": "tower",
       "name": "Halloran Building",
       "rect": [
-        391,
-        147,
+        390,
+        146,
         8,
         8
       ]
@@ -1771,8 +1687,8 @@
       "kind": "hospital",
       "name": "St. Brannoch",
       "rect": [
-        323,
-        176,
+        324,
+        182,
         9,
         7
       ]
@@ -1791,8 +1707,8 @@
       "kind": "police",
       "name": "Harbour Precinct",
       "rect": [
-        87,
-        317,
+        89,
+        315,
         7,
         7
       ]
@@ -1801,8 +1717,8 @@
       "kind": "hospital",
       "name": "Riverside Infirmary",
       "rect": [
-        106,
-        211,
+        104,
+        208,
         9,
         7
       ]
@@ -1841,8 +1757,8 @@
       "kind": "police",
       "name": "Sunridge Station",
       "rect": [
-        309,
-        463,
+        305,
+        459,
         7,
         7
       ]
@@ -1861,8 +1777,8 @@
       "kind": "hospital",
       "name": "Central Clinic",
       "rect": [
-        289,
-        541,
+        295,
+        539,
         9,
         7
       ]
@@ -1871,8 +1787,8 @@
       "kind": "hospital",
       "name": "Seaview Infirmary",
       "rect": [
-        574,
-        425,
+        572,
+        427,
         9,
         7
       ]
@@ -1901,8 +1817,8 @@
       "kind": "campground",
       "name": "Pinewatch Camp",
       "rect": [
-        563,
-        598,
+        564,
+        600,
         8,
         7
       ]
@@ -1921,8 +1837,8 @@
       "kind": "lighthouse",
       "name": "Old Point Light",
       "rect": [
-        517,
-        673,
+        504,
+        660,
         4,
         4
       ]
@@ -1963,8 +1879,8 @@
       "kind": "square",
       "name": "Exchange Square",
       "rect": [
-        484,
-        188,
+        485,
+        190,
         13,
         13
       ]
@@ -1973,8 +1889,8 @@
       "kind": "square",
       "name": "Market Square",
       "rect": [
-        598,
-        221,
+        605,
+        213,
         13,
         13
       ]
@@ -1983,8 +1899,8 @@
       "kind": "green",
       "name": "Chapel Green",
       "rect": [
-        544,
-        539,
+        535,
+        542,
         12,
         12
       ]
@@ -1993,8 +1909,8 @@
       "kind": "square",
       "name": "Parade Ground",
       "rect": [
-        314,
-        211,
+        323,
+        224,
         12,
         10
       ]
@@ -2003,8 +1919,8 @@
       "kind": "circus",
       "name": "King's Circus",
       "rect": [
-        452,
-        104,
+        438,
+        90,
         16,
         16
       ]

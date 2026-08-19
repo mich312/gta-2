@@ -747,3 +747,158 @@ export function arrowOutline(a: MarkArrow): MarkQuad[] {
   }
   return parts;
 }
+
+/* ---- kerbside parking bays (§54.5) ------------------------------- */
+
+/** A bay is a little longer and wider than the car that stands in it. */
+const BAY_LEN = 1.85;
+const BAY_WIDE = 0.95;
+const BAY_THICK = 0.09;
+
+/**
+ * The outline of one kerbside parking bay, in tiles.
+ *
+ * Every parked car in the city stood on unmarked carriageway: 1,220 spots,
+ * all of them within a tile of a kerb, and the only bay paint anywhere was
+ * 186 tiles of off-street lot stripe. A row of parked cars against a bare
+ * kerb reads as abandoned traffic; the same row inside bays reads as a
+ * street doing its job, and it costs the city no new data — the spot already
+ * carries its position and its heading.
+ *
+ * A full rectangle rather than the three sides a real bay often uses, because
+ * which side the kerb is on is not recorded and a guessed fourth edge is
+ * worse than a drawn one. Drawn end to end down a street they make the
+ * ladder a real parking lane makes.
+ */
+export function parkingBay(cx: number, cy: number, heading: number): MarkQuad[] {
+  const ux = Math.cos(heading);
+  const uy = Math.sin(heading);
+  const nx = -uy;
+  const ny = ux;
+  const hl = BAY_LEN / 2;
+  const hw = BAY_WIDE / 2;
+  const t = BAY_THICK / 2;
+  const out: MarkQuad[] = [];
+  // The two ends, across the bay.
+  for (const along of [-hl, hl]) {
+    out.push(
+      quad(cx + ux * along, cy + uy * along, ux * t, uy * t, nx * hw, ny * hw),
+    );
+  }
+  // The two sides, along it.
+  for (const off of [-hw, hw]) {
+    out.push(
+      quad(cx + nx * off, cy + ny * off, ux * hl, uy * hl, nx * t, ny * t),
+    );
+  }
+  return out;
+}
+
+/* ---- kerbside waiting restrictions (§54.7) ----------------------- */
+
+const RESTRICT_THICK = 0.14;
+/** How far back from the mouth a junction keeps its kerbs clear. */
+const RESTRICT_RUN = 3.5;
+/**
+ * Tighter than `MOUTH_SLACK`, and deliberately.
+ *
+ * The zebra's apron test asks whether there is somewhere to cross TO, and
+ * three tiles of slop is right for that. This asks something stricter: the
+ * line runs ALONG its arm, beside a kerb, so the arm's direction has to be
+ * the road's direction. An arm crossing a four-tile avenue at forty-five
+ * degrees measures 5.7 tiles of tarmac across — under `width + MOUTH_SLACK`,
+ * so the loose test passed it, and it drew a yellow stripe diagonally across
+ * the carriageway. At `width + 1.5` the same arm measures too wide and the
+ * genuine kerbside cases, where the sweep answers the road's own width, all
+ * still pass.
+ */
+const RESTRICT_SLACK = 1.5;
+
+/**
+ * The lines along both kerbs of an arm, from the junction's mouth outward.
+ *
+ * They do a job this city needs beyond realism: the parking bays of §54.5 run
+ * the length of every street, and a bay laid across a junction mouth would
+ * park a car in the give-way line's sightline. These mark the stretch where
+ * no bay goes, so the two are one system — bays where cars park, lines where
+ * they do not — and they pull the eye to a junction from a block away.
+ *
+ * Along the kerb, not across it, so nothing here competes with the stop line
+ * or the give-way ladder for the same piece of ground.
+ */
+export function kerbRestriction(
+  cross: {
+    x: number;
+    y: number;
+    r: number;
+    arms: ReadonlyArray<{ dx: number; dy: number; width: number }>;
+  },
+  ground?: JunctionGround,
+): MarkQuad[] {
+  const out: MarkQuad[] = [];
+  if (cross.arms.length < 3 || cross.arms.length > 4) return out;
+  for (const arm of cross.arms) {
+    const { dx, dy, width } = arm;
+    const nx = dy;
+    const ny = -dx;
+    const half = width / 2;
+    const from = armReach(cross, arm, ground);
+    const mid = from + RESTRICT_RUN / 2;
+    // Both kerbs, held a fifth of a tile inside the carriageway so the line
+    // sits on tarmac rather than straddling the kerb it names.
+    for (const side of [-1, 1]) {
+      const off = side * (half - 0.2);
+      if (ground) {
+        let ok = true;
+        for (const along of [from + 0.3, mid, from + RESTRICT_RUN - 0.3]) {
+          const px = cross.x + dx * along + nx * off;
+          const py = cross.y + dy * along + ny * off;
+          if (!ground.paintable(Math.floor(px), Math.floor(py))) ok = false;
+        }
+        // The apron test of §52.1, and it matters more here than anywhere.
+        // A restriction line runs ALONG its arm, so an arm that points across
+        // the tarmac rather than down it — an oblique crossing, where the
+        // arm direction and the road direction disagree by thirty degrees or
+        // more — draws a stripe diagonally across the carriageway instead of
+        // a line beside its kerb. Every one of those reads as damage.
+        if (ok && ground.spread) {
+          const wide = ground.spread(cross.x + dx * mid, cross.y + dy * mid, nx, ny);
+          if (wide > width + RESTRICT_SLACK) ok = false;
+        }
+        if (!ok) continue;
+      }
+      out.push(
+        quad(
+          cross.x + dx * mid + nx * off,
+          cross.y + dy * mid + ny * off,
+          (dx * RESTRICT_RUN) / 2,
+          (dy * RESTRICT_RUN) / 2,
+          (nx * RESTRICT_THICK) / 2,
+          (ny * RESTRICT_THICK) / 2,
+        ),
+      );
+    }
+  }
+  return out;
+}
+
+/**
+ * Is this point inside a junction's kerb restriction, and so no place for a
+ * parking bay? Measured against the same run the lines are drawn over.
+ */
+export function inRestriction(
+  cross: { x: number; y: number; r: number; arms: ReadonlyArray<{ dx: number; dy: number; width: number }> },
+  x: number,
+  y: number,
+  ground?: JunctionGround,
+): boolean {
+  for (const arm of cross.arms) {
+    const along = (x - cross.x) * arm.dx + (y - cross.y) * arm.dy;
+    if (along < 0) continue;
+    const from = armReach(cross, arm, ground);
+    if (along > from + RESTRICT_RUN) continue;
+    const across = Math.abs((x - cross.x) * arm.dy - (y - cross.y) * arm.dx);
+    if (across <= arm.width / 2 + 0.5) return true;
+  }
+  return false;
+}

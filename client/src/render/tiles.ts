@@ -35,6 +35,9 @@ import {
   signalledCrossing,
   junctionGround,
   junctionGiveWay,
+  kerbRestriction,
+  inRestriction,
+  parkingBay,
   tileCrossings,
   junctionPaint,
   arrowOutline,
@@ -44,6 +47,13 @@ import {
   buildingMass,
 } from 'shared';
 import palette from 'shared/data/palette.json';
+/**
+ * Kerbside waiting restriction yellow (§54.7). Not in the palette file: it is
+ * the only marking in the city that is not a shade of white, and the palette
+ * is a set of surfaces rather than a set of paints. Dimmed well below a real
+ * double yellow — at full saturation it was the loudest thing in the frame.
+ */
+const KERB_RESTRICTION = '#8a7420';
 import {
   CHUNK_BUILDS_PER_FRAME,
   CHUNK_CACHE_LIMIT,
@@ -394,6 +404,10 @@ export class TileLayer {
    * lights and used to carry nothing at all.
    */
   private giveWayCrossings: Array<{ x: number; y: number; marks: MarkQuad[] }> = [];
+  /** Kerbside waiting restrictions at the mouths of the authored junctions (§54.7). */
+  private restrictions: Array<{ x: number; y: number; marks: MarkQuad[] }> = [];
+  /** One bay per kerbside parking spot, outside the restrictions (§54.5). */
+  private parkingBays: Array<{ x: number; y: number; marks: MarkQuad[] }> = [];
   /**
    * The coast running through each tile it crosses (§18), in tile-LOCAL
    * units as a flat polyline — the cut `paintShoreTile` divides that tile
@@ -473,6 +487,8 @@ export class TileLayer {
     this.junctionDiscs = [];
     this.signalCrossings = [];
     this.giveWayCrossings = [];
+    this.restrictions = [];
+    this.parkingBays = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
     // Crossings from the ROAD curves only (3.2): a walk crossing a walk is
@@ -499,6 +515,34 @@ export class TileLayer {
     this.giveWayCrossings = [...crossings.filter((c) => !(isSignalCrossing(c) && signalledCrossing(map, c))), ...tileCrossings(map)]
       .map((c) => ({ x: c.x, y: c.y, marks: junctionGiveWay(c, this.junctionDiscs, ground) }))
       .filter((c) => c.marks.length > 0);
+    // Kerbside waiting restrictions, from the CURVE crossings only. The line
+    // runs ALONG its arm, so the arm's direction has to be the road's, and a
+    // course arm is the road's own tangent by construction while a lattice
+    // arm is one of eight probed directions (§54.7).
+    this.restrictions = crossings
+      .map((c) => ({ x: c.x, y: c.y, marks: kerbRestriction(c, ground) }))
+      .filter((c) => c.marks.length > 0);
+    // A bay for every kerbside spot the session will actually park a car on,
+    // except inside a junction's restriction — a bay across a mouth parks a
+    // car in the give-way line's sightline (§54.5).
+    this.parkingBays = [];
+    for (const spot of map.parkingSpots ?? []) {
+      if (spot.crosswise === true) continue;
+      const bx = spot.x / TILE_SIZE;
+      const by = spot.y / TILE_SIZE;
+      let blocked = false;
+      for (const c of crossings) {
+        const ox = c.x - bx;
+        const oy = c.y - by;
+        if (ox * ox + oy * oy > 144) continue;
+        if (inRestriction(c, bx, by, ground)) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+      this.parkingBays.push({ x: bx, y: by, marks: parkingBay(bx, by, spot.heading) });
+    }
     const cover = new Uint8Array(map.widthTiles * map.heightTiles);
     const pathCover = new Uint8Array(map.widthTiles * map.heightTiles);
     const apron = new Uint8Array(map.widthTiles * map.heightTiles);
@@ -791,6 +835,25 @@ export class TileLayer {
       ctx.stroke(p.path);
       ctx.save();
       if (punched > 0) ctx.clip(bare, 'evenodd');
+      // Lane dividers, on a carriageway wide enough to have lanes to divide.
+      //
+      // 22,291 road tiles sit on a four-tile carriageway — two lanes each way,
+      // which `junctionPaint` asserts by drawing one turn arrow per lane — and
+      // nothing separated them, so a four-lane road read as a two-lane road
+      // with fat lanes (§54.6). Both dividers come off ONE stroke, the same
+      // trick the edge lines use above: a dashed band half the carriageway
+      // wide leaves paint at ±w/4, and a solid repaint of its interior takes
+      // the middle back out. The centre dash goes on after, so it survives.
+      if (p.w >= 4 * TD) {
+        ctx.setLineDash([4 * t, 6 * t]);
+        ctx.strokeStyle = palette.roadLane;
+        ctx.lineWidth = p.w / 2;
+        ctx.stroke(p.path);
+        ctx.setLineDash([]);
+        ctx.strokeStyle = palette.road;
+        ctx.lineWidth = p.w / 2 - 2 * t;
+        ctx.stroke(p.path);
+      }
       ctx.setLineDash([4 * t, 6 * t]);
       ctx.strokeStyle = palette.roadLane;
       ctx.lineWidth = t;
@@ -817,7 +880,14 @@ export class TileLayer {
    * over the tarmac.
    */
   private paintJunctions(ctx: CanvasRenderingContext2D, tx0: number, ty0: number): void {
-    if (this.signalCrossings.length === 0 && this.giveWayCrossings.length === 0) return;
+    if (
+      this.signalCrossings.length === 0 &&
+      this.giveWayCrossings.length === 0 &&
+      this.restrictions.length === 0 &&
+      this.parkingBays.length === 0
+    ) {
+      return;
+    }
     const t = RENDER_SCALE;
     const wx0 = tx0 * TILE_SIZE;
     const wy0 = ty0 * TILE_SIZE;
@@ -863,6 +933,30 @@ export class TileLayer {
         continue;
       }
       for (const q of cross.marks) fill(q);
+    }
+    ctx.fillStyle = KERB_RESTRICTION;
+    for (const cross of this.restrictions) {
+      if (
+        cross.x < tx0 - pad ||
+        cross.y < ty0 - pad ||
+        cross.x > tx0 + CHUNK_TILES + pad ||
+        cross.y > ty0 + CHUNK_TILES + pad
+      ) {
+        continue;
+      }
+      for (const q of cross.marks) fill(q);
+    }
+    ctx.fillStyle = palette.roadStop;
+    for (const bay of this.parkingBays) {
+      if (
+        bay.x < tx0 - 2 ||
+        bay.y < ty0 - 2 ||
+        bay.x > tx0 + CHUNK_TILES + 2 ||
+        bay.y > ty0 + CHUNK_TILES + 2
+      ) {
+        continue;
+      }
+      for (const q of bay.marks) fill(q);
     }
   }
 

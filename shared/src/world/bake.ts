@@ -832,7 +832,40 @@ export function bakeCity(plan: CityPlan): BakedCity {
         }
       }
     }
-    if (agrees) b.angle = face;
+    if (!agrees) continue;
+    // And the turned mass has to land where a building may stand.
+    //
+    // `massFit` shrinks the mass until it fits inside its own PLOT plus a
+    // little slack, which is a statement about the axis-aligned rect and not
+    // about the ground. A nine-by-seven unit turned eleven degrees reaches
+    // most of a tile past its rect at the corners, and where the plot is
+    // flush against the kerb — which is most of a city block — that corner
+    // is in the carriageway. One building did it in the shipped bake; it is
+    // the same defect `stampOriented` refuses at the other end of the pipe,
+    // and the same answer: refuse the turn, keep the square. A mass that
+    // fits by leaning into the road is not a fit (§22.4).
+    const rad = (face * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const k = massFit(b.w, b.h, face);
+    const mw = b.w * k;
+    const mh = b.h * k;
+    const mx = b.x + b.w / 2;
+    const my = b.y + b.h / 2;
+    let onRoad = false;
+    for (let v = -mh / 2; v <= mh / 2 + 1e-9 && !onRoad; v += 0.25) {
+      for (let u = -mw / 2; u <= mw / 2 + 1e-9; u += 0.25) {
+        const tx = Math.floor(mx + u * cos - v * sin);
+        const ty = Math.floor(my + u * sin + v * cos);
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        const t = tiles[ty * W + tx] as number;
+        if (t === T_ROAD || t === T_BRIDGE) {
+          onRoad = true;
+          break;
+        }
+      }
+    }
+    if (!onRoad) b.angle = face;
   }
 
   const baked: BakedCity = {

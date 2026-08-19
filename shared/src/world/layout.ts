@@ -738,6 +738,17 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // ring becomes limited-access, and its authored crossings are the only
   // places the lattice may touch it.
   const ringMask = new Uint8Array(W * H);
+  /**
+   * The ring's central reservation: the strip between its two carriageways.
+   *
+   * It was never reserved. The ring is carved as two courses offset off a
+   * shared centreline, and the ground BETWEEN them was left as ordinary
+   * buildable land — so the district fill treated it as block interior and
+   * put 125 buildings and 693 building tiles in it, with pavements, between
+   * two four-lane carriageways and unreachable from either (§54.3). A median
+   * is not leftover ground; it is part of the road.
+   */
+  const medianMask = new Uint8Array(W * H);
   const avenueMask = new Uint8Array(W * H);
   // The courses themselves, kept after carving (WORLDGEN.md §16). The
   // renderer has only ever seen the rasterised band, which is why every
@@ -865,6 +876,36 @@ export function buildLayout(plan: CityPlan): CityLayout {
       if (tiles[i] === T_ROAD || tiles[i] === T_BRIDGE) carveMark[i] = 1;
     }
   };
+  /**
+   * Paint the ring's reservation into `medianMask`, half a tile at a time
+   * along the centreline and across the full width between the carriageways.
+   * The carriageways themselves are road by then, and `buildable` already
+   * refuses road, so overlapping them costs nothing.
+   */
+  const markMedian = (pts: ReadonlyArray<PlanPoint>, across: number): void => {
+    const half = across / 2;
+    for (let k = 1; k < pts.length; k++) {
+      const [ax, ay] = pts[k - 1] as PlanPoint;
+      const [bx, by] = pts[k] as PlanPoint;
+      const vx = bx - ax;
+      const vy = by - ay;
+      const len = Math.sqrt(vx * vx + vy * vy);
+      if (len < 1e-9) continue;
+      const nx = -vy / len;
+      const ny = vx / len;
+      const steps = Math.max(1, Math.ceil(len * 2));
+      for (let s = 0; s <= steps; s++) {
+        const cx = ax + (vx * s) / steps;
+        const cy = ay + (vy * s) / steps;
+        for (let o = -half; o <= half; o += 0.5) {
+          const tx = Math.floor(cx + nx * o);
+          const ty = Math.floor(cy + ny * o);
+          if (tx >= 0 && ty >= 0 && tx < W && ty < H) medianMask[ty * W + tx] = 1;
+        }
+      }
+    }
+  };
+
   /** The plan's own roads: a ring as twin carriageways off the median, any other avenue as drawn. */
   const carveAuthoredRoads = (): void => {
     for (const road of plan.roads) {
@@ -878,6 +919,11 @@ export function buildLayout(plan: CityPlan): CityLayout {
         carveCourse(b, road.width, road.bridges, markingLay);
         courses.push({ points: a, width: road.width, kind: 'ring' });
         courses.push({ points: b, width: road.width, kind: 'ring' });
+        // Reserve the strip between them. Marked BEFORE the districts run, so
+        // `buildable` can refuse it and no block ever forms across it; the
+        // ground itself is left alone, which keeps the bridges over water and
+        // the junctions where the ring crosses another road exactly as carved.
+        markMedian(pts, road.median + road.width);
       } else {
         carveCourse(pts, road.width, road.bridges, markingLay);
         courses.push({ points: pts, width: road.width, kind: 'avenue' });
@@ -1809,6 +1855,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
        */
       const buildable = (tx: number, ty: number): boolean => {
         if (!inThis(tx, ty) || water[ty * W + tx] === 1) return false;
+        if (medianMask[ty * W + tx] === 1) return false; // the ring's reservation
         const t = tiles[ty * W + tx] as number;
         return t !== T_ROAD && t !== T_BRIDGE;
       };

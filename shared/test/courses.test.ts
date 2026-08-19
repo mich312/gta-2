@@ -135,7 +135,28 @@ describe('street courses', () => {
       }
       return len >= 100;
     });
-    expect(long.length).toBeGreaterThanOrEqual(90);
+    // By LENGTH, not by count. The count was 90-odd when a district's streets
+    // were 14 tiles apart; §54.1 put them 26 apart, which is what a real city
+    // does and what took the built-up city from 36.4% carriageway to 27.3%.
+    // Half as many streets is the point of that change, so a count floor
+    // reads it as damage — 60 long courses now carry 12,179 tiles of
+    // centreline, 61% of every metre of curve in the city. That is the thing
+    // the floor was protecting: not how many long roads there are, but that
+    // the long roads are still most of what there is to navigate by.
+    let longLen = 0;
+    let allLen = 0;
+    for (const c of city.courses) {
+      let len = 0;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        len += Math.hypot(bx - ax, by - ay);
+      }
+      allLen += len;
+      if (len >= 100) longLen += len;
+    }
+    expect(long.length).toBeGreaterThanOrEqual(50);
+    expect(longLen / allLen).toBeGreaterThan(0.5);
     expect(long.some((c) => c.kind === 'ring')).toBe(true);
   });
 

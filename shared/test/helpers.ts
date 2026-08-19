@@ -171,6 +171,20 @@ export function roadLane(
    * car passing in it. Zero checks nothing, as before.
    */
   lateral = 0,
+  /**
+   * Half-width of the body that will travel this lane, in px. Every probe
+   * below is a RAY — a line of zero width — so a lane whose centre is clear
+   * for 300px passes even where a car's flank would scrape the kerb the
+   * whole way. Probing the flanks too costs two more rays and rejects the
+   * lane instead of failing a physics test with a staging bug.
+   *
+   * It is not hypothetical: the §54 rebake widened the blocks, `roadLane`
+   * moved to a two-tile street whose lane heading is eleven degrees off the
+   * street it runs down, and ninety px back along that heading put the
+   * victim's flank two px inside the kerb. It sat there at zero speed while
+   * a test about oil slicks reported that slicks do not work.
+   */
+  flank = 0,
 ): VehicleSpawn {
   const probe = Number.isFinite(most) ? most + 20 : need + 20;
   const near = [...map.vehicleSpawns].sort(
@@ -185,12 +199,36 @@ export function roadLane(
     ) {
       continue;
     }
-    const d = rayWallDistance(map, s.x, s.y, Math.cos(s.heading), Math.sin(s.heading), probe);
+    const fx = -Math.sin(s.heading);
+    const fy = Math.cos(s.heading);
+    /** The lane, and its flanks where the caller says a body will travel it. */
+    const clear = (sign: number, reach: number): number => {
+      let least = rayWallDistance(
+        map,
+        s.x,
+        s.y,
+        Math.cos(s.heading) * sign,
+        Math.sin(s.heading) * sign,
+        reach,
+      );
+      for (const off of flank > 0 ? [-flank, flank] : []) {
+        least = Math.min(
+          least,
+          rayWallDistance(
+            map,
+            s.x + fx * off,
+            s.y + fy * off,
+            Math.cos(s.heading) * sign,
+            Math.sin(s.heading) * sign,
+            reach,
+          ),
+        );
+      }
+      return least;
+    };
+    const d = clear(1, probe);
     if (d < need || d > most) continue;
-    if (back > 0) {
-      const b = rayWallDistance(map, s.x, s.y, -Math.cos(s.heading), -Math.sin(s.heading), back + 20);
-      if (b < back) continue;
-    }
+    if (back > 0 && clear(-1, back + 20) < back) continue;
     if (lateral !== 0) {
       // The oncoming lane, when the test stages a second car beside this
       // one: clear for the same distance, probed from the offset point. A

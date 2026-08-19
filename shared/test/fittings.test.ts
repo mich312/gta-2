@@ -42,7 +42,10 @@ function fitted(
 ): { state: GameState; lane: ReturnType<typeof roadLane> } {
   // 120 px of clear ground behind too: the slick test rolls a victim onto
   // the fitting from 90 px back down the lane.
-  const lane = roadLane(map, 300, 64, Infinity, 120);
+  // A car's half-width on the flanks too: the slick test rolls a victim 90px
+  // back down the lane, and a centre-line ray cannot see the kerb its flank
+  // would sit on (§54.8).
+  const lane = roadLane(map, 300, 64, Infinity, 120, 0, 8);
   let state = createGameState(515);
   state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
   state.players.byId[1]!.pos = { x: lane.x, y: lane.y };

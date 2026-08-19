@@ -113,15 +113,20 @@ describe('signal heads', () => {
     // A junction has four arms at most, and the head is the arm. Before this,
     // one crossroads on an arterial carried fourteen.
     expect(Math.max(...counts)).toBeLessThanOrEqual(4);
-    // And four at least. This used to read "a crossroads four and a T three",
-    // and it allowed a mixture — which was how 99 of 323 signalled approaches
+    // And three at least. This used to read "a crossroads four and a T three"
+    // and allowed any mixture — which was how 99 of 323 signalled approaches
     // came to carry a head with no stop line under it, at 61 of the 88 lit
     // crossings. The rule is now all-or-nothing (§53.1): a junction is
-    // signalised only where the paint reaches every one of its arms, so an
-    // incomplete crossroads is not a partly-lit crossroads, it is an unlit
-    // one wearing give-way marks. All-fours is the invariant, not a symptom.
-    expect(Math.min(...counts)).toBe(4);
-    expect(counts.length).toBeGreaterThan(25);
+    // signalised only where the paint reaches EVERY one of its arms, and only
+    // where it has at least three, because two courses crossing at a shallow
+    // angle make a bend and a light on a bend governs nothing.
+    //
+    // So a three-headed junction is not a partly-lit crossroads any more — it
+    // is a T with a light and a line on each of its three arms. The city
+    // happened to have none for one bake, and asserting `=== 4` off that read
+    // an accident of the fabric as a law.
+    expect(Math.min(...counts)).toBeGreaterThanOrEqual(3);
+    expect(counts.length).toBeGreaterThan(20);
     // Every junction the table calls signalled carries its heads, and nothing
     // else does.
     const lit = new Set<number>();
@@ -134,13 +139,13 @@ describe('signal heads', () => {
     // The policy, as a number. 779 junctions and 2,990 heads was the city
     // before: every corner of every block wearing a full set of lights, and
     // 537 of those junctions four tiles of tarmac or less (§49). It is now
-    // 725 junctions and 40 of them lit: §51 made a junction the whole sheet
+    // 604 junctions and 35 of them lit: §51 made a junction the whole sheet
     // of tarmac rather than the pieces a 4-connected fill left it in, §52
     // refused an arm whose tarmac is an apron rather than a mouth, and §53
     // refuses the whole JUNCTION unless the paint reaches all of its arms.
     const signalled = [...junctions.signalled].filter((v) => v === 1).length;
     expect(junctions.count).toBeGreaterThan(400);
-    expect(signalled).toBeGreaterThan(25);
+    expect(signalled).toBeGreaterThan(20);
     expect(signalled).toBeLessThan(junctions.count / 3);
     // And no head stands anywhere else — this is what makes the stop line
     // and the light the same fact.

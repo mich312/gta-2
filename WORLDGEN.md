@@ -6055,3 +6055,177 @@ stubs left below the six-point minimum. `pnpm citybake`; `city.data.ts` 874 kB
 
 The ring's two carriageways still measure arc ≫ bounding box, and correctly so:
 they are closed loops, which is a different thing from a road that doubles back.
+
+## 54. The city as a road network, not a road surface
+
+A road architect reviewed the finished city against how streets are actually
+laid out. The verdict was that the machinery was fine and the numbers fed to
+it were not — and that the user's instinct, that there were "too many roads",
+was right about the ground and wrong about the renderer.
+
+**Scale, derived rather than asserted.** No metre scale exists in the code.
+`vehicles.json` gives a saloon `halfLength: 12`, so a car is 24 world units =
+1.5 tiles; a 4.4 m car makes a tile **2.9 m**. Building footprints agree —
+median 9 × 9 m, largest 41 × 41 m. The city is 2.3 km across.
+
+### 54.1 Half the land was street
+
+| | before | real | after |
+|---|---|---|---|
+| built land that is carriageway | **36.4%** | Manhattan ~20–22% | **27.3%** |
+| carriageway + pavement | **53.4%** | Manhattan 27%, Paris 25% | **40.4%** |
+| median block, short × long | **23 × 35 m** | 80–200 m; Portland 61 m | **35 × 62 m** |
+| blocks | 1,092 | | **636** |
+| buildings | 4,037 | | **4,170** |
+
+Nine of thirteen built districts exceeded Manhattan's *total* street share
+using carriageway alone. The Old Quarter was 53.8% carriageway and 72.8%
+including pavement: the median point in that district was on a road.
+
+The lever is a closed form. For a grid of pitch *p* and street width *w*,
+carriageway share is `(2wp − w²)/p²`, and that model predicts the shipped
+numbers within 5 points across every grid district. With `w = 3` you need
+**p ≥ 22 tiles (64 m)** to land under 25%. Eight districts were below it, so
+eight districts in `city-plan.json` were raised, `alleyOver` kept at its
+authored `pitchX + 3`:
+
+Old Quarter 11×9 → 24×20 · Ravenhill, North Point, Vasco Heights 17×14 → 26×22
+· Beachfront 16×13 and The Terraces 17×13 → 26×21 · Old Suburbs 19×15 → 26×21
+· Bridgefoot 16×13 → 24×20. The Spine, New Suburbs and The Docks were already
+at or above it and were left alone.
+
+**And it fixed the merged tarmac for free.** A 3-tile lattice at 9–14 tile
+pitch, rotated, stair-steps until adjacent bands touch — which is why a third
+of the Old Quarter's "street network" was a car park. Percentage of a
+district's road whose narrowest span in any direction is 7 tiles or more:
+
+| district | angle | before | after |
+|---|---|---|---|
+| Old Quarter | 20° | **31.5%** | **4.4%** |
+| North Point | 26° | 22.2% | 6.3% |
+| Vasco Heights | 12° | 18.6% | 4.8% |
+| The Foundry | 12° | 13.3% | 4.2% |
+
+Sixteen landmarks had to move out of the way of the new grid — 1 to 14 tiles,
+found by probing outward from each for the nearest footprint that is clear of
+road and water and still within three tiles of a street.
+
+### 54.2 A quarter of the network duplicated itself
+
+The curve layer is **not** a second set of roads: sweeping all 351 courses at
+their recorded widths covers 83,316 tiles, of which **91.95% are already
+carriageway in the tile plane**, and the 6,708 that are not are kerb-casing
+overhang on the outside of curves. As a rendering complaint, refuted.
+
+As a *ground* complaint, confirmed. The 20 authored roads are carved before
+the lattice runs, and they were **24.5% of all carriageway and 24.0% of all
+centreline length, from 21 of 351 courses.** Real arterials are 5–10% of
+street length. **A third of that duplicated a local street that already
+existed** — avenues 40.4% of their length within 29 m of a parallel local
+street, the ring 25.6%. Four avenues had a contour street sitting on their own
+tarmac at gap 0.0. A transect at x = 560 crossed **five separate four-lane
+arterials in 130 m of empty parkland.**
+
+Three roads deleted: **Airfield Road** (6–13 tiles from Coast Road for its
+whole length, serving an airfield Coast Road already passes), **Dockside** (a
+contour street on its own tarmac), and **Coast Road** (the ring's southern arc
+duplicates it, and both its ends stopped in fields).
+
+That, with the pitch change, also closed a defect nobody set out to fix:
+**nine four-lane avenues used to terminate in open ground, and now none does.**
+Course dead ends of every width fell 58 → 10.
+
+### 54.3 The ring's central reservation was not reserved
+
+The ring is carved as two carriageways offset off a shared centreline, and the
+ground *between* them was left as ordinary buildable land. The district fill
+treated it as block interior: **693 building tiles and 125 buildings, more
+than half of each inside the median**, with pavements, between two four-lane
+carriageways and reachable from neither.
+
+A `medianMask` is now stamped along the centreline across the full width
+between the carriageways, before the districts run, and `buildable` refuses
+it. The ground itself is untouched, so the bridges over water and the
+junctions where the ring crosses another road are exactly as carved. **125
+buildings → 0**; the strip is 5,407 tiles of open reservation.
+
+### 54.4 A facing that leaned into the road
+
+`bake.ts` sets a building's facing angle from the bearing plane, gated on
+`massFit` — which asks whether the turned mass fits inside its own **plot**,
+a statement about the rectangle and not about the ground. A nine-by-seven unit
+turned eleven degrees reaches most of a tile past its rect at the corners, and
+where the plot is flush against the kerb that corner is in the carriageway.
+The rebake produced one, at (324,182).
+
+The turned mass is now sampled against the tiles, and a facing that would
+cover road or deck is refused — the square footprint stands instead. It is the
+same rule `stampOriented` applies at the other end of the pipe, and the same
+§22.4 reason: a mass that fits by leaning into the road is not a fit.
+
+### 54.5 Bays: 1,220 parked cars on unmarked road
+
+Every kerbside parking position in the city stood on bare carriageway; the
+only bay paint anywhere was 186 tiles of off-street lot stripe. A row of parked
+cars against a bare kerb reads as abandoned traffic.
+
+`parkingBay(cx, cy, heading)` draws a rectangle outline — a full rectangle
+rather than the three sides a real bay often uses, because which side the kerb
+is on is not recorded and a guessed fourth edge is worse than a drawn one. It
+costs the city no new data: the spot already carries its position and heading.
+`crosswise` spots — the ones the kerb's guess got wrong, which the session
+refuses to park a car on — get no bay either. **798 bays**, 3,003 of their
+3,192 quads on carriageway and 189 grazing a kerb both painters clip against.
+
+### 54.6 Lane dividers: 22,291 tiles of four-lane road with nothing on them
+
+A four-tile carriageway is two lanes each way — `junctionPaint` asserts it by
+drawing one turn arrow per lane — and nothing separated them, so a four-lane
+road read as a two-lane road with fat lanes.
+
+Both dividers come off **one** stroke, the trick the edge lines already use: a
+dashed band half the carriageway wide leaves paint at ±w/4, and a solid repaint
+of its interior takes the middle back out. The centre dash goes on after, so it
+survives. Gated at width ≥ 4, so no three-tile street gets one. 21 of 218 road
+courses qualify.
+
+### 54.7 Restrictions, and the two false starts before them
+
+Kerbside waiting restrictions at junction mouths, along both kerbs from the
+mouth outward. They are a system with the bays rather than decoration: a bay
+laid across a junction mouth parks a car in the give-way line's sightline, so
+`inRestriction` refuses one there. **217 of 1,015 candidate bays are refused
+for it.**
+
+Two things went wrong first, and both were visible in a render before they were
+findable in a number.
+
+**They were the loudest thing in the city.** Drawn in `carYellow` (#c9a326)
+they dominated every frame — brighter than the zebras. A real double yellow is
+that colour; a marking that shouts louder than a pedestrian crossing is wrong
+whatever the reference says. Dimmed to #8a7420.
+
+**Half of them lay diagonally across the carriageway.** A restriction line
+runs *along* its arm, so the arm's direction has to be the road's direction —
+and the pass was running over the `tileCrossings` lattice as well as the
+curves. A lattice arm is one of eight probed directions and lands diagonal on a
+cardinal street about as often as not. Tightening the apron slack to
+`width + 1.5` did not fix it (a 45° arm across a four-tile road measures 5.7
+tiles, still under the bar); the fix is that **lattice crossings get no
+restriction lines at all.** A course arm is the road's own tangent by
+construction. **822 lines at 312 course crossings, 100% of them on carriageway.**
+
+### 54.8 A zero-width ray cannot see a kerb
+
+The rebake moved `roadLane` — the test helper that finds a clear lane to stage
+a car in — onto a two-tile street whose lane heading is eleven degrees off the
+street it runs down. Ninety px back along that heading put the victim's flank
+two px inside the kerb. It sat there at zero speed while a test about oil
+slicks reported that oil slicks do not work.
+
+Every probe in that helper is a **ray**: a line of zero width. A lane whose
+centre is clear for 300 px passes even where a car's flank scrapes the kerb the
+whole way. It now takes an optional `flank` half-width and probes ±that as
+well, which costs two more rays and rejects the lane instead of failing a
+physics test with a staging bug. Same shape as the `lateral` parameter added
+for the same reason two reviews ago.
