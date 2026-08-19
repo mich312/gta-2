@@ -62,7 +62,8 @@
         const view = new CityView({ canvas, map, pitch, viewHeight: viewH });
         view.setNight(night);
         const { SceneryLayer } = await import('/src/three/scenery.ts');
-        new SceneryLayer(view.world).setMap(map);
+        const scenery = new SceneryLayer(view.world);
+        scenery.setMap(map);
         // The painted ground, exactly as `Live` wires it — without it the
         // flyover shows the flat instanced slabs, which is a different city
         // from the one anybody plays in (and shows none of the bevelled
@@ -96,9 +97,19 @@
         // those from `map.propSpawns`; with no sim here, the same list is
         // handed over directly. Ids are the index, so a lamp's flicker
         // character is stable between retakes exactly as it is in the game.
-        const lamps = (map.propSpawns ?? [])
-          .map((p, i) => ({ ...p, id: i, pos: { x: p.x, y: p.y }, intact: true }))
-          .filter((p) => p.kind === 'lamp');
+        const allProps = (map.propSpawns ?? []).map((p, i) => ({
+          ...p,
+          id: i,
+          pos: { x: p.x, y: p.y },
+          intact: true,
+        }));
+        const lamps = allProps.filter((p) => p.kind === 'lamp');
+        // And the posts the light hangs on. `SceneryLayer.setMap` plants only
+        // trees; the props — lamp posts, bins, barrels, park fences — come
+        // through `updateProps`, which the game calls and the flyover never
+        // did. Without it the night shot had light pools with no visible
+        // source (§56.3).
+        scenery.updateProps(allProps);
         const emptyScene = {
           remotes: { pickups: [], projectiles: [], props: lamps, vehicles: [], peds: [] },
           foundPackages: new Set(),

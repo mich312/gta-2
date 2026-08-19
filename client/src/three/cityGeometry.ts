@@ -976,7 +976,7 @@ function buildRoofDetail(
   // the same coping the roof is; it catches a little more light because it
   // is an edge, and that is all. `roofUnit` is the roof clutter's own tone
   // and reads as one material with it.
-  instances += addChunkedBoxes(group, parapets, col('roofEdge', 0x767d8a), 0.4);
+  instances += addChunkedBoxes(group, parapets, col('roofEdge', 0x42464d), 0.4);
   instances += addChunkedBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
   return instances;
 }
@@ -1033,7 +1033,63 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
       if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, LONG);
     }
   }
-  return addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);
+  // Piers, on the same cadence the 2D painter uses.
+  //
+  // `paintWater` draws a deck shadow and a pier block on the water tiles
+  // beside a deck, and says in as many words that from above that is the
+  // difference between a bridge and a stripe. None of it survives in 3D: the
+  // ground painting is alpha-cut out of every water tile and replaced by the
+  // 3D water slab, so the painted shadow and piers are holes.
+  //
+  // The deck itself has to stay at zero — `drawnSpans` explains why, and the
+  // simulation still pins every land vehicle there — but a pier does not. It
+  // stands in the water beside the deck, from the bed up to just under the
+  // surface, and it is the one thing that can say "this road is carried"
+  // without moving the road (§56.5).
+  const piers = new Map<number, Boxes>();
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      if (at(tx, ty) !== T_WATER) continue;
+      if ((tx + ty) % 9 !== 0) continue;
+      // Which way the deck lies, so the pier can hug it.
+      //
+      // Centred on its own water tile it stands a full tile clear of the
+      // carriageway, and a small dark square floating beside a bridge is the
+      // "isolated half-tile blocks that read as debris" the FIRST review
+      // complained about in the 2D tool. A pier touches what it carries: it
+      // sits against the deck's edge, runs along the flank rather than being
+      // square, and is drawn in kerb concrete so it reads as structure and
+      // not as a hole in the water.
+      let dx = 0;
+      let dy = 0;
+      if (at(tx - 1, ty) === T_BRIDGE) dx = -1;
+      else if (at(tx + 1, ty) === T_BRIDGE) dx = 1;
+      else if (at(tx, ty - 1) === T_BRIDGE) dy = -1;
+      else if (at(tx, ty + 1) === T_BRIDGE) dy = 1;
+      else continue;
+      const along = T * 0.8;
+      const out = T * 0.55;
+      // Pushed most of the way to the shared edge, so it meets the deck.
+      const px = (tx + 0.5 + dx * 0.34) * T;
+      const py = (ty + 0.5 + dy * 0.34) * T;
+      // Up to −1: clear of the water surface at −8 so it reads as standing in
+      // the river, and short of 0 so it never z-fights the deck beside it.
+      intoChunk(
+        piers,
+        tx,
+        ty,
+        dx !== 0 ? out : along,
+        dx !== 0 ? along : out,
+        EARTH - -1,
+        px,
+        py,
+        (EARTH + -1) / 2,
+      );
+    }
+  }
+  let n = addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);
+  n += addChunkedBoxes(group, piers, col('bridgePier', 0x5f646b), 0.45);
+  return n;
 }
 
 /**

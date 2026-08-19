@@ -142,26 +142,34 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              // a slate that reads correctly in isolation comes out mid-grey
              // once it is lit.
              //
-             // But 0.46 overcorrected, and by a lot. A pastel mass lands on
-             // an albedo of 0.12 where the carriageway's own palette colour
-             // is 0.20, so the SUNLIT roof measured darker than the tarmac it
-             // overlooks — (71,76,81) against (78,84,91) — while its parapet,
-             // undarkened at 0.56, was three times brighter than either.
-             // From an overhead camera roofs are most of the frame, so the
-             // whole city read as a grid of white-rimmed dark rectangles
-             // (§55.1). Real tar and real asphalt are within a few points of
-             // each other; the roof should sit just above the road, not below
-             // it.
+             // 0.32, fitted rather than guessed, and the two numbers before
+             // it are worth keeping because both were wrong instructively.
              //
-             // 0.72 was the overcorrection in the other direction — a roof
-             // twice the tarmac's brightness, dominating the frame as a white
-             // slab. The measured pair is the calibration: the reviewer read
-             // the carriageway at 0.31 of full and the roof at 0.28, so the
-             // multiplier that lands the roof a little ABOVE the road is
-             // 0.46 x 0.34 / 0.28.
+             // 0.46 shipped for a long time. A review reported the sunlit
+             // roof at (71,76,81) against a carriageway at (78,84,91) and
+             // called the roof darker than the road it overlooks. It never
+             // was. Tile-mapping every pixel of a top-down frame back to its
+             // tile puts open carriageway at (54,55,57) — 0.215 of full,
+             // because palette.road is #33383f and DAYLIGHT is calibrated
+             // to return a +Z surface at its palette value — and the roof at
+             // 0.46 lands on 1.62x that. (78,84,91) is palette.slabLight.
+             // The defect did not exist.
+             //
+             // 0.72 and then 0.56 were fitted to that phantom, from a stated
+             // road value of 0.31 that is really 0.215. 0.56 put the roof at
+             // 1.82x the road and the parapet at 2.85x, so the roofs became
+             // the brightest large mass in the frame — the exact thing this
+             // branch exists to prevent (§56.1).
+             //
+             // Inverting the real pipeline instead — MeshToon +Z face, ACES
+             // at exposure 1.15, GRADE_DAY tint, per-channel gain fitted from
+             // the road — gives 0.30-0.32 for a roof a little above the
+             // tarmac, which is where tar sits against asphalt. 0.32 predicts
+             // roof luminance 68 against the road's 55, and holds within 5%
+             // in both a downtown and a residential district.
              vec3 slate = vec3(0.15, 0.16, 0.18);
              float grit = (win_hash(floor(vWorld.xy * 1.7)) - 0.5) * 0.03;
-             diffuseColor.rgb = mix(diffuseColor.rgb, slate, 0.72) * 0.56 + grit;
+             diffuseColor.rgb = mix(diffuseColor.rgb, slate, 0.72) * 0.32 + grit;
            }
 
            if (side > 0.0) {

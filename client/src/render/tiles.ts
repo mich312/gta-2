@@ -2207,21 +2207,22 @@ export class TileLayer {
     // is worse than either alone. Base asphalt above still paints — the
     // rasterised band overhangs the stroke by up to half a tile.
     if (this.courseCover !== null && this.courseCover[i] === 1) return;
-    // On a DECK, the ribbon's wider apron counts as cover.
+    // A DECK takes no per-tile marks at all.
     //
-    // A bridge taken at an angle is a staircase of tiles, and the stair's
-    // outer tiles fall outside `courseCover`'s inner radius while the course
-    // itself runs straight through them. Each one then drew its own per-tile
-    // centre mark a tile away from the ribbon's, so every diagonal deck in
-    // the city carried two centre lines down its whole length, one faint and
-    // one bright, in different dash phases (§55.4). There is no lattice street
-    // on a deck for the per-tile painter to be describing — the ribbon is the
-    // road — so where the ribbon reaches at all, it owns the marks.
-    if (
-      this.tileAt(tx, ty) === T_BRIDGE &&
-      this.courseApron !== null &&
-      this.courseApron[i] === 1
-    ) {
+    // `paintBridge` calls `paintRoad` for the per-tile mark and `paintCourses`
+    // then strokes the curve-based one into the same chunk, so a deck taken at
+    // an angle carried two centre lines down its length, one faint and one
+    // bright, in different dash phases. The first attempt tested the wider
+    // `courseApron` instead of `courseCover`, which sounded right and moved
+    // TWO tiles in the whole city — 8 of 2,331 deck tiles fall outside cover
+    // and 6 outside apron, so it left six of the eight still wrong (§56.2).
+    //
+    // The argument the attempt was made on is the right one and simply wants
+    // applying: there is no lattice street on a bridge for the per-tile
+    // painter to be describing. The ribbon is the road. Where a deck has no
+    // course over it at all it gets no centre line, which is correct — it is
+    // an approach ramp or a stub, not a street.
+    if (this.tileAt(tx, ty) === T_BRIDGE) {
       return;
     }
 

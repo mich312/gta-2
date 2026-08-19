@@ -357,7 +357,15 @@ export class Lights3dLayer {
   ): void {
     const wants = this.wants;
     wants.length = 0;
-    const lit = 0.15 + 0.85 * night;
+    // How much of a night-light is on. Floored at 0.02, not 0.15.
+    //
+    // 0.15 of a street lamp is still over `BLOOM_THRESHOLD`, so at `night=0`
+    // every lamp in the city burned as a blown-white core with an orange
+    // bloom washing a whole block. In the shipped game that has always been
+    // there; wiring this layer into the flyover (§55.7) then put it into
+    // every daytime 3D still the repo takes, which is how it was finally
+    // seen (§56.4). A lamp at noon should be off, not dim.
+    const lit = 0.02 + 0.98 * night;
     const map = this.map;
 
     const inView = (x: number, y: number): boolean =>

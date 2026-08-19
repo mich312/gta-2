@@ -6380,3 +6380,116 @@ tiles stand on their own raised dark square; facades alias into speckle at
 glancing angles; the debug HUD reads "draws 1 … tris 0k" because `stats()`
 reads `renderer.info.render` after the composer has reset it; and a drawn
 storey is 6 world px against a 9 px pedestrian.
+
+## 56. The verification pass, and a fix that was worse than the defect
+
+§55 was checked by a second 3D reviewer, given the first one's findings and
+told to verify each independently rather than take the descriptions on trust.
+It tile-mapped every pixel of a top-down frame back to its tile, fitted the
+render pipeline, and inverted it. Two of the six "fixes" did not survive.
+
+### 56.1 The roof defect did not exist, and the fix for it was a regression
+
+§55.1 raised the roof multiplier from 0.46 to 0.56, calibrated off the first
+reviewer's measured pair — *"the carriageway at 0.31 of full and the roof at
+0.28"*. Measured properly, with each pixel resolved to the tile beneath it:
+
+| surface | measured | of full |
+|---|---|---|
+| open carriageway | (54,55,57) | **0.215** |
+| sunlit roof at 0.56 | (98,101,105) | 0.39 |
+| parapet at #767d8a | (156,158,161) | 0.61 |
+
+The road is **0.215, not 0.31** — `palette.road` is #33383f and `DAYLIGHT`
+returns a +Z surface at its palette value, exactly as its comment claims.
+(78,84,91) is `palette.slabLight`, not tarmac. **At the original 0.46 the roof
+was already 1.62× the road.** The defect §55.1 set out to fix — a sunlit roof
+darker than the tarmac — never existed in this build at any multiplier above
+0.3. The fix took a roof that was 1.62× the road to **1.82×**, and a parapet to
+**2.85×**, making the roofs the brightest large mass in the frame: precisely
+what the roof branch's own comment says it exists to prevent.
+
+Inverting the real pipeline — MeshToon +Z face, ACES at exposure 1.15,
+GRADE_DAY tint, per-channel gain fitted from the road — gives **0.30–0.32**,
+holding within 5% across a downtown and a residential district. **0.32**, and
+the parapet to **#42464d**: the move off `roofEdgeLight` was right in direction
+and about a third of the distance needed.
+
+**And the frame-luminance number in §55 was this, not a lighting win.** 17.4%
+of a downtown frame is roof; putting the roof back at 68 returns the frame mean
+to 64.1 — the pre-fix 65. Citing 65 → 69 as progress was measuring the
+overcorrection.
+
+### 56.2 A fix that moved two tiles
+
+§55.4 suppressed the per-tile lane mark on a deck where the wider
+`courseApron` reaches. Replaying that sweep against the shipped city: of
+**2,331 deck tiles, 8 fall outside `courseCover` and 6 outside `courseApron`**
+— so the change moved **two tiles in the whole city**, and left six still
+drawing a mark beside the ribbon's. The visible symptom had already been cured
+by the §54 rebake putting courses over the decks.
+
+The argument the attempt was made on is the right one and simply wanted
+applying: there is no lattice street on a bridge for the per-tile painter to be
+describing, so **a deck tile takes no per-tile marks at all.**
+
+### 56.3 The shadow answer was right and the arithmetic was not
+
+§55.2 raised `SHADOW_HALF_EXTENT` on the claim that the frame corner is 525
+world px out. At the shipped camera — `GAME_PITCH = 10`, viewport ≤ 700×400,
+FOV_Y 34 — the furthest corner is **443**. But the sun sits at 50.2°, so a
+twelve-storey block throws 60 px and the worst relevant caster is at **503**:
+460 did clip real casters and 560 does cover them. Right answer, wrong reason.
+Measured coverage now ends at |world x| = 620, which is 560 / 0.906 — the
+light's own right axis. Texel 0.90 → 1.09 world px, invisible under
+`shadow.radius 3.5`.
+
+Worth recording for whoever takes the next evidence shot: **at the review
+flyover's camera the far corners are ~900 world px out, so a shadow boundary
+will always be visible in a 2200×1000 still.** That is the shot, not the rig.
+
+### 56.4 Wiring in the lights found a bug that was always shipping
+
+`lit = 0.15 + 0.85 * night` never drops below 0.15, and 0.15 of a street lamp
+is over `BLOOM_THRESHOLD 1.05` — so **at noon every lamp in the city burns as
+a blown-white core with an orange bloom washing a block.** The file's own
+comment documents this failure mode for headlights and fixes only headlights,
+leaving the lamp floor in. It has always been in the shipped game; putting the
+layer in the flyover (§55.7) just made it visible in every daytime still.
+`0.02 + 0.98 * night`: a lamp at noon is off, not dim.
+
+And the flyover never called `scenery.updateProps`, so the night shot had light
+pools with no visible source — `setMap` plants only trees. One line, and the
+lamp posts, bins, barrels and fences arrive with it.
+
+### 56.5 The piers the 2D painter has always drawn
+
+The reviewer agreed the flat deck is a decision (§55.8) and then found the
+option that decision had hidden. `paintWater` **already draws** a deck shadow
+and a pier block on the water tiles beside a deck, with a comment saying that
+from above this is the difference between a bridge and a stripe. **None of it
+survives in 3D**: the ground painting is alpha-cut out of every water tile and
+replaced by the 3D water slab, so the shadow and the piers are holes.
+
+The deck has to stay at zero. A pier does not. Pier boxes now stand on the
+same `(tx + ty) % 9` cadence and the same flank test the 2D painter uses, from
+the bed up to −1 — clear of the water surface at −8 so they read as standing in
+the river, short of 0 so they never z-fight the deck. **The road does not move
+and the bridge reads as carried.** A defect of omission, not a decision.
+
+### 56.6 What the verification confirmed
+
+Bridge parapet holes: **fixed** — every step corner a solid L across two decks
+and three angles, with a 2 px nub past each corner that reads as a post. Coast
+grain: **fixed** — high-frequency deviation 0 → 6.4 after a 9×9 detrend. Night:
+**works**, and the shot the first reviewer could not take is now takeable.
+
+"Noon looks like dusk" stands, and the §55.8 reading of it is confirmed
+correct: `DAYLIGHT` returns a +Z surface at its palette value (road #33383f →
+(54,55,57), field → (38,50,38)), so the darkness is the palette and a real fix
+moves the 2D game too.
+
+Still standing, all re-confirmed: flat sea (luminance σ 0.61 and 0.75 over two
+samples — flatter than first reported), trunkless flat-topped trees, woodland
+plateaus with a cast shadow along the step, facade aliasing, the HUD reading
+`draws 1 … tris 0k`, and a 6 px storey against a 9 px pedestrian.
