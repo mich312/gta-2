@@ -68,4 +68,99 @@ paid to act on them.
 
 ### Findings
 
-_(pending — the four lenses are running)_
+Filed by the four lenses, then put to an adversarial verifier one at a time.
+A finding is not work until it is CONFIRMED.
+
+#### Lens C — the simulation
+
+### R1-C01 — motorised pursuit shuts down permanently; abandoned cruisers are never removed
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: C
+- where: `shared/src/sim/police.ts:678`, `:747`, `:1110`, `motorise` at `:573-593`
+- repro: `node evidence/round1/C-repro-copcars.mjs 4 240 mortal`
+- prior art: PROGRESS.md "Police pursuit driving" claims this fixed — filed as a promotion
+
+### R1-C02 — `noticedBy` skips both its filters: a corpse witnesses crimes, an invisible player is seen
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: significant   lens: C
+- where: `shared/src/sim/police.ts:172-188` (no `copIsDown`, no `POWER_INVISIBLE`, and it calls `hasLineOfSight` directly rather than `copSees`)
+- repro: `node evidence/round1/C-repro-corpse-witness.mjs`
+- verified: independent probe brackets it at 20px (noise), 80px (sight), 5000px (neither). Single caller `weapons.ts:271` does not filter. `node ci/test.mjs noise` passes 9/9 with the bug present — the suite is blind to it. `peds.json` `corpseSec: 40` makes the window 40s.
+- prior art: none. `police.ts:55` records the identical bug fixed in `anyCopSees` fifteen lines above.
+
+### R1-C03 — `Math.atan2`/`Math.hypot` in shared sim code, writing hashed fields
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: C
+- where: `shared/src/sim/weapons.ts:361-363`, `traffic.ts:1397`, `police.ts:480`, `:778`
+- repro: `node evidence/round1/C-repro-math-trig.mjs`
+- prior art: WORLDGEN.md §41.5 fixed this class in worldgen; the sweep never covered `shared/src/sim`
+
+### R1-C04 — the car bomb is free arson, and its casualties are credited to nobody
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: C
+- where: `shared/src/sim/fittings.ts:54-58` (bypasses `damageVehicle`, so `igniterId` never set)
+- repro: `node evidence/round1/C-repro-carbomb.mjs`
+- prior art: GAPS.md K1 built arson attribution; the bomb branch was never threaded into it
+
+### R1-C05 — `maybeRoadblock`'s per-kind budget is algebraically a no-op
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: C
+- where: `shared/src/sim/police.ts:775` — the `+ 2` appears on both sides and cancels
+- repro: `node evidence/round1/C-repro-roadblock-cap.mjs`
+- prior art: GTA.md P3c states the intent; the defect in the check is recorded nowhere
+
+#### Lens D — the seams
+
+### R1-D01 — a page reload reconnects the player to a body they cannot move
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: D
+- where: `server/src/session.ts:422`, `:475` against `client/src/main.ts:303` (`let seq = 1`)
+- repro: `node evidence/round1/D-repro-resume-input.mjs`
+- prior art: BUGS.md §11.1 and §11.4 cover other halves of resume, not the sequence watermark
+
+### R1-D02 — the published evidence no longer reproduces from its own retake commands
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: D
+- where: `evidence/README.md` and 13 of the 15 checkable PNGs it indexes
+- repro: `node evidence/round1/D-pngdiff.mjs evidence/<name>.png <retake>`
+- prior art: none. REVIEW-WORLDGEN.md:6 states the invariant this violates.
+
+### R1-D03 — `ci/deploy.sh` ships whatever `origin/main` is, not the commit the suite passed
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: D
+- where: `ci/deploy.sh:30-32` against the `test` job in `.github/workflows/deploy.yml`
+- repro: read the two files together (no execution possible — the deploy host is unreachable)
+- prior art: PLAN-WORLDGEN.md wave 0.4 closed the workflow gate, not the checkout
+
+### R1-D04 — a Node build that gains `node:sqlite` silently abandons the JSON fallback's accounts
+- status: [ ] open        verdict: pending
+- round: 1   severity: significant   lens: D
+- where: `server/src/economy/createStore.ts:25-26`
+- repro: `node evidence/round1/D-repro-backend-swap.mjs`
+- prior art: none. `createStore.test.ts` never boots twice at one path with availability changing.
+
+### R1-D05 — a client rejected for protocol mismatch reconnects every two seconds for ever
+- status: [ ] open        verdict: pending
+- round: 1   severity: nit   lens: D
+- where: `client/src/net/connection.ts:75-81` against `client/src/main.ts:682-687`
+- prior art: none. BUGS.md §11 covers the server's side, not the client's retry policy.
+
+#### Lens A — worldgen
+
+_(running)_
+
+#### Lens B — the renderer
+
+_(running)_
+
+### Checked and deliberately not filed
+
+Lens D: interest-radius enter/leave (held by `server/test/interest.test.ts`); the
+`MAX_PLAYERS` reconnect exemption (the README's claim holds); `ci/test.mjs`'s
+known-error filter (no input found that makes it swallow a real failure); two
+real but unreachable `FileStore` weaknesses (whole-ledger rewrite per
+transaction, 6.1 ms at 20k rows against a 33.3 ms tick; an unguarded
+`JSON.parse` that turns an unreadable save into a boot loop).
+
+Not checked: `play-dusk/drift/foot.png` — `ci/playLocal.mjs` hung in `getInCar`
+past 420 s twice under container contention.
