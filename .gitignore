@@ -16,3 +16,8 @@ sprites.preview.png
 # screenshots they produce. Findings get written up in the docs and the
 # pictures worth keeping are promoted into evidence/ by hand.
 /.qa/
+
+# Review-loop agent scratch — working files, not artifacts.
+# Evidence belongs in evidence/<round>/; prompts in .claude/review/.
+.scratch-*/
+shot2-verify.mjs

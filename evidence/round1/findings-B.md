@@ -32,6 +32,16 @@ EOF
 cp /tmp/shot2.mjs ./shot2.mjs      # must sit inside the repo to resolve `playwright`
 ```
 
+**On `WAIT_GROUND`.** The flyover shot below uses it, as the lens requires.
+The four game frames cannot: `main.ts` never exposes `globalThis.__ground` (only
+`city3d.html` does), so `WAIT_GROUND` on the real client just burns its 180 s
+timeout and prints "residency timeout, shooting anyway". `SETTLE=170000` on the
+3D frames does the same job — it is a longer wait than `WAIT_GROUND=24` would
+have granted — and the painted ground is fully resident in all four: the kerb
+shading, paving joints, manholes and skid dashes are present and pixel-for-pixel
+identical between the 2D and 3D frames, which is the check `WAIT_GROUND` exists
+to make.
+
 Pixel values below were read back out of the PNGs with a canvas in headless
 chromium; every one is quoted inline so nothing is load-bearing but the images.
 
@@ -41,7 +51,7 @@ chromium; every one is quoted inline so nothing is load-bearing but the images.
 
 severity: significant
 lens: B
-where: `client/src/three/lights3d.ts:361` (`const lit = 0.15 + 0.85 * night`), consumed at `:379` (lamps) and `:400`/`:415`/`:459` (shop signs); `evidence/round1/B-lamp-noon-3d.png` against `evidence/round1/B-lamp-noon-2d.png`
+where: `client/src/three/lights3d.ts:361` (`const lit = 0.15 + 0.85 * night`), consumed at `:379` (street lamps) and `:400` (shop signs); `evidence/round1/B-lamp-noon-3d.png` against `evidence/round1/B-lamp-noon-2d.png`
 evidence: Two frames of the same lamp, same seed, same forced hour `?night=0` — midday.
 In 3D (`B-game-3d-day.png`, crop `B-lamp-noon-3d.png`) the bulb is blown to
 `rgb(244,239,221)` at (1112,588) with a warm elliptical pool spilling across the
@@ -59,7 +69,12 @@ family two hundred lines down (`lights3d.ts:576-583`): "*`lit` never drops below
 invisible until the bloom pass arrived and turned 'slightly on' into a glowing
 halo on the tarmac at midday.*" Headlights got a 0.06 floor out of that
 sentence; the lamps it names were left at 0.15, and the bloom pass it names is
-on by default.
+on by default. The shop-sign half of this (`:400`, `0.45 * lit`) is the same
+line and the same arithmetic; only the lamp is photographed.
+That `?night=0` really did reach the light layer is settled by the third finding
+below: the tarmac in this very frame matches the 2D midday tarmac to within
+2/255, so `view.setNight(0)` ran — and `main.ts:897` and `main.ts:945` feed
+`view.setNight` and `lights3d.update` the same `lights.nightAmount`.
 repro:
 ```bash
 pnpm --filter client dev -- --port 5373    # any port; substitute below
@@ -114,7 +129,7 @@ and in the shipped renderer they are gone — the buildings are dark slabs and
 the only light in the block is whatever the 16-slot lamp budget reached.
 prior art: `REVIEW-3D.md` §Not fixed has "**The window hash has no per-building
 salt**", which is about the facade shader's *pattern* and has since been fixed
-(per-wall-plane salt, `facade.ts:196`). Nothing records that the 3D path has no
+(per-wall-plane salt, `facade.ts:197`). Nothing records that the 3D path has no
 window light the game's camera can see.
 
 ---
@@ -164,7 +179,7 @@ calibrated" to "calibrated at one point on a two-point curve".
 
 severity: nit
 lens: B
-where: `client/city3d.html:102-106` reading `client/src/three/cityView.ts:564` (`stats()`), after `render()` at `:547` runs `PostChain.render()` (`client/src/three/post.ts:155`)
+where: `client/city3d.html:102-106` reading `client/src/three/cityView.ts:564` (`stats()`), after `render()` at `:534` runs `PostChain.render()` (`client/src/three/post.ts:157`)
 evidence: `evidence/round1/B-fly-downtown.png` — the on-screen HUD of the
 flyover reads `draws 1  instances 619445  tris 0k` for a 4,066-building city.
 The repo's own `evidence/baseline-fly-centre.png` reads the same. The cause is
@@ -205,7 +220,7 @@ and is not recorded.
 
 severity: nit
 lens: B
-where: `client/src/three/scenery.ts:270-273` against `client/src/three/entities.ts:504-512` (`Pool.end`) and `client/src/three/worldObjects.ts:148-160` (`SolidPool.end`)
+where: `client/src/three/scenery.ts:270-273` against `client/src/three/entities.ts:385-405` (`Pool.end`) and `client/src/three/worldObjects.ts:148-161` (`SolidPool.end`)
 evidence: `SceneryLayer.updateProps` ends every frame with
 ```ts
 for (const pool of this.propPools.values()) {
@@ -221,13 +236,13 @@ Each pool also has an outline twin (`scenery.ts:293`) whose `count` is set once
 at construction and never touched, so it pays the same again; the colour pools
 carry `castShadow = true`, so the shadow pass pays a third time.
 The two other pool implementations in the same directory both shorten `count`,
-and `entities.ts:504-512` states the rule in its own docstring: "*a zero-scaled
+and `entities.ts:385-397` states the rule in its own docstring: "*a zero-scaled
 tail collapses to nothing on screen but is still transformed, still counted and
 still walked by the shadow pass … a pool of 200 holding 3 peds paid for 197
 invisible ones, twice over, because the outline twin pays it too.*"
 repro: read the three `end()`/`updateProps()` implementations side by side —
-`client/src/three/scenery.ts:246-276`, `client/src/three/entities.ts:504-512`,
-`client/src/three/worldObjects.ts:148-160`.
+`client/src/three/scenery.ts:248-275`, `client/src/three/entities.ts:385-405`,
+`client/src/three/worldObjects.ts:148-161`.
 why it matters: it is the exact defect `REVIEW-3D.md` fixed everywhere else,
 left standing in the one layer that was not audited, on a renderer whose frame
 cost has never been measured on real hardware.
