@@ -178,11 +178,105 @@ A finding is not work until it is CONFIRMED.
 
 #### Lens A — worldgen
 
-_(running)_
+### R1-A01 — Kelvin Bridge and Marsh Causeway bake to nothing
+- status: [ ] open        verdict: **CONFIRMED — blocking upheld**
+- round: 1   severity: **blocking**   lens: A
+- where: `shared/data/city-plan.json` (both roads); `layout.ts:2298-2356` (no-piers pass); `cityCheck.ts:42` (no rule)
+- repro: `node server/dist/tools/mapgen.js --crop=436,336,44 --scale=16 --out=…`
+- verified: census re-run independently — BRIDGE=0 at both sites, unbroken water across both channels. Both refutations failed: both roads are `"bridges": true` with author's notes ("The signature span… the shortest way between the two halves of the city"), and WORLDGEN.md:961 names both as strait crossings.
+- **worse than filed**: a connected-component enumeration of every deck returns **6 crossings, not 8** — the Ring's east crossing is also absent, so the entire eastern half of the strait has none. Detours measured by BFS: 726 and 984 road tiles against euclidean 121 and 124 (6x and 8x).
+- severity checked against REVIEWER.md's ladder: the render shows a four-lane carriageway with a painted centre line ending in a rounded cap on a bare bank. "Geometry the player sees that is plainly wrong" — blocking stands.
+- prior art: WORLDGEN.md §23.1 files the deck removal as a FIX and never records that the crossing is gone; §12.3 still claims it.
+
+### R1-A02 — Hollis Creek is crossed nowhere along its length
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: significant   lens: A
+- where: `city-plan.json` — The Esplanade and Longacre Road, both `bridges: false`
+- verified by counterfactual, which is what settles "deliberate or not": flipping **every** road to `bridges:true` adds 41 bridge tiles in exactly 2 clusters, both on this creek. Seven of the nine `false` roads are inert — they never touch bridgeable water. `bridgeable()` already refuses open water on its own, so the flag does no anti-causeway duty anywhere. And the field's documented rationale (`plan.ts:191`, "which roads are big enough") cannot be why, since every road in the plan is `width: 4`. The split tracks names, not what each course crosses.
+- detours re-measured from the shipped bake: 464 and 123 steps (filed: 453 and 124).
+- correction: "Hollis appears nowhere in WORLDGEN.md" — "Hollis Farm" is at line 958. Different feature.
+- prior art: none. No recorded decision to argue with, just an absence.
+
+### R1-A03 — The Docks' contour fabric lays no cross streets
+- status: [ ] open        verdict: **CONFIRMED — and root-caused**
+- round: 1   severity: significant   lens: A
+- where: `layout.ts:1625` (contour cross streets) and `layout.ts:1273` (`frameDeg` PCA)
+- **the reviewer found the symptom; the verifier found the cause.** `frameDeg`'s PCA samples only tiles with `bandField <= 2`. The Docks' banding shore is on its **east** side, so the true mean tangent is 90 degrees — but the nearest owned dry tile is 9 away, nothing matches, `n === 0`, and it silently falls back to the authored `angle: 0`. The cross streets are carved **parallel to the bands they were meant to cross**.
+- causal test, forcing only `frameDeg = 90` and changing nothing else:
+  `baseline: 12 blocks, median 1691, biggest 27x158` -> `forced: 51 blocks, median 330, biggest 28x22`
+  28x22 is the authored 28x24 cell. The pitch is honoured everywhere and silently dropped here.
+- **latent beyond this district**: Terraces and Beachfront take the same fallback and survive only because their shore is horizontal, so `angle: 0` happens to equal the true tangent. Any future borough on a non-horizontal shore inherits the bug.
+- prior art: none found.
+
+### R1-A04 — known: a public street still crosses Marsh End Airfield's runway
+- status: [-] refuted        verdict: **REFUTED as filed**
+- round: 1   severity: ~~significant~~ —   lens: A
+- the tile identity is right — 14 genuine `T_ROAD` inside the rect, no `T_LOT` apron anywhere in it. But the **promotion warrant is not**: the reviewer quoted past a caveat. `PLAN-WORLDGEN.md:111` says "DELIVERED — **see PROGRESS.md**" one clause before the sentence quoted, and `PROGRESS.md:277` reads: "the one crossing that remains at Marsh End is the bake's own two-tile access driveway to the hangar, which is a taxiway with a job."
+- mechanism confirmed independently: `bake.ts:546` cuts a driveway from every non-`byAir` landmark door; Marsh End's baked door is tile (519,606), immediately south of the stub's last road tile. The stub dead-ends at the rect's south edge into bare field — an access track, not a through route. The render shows a band with no kerb casing, no centre dashes, no ribbon stroke.
+- the census confirms the note's diagnosis rather than disproving it. Residuals refiled as R1-A08.
+
+### R1-A05 — `checkCity`'s "has no road to it" does not look for a road
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: nit   lens: A
+- verified: `drivable()` is genuinely the sim's own rule (`plainSolid`, `collide.ts:44`, blocks the same three tiles), so the *predicate* is defensible — a landmark reachable across a car park really is vehicle-reachable. What it does not defend is the *message*, or `city.test.ts:170`, which scans for real `T_ROAD`/`T_BRIDGE` frontage. The suite is strictly stronger than the checker whose error string claims the same property.
+- repro reproduced: 285 carriageway tiles erased around Mercy General, `checkCity` returns `[]`.
+- trimmed: "walling a hospital off from the street network" overstates it — nothing genuinely unreachable ships.
+- **prior art UNVERIFIED**: the verifier searched for `GAPS.md` inside `.claude/review/` instead of the repo root. Cheap to re-check in round 2.
+
+### R1-A06 — `parseCityPlan` bounds-checks landmarks but not roads, rivers or districts
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: nit   lens: A
+- **sharper than filed**: the width-0 road becomes a course that `decodeBakedCity` explicitly rejects — `bake.ts:1137`, `'a course with no line or no width'`. The parser waves through a value its own asset decoder calls malformed, one pipeline stage and fifteen seconds later.
+- also accepted, unfiled by the reviewer: **negative** widths, identically.
+- off-map geometry clips safely everywhere (`lay()`, `onGround`, `pointInPoly`), so the harm is silence, not corruption. Nit is right.
+- **do not merge with A01**: A01's landfall gate would catch an off-map endpoint on a bridging road, but the zero-width road is entirely on land and passes it untouched, and off-map rivers and district polygons never reach a bridge gate. Two fixes.
+
+### R1-A08 — wave 2.3 stands DELIVERED with two promises unkept
+- status: [ ] open        verdict: **CONFIRMED** (the surviving residual of A04)
+- round: 1   severity: nit   lens: A
+- the promised `cityCheck` rule — no street tile inside a runway rect — does not exist; `city.test.ts:743` asserts only the converse (every `T_RUNWAY` tile is inside a rect). And the huts were never moved off the slabs: 9 `T_BUILDING` tiles at each strip's corner with runway on all sides beneath them.
+- side effect confirmed: `runwayCentreRow` (`tiles.ts:159`) walks per column, so the hut-shortened columns jog the centreline — at Marsh End x=507, and at **Gannet x=79**, which the reviewer missed.
 
 #### Lens B — the renderer
 
-_(running)_
+### R1-B01 — street lamps and shop signs burn at midday in 3D
+- status: [ ] open        verdict: pending (verifier still running at round close)
+- round: 1   severity: significant   lens: B
+- where: `lights3d.ts:361` (`lit = 0.15 + 0.85 * night`), consumed at `:379` and `:400`
+- prior art: REVIEW-3D.md records the *vehicle* version as fixed; the lamp/shop floor is recorded nowhere. `lights3d.ts:576-583` diagnoses the same floor for the other light family and gave headlights 0.06; the lamps that sentence names kept 0.15.
+
+### R1-B02 — the lit windows that carry 2D night have no 3D equivalent the camera can see
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: significant   lens: B
+- verified with re-taken frames at the shipped default camera (`GAME_PITCH` 10, `render=3d` default):
+  `warm pixels 64 (2D) vs 17 (3D) | brightest warm lum 196 vs 131 | below luma 32: 0.5% vs 25.0%`
+- **stronger than filed**: `drawWindows` never runs in 3D at all. `main.ts:1077` calls the `LightPass` it writes into only in the 2D branch and the fallback `catch`. The 96-light budget is structurally unreachable, not outshone.
+- albedo proved arithmetically, not just read: `uLit` is `0xffd9a0` = (255,217,160); the measured lit pane is `rgb(140,120,95)` — 0.55/0.55/0.59 on every channel. A fully-lit pane sits at the night rig's ceiling, so it cannot glow, cannot bloom, casts nothing. On the other facade in the same block the panes come out *darker* than the wall.
+- where the finding was loose (conceded, not fatal): the camera sees more wall than "one strip", and the facade does render visibly lit panes at ~1.5x wall luma.
+- evidence: `evidence/round1/V-B02-block-2d.png` against `V-B02-block-3d.png` — seven warm glow pools ringing the block against dark slabs and two faintly striped walls.
+
+### R1-B03 — the two renderers agree at midday and disagree by 1.7x at dusk
+- status: [~] **escalated — a design question, not a defect**
+- round: 1   severity: ~~significant~~ **escalated**   lens: B
+- the measurement reproduces: 3D luma 22.8 vs 2D 40.7 at `night=0.6`; midday agrees to **1/255**, tighter than filed. Lighting arithmetic confirmed (2.50 against 4.75 = 52.6%; the 2D grade multiply is exactly 187).
+- **but no invariant is violated.** `BUGS.md` §4 explicitly declines to touch the night end: "The night end is left exactly where it was tuned — night has to actually be dark or a street lamp cannot read against it, and that is the whole point of having lamps." Both night levels are independently and deliberately documented (`cityView.ts:433`, `config.ts:57`, `PROGRESS.md:598`). §4 also pre-dismisses whole-frame luma as evidence, weakening the finding's histogram paragraph.
+- what survives: §4's own operative criterion is the modal road pixel, and *that* agrees at noon and fails at dusk. So "calibrated at one point on a two-point curve" is fair — but closing the gap means overriding two documented art decisions.
+- **for the user, not a fixer.** A coder dispatched at this would "fix" a deliberate choice.
+- correction: the vignette claim is wrong for (700,60) (r=305.9, outside the 230.4 inner radius) — immaterially, since the contamination shrinks the gap rather than creating it.
+
+### R1-B04 — `city3d.html`'s draw/triangle readout has reported `draws 1  tris 0k` since the post chain landed
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: nit   lens: B
+- verified in the installed three@0.185.1: `info.reset()` at `three.module.js:17696` with `autoReset` defaulting true, and zero `autoReset` hits anywhere in the repo. The composer's last pass is the grade quad, so its 1 draw / 2 triangles is all that survives.
+- **the refutation failed**: `3D.md:179`'s "9 draw calls, 57,767 instances, 762k triangles" is quoted verbatim from this HUD — the cited screenshot's overlay reads exactly those numbers. `ci/renderBench.mjs` is not an alternative source: it has no draw/triangle instrument at all.
+- **round-2 candidate, unverified**: `ci/renderBench.mjs:37-39` reportedly has *both arms pinned to `render=2d`*. REVIEW-3D.md records fixing this same instrument for "comparing 3D against 3D". Nobody tested whether the current state is deliberate.
+
+### R1-B05 — scenery prop pools still zero-scale their tails
+- status: [ ] open        verdict: **CONFIRMED**
+- round: 1   severity: nit   lens: B
+- the "maybe it is static" refutation was tested empirically, not argued: the shipped city run through the real placement code gives 1600 props total, worst-case 67 on screen at the shipped AOI radius, fullest single pool 55 of 192. `updateProps` runs every frame from `requestAnimationFrame` with no dirty check, `used` varies per frame (props flip `bin` -> `bin_broken`), and `frustumCulled = false` on both mesh and twin removes the only escape.
+- tightened: the outline twin is `castShadow = false`, so the three payments are main-pass mesh + shadow-pass mesh + main-pass twin — the count of three is right, the attribution was not.
+- fix is two lines matching the neighbours (`entities.ts:399`, `worldObjects.ts:155`).
 
 ### Checked and deliberately not filed
 
