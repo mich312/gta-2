@@ -20,4 +20,4 @@ sprites.preview.png
 # Review-loop agent scratch — working files, not artifacts.
 # Evidence belongs in evidence/<round>/; prompts in .claude/review/.
 .scratch-*/
-shot2-verify.mjs
+shot2*.mjs
