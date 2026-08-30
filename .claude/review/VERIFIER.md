@@ -30,3 +30,15 @@ rewriting to survive was `REFUTED` as filed. Say so, and let the next round's
 reviewer file the better version.
 
 Reply with the verdict, then the evidence for it, and nothing else.
+
+## Where your working files go
+
+Scratch — probe scripts, instrumented copies of `dist`, throwaway servers,
+one-off renders you take to check a number — belongs in the session
+scratchpad directory, **not** in the repository. Three round-1 verifiers left
+harnesses at the repo root and they had to be gitignored one filename at a
+time.
+
+Write to the repo only when the artifact is part of the finding's evidence
+and another agent would re-run it — those go in `evidence/<round>/`, prefixed
+`V-<finding-id>-`. Everything else is yours and temporary.

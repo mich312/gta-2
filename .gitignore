@@ -21,3 +21,5 @@ sprites.preview.png
 # Evidence belongs in evidence/<round>/; prompts in .claude/review/.
 .scratch-*/
 shot2*.mjs
+*-verify.mjs
+px-*.mjs
