@@ -24,3 +24,9 @@ shot2*.mjs
 *-verify.mjs
 px-*.mjs
 crop-*.mjs
+
+# Fixer worktrees. Round 2 gives each fixer its own git worktree, because
+# every fixer runs `pnpm build` into the shared server/dist and shared/dist
+# trees — disjoint source files are not enough to stop two agents corrupting
+# each other's output. The worktrees are working copies, never artifacts.
+/.claude/worktrees/
