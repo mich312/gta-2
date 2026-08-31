@@ -1212,7 +1212,7 @@ and whose value is legal for parks. That is the prior-art rule working.
 ## Lens C's convergence pass — three significant, one nit
 
 ### R5-C01 — a pedestrian boards a parked police vehicle and both are lost for the session
-- status: [ ] open        verdict: **CONFIRMED round 6** — and the "C06 was only partly fixed" charge holds exactly
+- status: [x] **FIXED round 7** — `20cb93d`; natural play 3 of 6 seeds -> 0 of 6
 - round: 5   severity: significant   lens: C
 - where: `traffic.ts:1111`, the boarding scan in `stepBoarding`
 - **this is the unfixed half of R1-C06, which this file marked `[x] FIXED round 3`.** C06's own filing named it — "also in range: lets a pedestrian board an abandoned cruiser" — and the round-3 fix went in "at two sites in `traffic.ts`". The boarding scan is a **third** site and was not one of them. I recorded the finding closed without checking every part of it was.
@@ -1267,7 +1267,7 @@ happened, and wrong about what the work covered.
 - `damageCop` absorbs the round at `weapons.ts:345`, the first statement in the function; `git log -L` shows the `fittings.ts` cop loop unchanged since the file was introduced, so nothing made corpses collidable on purpose.
 
 ### R5-C03 — the ambient cull leaks a permanent driverless car every time it fires
-- status: [ ] open        verdict: **CONFIRMED round 6** — leak real and unbounded; **the named line is not the main leak**
+- status: [x] **FIXED round 7** — `20cb93d`; both leak paths, one sweep
 - round: 5   severity: significant   lens: C
 - where: `traffic.ts:1189` against `putAiVehicle` at `:1314`
 - the cull writes `driverId = null` with the comment "becomes an ordinary parked car, then is reused", and `putAiVehicle` mints a brand-new entity instead. Nothing in `shared/src` removes an intact driverless non-police vehicle. The one reuse channel needs a ped within 40 px, and a culled car is by construction 1100 px from every player.
@@ -1579,3 +1579,59 @@ everywhere… so the answer cannot differ between the systems."*
 
 R7-C05 is the fifth site and was found **because** the rule now has a name to
 grep for.
+
+
+## Round 7 — the simulation
+
+### R5-C01 fixed, and the carjack question answered the other way
+
+One line in `stepBoarding`'s scan — the third site of the R1-C06 rule, and the
+only one that **writes** rather than declines. Natural play: 3 of 6 seeds
+boarding a police vehicle within ten minutes -> **0 of 6 in 18000 ticks**.
+Staged budget rows `frozen=2 circulating=12` -> `frozen=0 circulating=14`.
+
+**`tryCarjack` stays ungated**, against the way my brief leaned. The fixer
+traced every writer of `driverId` in `shared/src` and established that
+`stepBoarding` was the **only** producer of an ai-band driver on a `copFleet`
+vehicle. So once C01 is fixed, every `copFleet` vehicle the jack can see has an
+officer in it — exactly the live path round 3 kept deliberately. *"Being handed
+a free tank was a symptom of the freeze, not of carjacking."* Gating it would
+have deleted a genre verb to fix a bug the sibling fix had already removed.
+
+### R5-C03 fixed by provenance, and the measurement that settles it
+
+`state.ambientFleet` — `copFleet`'s twin, sole writer `putAiVehicle`, swept by
+`reclaimAmbient` once a registered vehicle is driverless, intact, non-police and
+past `despawnDist` (1100 px, well outside the 600 px interest radius, so nothing
+blinks out in view). The cull and the alight path end in the same state, so **one
+sweep covers both** — which is what round 6's correction required.
+
+Provenance rather than a cap or a recycle, because the kerbside stock is a
+*designed* budget: a car a ped borrowed from a kerb must revert to street
+furniture rather than be deleted. `tryEnterVehicle` and `tryCarjack` drop the id
+the moment a person takes the wheel, so a car the player parked is never eaten.
+
+| | before | after |
+| --- | --- | --- |
+| 10 min driving | 655 -> 727 (+11.0%) | 655 -> 700 (+6.9%) |
+| **player leaves the district** | stays **727** — all 72 permanent | returns to **exactly 655** |
+| minted / removed | 78 / 6 | 90 / 45 |
+| sim cost at t=600s | 32.5 s/1000 ticks | 28.6 s/1000 ticks |
+
+**Both trees plateau while the player stays local**, so a plateau proves
+nothing — the litter simply fills the spawn ring until the 30 px occupancy test
+rejects everything. The "player leaves" row is the one that distinguishes a
+fixed leak from a full ring, and it is the trap the original repro fell into.
+
+**Two of the four new tests pass both before and after, by design** — "a car the
+city parked is demoted, never deleted" and "a car the player took and parked is
+never eaten". They are not regression tests for the bug; they guard the *fix*
+from going too far, which matters because the obvious implementation would
+quietly eat the player's car and the city's designed stock.
+
+### Filed, not fixed
+
+`motorise`'s per-kind budget counts every vehicle of the kind on the map, so the
+C03 leak had been silently eating the police allowance too. That connection is
+moot now, but the counting rule stays fragile — the same shape as R1-C05's
+roadblock arithmetic.
