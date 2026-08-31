@@ -236,7 +236,7 @@ separate piece of work, filed below as R1-C07.
 #### Found while fixing round 1 (lens C's ground), filed for round 2
 
 ### R1-C06 — ambient traffic adopts police cruisers as its own cars
-- status: [x] **FIXED round 3** — gated on `copFleet`; unmasked and fixed officers being run over by their own cruisers        verdict: CONFIRMED
+- status: [~] **REOPENED round 5** — fixed at two sites, a third was never gated; see R5-C01        verdict: CONFIRMED, partially fixed
 - round: 1   severity: significant   lens: C
 - where: `shared/src/sim/traffic.ts:115` (`isAiDriver(d) => d < -1`) against `police.ts:564` (`copDriverId = -100000 - copId`)
 - repro: `node evidence/round1/C-probe-traffic-adopts-cruisers.mjs` — prints `tick 17 cop cruisers with an ambient-traffic driver record: 4`
@@ -1199,3 +1199,60 @@ warnings verbatim.
 Lens A also declined to file `pitchX: 0` baking silently to one street, on the
 grounds that it is the same shape as R1-A06 whose fix was deliberately scoped
 and whose value is legal for parks. That is the prior-art rule working.
+
+
+## Lens C's convergence pass — three significant, one nit
+
+### R5-C01 — a pedestrian boards a parked police vehicle and both are lost for the session
+- status: [ ] open        verdict: pending verification
+- round: 5   severity: significant   lens: C
+- where: `traffic.ts:1111`, the boarding scan in `stepBoarding`
+- **this is the unfixed half of R1-C06, which this file marked `[x] FIXED round 3`.** C06's own filing named it — "also in range: lets a pedestrian board an abandoned cruiser" — and the round-3 fix went in "at two sites in `traffic.ts`". The boarding scan is a **third** site and was not one of them. I recorded the finding closed without checking every part of it was.
+- **the C06 fix made it permanent.** Before the gate, a boarded cruiser was at least driven and culled like any ambient car. Now `stepTraffic` skips it (so `driver.trip` never advances and nobody alights), `retireAbandoned` and `remount` skip it (`driverId !== null`), and the cull counts it against the ambient budget then refuses to remove it.
+- measured, natural play, no staging: 4 of 6 seeds froze a **tank** within ten minutes — permanently spending one of three `vehicleCaps.tank` slots that `motorise` counts. The same permanent-budget exhaustion R1-C01 fixed for cruisers, through a door the C06 fix left open.
+- repro: `node evidence/round5/C-repro-ped-boards-cruiser.mjs 1500 500 natural`
+
+### R5-C02 — a body on the tarmac stops a car gun's rounds and bursts a rocket
+- status: [ ] open        verdict: pending verification
+- round: 5   severity: significant   lens: C
+- where: `fittings.ts:163-165`, `projectiles.ts:188-190`
+- `fireOnce` skips downed officers on purpose (`weapons.ts:165`, "shoot through a body, not into it"). `fireCarGuns` and `nearestHitAlong` do not: they select the corpse as the hit, and `damageCop` then returns immediately on `copIsDown` — the round is absorbed, for the 40 s the body lies there.
+- measured: car guns 9 damage clear line -> **0** with a corpse at 60px; rocket 107.5 -> **32.5**. SMG unaffected (control).
+- these are the five- and six-star weapons, used exactly when the street is full of officers you just killed. Your own kills become cover for the wave behind them.
+- prior art: R1-C02 fixed the same "a body is not a live officer" mistake in `noticedBy` and **did not sweep the hit tests**. Third instance of that class.
+
+### R5-C03 — the ambient cull leaks a permanent driverless car every time it fires
+- status: [ ] open        verdict: pending verification
+- round: 5   severity: significant   lens: C
+- where: `traffic.ts:1189` against `putAiVehicle` at `:1314`
+- the cull writes `driverId = null` with the comment "becomes an ordinary parked car, then is reused", and `putAiVehicle` mints a brand-new entity instead. Nothing in `shared/src` removes an intact driverless non-police vehicle. The one reuse channel needs a ped within 40 px, and a culled car is by construction 1100 px from every player.
+- measured over 20 minutes of one player driving: vehicles 193 -> 286 (**+48%**), sim cost 2299 -> 4107 ms/1000 ticks (**+79%**), still climbing.
+- prior art: R1-C01 fixed this exact shape for cruisers and built `retireAbandoned`; the ambient fleet has no equivalent.
+
+### R5-C04 — `police.json`'s `hard` preset sets `carsFromStar: 2`, and no car appears at two stars
+- status: [ ] open        verdict: pending verification
+- round: 5   severity: nit   lens: C
+- the preset overrides `carsFromStar` but not `waves`, and `waves["2"].vehicle` is null on every difficulty. A difficulty key that reads as live and moves nothing.
+
+### What lens C checked and did not file
+
+Determinism (no wall-clock or `Math.random` in `shared/src/sim`; every `Object.keys`
+walk over integer keys; `cloneState` covers all four side tables); the trust
+boundary (`sanitizeIntent`, `viewTick` re-clamped in `rewoundWorld`, one intent per
+tick, `buy` fully server-validated); physics (half-tile sub-stepping, no tunnelling
+at any tuned speed); **R1-C01 and R1-C06 re-verified under 9000-tick five-star
+chases on four seeds with per-tick invariants — zero violations**; `pnpm bots` and
+`pnpm chase` as documented.
+
+## A fifth shared-state instance, and this one is mine
+
+`b3f4e67` — my own commit — swept lens C's in-progress repro scripts into the
+tree, because I ran `git add -A` in the main checkout while the convergence
+reviewers were still writing there. I dispatched them **without** worktree
+isolation deliberately, so they would read the real tree; the cost is that they
+share the working directory with the orchestrator.
+
+Harmless here (evidence files committed early). But the list is now: build
+artifacts, the queue file, the base commit, the stash stack, and the working
+directory itself. **Every one was a thing two agents could both touch that
+neither was told about.**

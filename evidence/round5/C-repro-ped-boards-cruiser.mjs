@@ -137,3 +137,52 @@ for (const n of [0, 2, 4]) {
   const r = budget(n, ticks);
   console.log(`staged ${n} parked police cars, ${ticks} ticks: frozen=${r.frozen}  ambient traffic actually circulating=${r.live} (target 14)`);
 }
+
+/**
+ * Part 3 — end to end, no staging at all.
+ *
+ * A five-star chase on foot, with the crowd topped up the way session.ts tops
+ * it up. `maybeRoadblock` parks a pair of TANKS across the street and
+ * registers them in `copFleet`; a passer-by climbs into one; it is frozen
+ * there for the rest of the session, and because `motorise`'s per-kind budget
+ * counts every vehicle of the kind, it permanently spends one of the three
+ * tank slots `vehicleCaps` allows.
+ *
+ * Usage: node evidence/round5/C-repro-ped-boards-cruiser.mjs 1500 9000 natural
+ */
+if (process.argv[4] === 'natural') {
+  const { getTuning } = await import('../../shared/dist/index.js');
+  for (const SEED of [3, 11, 29, 47, 61, 101]) {
+    let state = createGameState(SEED);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'r' }], map);
+    let firstHit = null;
+    const frozen = new Set();
+    for (let i = 0; i < 18000; i++) {
+      const me = state.players.byId[1];
+      me.heat = 510;
+      me.health = 1e6;
+      if (me.mode === 'dead') { me.mode = 'foot'; me.health = 1e6; }
+      const cmds = [];
+      if (i % 10 === 0 && state.peds.ids.length < 220) {
+        const spot = map.pedSpawns[(i * 13) % map.pedSpawns.length];
+        if (spot && Math.hypot(spot.x - me.pos.x, spot.y - me.pos.y) > 700) {
+          cmds.push({ type: 'spawnPed', pedId: 400000 + i, x: spot.x, y: spot.y });
+        }
+      }
+      // A slow loop on foot, so the roadblock stays inside `spawnMaxDist`.
+      const ang = (i / 600) * Math.PI * 2;
+      state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i,
+        up: Math.sin(ang) > 0.4, down: Math.sin(ang) < -0.4,
+        left: Math.cos(ang) < -0.4, right: Math.cos(ang) > 0.4 } }, cmds, map);
+      for (const k of Object.keys(state.trafficDrivers)) {
+        const vid = Number(k);
+        if (state.copFleet[vid] !== undefined) { frozen.add(vid); if (firstHit === null) firstHit = i; }
+      }
+    }
+    let tanks = 0;
+    for (const id of state.vehicles.ids) if (state.vehicles.byId[id].kind === 'tank') tanks++;
+    console.log(firstHit === null
+      ? `seed ${SEED}: no natural boarding of a police vehicle in 18000 ticks`
+      : `seed ${SEED}: first at tick ${firstHit}; frozen police vehicles ${[...frozen].join(',')}; tanks on the map at the end = ${tanks} against vehicleCaps.tank = ${getTuning().police.vehicleCaps.tank}`);
+  }
+}
