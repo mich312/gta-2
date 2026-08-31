@@ -1186,7 +1186,7 @@ warnings verbatim.
 
 ### Also filed by lens A (nits)
 
-- **R5-A02** — Marsh Post's east wall is painted over by the block yard fill:
+- **R5-A02** — **REFUTED round 6 as filed.** The symptom is real; every causal claim is false. Marsh Post *did* claim a block, and its mass survives its own stamp intact — all 49 tiles `T_BUILDING`. The block fill wrote `T_PARK` and `solid()` overwrote it unconditionally. The park that ships is written **twelve landmarks later by Chapel Green** through the reclaim apron at `bake.ts:542`, whose only guard is `paintable()` — which explicitly permits `T_BUILDING`. Chapel Green's rect plus `APRON = 4`, clipped to the police rect, is exactly the affected tiles. **A fix aimed at `fillRegion` would change nothing.** Count is 18, not 7 — the 7 was accurate for the pre-R5-A01 bytes it audited and stale for the branch it was filed against. Original filing follows:
   7 tiles where the building record says wall and the tile plane says grass, so
   mass and collision disagree over the same ground. `fillRegion` writes through
   the block mask with no `landmarkBuilt` guard; a landmark only gets its plot
@@ -1350,10 +1350,27 @@ pre-fix bake before being trusted.
   four-tile-wide building inside a seven-tile landmark rect.
 - Nothing in `checkCity` asks whether a landmark's own mass survived the
   ground passes.
-- **Corroborates R5-A02** (lens A's independent finding that the block yard
-  fill paints over Marsh Post's east wall). Two agents reached the same
-  defect from opposite directions — one auditing the shipped bytes, one
-  reading a diff its own fix produced. Fix them together.
+- **CONFIRMED round 6, and it is the correct attribution.** Every number checks
+  against the shipped bytes: columns 540-542 x rows 549-554 all `T_PARK`;
+  pre-fix `{FLOOR:27, PARK:7}` -> post-fix `{PARK:18}`, so 11 unmasked; two of
+  the three columns had been `T_FLOOR`; Marsh Post draws 4 tiles wide in a
+  7-tile rect.
+- **One defect, not two.** A02 saw the 7 tiles the shop carve left uncovered and
+  guessed the wrong pass; A04 saw the other 11 once R5-A01 stopped hiding them,
+  and named the right one. Fixing A04 closes A02's symptom entirely.
+- **Severity: nit, arguably below where both were filed.** Nothing downstream
+  reads the building record for solidity — `collide.ts:67`, `volume.ts:377`,
+  `cityGeometry.ts:643`, `extrude.ts:74` all follow the tile plane, so there is
+  no wall to walk through: the east third is absent from collision, volume and
+  drawing alike, consistently. What remains is bookkeeping (a `Building` record
+  over-claiming three columns) plus one cosmetic parallax slab thrown over the
+  park by the 2D lean.
+- **The keeper**: the bake has no assertion that a landmark's stamped mass is
+  still there when the bake ends. An apron guarded only by `paintable()` will do
+  this to any landmark standing within four tiles of a later one. Census of all
+  29 landmarks: affected = 1. A `checkCity` rule comparing each landmark rect
+  against `RECIPES[kind].parts` is the fix, and
+  `evidence/round6/V-R5-A02-A04-landmark-mass-census.mjs` already implements it.
 
 
 ## R1-D02 fixed — and the sequencing hazard bit anyway
