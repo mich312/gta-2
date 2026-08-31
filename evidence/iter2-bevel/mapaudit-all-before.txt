@@ -1,0 +1,62 @@
+# Anywhere City 768x768 from shared/src/world/city.data.ts
+road-deadend        402,599,24      med    3-wide carriageway stops dead at 414,611 facing east into open ground — no landmark, quay or map edge to stop at
+road-deadend        403,660,24      med    3-wide carriageway stops dead at 415,672 facing east into open ground — no landmark, quay or map edge to stop at
+road-deadend        428,299,24      med    3-wide carriageway stops dead at 440,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        473,299,24      med    3-wide carriageway stops dead at 485,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        488,299,24      med    3-wide carriageway stops dead at 500,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        503,299,24      med    3-wide carriageway stops dead at 515,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        518,299,24      med    3-wide carriageway stops dead at 530,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        309,315,24      med    3-wide carriageway stops dead at 321,327 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        466,588,24      med    3-wide carriageway stops dead at 478,600 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        330,300,24      med    2-wide carriageway stops dead at 342,312 facing south into open ground — no landmark, quay or map edge to stop at
+road-stops-short    401,594,24      high   3-wide carriageway at 413,606 stops 4 tile(s) short of the carriageway it runs at, heading south, with field+trees across the mouth — the junction was never cut
+road-stops-short    252,373,24      med    3-wide carriageway at 264,385 stops 3 tile(s) short of the carriageway it runs at, heading east, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    252,378,24      med    3-wide carriageway at 264,390 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    252,395,24      med    3-wide carriageway at 264,407 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    629,425,24      med    3-wide carriageway at 641,437 stops 3 tile(s) short of the carriageway it runs at, heading east, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    253,540,24      med    3-wide carriageway at 265,552 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    256,555,24      med    3-wide carriageway at 268,567 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    270,395,24      med    3-wide carriageway at 282,407 stops 3 tile(s) short of the carriageway it runs at, heading west, with field across the mouth — the junction was never cut
+road-stops-short    273,412,24      med    3-wide carriageway at 285,424 stops 3 tile(s) short of the carriageway it runs at, heading west, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    277,463,24      med    3-wide carriageway at 289,475 stops 3 tile(s) short of the carriageway it runs at, heading west, with field across the mouth — the junction was never cut
+road-stops-short    398,91,24       med    3-wide carriageway at 410,103 stops 3 tile(s) short of the carriageway it runs at, heading south, with sidewalk+field across the mouth — the junction was never cut
+road-stops-short    415,108,24      med    3-wide carriageway at 427,120 stops 3 tile(s) short of the carriageway it runs at, heading north, with field across the mouth — the junction was never cut
+road-stops-short    -               -      ... and 5 more (--all to list)
+road-width-jump     437,298,27      low    straight north-south carriageway steps 7->4 tiles wide at 450,311
+kerb-missing        483,81,28       low    8 road tiles at 497,91 abut a building with no kerb, where 100% of the city's road-to-wall contact goes via pavement
+kerb-missing        570,415,27      low    7 road tiles at 583,425 abut a building with no kerb, where 100% of the city's road-to-wall contact goes via pavement
+kerb-missing        295,454,26      low    6 road tiles at 308,464 abut a building with no kerb, where 100% of the city's road-to-wall contact goes via pavement
+crossing-missing    342,460,80      med    4-tile water gap at 382,500 between roads at 382,494 and 382,506 — detour 180 road tiles (15x the straight line), no crossing
+crossing-missing    343,433,80      med    4-tile water gap at 383,473 between roads at 378,473 and 388,473 — detour 144 road tiles (14x the straight line), no crossing
+crossing-missing    327,465,80      med    4-tile water gap at 367,505 between roads at 367,500 and 367,510 — detour 140 road tiles (14x the straight line), no crossing
+built-staircase     241,328,65      high   bridge deck edge at 274,361 climbs 8 treads averaging 5.6 tiles over 45 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     167,194,65      high   bridge deck edge at 200,226 climbs 9 treads averaging 5.0 tiles over 45 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     387,638,79      high   quay edge at 427,678 climbs 16 treads averaging 3.7 tiles over 59 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     614,356,52      high   quay edge at 640,382 climbs 5 treads averaging 6.4 tiles over 32 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     176,434,57      high   quay edge at 205,463 climbs 8 treads averaging 4.6 tiles over 37 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     620,578,46      high   quay edge at 643,601 climbs 4 treads averaging 6.5 tiles over 26 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     146,446,64      high   bridge deck edge at 178,478 climbs 12 treads averaging 3.7 tiles over 44 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     37,244,60       high   quay edge at 67,274 climbs 12 treads averaging 3.3 tiles over 40 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     253,284,42      high   bridge deck edge at 274,305 climbs 4 treads averaging 5.5 tiles over 22 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     315,724,44      high   quay edge at 337,756 climbs 5 treads averaging 4.8 tiles over 24 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     156,312,40      high   quay edge at 176,332 climbs 4 treads averaging 5.0 tiles over 20 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     368,651,39      high   quay edge at 388,671 climbs 4 treads averaging 4.8 tiles over 19 tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn
+built-staircase     -               -      ... and 12 more (--all to list)
+bare-corridor       84,595,52       med    7-tile-wide straight clearing at 106,605 running 32 tiles north-south with woodland hard against both flanks and no carriageway in it — the shape of a road a removal pass took out without putting the canopy back
+# summary
+# road-deadend            10
+# road-stops-short        17
+# road-speck               0
+# road-notch               0
+# road-width-jump          1  noisy
+# junction-stub            0
+# walk-orphan              0
+# kerb-missing             3
+# crossing-missing         3
+# shore-staircase          0
+# built-staircase         24  noisy
+# bare-corridor            1
+# patch-square             0
+# edge-notch               0
+# fabric-coarse            0
+# TOTAL                   59
