@@ -1358,3 +1358,85 @@ The naive re-survey also flagged four `*-before.png` plates as drifted. They
 are deliberately historical and are *supposed* to differ — worth noting because
 an automated staleness gate would need that exclusion, or it would cry wolf on
 every before-shot in the repo.
+
+
+---
+
+# Round 5 closed — and the exercise, at five iterations
+
+```
+pnpm build                     clean
+npx tsc -p client --noEmit     clean
+pnpm test                      91 files, 971 tests, 0 failures
+citybake --check               exit 0 — 1182 blocks, 4014 buildings, 66 shops
+                               6 pinned bridging warnings (escalations, not defects)
+pnpm parity                    host parity OK — hash 936946305
+                               (verified against a CONFIRMED own server: the first
+                                run hit a leftover agent's vite on 5173, the same
+                                trap as round 4)
+```
+
+**Ground truth: 87 files / 943 tests -> 91 / 971.** 60 commits, 40 source files,
++2410/-136.
+
+## The tally
+
+| | |
+| --- | --- |
+| fixed | **23** |
+| open | 8 |
+| refuted as filed | 3 |
+| escalated to the author | 3 |
+| unverifiable here | 1 |
+
+## Did it converge? No — and that is the result
+
+| round | blocking | what happened |
+| --- | --- | --- |
+| 1 | 1 | 21 filed, 17 confirmed, 2 refuted, 1 closed by decision |
+| 2 | 0 | 8 fixed, 3 escalated |
+| 3 | 0 | 9 fixed + a defect found *underneath* a fix |
+| 4 | 0 | 3 fixed — the ones the queue's own drift had hidden |
+| 5 | **1** | convergence test **negative**: 1 blocking + 3 significant, and R1-C06 reopened |
+
+The yield did not decay. Round 5's lens A was no more diligent than round 1's —
+it looked at different things, and one of them was a police station you can
+drive into to clear your wanted level. **A review is a sample, not a proof.**
+
+So the round-1 advice holds, for a stronger reason than it was given: the
+budget is not a pragmatic compromise against an achievable clean state. There
+is no clean state to converge on. The budget is the whole stopping rule, and
+the severity floor is what makes stopping safe.
+
+## What the loop found out about itself
+
+Six corrections, every one discovered by running it, none by designing it:
+
+1. **Partition by build artifact, not directory** — every fixer writes shared
+   `dist` trees.
+2. **Fixers must not write the queue** — four concurrent copies, last write
+   wins.
+3. **Worktrees are cut from the merge-base, not the head** — all eight, every
+   round. Survivable only because the combined run is authoritative.
+4. **Never `git stash`** — `refs/stash` is in the common git dir; two fixers
+   popped each other's work. *My instruction caused it.*
+5. **`git add -A` in the main checkout** sweeps non-isolated reviewers' files.
+   *Also mine.*
+6. **A dead control is a broken instrument, not a passing test** — three
+   instruments in two rounds were confidently reporting nothing: the
+   corpse-witness repro (a wall grew where it staged its officer), `fallSheet`
+   (the chopper drifted off its own landing site), and `pnpm parity` twice
+   (pointed at another agent's server).
+
+Every one is the same shape: **isolation has to cover everything two agents
+can both write, and every input either one can read.**
+
+## Still open
+
+- **8 findings**, none blocking: R5-C01 (C06's reopened half), R5-C02, R5-C03,
+  R5-A02/A04 (the same Marsh Post defect from two directions), R5-C04, C07,
+  and `ci/playLocal.mjs` hanging in `getInCar`.
+- **3 escalations** for the author: the Ring's `maxBridgeSpan` (one number,
+  blast radius measured at zero), Marsh Causeway's reroute, Coast Road's own
+  finding.
+- **Then promote the bridging gate from `warning` to `error`.**
