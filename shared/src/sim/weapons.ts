@@ -162,7 +162,7 @@ function fireOnce(
   }
   for (const id of state.cops.ids) {
     const cop = state.cops.byId[id];
-    if (!cop || copIsDown(cop)) continue; // shoot through a body, not into it
+    if (!copCanBeShot(cop)) continue; // shoot through a body, not into it
     const d = rayCircleDistance(
       ox,
       oy,
@@ -332,6 +332,31 @@ export function damageProp(
 /** An officer who is a body rather than a pursuer. See damageCop. */
 export function copIsDown(cop: CopState): boolean {
   return cop.health <= 0;
+}
+
+/**
+ * Is this officer something a shot in flight can hit?
+ *
+ * The question every hit test along a line has to ask about `state.cops`, and
+ * the reason it has a name is that it kept being asked wrong. A downed
+ * officer stays in the table for `corpseSec` (40 s) so the body can be drawn
+ * and cleared, and `damageCop` returns immediately on one — so a hit test
+ * that selects a corpse selects the NEAREST thing on the ray, consumes the
+ * shot on it, and deals nothing. Everything behind the body is never
+ * considered. The tracer stops in mid-air over a corpse and a rocket bursts
+ * on it, which turned every body on the street into its own sandbag wall.
+ *
+ * Peds got this right from the start (`mode === 'dead'` is skipped) and the
+ * hitscan path got it right; `fireCarGuns` and `nearestHitAlong` each missed
+ * it, and `noticedBy` had missed the same thing before them. Three
+ * independent copies of one condition, two of them wrong, is the argument for
+ * one predicate the loops call instead of a condition each loop rewrites.
+ *
+ * Takes the raw table lookup, hole included, so the whole guard is one call:
+ * `if (!copCanBeShot(cop)) continue;`
+ */
+export function copCanBeShot(cop: CopState | undefined): cop is CopState {
+  return cop !== undefined && !copIsDown(cop);
 }
 
 /** Player shots may hit cops. Killing one is a serious crime. */

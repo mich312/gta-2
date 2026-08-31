@@ -11,7 +11,9 @@ import worldgenJson from '../data/worldgen.json';
 import { getTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
-import { createGameState, type GameState } from '../src/sim/state.js';
+import { createCop, createGameState, createPed, type GameState } from '../src/sim/state.js';
+import { insertEntity } from '../src/sim/entities.js';
+import type { Vec2 } from '../src/math/vec.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
@@ -307,6 +309,58 @@ describe('car fittings (G2)', () => {
       s = step(s, { 1: { ...NULL_INPUT, seq: 5 + i, tick: s.tick, fitting: true } }, [], map);
     }
     expect(s.projectiles.ids.length).toBe(before);
+  });
+
+  it('car guns shoot through a body and hit the officer behind it', () => {
+    // The ped loop in this same function already skipped corpses ("a body
+    // does not stop a bullet"); the cop loop did not, so a downed officer —
+    // who lingers in `state.cops` for 40 s — was picked as the nearest hit,
+    // consumed the round, and took nothing, because `damageCop` returns on a
+    // body. The tracer stopped in mid-air over the corpse. R5-C02.
+    const shoot = (
+      blocker: 'none' | 'corpse' | 'liveCop' | 'livePed',
+    ): { dealt: number; reach: number } => {
+      const { state, lane } = fitted('guns', 20);
+      const at = (d: number): Vec2 => ({
+        x: lane.x + Math.cos(lane.heading) * d,
+        y: lane.y + Math.sin(lane.heading) * d,
+      });
+      insertEntity(state.cops, createCop(50001, at(120), 999999, 'patrol'));
+      if (blocker === 'corpse') {
+        insertEntity(state.cops, createCop(50002, at(60), 0, 'patrol'));
+      } else if (blocker === 'liveCop') {
+        insertEntity(state.cops, createCop(50002, at(60), 500, 'patrol'));
+      } else if (blocker === 'livePed') {
+        const ped = createPed(60001, at(60), 100);
+        ped.mode = 'walk';
+        insertEntity(state.peds, ped);
+      }
+      const before = state.cops.byId[50001]!.health;
+      const events: SimEvent[] = [];
+      const after = press(state, events);
+      const shot = events.find((e) => e.type === 'shot');
+      return {
+        dealt: before - after.cops.byId[50001]!.health,
+        reach:
+          shot && shot.type === 'shot' ? Math.round(Math.hypot(shot.x1 - shot.x0, shot.y1 - shot.y0)) : -1,
+      };
+    };
+
+    const clear = shoot('none');
+    expect(clear.dealt).toBeGreaterThan(0);
+    expect(clear.reach).toBeGreaterThan(90);
+
+    // A corpse is scenery: the round reaches the officer behind it, exactly
+    // as if the body were not there.
+    expect(shoot('corpse')).toEqual(clear);
+
+    // Anything still standing does stop it — a live officer, and a live
+    // pedestrian, whom car guns are meant to hit.
+    for (const solid of ['liveCop', 'livePed'] as const) {
+      const blocked = shoot(solid);
+      expect(blocked.dealt).toBe(0);
+      expect(blocked.reach).toBeLessThan(clear.reach);
+    }
   });
 
   it('laying and detonating is deterministic', () => {

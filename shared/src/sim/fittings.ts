@@ -8,7 +8,13 @@ import { insertEntity } from './entities.js';
 import type { InputIntent } from './input.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
-import { applyDamage, damageCop, rayCircleDistance, rayWallDistance } from './weapons.js';
+import {
+  applyDamage,
+  copCanBeShot,
+  damageCop,
+  rayCircleDistance,
+  rayWallDistance,
+} from './weapons.js';
 import { damagePed } from './peds.js';
 import { chargeForArson, damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 
@@ -162,7 +168,7 @@ function fireCarGuns(
   }
   for (const cid of state.cops.ids) {
     const cop = state.cops.byId[cid];
-    if (!cop) continue;
+    if (!copCanBeShot(cop)) continue; // a body does not stop a bullet, here either
     consider(
       rayCircleDistance(ox, oy, dirX, dirY, cop.pos.x, cop.pos.y, PLAYER_RADIUS),
       () => (hitCopId = cid),
