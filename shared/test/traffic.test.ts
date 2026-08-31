@@ -1305,8 +1305,182 @@ describe('getting in and out of cars (J3)', () => {
     }
   });
 
+  /**
+   * Stage the proven boarding scene — a watcher up the street, a parked car
+   * in the kerbside row and somebody holding their ground on the pavement
+   * beside it — and run it until they get in or the clock runs out.
+   *
+   * `police` registers the car in `copFleet`, which is exactly what
+   * `maybeRoadblock` writes for a car it parks across a street and what
+   * `motorise`/`remount` write for a cruiser: the force's own vehicle.
+   */
+  function boardingScene(seed: number, kind: string, police: boolean, ticks = 400): GameState {
+    let state = createGameState(seed);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'watcher' }], map);
+    const lane = eastboundLane();
+    state.players.byId[1]!.pos = { x: lane.x, y: lane.y - 200 };
+    const carAt = { x: lane.x, y: lane.y - 2 * TILE_SIZE };
+    const pedAt = { x: lane.x + 10, y: lane.y - 3 * TILE_SIZE };
+    state = step(
+      state,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 960, kind, x: carAt.x, y: carAt.y, heading: 0 }],
+      map,
+    );
+    if (police) state.copFleet[960] = -1;
+    const ped = createPed(9601, { x: pedAt.x, y: pedAt.y }, 30);
+    ped.mode = 'walk';
+    insertEntity(state.peds, ped);
+    for (let i = 0; i < ticks && state.vehicles.byId[960]!.driverId === null; i++) {
+      const p = state.peds.byId[9601];
+      if (p) {
+        p.pos = { x: pedAt.x, y: pedAt.y };
+        p.mode = 'walk';
+      }
+      state = step(state, {}, [], map);
+    }
+    return state;
+  }
+
+  it('nobody boards a police vehicle, and it does not freeze if they try', () => {
+    // R5-C01. The boarding scan is the THIRD site of the `copFleet` rule that
+    // `stepTraffic` and the population cull already keep, and the only one
+    // that WRITES: it handed a parked cruiser or roadblock tank an ambient
+    // driver that `stepTraffic` then refused to steer. `driver.trip` only
+    // advances inside that gated loop, so the car never alighted; `remount`
+    // and `retireAbandoned` both want a null `driverId` and it no longer was;
+    // and the cull counted it against the ambient budget while refusing to
+    // despawn it. Measured over 30000 ticks, nothing ever released it.
+    const control = boardingScene(64, 'car', false);
+    // The control fires: this staging really does get people into cars.
+    expect(isAiDriver(control.vehicles.byId[960]!.driverId)).toBe(true);
+    expect(control.peds.byId[9601] ?? null).toBeNull();
+
+    const cruiser = boardingScene(64, 'copcar', true);
+    expect(cruiser.vehicles.byId[960]!.driverId).toBeNull();
+    expect(cruiser.trafficDrivers[960] ?? null).toBeNull();
+    // And the person who would have taken it is still on the pavement.
+    expect(cruiser.peds.byId[9601] ?? null).not.toBeNull();
+  });
+
   it('getting in and out is deterministic', () => {
     const run = (): number => hashState(withTraffic(88, 1500));
+    expect(run()).toBe(run());
+  });
+});
+
+describe('the ambient fleet does not grow (R5-C03)', () => {
+  /** The kerbside spawn furthest from a point — somewhere else entirely. */
+  function acrossTown(from: { x: number; y: number }): { x: number; y: number } {
+    let far = map.vehicleSpawns[0]!;
+    for (const s of map.vehicleSpawns) {
+      if (Math.hypot(s.x - from.x, s.y - from.y) > Math.hypot(far.x - from.x, far.y - from.y)) {
+        far = s;
+      }
+    }
+    return far;
+  }
+
+  it('a car traffic minted is taken off the map, not left parked for ever', () => {
+    // `putAiVehicle` mints a fresh entity for every car it puts on the road,
+    // and the three places in the sim that remove a vehicle — the wreck fuse,
+    // `retireAbandoned` (copFleet only) and the player's crusher — take none
+    // of them. So both ways of ceasing to drive one, the population cull and
+    // `stepBoarding`'s alighting, used to strand it for the rest of the
+    // session. At a real session's scale that is +11% of the whole vehicle
+    // table in ten minutes, monotone.
+    let state = withTraffic(120, 1200);
+    const minted = state.vehicles.ids.length;
+    expect(minted).toBeGreaterThan(0); // the spawner really did run
+
+    // The player leaves the district, so every car it minted falls outside
+    // the despawn ring at once.
+    const far = acrossTown(state.players.byId[1]!.pos);
+    for (let i = 0; i < 400; i++) {
+      state.players.byId[1]!.pos = { x: far.x, y: far.y };
+      state = step(state, {}, [], map);
+    }
+
+    // The invariant: no driverless car survives outside the despawn ring.
+    // Cars parked near where the player is standing NOW are traffic that is
+    // still in play — somebody may get back into them — and are not litter.
+    const stranded = state.vehicles.ids.filter((id) => {
+      const v = state.vehicles.byId[id]!;
+      if (v.driverId !== null) return false;
+      return Math.hypot(v.pos.x - far.x, v.pos.y - far.y) > getTrafficTuning().despawnDist;
+    });
+    expect(stranded).toEqual([]);
+  });
+
+  it('a car the CITY parked is demoted when traffic gives it up, never deleted', () => {
+    // The other half of the rule, and the one that keeps the fix from eating
+    // the world: `session.ts` ranks the kerbs and pins the parked stock
+    // exactly (166 cars for this city), and a player's own parked car is in
+    // nobody's register at all. Only what `putAiVehicle` minted may go.
+    const lane = eastboundLane();
+    let state = createGameState(121);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'a' }], map);
+    const far = acrossTown(lane);
+    expect(Math.hypot(far.x - lane.x, far.y - lane.y)).toBeGreaterThan(
+      getTrafficTuning().despawnDist,
+    );
+    state.players.byId[1]!.pos = { x: far.x, y: far.y };
+    // Spawned by command, exactly as the session lays its fleet down, and
+    // then driven — a pedestrian borrowed it from the kerb.
+    state = ambientCar(state, 970, lane);
+    for (let i = 0; i < 400; i++) {
+      state.players.byId[1]!.pos = { x: far.x, y: far.y };
+      state = step(state, {}, [], map);
+    }
+    const v = state.vehicles.byId[970] ?? null;
+    expect(v).not.toBeNull();
+    expect(v!.driverId).toBeNull(); // street furniture again, where it stands
+  });
+
+  it("a car the PLAYER took and parked is not traffic's to take back", () => {
+    // The car here IS one traffic minted, so it is in the register — until
+    // somebody human takes the wheel. After that it is theirs: they may have
+    // parked it outside their own front door and walked away, and a car that
+    // vanishes because you got far enough from it is worse than the leak.
+    let state = withTraffic(123, 700);
+    const target = state.vehicles.ids
+      .map((id) => state.vehicles.byId[id]!)
+      .find((v) => isAiDriver(v.driverId));
+    expect(target).toBeDefined();
+    const id = target!.id;
+
+    const p = state.players.byId[1]!;
+    p.pos = { x: target!.pos.x, y: target!.pos.y };
+    state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    expect(state.players.byId[1]!.vehicleId).toBe(id);
+    // Park it and get out. The action button is edge-triggered, so the key
+    // has to come back up before it can be pressed again.
+    state.vehicles.byId[id]!.speed = 0;
+    state = step(state, { 1: { ...NULL_INPUT, seq: 2, tick: 2 } }, [], map);
+    state.vehicles.byId[id]!.speed = 0;
+    state = step(state, { 1: { ...NULL_INPUT, seq: 3, tick: 3, action: true } }, [], map);
+    expect(state.vehicles.byId[id]!.driverId).toBeNull();
+
+    // Then walk to the far side of the city and stay there.
+    const far = acrossTown(state.vehicles.byId[id]!.pos);
+    for (let i = 0; i < 400; i++) {
+      state.players.byId[1]!.pos = { x: far.x, y: far.y };
+      state.players.byId[1]!.mode = 'foot';
+      state = step(state, {}, [], map);
+    }
+    expect(state.vehicles.byId[id] ?? null).not.toBeNull();
+  });
+
+  it('reclaiming is deterministic like everything else', () => {
+    const run = (): number => {
+      let s = withTraffic(122, 900);
+      const far = acrossTown(s.players.byId[1]!.pos);
+      for (let i = 0; i < 300; i++) {
+        s.players.byId[1]!.pos = { x: far.x, y: far.y };
+        s = step(s, {}, [], map);
+      }
+      return hashState(s);
+    };
     expect(run()).toBe(run());
   });
 });
