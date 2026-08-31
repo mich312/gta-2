@@ -1125,3 +1125,77 @@ fresh review lenses over the areas this exercise changed most. The question is
 not whether they find something — a review always finds something — but
 whether they find anything *confirmed and significant*. If they do not, the
 loop has converged and the budget should stop.
+
+
+## Round 5 — the convergence test, and it came back negative
+
+**The loop has not converged.** A fresh lens A, run on `45bfb3b` after four
+rounds of review and fixing, returned a **`blocking`** finding.
+
+### R5-A01 — the bake carves respray garages through eight landmarks
+- status: [ ] open        verdict: **pending adversarial verification**
+- round: 5   severity: **blocking**   lens: A
+- where: `amenities.ts:270` (`placeShopsFixed` walks `city.buildings` with no
+  landmark filter), called from `bake.ts:855`
+- 8 of 66 shops: three POLICE STATIONS (Kelvin Road, Sunridge, Marsh Post),
+  three hospitals, and both named towers.
+- why blocking, if it holds: a respray is `clearHeat` (`step.ts:246`) — "heat,
+  wanted level and the interest of every cop already on the street all go at
+  once". The way to end a chase becomes driving into the nearest police
+  station.
+- mechanism: `stamp()` pushes each landmark's mass into the same `buildings`
+  array as the houses and marks it in a `landmarkBuilt` WeakSet — which is
+  consulted in exactly **one** place, the block-clearing pass at `bake.ts:528`
+  that WORLDGEN.md §30.2 added. `bakeCity`'s last act hands the whole array to
+  `placeShopsFixed`, which carves an interior and a two-tile garage door
+  through a wall the plan asked to be solid.
+
+### Why four rounds missed it
+
+- `checkCity` has no rule for it.
+- `shippedCity.test.ts` **passes**: the doors are on pavement and the entries
+  on floor, so gate rule 3 is satisfied.
+- `city.test.ts`'s "gives stadiums and power stations an inside, not a slab"
+  asserts the *opposite* property, for two of thirteen landmark kinds.
+- **It is shipped-city-only.** Plangen seeds 7, 512 and 900 give zero
+  landmark-hosted shops. The spray quota relaxes through `minDist`/`minSize`
+  until the search reaches the landmark records at the END of `buildings` — so
+  no generated-city sweep would ever have found it.
+
+### What this says about the method
+
+My round-1 advice to you was that "loop until the reviewers are happy" never
+halts, and that the budget is the real stopping rule. Round 5 is the empirical
+confirmation, and it is stronger than the original argument:
+
+- Round 1: 1 blocking. Rounds 2-4: 0 blocking. Round 5: **1 blocking**.
+- The yield did not decay. **The same lens, over the same code, with different
+  attention, found different things.** Nothing about the first four rounds was
+  lazy — round 1's lens A produced six findings, five confirmed, one of which
+  was the missing crossings.
+
+So "review until clean" is not reachable by adding rounds. What a round
+converges on is *the lens's attention on that pass*, not the code. The honest
+stopping rules remain: a fixed budget, a severity floor, and the acceptance
+that a review is a sample, not a proof.
+
+The same round also confirms the fixes hold: lens A independently verified
+R1-A02, R1-A03 and R1-A08 in the shipped artifact, checked the freshness gate
+really binds the committed bytes, and reproduced the six pinned bridging
+warnings verbatim.
+
+### Also filed by lens A (nits)
+
+- **R5-A02** — Marsh Post's east wall is painted over by the block yard fill:
+  7 tiles where the building record says wall and the tile plane says grass, so
+  mass and collision disagree over the same ground. `fillRegion` writes through
+  the block mask with no `landmarkBuilt` guard; a landmark only gets its plot
+  back if it claimed a block, and Marsh Post did not.
+- **R5-A03** — five motorboats moored in two ornamental park ponds.
+  `placeBoatSpawns` asks for 3x3 of open water and a bank within three tiles,
+  and never asks whether that water reaches anywhere. BUGS.md §9.2 established
+  no boat is shut in by a bridge — it did not consider a pond.
+
+Lens A also declined to file `pitchX: 0` baking silently to one street, on the
+grounds that it is the same shape as R1-A06 whose fix was deliberately scoped
+and whose value is legal for parks. That is the prior-art rule working.
