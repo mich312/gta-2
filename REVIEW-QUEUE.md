@@ -1192,6 +1192,13 @@ warnings verbatim.
   the block mask with no `landmarkBuilt` guard; a landmark only gets its plot
   back if it claimed a block, and Marsh Post did not.
 - **R5-A03** — five motorboats moored in two ornamental park ponds.
+  **CONFIRMED round 6.** Every refutation failed: `collide.ts:45` makes
+  water-or-bridge exactly what a boat may occupy, so the flood is the right
+  medium test and if anything over-connects; re-run 8-connected the ponds stay
+  isolated at 86 and 107 tiles with a wholly dry perimeter (`T_SAND:100
+  T_PARK:6` / `T_SAND:108 T_PARK:4`); and the boats are live entities —
+  `session.ts:353` emits a real `spawnVehicle` for each, boardable from a bank
+  within three tiles.
   `placeBoatSpawns` asks for 3x3 of open water and a bank within three tiles,
   and never asks whether that water reaches anywhere. BUGS.md §9.2 established
   no boat is shut in by a bridge — it did not consider a pond.
@@ -1240,9 +1247,18 @@ and whose value is legal for parks. That is the prior-art rule working.
 - prior art: R1-C01 fixed this exact shape for cruisers and built `retireAbandoned`; the ambient fleet has no equivalent.
 
 ### R5-C04 — `police.json`'s `hard` preset sets `carsFromStar: 2`, and no car appears at two stars
-- status: [ ] open        verdict: pending verification
-- round: 5   severity: nit   lens: C
-- the preset overrides `carsFromStar` but not `waves`, and `waves["2"].vehicle` is null on every difficulty. A difficulty key that reads as live and moves nothing.
+- status: [-] **REFUTED round 6**
+- round: 5   severity: ~~nit~~ —   lens: C
+- the narrow observation reproduces: no unit *arrives* motorised at two stars, because `waves["2"]` is `vehicle: null` and no preset overrides `waves`. But the conclusion is wrong.
+- **`remount`'s gate is live at exactly two stars** (`police.ts:1189-1193`), and the two presets differ there. Controlled probe — same seed, same tick, same natural dismount, only the preset changed:
+  ```
+  hard   (carsFromStar=2): at 2 stars, back in the cruiser? YES at tick 0
+  normal (carsFromStar=3): at 2 stars, back in the cruiser? no (300 ticks)
+  ```
+  A cruiser under a two-star posse on hard and not on normal — the motorised response starting one star earlier, which is what the key names.
+- the reachable path is ordinary play: heat decaying 3 -> 2 while an officer stands beside the cruiser he stepped out of, which `retireAbandoned` preserves on purpose ("A car with an officer walking back to it (see `remount`) is kept").
+- the finding's other claim is right but immaterial — `waveUnits`' fallback is unreachable in shipped data. That leaves **one** live reader, not zero. It mistook "no car spawns at two stars" for "the key moves nothing".
+- **note**: `remount` is round 3's C01 fix. This key may well have been much closer to dead before this exercise started.
 
 ### What lens C checked and did not file
 
