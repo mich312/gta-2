@@ -1763,3 +1763,51 @@ The 89 remaining calls stay unpinned deliberately. The one real exposure left is
 `citybake --check` reproducing the committed bake on a **non-V8 CI runner** —
 which would fail loudly rather than desync a session, and pinning it means
 rebaking the city. That genuinely is the worldgen decision round 3 described.
+
+
+## Round 8 — `ci/playLocal.mjs` fixed; three plates retakeable again
+
+Un-retakeable for the whole exercise, recorded as such in round 5. **Root cause
+is one line and it is not the box.**
+
+`client/src/main.ts:249` — `const wants3d = params.get('render') !== '2d'`. 3D
+is the default and a URL that says nothing gets it; `playLocal` never said. So
+every attempt since the 3D default landed drove three.js through SwiftShader —
+**while passing `extrude=1`, which only the 2D tile layer reads.** The script
+was asking for a 2D-renderer feature without asking for the 2D renderer.
+
+| | fps | ms/frame | screenshot |
+| --- | --- | --- | --- |
+| 3D (what it was getting) | **0.37** | 2712 | 43 s |
+| 2D (`?render=2d`) | **57-60** | 17 | 0.2 s |
+
+At 0.37 fps a 240 ms key hold falls entirely between two input samples — that
+is the `getInCar` "hang". Round 5's suspect was wrong: `networkidle` arrives in
+828 ms, and the 30 s screenshot default was a second-order symptom.
+
+**Not the box's rasteriser**: an empty page and a full-viewport canvas fill both
+hold 59.8 fps here, and the 3D rate is unchanged at 1/16 of the pixels.
+
+**Whole run: 35 seconds, three plates, exit 0.**
+
+### The shutter now has a gate
+
+Each scene declares what must be true of `__debug` at the moment of the
+screenshot and **throws instead of shooting**. That is round 5's lesson made
+mechanical — its run 1 produced a `play-dusk.png` showing the player on foot
+with fists. An intermediate version of this fix produced a car *stopped*
+against a kerb with skid marks behind it, which is exactly why the drift scene
+gates on the car still moving as well as on the decal pool growing.
+
+All three plates were verified against their captions, and two captions were
+corrected rather than faked around: the dusk plate's "taxi crossing under
+signals" was traffic that happened to be passing on the day, and the drift
+plate's `tyre gone` notice was incidental crash damage.
+
+### Filed: the HUD has no street name
+
+`hud.place` is the landmark you are standing in and `hud.district` the borough;
+the lines top right are the **kill feed**, and "Kessler Row" / "The Quay" in
+them are **gang names**. `evidence/README.md` claimed a street name in two
+captions — one fixed here, and the same wrong phrase remains in
+`render-3d-client.png`'s caption.
