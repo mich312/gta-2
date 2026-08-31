@@ -663,30 +663,48 @@ export function bakeCity(plan: CityPlan): BakedCity {
     else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within, fringeAt);
   }
 
-  // The clearance a removal left behind.
+  // Country outside a block is still country.
   //
-  // The blocks are cut round the lattice, so the strip a street was carved in
-  // belongs to no block and no filler above has visited it. That is correct
-  // while the street is there — it is the carriageway and its verges. But
-  // three passes in the layout DELETE road after the blocks are cut (the ring
-  // shave, the bridge trim, the orphan prune, all marked in `layout.cleared`)
-  // and every one of them writes bare ground: the removal puts the GROUND
-  // back and not the country the carve cleared to make room. On Gannet Rock —
-  // an island WORLDGEN.md §12.9 calls wild and §14.6 calls deliberately
-  // trackless, whose entire lattice the orphan prune takes out for having no
-  // link to the mainland — that shipped a wood with a road-shaped hole in it:
-  // thirty tiles of dead-straight clearing with the tree line razor-straight
-  // on both flanks and no carriageway in it.
+  // The fill above visits blocks and nothing else, and the blocks are cut
+  // round the lattice — so every tile of country no block covers keeps the
+  // bare meadow the ground pass wrote, whatever put it outside a block. Two
+  // things do, and until this round only one of them was answered:
   //
-  // So the country grows back over it. The seed is the deleted carriageway;
-  // it spreads a few tiles into the verge the block cut left beside it,
-  // because the strip that reads as a scar is the whole gap between blocks
-  // and not just the two tiles of tarmac in the middle. Everything else is
-  // the rural fill's own rule, asked again: the wildness field decides wood
-  // or meadow, woodland stays a tile off any surviving lane so every lane is
-  // drivable at full width, and it never touches the waterline, where trees
-  // are the cliff the shore pass put there and clearing or planting one would
-  // move a landing.
+  //  - A REMOVAL. Three passes in the layout delete road AFTER the blocks are
+  //    cut (the ring shave, the bridge trim, the orphan prune, all marked in
+  //    `layout.cleared`) and every one of them writes bare ground: the
+  //    removal puts the GROUND back and not the country the carve cleared to
+  //    make room. On Gannet Rock — an island WORLDGEN.md §12.9 calls wild and
+  //    §14.6 calls deliberately trackless, whose entire lattice the orphan
+  //    prune takes out for having no link to the mainland — that shipped a
+  //    wood with a road-shaped hole in it.
+  //  - A COASTLINE THE DISTRICT POLYGON DOES NOT REACH. Gannet Rock's polygon
+  //    begins at y=598 and the island runs up to y=566, so the northern third
+  //    of it carries no block at all. That shipped as three thousand tiles of
+  //    unbroken meadow with the canopy starting on a dead straight line at
+  //    y=600, which is where the block grid begins and nothing a player can
+  //    see.
+  //
+  // They are the same defect and they take the same answer: the rural fill's
+  // own rule, asked again over the ground it never visited. The wildness
+  // field decides wood or meadow, woodland stays a tile off any surviving
+  // lane so every lane is drivable at full width, and it never touches the
+  // waterline, where trees are the cliff the shore pass put there and
+  // clearing or planting one would move a landing.
+  //
+  // ASKING THE FIELD, rather than growing out from the removal, is what makes
+  // the two answers one answer — and it is also what makes this safe. The
+  // first version of this pass seeded on `cleared` and spread four tiles into
+  // the verge, which closes a corridor but plants a nine-tile band of
+  // whatever the field says over open grassland: dead-straight woods striped
+  // across Gannet's north, this defect wearing the other hat, and it needed a
+  // both-flanks gate to hold it back. Over ALL the ground no block covers
+  // there is nothing to hold back, because the canopy edge is the field's own
+  // contour — the same contour the blocks either side of a scar were filled
+  // from. A corridor closes because its two flanks agree about it; open
+  // country stays open because the field says meadow there; and the seam at
+  // y=600 stops being a seam because the same question was asked on both
+  // sides of it.
   {
     const covered = new Uint8Array(W * H);
     for (const b of layout.blocks) {
@@ -700,41 +718,9 @@ export function bakeCity(plan: CityPlan): BakedCity {
       const own = layout.owner[i] as number;
       return own >= 0 && (plan.districts[own] as { rural?: boolean }).rural === true;
     };
-    // Bare ground in no block, in country, still holding the meadow the
-    // removal wrote. Grown out from the deleted carriageway by `VERGE` tiles:
-    // far enough to take in the verge the block cut left, short enough that a
-    // seam touching a wide open shore does not swallow it.
-    const VERGE = 4;
+    /** Bare ground in no block, in country: the ground the fill never saw. */
     const orphan = (i: number): boolean =>
       covered[i] === 0 && tiles[i] === T_FIELD && layout.water[i] !== 1 && rural(i);
-    const reach = new Int32Array(W * H).fill(-1);
-    const bag: number[] = [];
-    for (let i = 0; i < W * H; i++) {
-      if (layout.cleared[i] !== 1 || !orphan(i)) continue;
-      reach[i] = 0;
-      bag.push(i);
-    }
-    for (let q = 0; q < bag.length; q++) {
-      const i = bag[q] as number;
-      const d = reach[i] as number;
-      if (d >= VERGE) continue;
-      const x = i % W;
-      const y = (i - x) / W;
-      for (const [dx, dy] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        if ((reach[j] as number) >= 0 || !orphan(j)) continue;
-        reach[j] = d + 1;
-        bag.push(j);
-      }
-    }
     const solidAt = (tx: number, ty: number, t: number): boolean =>
       tx >= 0 && ty >= 0 && tx < W && ty < H && tiles[ty * W + tx] === t;
     const near = (tx: number, ty: number, t: number, r: number): boolean => {
@@ -743,51 +729,42 @@ export function bakeCity(plan: CityPlan): BakedCity {
       }
       return false;
     };
-    // A HOLE IN A CANOPY, and nothing else.
+    // NEVER A WOOD ACROSS A MOUTH.
     //
-    // Country outside a block is bare whatever put it there — the north of
-    // Gannet Rock carries no blocks at all and is one unbroken meadow — so a
-    // rule that planted every orphaned tile the wildness field liked would
-    // stripe open grassland with dead-straight nine-tile woods, which is the
-    // defect this pass exists to remove wearing the other hat. What makes the
-    // corridor read wrong is that the wood stands on BOTH flanks of it, so
-    // that is the test: the gap closes only where it is a gap, and open
-    // country the removal ran through stays open country.
-    const SPAN = 8;
-    const flankedBy = (x: number, y: number): boolean => {
-      for (const [dx, dy] of [
-        [1, 0],
-        [0, 1],
-      ] as const) {
-        let both = true;
-        for (const s of [1, -1] as const) {
-          let hit = false;
-          for (let k = 1; k <= SPAN && !hit; k++) {
-            const nx = x + dx * k * s;
-            const ny = y + dy * k * s;
-            if (nx < 0 || ny < 0 || nx >= W || ny >= H) break;
-            const t = tiles[ny * W + nx] as number;
-            if (t === T_TREES) hit = true;
-            else if (t !== T_FIELD) break; // built, water, tarmac: not a wood
-          }
-          if (!hit) both = false;
-        }
-        if (both) return true;
+    // One tile of verge is enough to keep a lane drivable at its full width,
+    // which is the rule the rural fill states — but it is a rule about the
+    // SIDE of a lane, and it has nothing to say about the gap between the end
+    // of one carriageway and the start of the next. The ring's held-short
+    // mouths (§14.3 D6) are three and four tiles deep, so the tile in the
+    // middle of one stands clear of both and would otherwise be planted. A
+    // tree there is not a hole in a canopy closing over, it is a street
+    // walled up: `mapaudit` reads a wood across a mouth as `high`, "a street
+    // that cannot be driven at all", and it is right to.
+    const roadWithin = (x: number, y: number, dx: number, dy: number): boolean => {
+      for (let k = 1; k <= 3; k++) {
+        if (solidAt(x + dx * k, y + dy * k, T_ROAD)) return true;
+        if (solidAt(x + dx * k, y + dy * k, T_BRIDGE)) return true;
       }
       return false;
     };
+    const acrossAMouth = (x: number, y: number): boolean =>
+      (roadWithin(x, y, 1, 0) && roadWithin(x, y, -1, 0)) ||
+      (roadWithin(x, y, 0, 1) && roadWithin(x, y, 0, -1));
     // Decided against the picture as the blocks left it, so the answer does
-    // not depend on which end of the corridor the scan reached first.
-    const plant = bag.filter((i) => {
+    // not depend on the order the plane is walked in.
+    const plant: number[] = [];
+    for (let i = 0; i < W * H; i++) {
+      if (!orphan(i)) continue;
       const x = i % W;
       const y = (i - x) / W;
-      if (!wildAt(x, y)) return false;
+      if (!wildAt(x, y)) continue;
       // One tile of verge keeps every surviving lane drivable at full width —
       // the rule fillBlock states for the woodland it plants itself.
-      if (near(x, y, T_ROAD, 1) || near(x, y, T_BRIDGE, 1)) return false;
-      if (near(x, y, T_WATER, 1)) return false;
-      return flankedBy(x, y);
-    });
+      if (near(x, y, T_ROAD, 1) || near(x, y, T_BRIDGE, 1)) continue;
+      if (near(x, y, T_WATER, 1)) continue;
+      if (acrossAMouth(x, y)) continue;
+      plant.push(i);
+    }
     for (const i of plant) tiles[i] = T_TREES;
 
     // ...and a ride left through it wherever the clearing was the only way.
@@ -845,15 +822,23 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // The picture as the fill left it: the planted tiles read as the open
     // ground they were a moment ago.
     const before = label(true);
+    /**
+     * Pieces the canopy closed over that are not worth a ride: see the price
+     * test at the end of the round. Marked so the next round looks past them
+     * instead of costing them out again.
+     */
+    const glade = new Uint8Array(W * H);
     // One severed piece rejoined per round, then look again: taking a ride
     // out changes the map the next round is measured on. The cap is a
-    // backstop, not a budget — the drawn city needs two.
+    // backstop, not a budget — the drawn city uses five, one of them a refusal.
     for (let round = 0; round < 24; round++) {
       const after = label(false);
+      const size = new Map<number, number>();
       const groups = new Map<number, Map<number, number>>();
       for (let i = 0; i < W * H; i++) {
         const a = after[i] as number;
         if (a < 0) continue;
+        size.set(a, (size.get(a) ?? 0) + 1);
         const b = before[i] as number;
         let g = groups.get(b);
         if (g === undefined) {
@@ -862,21 +847,64 @@ export function bakeCity(plan: CityPlan): BakedCity {
         }
         if (!g.has(a)) g.set(a, i);
       }
+      const sizeOf = (id: number): number => size.get(id) ?? 0;
+      // The biggest piece of a group keeps what the group was; the rest lost
+      // it. Taking them biggest-first means a ride is always measured against
+      // the smaller side, which is the side that lost something.
       let keepAt = -1;
       let lostId = -1;
+      let lostSize = 0;
       for (const [, g] of groups) {
         if (g.size < 2) continue;
-        const seats = [...g.entries()];
-        keepAt = (seats[0] as [number, number])[1];
-        lostId = (seats[1] as [number, number])[0];
-        break;
+        const seats = [...g.entries()].sort((u, v) => sizeOf(v[0]) - sizeOf(u[0]));
+        const home = seats[0] as [number, number];
+        for (let s = 1; s < seats.length; s++) {
+          const [id, seat] = seats[s] as [number, number];
+          if (glade[seat] === 1) continue;
+          keepAt = home[1];
+          lostId = id;
+          lostSize = sizeOf(id);
+          break;
+        }
+        if (keepAt >= 0) break;
       }
       if (keepAt < 0) break;
-      // Fewest tiles of new canopy back out, from the piece we keep to the
-      // piece it lost. Ground that is still open costs nothing to cross and
-      // a planted tile costs one, so the ride taken back out is the shortest
-      // it can be — 0-1 breadth-first, one deque, no heap.
+      // The ride back out, and WHAT IT IS ALLOWED TO CROSS.
+      //
+      // The first version could only take back tiles it had just planted, and
+      // what it had just planted over a corridor is a corridor: a two-tile
+      // strip with a block wall of trees down each side, so the only route it
+      // could ever find was the removed street's own clearing, end to end.
+      // That is why Gannet Rock shipped with a dead straight forty-eight-tile
+      // slot through its wood — the corridor this pass exists to close,
+      // redrawn one tile narrower and by our own hand.
+      //
+      // But the wood either side is a wood, not a wall. A ride crosses
+      // whoever's trees it likes, and woodland the fill planted inside a
+      // rural block is no more sacred than woodland this pass planted outside
+      // one — so the search may cross either, and the crossing it finds is
+      // the narrowest neck between the two pieces instead of the length of a
+      // vanished street. The waterline is the one exception and stays one:
+      // trees on the shore are the cliff the shore pass put there, and a ride
+      // through one is a landing on a coast the plan says has none.
+      //
+      // What does not change: open ground costs nothing to cross, so a ride
+      // is only ever paid for in canopy; it is one tile wide, so it is a ride
+      // and not a road; and the search is the same 0-1 breadth-first with one
+      // deque and no heap.
       const keepId = after[keepAt] as number;
+      /**
+       * Canopy a ride may cross: anything this pass planted, and any woodland
+       * standing in open country — but never a tree at the waterline.
+       */
+      const rideable = (j: number): boolean => {
+        if ((tiles[j] as number) !== T_TREES) return false;
+        if (planted[j] === 1) return true;
+        if (!rural(j)) return false;
+        const x = j % W;
+        const y = (j - x) / W;
+        return !near(x, y, T_WATER, 1);
+      };
       const from = new Int32Array(W * H).fill(-1);
       const buckets: number[][] = [[]];
       for (let i = 0; i < W * H; i++) {
@@ -907,7 +935,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
             const j = ny * W + nx;
             if ((from[j] as number) >= 0) continue;
             const free = (after[j] as number) >= 0;
-            if (!free && planted[j] !== 1) continue;
+            if (!free && !rideable(j)) continue;
             from[j] = i;
             const nd = free ? d : d + 1;
             while (buckets.length <= nd) buckets.push([]);
@@ -916,15 +944,39 @@ export function bakeCity(plan: CityPlan): BakedCity {
         }
       }
       if (hit < 0) break;
-      // Every tile of new canopy on the way back comes out; the open ground
-      // it crossed on the way was never planted and is left alone.
+      const ride: number[] = [];
       for (let i = hit; (from[i] as number) !== i; i = from[i] as number) {
-        if (planted[i] !== 1) continue;
+        if ((tiles[i] as number) === T_TREES) ride.push(i);
+      }
+      // A GLADE IS NOT A SEVERED PLACE.
+      //
+      // The rule this pass keeps is that ground you could walk to before it
+      // ran you can still walk to after — but a canopy closing over a single
+      // tile of meadow has not taken a place away from anybody, it has made a
+      // clearing, and a wood full of clearings is a wood. Left unsaid, that
+      // costs exactly what it sounds like: the first thing this guard did on
+      // Gannet Rock was cut ten tiles of straight ride through the trees to
+      // reach ONE tile of grass.
+      //
+      // So the ride is priced against what it reaches: never spend more wood
+      // on a ride than there is ground at the end of it. No threshold to
+      // choose and nothing to tune — the measure is the map's own. The four
+      // pieces the drawn city severs read 1, 424, 1207 and 52 tiles against
+      // rides of 10, 5, 5 and 6, so the one-tile glade is left as a glade and
+      // the three real ones are joined.
+      if (ride.length > lostSize) {
+        for (let i = 0; i < W * H; i++) if ((after[i] as number) === lostId) glade[i] = 1;
+        continue;
+      }
+      // Every tree on the way back comes out; the open ground it crossed on
+      // the way was never wood and is left alone.
+      for (const i of ride) {
         tiles[i] = T_FIELD;
         planted[i] = 0;
       }
     }
   }
+
 
   // Then the landmark takes its plot back: anything built inside its footprint
   // or its apron is demolished, the ground surfaced, and a kerb laid round it
