@@ -744,6 +744,54 @@ is written down here rather than remembered.
 readout they came off could not see the post chain. Fresh numbers run about a
 dozen draws higher.
 
+### R1-C06 fixed — and it uncovered the round's biggest defect
+
+Gated on round 2's `copFleet` register rather than on `isAiDriver`, at two
+sites in `traffic.ts`: `stepTraffic`'s mint-and-steer, and the population
+cull's **decision** but not its `aiCount++` — moving cruisers out of the
+ambient budget would change traffic density, a different change. Every
+`isAiDriver` call site was enumerated and ruled on; `tryCarjack` is
+deliberately untouched, because jacking an occupied cruiser is the genre verb
+and is the live path C01's invariant exists to catch. Excluding it would make
+that invariant dead code.
+
+Probe: `tick 17 … : 4` -> `1200 ticks, no cop cruiser ever held an
+ambient-traffic driver record`.
+
+**What removing the double-drive exposed.** `stepTraffic` had been integrating
+a pursuing cruiser a second time each tick. With one pair of hands on the
+wheel a cruiser finally winds up to `copCarSpeed` — and the run-over sweep's
+officer loop (`weapons.ts:747`) has no equivalent of the player loop's
+`mode !== 'foot'`, while `ride()` parks the officer on their own car's centre.
+**Every motorised officer was being run over by the car they were driving**,
+dead by tick 41 (health 50 -> 43.5 -> 32.9 -> 10.9 -> 0). C06 cannot land
+without the one-line driver exclusion, so it is in this change rather than
+filed.
+
+This is the loop catching something across rounds. Round 2's C01 after-numbers
+recorded `live officers=6` against a `maxCopsTotal` of **24**, and nobody
+questioned it — the fix under test had improved the number it was watching, so
+the number it was not watching went unread. The force now runs 23-24.
+
+### R1-C05 — option (b), no behaviour change
+
+The line is rewritten honestly as `cars > cap` with the reasoning in a
+comment; `police.test.ts`'s deliberate `cap + 2` assertion and its comment are
+untouched. The argument against "fixing" it to `cars + 2 > cap`: that spends
+the roadblock pair out of the same budget `motorise` spends, so with
+`vehicleCaps.tank = 3` and a five-star wave that turns out two tanks, a
+roadblock would need `cars <= 1` — one wave permanently forbidding every
+five-star roadblock, which is the armoured roadblock S3 exists for. GTA.md S3
+asks only that the city "cannot end up with six tanks in it"; 3 + 2 = 5 < 6,
+met as it stands.
+
+### Filed for a later round, not fixed
+
+Carjacking a cruiser with an officer in it spawns a **new** fleeing civilian
+ped (`tryCarjack`'s ejection) while the officer separately goes on foot via
+C01's invariant — one driver becomes two people. Pre-existing and out of scope
+where it was found.
+
 ### Refuted: the renderBench suspicion
 
 Round 2's B04 verifier flagged, unverified, that `ci/renderBench.mjs:37-39`
@@ -770,6 +818,13 @@ this work in it, and reported the round-1 city (1156 blocks / 4066 buildings)
 as if current. Its triangle measurements were taken on the old map.
 
 Caught only because a bake statistic in its report did not match the branch.
+
+**It happened to two of the three.** The sim worktree was cut from `1469611`
+as well — but that agent noticed on its own and fast-forwarded to `42c5cb0`
+before starting, because C06 sits directly on C01's round-2 work and it went
+looking for it. The renderer agent had no such dependency to trip over, so
+nothing prompted it to check. That is the tell: a stale base is invisible
+unless something you need is missing from it.
 
 So, for round 4 onward: **every worktree agent states its base commit in its
 first report, and the orchestrator re-verifies on the merged tree regardless.**
