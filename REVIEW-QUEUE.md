@@ -1133,7 +1133,7 @@ loop has converged and the budget should stop.
 rounds of review and fixing, returned a **`blocking`** finding.
 
 ### R5-A01 — the bake carves respray garages through eight landmarks
-- status: [ ] open        verdict: **pending adversarial verification**
+- status: [x] **FIXED round 5** — `00b5dca`; quota unchanged at 66, landmark-hosted 8 -> 0        verdict: **CONFIRMED blocking**
 - round: 5   severity: **blocking**   lens: A
 - where: `amenities.ts:270` (`placeShopsFixed` walks `city.buildings` with no
   landmark filter), called from `bake.ts:855`
@@ -1256,3 +1256,48 @@ Harmless here (evidence files committed early). But the list is now: build
 artifacts, the queue file, the base commit, the stash stack, and the working
 directory itself. **Every one was a thing two agents could both touch that
 neither was told about.**
+
+
+### R5-A01 verified, then fixed
+
+The verification did the thing worth copying: it **priced the fix before
+anyone attempted it.** Re-running `placeShopsFixed` with the 14 landmark
+masses removed still filled the whole quota — 66 shops, identical
+distribution — so "we would have to rebalance the shop quota" was settled as a
+non-issue before a fixer could spend a round discovering it.
+
+It also made the finding worse than filed: spray is a `drivethrough` with
+`reach = DOORWAY_RADIUS_PX * 2`, so **the buy succeeds from the road tile
+outside**. You need not enter the police station at all. And the three clinic
+doors are byte-identical to three spray doors, breaking an invariant
+`amenities.ts:1163` states about itself — "A clinic has no room you can walk
+into: the ward is solid."
+
+Two prose claims were corrected and neither touched the mechanism: the towers
+are 3-4 storeys, not sheds; and the vector layer *shows* the carved room
+rather than hiding it, because `extrude.ts:83` refuses to mass any building
+containing `T_FLOOR`.
+
+**The fix**: `landmarkBuilt` threaded as a **required** parameter, so no
+future caller can silently omit it — the failure mode that created this bug.
+Both a `checkCity` rule and a `city.test.ts` assertion, because they gate
+different artifacts: `checkCity` gates what the bake may write and holds a
+generated city to the rule; the test asserts over the shipped bytes the game
+loads. A rule in only one would have passed forever while the bug shipped —
+which is how it survived four rounds. Both were confirmed to fire against the
+pre-fix bake before being trusted.
+
+### R5-A04 — filed by the fixer, not fixed: a park's paint overruns Marsh Post
+
+- status: [ ] open        severity: nit   round: 5
+- 11 `floor -> park` tiles in the fix's plane diff turned out to be
+  **pre-existing and merely unmasked**: a park's ground paint overruns three
+  columns of Marsh Post's stamped footprint, and the illegal shop carve had
+  been painting `T_FLOOR` back over two of them. Marsh Post now draws as a
+  four-tile-wide building inside a seven-tile landmark rect.
+- Nothing in `checkCity` asks whether a landmark's own mass survived the
+  ground passes.
+- **Corroborates R5-A02** (lens A's independent finding that the block yard
+  fill paints over Marsh Post's east wall). Two agents reached the same
+  defect from opposite directions — one auditing the shipped bytes, one
+  reading a diff its own fix produced. Fix them together.
