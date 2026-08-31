@@ -1211,13 +1211,40 @@ and whose value is legal for parks. That is the prior-art rule working.
 ## Lens C's convergence pass — three significant, one nit
 
 ### R5-C01 — a pedestrian boards a parked police vehicle and both are lost for the session
-- status: [ ] open        verdict: pending verification
+- status: [ ] open        verdict: **CONFIRMED round 6** — and the "C06 was only partly fixed" charge holds exactly
 - round: 5   severity: significant   lens: C
 - where: `traffic.ts:1111`, the boarding scan in `stepBoarding`
 - **this is the unfixed half of R1-C06, which this file marked `[x] FIXED round 3`.** C06's own filing named it — "also in range: lets a pedestrian board an abandoned cruiser" — and the round-3 fix went in "at two sites in `traffic.ts`". The boarding scan is a **third** site and was not one of them. I recorded the finding closed without checking every part of it was.
 - **the C06 fix made it permanent.** Before the gate, a boarded cruiser was at least driven and culled like any ambient car. Now `stepTraffic` skips it (so `driver.trip` never advances and nobody alights), `retireAbandoned` and `remount` skip it (`driverId !== null`), and the cull counts it against the ambient budget then refuses to remove it.
 - measured, natural play, no staging: 4 of 6 seeds froze a **tank** within ten minutes — permanently spending one of three `vehicleCaps.tank` slots that `motorise` counts. The same permanent-budget exhaustion R1-C01 fixed for cruisers, through a door the C06 fix left open.
 - repro: `node evidence/round5/C-repro-ped-boards-cruiser.mjs 1500 500 natural`
+- **verified round 6.** The charge was checked against the original filing rather than taken on trust: `REVIEW-QUEUE.md:244`, unchanged since round 1, reads "also in range: `stepTrafficPopulation:1081-1083` lets a **pedestrian** board an abandoned cruiser … and `:1130-1147` culls cop cruisers at `despawnDist`". The cull half was fixed; the pedestrian half was named, excluded, and marked FIXED.
+- **"made it worse" proved by emulation.** `traffic.ts` consults `copFleet` at exactly two places, so running identical staging with the vehicle absent from the register is a faithful pre-C06 emulation:
+  ```
+  PRE-C06 emulation:   maxTrip=2996  movedPx=138.5  driverIdClearedAt=301
+  NOW (copFleet gate): maxTrip=0     movedPx=0.0    driverIdClearedAt=null
+  ```
+  Before, the cull handed `driverId` back the first tick the player passed `despawnDist`. After, never.
+- **stuck confirmed against every writer of `driverId`**: `stepTraffic`, the cull, `retireAbandoned`, `remount`, `tryEnterVehicle` and the alighting sweep all skip it — the last because `trip` is incremented only inside the gated `stepTraffic`. 30000 ticks (16.7 min) with no release. And the pin is exactly the ambient driver id: forcing it back to null makes `retireAbandoned` delete the vehicle on that same tick.
+- **the one crack**: `tryCarjack` (`traffic.ts:1462`) has no `copFleet` gate, so a **player** at the door can take it. For a frozen tank that is not an exit, it is free armour.
+- **correction, from the tree moving**: natural play now reproduces on **3 of 6 seeds, and a different set** than filed — R5-A01's blocking fix changed worldgen after R5-C01 was written, so `generateCity(6006)` is a different city and the chases evolve differently. Seed 101 boards a **tank** 55 s into unstaged five-star play; still in the same pixel ten minutes later, 5 tanks on the map against `vehicleCaps.tank` of 3.
+
+## The process failure R5-C01 exposes
+
+I marked R1-C06 `[x] FIXED` on a fixer's report without checking that every
+part the filing named was covered. The fixer said "at two sites in
+`traffic.ts`" and was honest; the filing named three cases; nobody compared
+the two lists.
+
+The verify pass guards a finding on the way *in*. Nothing guarded it on the way
+*out*. So the rule this needs is the mirror of the one already here: **a
+finding may only be closed against its own filing, item by item** — and where
+a fixer reports fixing fewer sites than the filing names, that is a partial
+close, not a close.
+
+Round 4's queue reconciliation caught statuses that had drifted from reality.
+This is the same failure one level down: the status was *right* that work
+happened, and wrong about what the work covered.
 
 ### R5-C02 — a body on the tarmac stops a car gun's rounds and bursts a rocket
 - status: [ ] open        verdict: **CONFIRMED round 6** — both halves; the physics defence refuted by measurement
