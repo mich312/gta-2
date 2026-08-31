@@ -45,6 +45,7 @@ import type { Occluder } from './shadows.js';
 import { RENDER_SCALE, SUN_X, SUN_Y } from './config.js';
 import { hash2 } from './noise.js';
 import { viewport } from './viewport.js';
+import { type HudPoint, projectGround } from './project.js';
 
 const REMOTE_COLORS = ['#e05555', '#55b0e0', '#57c98a', '#d3a24a', '#b06ad6', '#5fd6c9', '#d66a9c'];
 const LOCAL_COLOR = '#f2f2f2';
@@ -793,14 +794,20 @@ export function render(
   // See `drawNameTags`.
 }
 
+/** Scratch for the tag projection, so a frame of name tags allocates nothing. */
+const TAG_AT: HudPoint = { x: 0, y: 0 };
+
 /**
  * Who everybody is, over their heads.
  *
  * Drawn in HUD units rather than device pixels, and from `main.ts` rather than
- * from inside a renderer, because both renderers need it and the mapping is the
- * same for both: the 3D camera hangs straight down over the middle of the same
- * frame, so a point on the ground lands at `world - cam` in either view. That
- * is the same identity the radar and mouse aim rely on.
+ * from inside a renderer, because both renderers need it and one mapping
+ * serves both: `projectGround`, which is exactly `world - cam` for the 2D
+ * renderer and for a straight-down camera, and follows the tilt when there is
+ * one. It used to subtract here directly, on the grounds that "the 3D camera
+ * hangs straight down over the middle of the same frame" — but `GAME_PITCH` is
+ * 10, and at the corners of the frame that put a tag up to 15 world px from
+ * the head it names.
  *
  * Last, above everything including the night grade, so a name stays readable in
  * the dark.
@@ -812,7 +819,8 @@ export function drawNameTags(ctx: CanvasRenderingContext2D, scene: Scene, cam: V
     // written for; in HUD units that is one scale factor too many.
     const w = img.width / RENDER_SCALE;
     const h = img.height / RENDER_SCALE;
-    ctx.drawImage(img, wx - cam.x - w / 2, wy - cam.y - (PLAYER_RADIUS + 12), w, h);
+    projectGround(wx, wy, cam, TAG_AT);
+    ctx.drawImage(img, TAG_AT.x - w / 2, TAG_AT.y - (PLAYER_RADIUS + 12), w, h);
   };
   for (const r of scene.remotes.players) {
     if (r.player.mode === 'dead') continue;

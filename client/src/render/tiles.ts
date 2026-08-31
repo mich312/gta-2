@@ -2785,12 +2785,19 @@ export class TileLayer {
       }
       const x = (shop.doorX - tx0) * TD;
       const y = (shop.doorY - ty0) * TD;
+      // The same four-way as `paintShopFloor` and the 3D threshold accent in
+      // `cityGeometry.ts`: the shopfront is how you tell a garage from a
+      // clothing shop from the street, so all three sites must agree. The
+      // palette has no colour of its own for `clinic`, so it falls through to
+      // `shopSpray` here exactly as it does in the other two.
       const accent =
-        shop.kind === 'depot'
-          ? DEPOT_ACCENT
-          : shop.kind === 'gun'
-            ? palette.shopGun
-            : palette.shopClothing;
+        shop.kind === 'gun'
+          ? palette.shopGun
+          : shop.kind === 'clothing'
+            ? palette.shopClothing
+            : shop.kind === 'depot'
+              ? DEPOT_ACCENT
+              : palette.shopSpray;
       const s = RENDER_SCALE;
 
       ctx.fillStyle = shade(accent, 0.45);

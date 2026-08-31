@@ -1,6 +1,7 @@
 import type { Catalog, FullSnapshot, GameEvent, PlayerState, ShopKind, Vec2 } from 'shared';
 import { DEPOT_ROWS, getTuning } from 'shared';
 import { viewport } from './viewport.js';
+import { type HudPoint, projectGround } from './project.js';
 import {
   PART_HEADLIGHT_L,
   PART_HEADLIGHT_R,
@@ -17,6 +18,10 @@ import {
   ZONE_REAR,
   ZONE_RIGHT,
 } from 'shared';
+
+/** Scratch for the tracer endpoints, so the tracer loop allocates nothing. */
+const TRACER_A: HudPoint = { x: 0, y: 0 };
+const TRACER_B: HudPoint = { x: 0, y: 0 };
 
 /** What the server tells us about the job in hand. */
 export interface MissionView {
@@ -399,12 +404,18 @@ export class Hud {
     this.feed = this.feed.filter((f) => f.expiresAtMs > now);
     this.tracers = this.tracers.filter((t) => t.expiresAtMs > now);
 
-    // Tracers (world space).
+    // Tracers (world space). Through `projectGround` rather than by
+    // subtracting `cam`: a tracer is a line between two points ON THE GROUND,
+    // and under the shipped 10-degree camera the far end of a long shot lands
+    // up to 15 world px from where the subtraction puts it. For the 2D
+    // renderer and at pitch 0 the projection IS the subtraction.
     ctx.strokeStyle = 'rgba(255, 240, 180, 0.8)';
     for (const t of this.tracers) {
+      projectGround(t.x0, t.y0, cam, TRACER_A);
+      projectGround(t.x1, t.y1, cam, TRACER_B);
       ctx.beginPath();
-      ctx.moveTo(Math.floor(t.x0 - cam.x), Math.floor(t.y0 - cam.y));
-      ctx.lineTo(Math.floor(t.x1 - cam.x), Math.floor(t.y1 - cam.y));
+      ctx.moveTo(Math.floor(TRACER_A.x), Math.floor(TRACER_A.y));
+      ctx.lineTo(Math.floor(TRACER_B.x), Math.floor(TRACER_B.y));
       ctx.stroke();
     }
 
