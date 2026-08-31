@@ -1953,7 +1953,7 @@ bundles the client, and `pnpm parity` is called a gate but runs in no workflow.
 at round-1 severity.
 
 ### R9-B01 — the HUD's world-space identity was verified at pitch 0, and the shipped camera is 10 degrees
-- status: [ ] open   severity: significant
+- status: [x] **FIXED round 10** — `bbbfc11`; worst error 16.14 world px -> 1.026e-12
 - where: `renderer.ts:801` (the stated identity), `main.ts:246` (`GAME_PITCH` 10),
   consumers `renderer.ts:815` (`drawNameTags`) and `hud.ts:406-407` (tracers)
 - `drawNameTags`'s docstring states the rule the whole HUD layer draws by:
@@ -1980,7 +1980,7 @@ pitch=10           3D lands at     HUD draws at     error (world px)
   the worst corner is 0.3 degrees.
 
 ### R9-B02 — in 2D a respray garage and a clinic wear the clothing shop's front
-- status: [ ] open   severity: significant
+- status: [x] **FIXED round 10** — `bbbfc11`; 31 of 71 shops now wear their own colour
 - where: `tiles.ts:2788-2793` (`paintShops`) — the three-way accent falls through
   to `palette.shopClothing`, so `spray` and `clinic` both land on it
 - `palette.shopSpray` **exists** and the two sibling paths carry the full
@@ -2037,3 +2037,53 @@ is roughly independent of how much reviewing came before.
 That settles the question the whole exercise was built to answer. Rounds are
 not converging on a clean codebase — they are converging on *nothing*, and the
 budget is the only stopping rule there was ever going to be.
+
+
+## Round 10 — the renderer
+
+**B01**: `client/src/render/project.ts` — `projectGround(wx, wy, cam, out)`, one
+mapping both renderers ask. Identity branch when no 3D camera is registered or
+at pitch 0, so the 2D path cannot move; `CityView` registers its own `pitch`
+and `FOV_Y` in its constructor and clears them in `dispose()`, so the HUD and
+the camera cannot drift apart the way the comment and `GAME_PITCH` did.
+
+Closed form rather than a matrix round-trip, because `render/` must not pull the
+3D renderer in behind it — and exact rather than approximate:
+`depth = H - dy·sin p`, `scale = H/depth`,
+`screen = centre + (dx·scale, dy·cos p·scale)`, literally the identity at
+`p = 0`.
+
+**The proof that 2D did not move is the right one**: the pitch-0 worst error
+after the change is `7.944e-15` — *the same number as before, bit for bit*. At
+pitch 10, worst error **16.14 world px -> 1.026e-12**; at the 700x400 ceiling,
+17.98 -> 2.050e-13.
+
+**The test is built to fail loudly if the premise changes**: five GPU-free
+tests, two asserting the identity with `toBe` rather than `toBeCloseTo`, and one
+asserting the OLD identity is off by >10 px at pitch 10 — so if the camera is
+ever un-tilted, the suite reports that the fix has become dead code instead of
+silently passing.
+
+**B02**: `paintShops` gains the four-way its two siblings already carry. **No
+clinic colour was invented** — the palette has none, so `clinic` falls through
+to `shopSpray` with a comment, which is what the siblings do. The point was to
+make three call sites agree, not to add a fourth scheme. Noted for whoever
+makes that design call: `minimap.ts:284` and `hud.ts:210,223` already use
+`#e06a6a` for clinics, so a candidate exists — but promoting it to the palette
+would also touch `cityGeometry.ts` and `mapRender.ts`.
+
+The before picture makes the case unaided: **in the spray cell the awning is the
+clothing shop's blue while the threshold square two tiles up, painted by
+`paintShopFloor`, is already amber.** The bug contradicted itself inside one
+frame.
+
+### Filed by the fixer, not fixed
+
+- **`client/src/debug/overlay.ts:60-89`** uses the same `pos - cam` identity to
+  draw hitboxes and the prediction markers, so under 3D it is off by the same
+  ~16 px at the frame edge. One line per site now that `projectGround` exists.
+- **`server/src/tools/mapRender.ts:737-743`** has the same class with a
+  **fourth** scheme — `gun -> shopGun`, `spray -> uiAccent`, everything else
+  including `clinic -> shopClothing`. **The offline map render marks clinics as
+  clothing shops.** Left alone because it is another fixer's directory this
+  round.
