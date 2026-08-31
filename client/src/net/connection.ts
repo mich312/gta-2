@@ -21,6 +21,25 @@ export interface ConnectionOptions {
 const RECONNECT_DELAY_MS = 2000;
 
 /**
+ * Server error codes that reconnecting cannot fix.
+ *
+ * The server answers a bad join with an `error` frame and then hangs up, so
+ * every rejection lands in `onclose` and looks exactly like a dropped socket.
+ * For most of them retrying is the right answer — `full` above all, where the
+ * city is at `maxPlayers` and the whole point of waiting is that a slot frees
+ * up — so the default stays "reconnect".
+ *
+ * `protocol` is different in kind: the rejection is about *this build*, and
+ * the next socket sends the same `PROTOCOL_VERSION` and is refused
+ * identically. Retrying it is a 2-second loop with no end, and after a
+ * version bump every tab left open across the deploy runs it at once. Nothing
+ * short of the player reloading the page can change the outcome, which is
+ * what the server's message tells them to do — so stop, and let the fatal
+ * banner stand.
+ */
+const TERMINAL_ERROR_CODES: ReadonlySet<string> = new Set(['protocol']);
+
+/**
  * WebSocket wrapper: joins on open, auto-reconnects with the resume token,
  * counts bytes for the overlay. All encoding goes through the shared codec.
  */
@@ -70,7 +89,11 @@ export class Connection {
       } catch {
         return;
       }
-      if (msg) this.opts.onMessage(msg);
+      if (!msg) return;
+      // Before handing it on: a terminal rejection has to stop the reconnect
+      // loop, and the close that follows it is a beat away.
+      if (msg.type === 'error' && TERMINAL_ERROR_CODES.has(msg.code)) this.close();
+      this.opts.onMessage(msg);
     };
     ws.onclose = () => {
       this.connected = false;
@@ -78,7 +101,11 @@ export class Connection {
       if (this.closedByUs) return;
       this.attempts++;
       this.opts.onDisconnected?.(this.attempts);
-      setTimeout(() => this.connect(), RECONNECT_DELAY_MS);
+      // Re-checked on the way out, not just on the way in: `close()` can land
+      // inside the wait, and a scheduled reconnect would otherwise undo it.
+      setTimeout(() => {
+        if (!this.closedByUs) this.connect();
+      }, RECONNECT_DELAY_MS);
     };
   }
 
