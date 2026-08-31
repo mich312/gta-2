@@ -1,0 +1,32 @@
+$ node evidence/round10/D02-rate.mjs 20 "BEFORE quiet"      # tree at 9d8ff2c, unfixed
+
+# persistCheck rate: BEFORE quiet, 20 runs, load at start 1.43
+run   1: FAIL  orphans=1  load=2.58
+run   2: PASS  orphans=0  load=2.58
+run   3: FAIL  orphans=1  load=2.95
+run   4: FAIL  orphans=1  load=2.65
+run   5: PASS  orphans=0  load=2.84
+run   6: PASS  orphans=0  load=2.61
+run   7: PASS  orphans=0  load=2.61
+run   8: PASS  orphans=0  load=2.48
+run   9: PASS  orphans=0  load=2.28
+run  10: PASS  orphans=0  load=2.18
+run  11: PASS  orphans=0  load=2.18
+run  12: PASS  orphans=0  load=2.08
+run  13: PASS  orphans=0  load=2.08
+run  14: PASS  orphans=0  load=1.91
+run  15: PASS  orphans=0  load=1.91
+run  16: PASS  orphans=0  load=2.08
+run  17: PASS  orphans=0  load=1.99
+run  18: PASS  orphans=0  load=1.83
+run  19: PASS  orphans=0  load=1.83
+run  20: FAIL  orphans=1  load=1.78
+
+# BEFORE quiet: 4/20 failed, 4 orphaned server(s), load at end 1.78
+
+Every failure was `Error: timeout waiting for wallet` (the reason lines in this
+first run printed the stack tail; the harness's reason filter was tightened
+straight after, and the loaded run below shows the messages).
+
+Every one of the four failures left exactly one live `server/dist/index.js`
+behind — R9-D04, one orphan per failure, none on a pass.

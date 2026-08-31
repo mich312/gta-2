@@ -48,8 +48,24 @@ if (noise > 0) {
 }
 for (const e of real) console.error('[ci/test] unhandled error:', e);
 
-// A suite that silently failed to collect is not a green suite. (Only for
-// the full run — a CLI filter legitimately narrows the set.)
+// A suite that silently failed to collect is not a green suite. A filter
+// legitimately narrows the set — but never to nothing: a filter that matches
+// no file verified no test, and printing green there reads as "that test
+// passes" about a test that was mistyped, renamed or deleted. `vitest run`
+// itself exits 1 on an empty collection; this wrapper must not be more
+// permissive than the runner it wraps.
+if (files.length === 0) {
+  if (filters.length > 0) {
+    console.error(
+      `[ci/test] FAIL: NO TEST FILE MATCHED ${filters.map((f) => JSON.stringify(f)).join(' ')} — ` +
+        'nothing ran, so nothing was verified. This is NOT a pass: check the filter spelling, ' +
+        'or whether the test file was renamed or removed.',
+    );
+  } else {
+    console.error('[ci/test] FAIL: no test files collected — the suite did not run.');
+  }
+  process.exit(1);
+}
 if (filters.length === 0 && files.length < 50) {
   console.error(`[ci/test] FAIL: only ${files.length} test files collected — the suite did not run.`);
   process.exit(1);
@@ -59,5 +75,6 @@ if (failed.length > 0 || real.length > 0) {
   for (const f of failed) console.error('  -', f);
   process.exit(1);
 }
-console.log(`[ci/test] green: ${files.length} files, 0 failures, ${noise} ignored runner-noise error(s).`);
+const scope = filters.length > 0 ? ` matching ${filters.map((f) => JSON.stringify(f)).join(' ')}` : '';
+console.log(`[ci/test] green: ${files.length} files${scope}, 0 failures, ${noise} ignored runner-noise error(s).`);
 process.exit(0);

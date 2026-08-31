@@ -1,0 +1,44 @@
+R9-D01 — `ci/test.mjs` reported green on a filter that matched nothing.
+
+BEFORE (tree at 9d8ff2c)
+------------------------
+$ node ci/test.mjs nosuchtestfilterxyz
+ RUN  v3.2.7 ...
+No test files found, exiting with code 1          <- vitest's own verdict, discarded
+filter: nosuchtestfilterxyz
+[ci/test] green: 0 files, 0 failures, 0 ignored runner-noise error(s).
+EXIT=0
+
+$ npx vitest run nosuchtestfilterxyz
+EXIT=1                                            (recorded in the R9-D01 filing)
+
+The wrapper was more permissive than the runner it wraps.
+
+AFTER
+-----
+$ node ci/test.mjs nosuchtestfilterxyz
+[ci/test] FAIL: NO TEST FILE MATCHED "nosuchtestfilterxyz" — nothing ran, so
+nothing was verified. This is NOT a pass: check the filter spelling, or whether
+the test file was renamed or removed.
+EXIT=1
+
+CONTROL — a filter that does match is still green, and now says what it matched
+-----------------------------------------------------------------------------
+$ node ci/test.mjs noise
+[ci/test] green: 1 files matching "noise", 0 failures, 0 ignored runner-noise error(s).
+EXIT=0
+
+$ node ci/test.mjs police
+[ci/test] green: 1 files matching "police", 0 failures, 0 ignored runner-noise error(s).
+EXIT=0
+
+CONTROL — the unfiltered run is unchanged
+----------------------------------------
+`pnpm test` (no filter) still collects the whole suite and still fails below 50
+files; the `onTaskUpdate` starvation filter at ci/test.mjs:19,39-48 is untouched
+by this change. See D01-full-suite.txt.
+
+Why the green line now names the filter: a reviewer reading
+`green: 59 files matching "police"` can see what was actually run. The old line
+printed a count with no scope, so `green: 0 files` was the only clue that
+nothing had been verified — and it read like a pass.
