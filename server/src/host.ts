@@ -536,6 +536,10 @@ export class GameHost {
       tick: snap.tick,
       tickRate: TICK_RATE,
       resumeToken: slot.resumeToken,
+      // Where this slot's input numbering has got to. A resumed client
+      // restarts its own counter at 1 and would otherwise spend a whole
+      // prior play session below the replay watermark, unable to move.
+      inputSeq: slot.lastQueuedSeq,
       snapshot: filtered,
       tuning: getTuning(),
       worldgen: this.session.worldgen,

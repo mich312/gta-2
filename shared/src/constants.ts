@@ -23,8 +23,16 @@
  * `enterRadius` and gained `enterReach`: the door is measured from the
  * bodywork now rather than from the vehicle's centre, which is the only
  * measure that reaches the front of a bus.
+ * 9: `welcome` carries `inputSeq` — the last input sequence number the server
+ * has taken from this slot. A client numbers its own intents and the server
+ * drops anything at or below that watermark; a reloaded tab starts counting
+ * at 1 again, so on a resume every intent it sent was dropped until the
+ * counter climbed back over the watermark (a whole prior play session's
+ * worth). The client now resumes its counter from this field instead, which
+ * keeps the numbering monotonic across a reload and leaves the replay guard
+ * exactly as strict as it was.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** Simulation tick rate. The sim advances only in whole ticks of this rate. */
 export const TICK_RATE = 30;
