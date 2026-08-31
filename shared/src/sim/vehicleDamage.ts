@@ -294,7 +294,7 @@ export function damageVehicle(
  * occupied car costs more because the deaths that follow are yours — those
  * are charged separately by the blast, so this is only the arson itself.
  */
-function chargeForArson(state: GameState, v: VehicleState, attackerId: number | null): void {
+export function chargeForArson(state: GameState, v: VehicleState, attackerId: number | null): void {
   if (attackerId === null) return;
   const arsonist = state.players.byId[attackerId];
   if (!arsonist) return;
