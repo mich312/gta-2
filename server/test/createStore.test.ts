@@ -41,6 +41,37 @@ describe('createStore', () => {
     expect(ledger.balance('acct:dave')).toBe(50);
   });
 
+  it('does not open a database beside a .json without saying so', () => {
+    // The fallback's own direction warns; this is the way back. An operator
+    // who ran the file store on a Node build without node:sqlite (README) and
+    // later gains it would otherwise get a clean, empty database next to a
+    // file full of accounts, with nothing said.
+    const dir = mkdtempSync(join(tmpdir(), 'create-orphan-'));
+    const json = join(dir, 'persist.json');
+    // Written the way the fallback writes it, not by hand.
+    const before = new FileStore(json);
+    new Ledger(before).append('acct:dave', 50, 'start', 'start:acct:dave');
+    before.flush();
+
+    const warn = vi.fn();
+    const store = createStore(join(dir, 'persist.db'), warn);
+    expect(warn).toHaveBeenCalledOnce();
+    const msg = String(warn.mock.calls[0]?.[0]);
+    expect(msg).toContain(json);
+    if (sqliteAvailable()) {
+      // The accounts are in the file the warning names, and not in the store.
+      expect(store).toBeInstanceOf(SqliteStore);
+      expect(new Ledger(store).balance('acct:dave')).toBe(0);
+      expect(new Ledger(new FileStore(json)).balance('acct:dave')).toBe(50);
+    } else {
+      // No sqlite: the existing fallback warning is the one that fires, and
+      // the store it hands back is the file with the accounts in it.
+      expect(store).toBeInstanceOf(FileStore);
+      expect(msg).toContain('node:sqlite unavailable');
+      expect(new Ledger(store).balance('acct:dave')).toBe(50);
+    }
+  });
+
   it('derives the fallback path by swapping the extension for .json', () => {
     expect(jsonFallbackPath('data/persist.db')).toBe('data/persist.json');
     expect(jsonFallbackPath('data/persist.sqlite3')).toBe('data/persist.json');

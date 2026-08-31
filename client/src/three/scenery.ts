@@ -97,6 +97,16 @@ function propZ(name: string): number {
 /** How far outside the view to keep planting resident, in tiles. */
 const PLANT_MARGIN = 40;
 
+/** One kind of prop: a pool of instances, the outline twin, and this frame's fill. */
+interface PropPool {
+  mesh: THREE.InstancedMesh;
+  /** Shares `mesh.instanceMatrix`, so its `count` has to be shortened too. */
+  outline: THREE.InstancedMesh;
+  /** What the buffers hold. `mesh.count` is this frame's draw length. */
+  capacity: number;
+  used: number;
+}
+
 interface PlantPool {
   mesh: THREE.InstancedMesh;
   outline: THREE.Mesh | THREE.InstancedMesh;
@@ -114,12 +124,11 @@ export class SceneryLayer {
    */
   private readonly plants = new THREE.Group();
   private map: CityMap | null = null;
-  private readonly propPools = new Map<string, { mesh: THREE.InstancedMesh; used: number }>();
+  private readonly propPools = new Map<string, PropPool>();
   private readonly m = new THREE.Matrix4();
   private readonly pos = new THREE.Vector3();
   private readonly q = new THREE.Quaternion();
   private readonly one = new THREE.Vector3(1, 1, 1);
-  private readonly zero = new THREE.Matrix4().makeScale(0, 0, 0);
   private readonly up = new THREE.Vector3(0, 0, 1);
 
   constructor(scene: THREE.Object3D) {
@@ -252,7 +261,10 @@ export class SceneryLayer {
       const name = p.intact ? p.kind : `${p.kind}_broken`;
       const pool = this.propPool(name) ?? this.propPool(p.kind);
       if (!pool) continue;
-      if (pool.used >= pool.mesh.count) continue;
+      // `capacity`, not `mesh.count`: the count is this frame's draw length
+      // and was shortened to last frame's population at the end of the last
+      // one, so testing against it would stop a pool ever growing again.
+      if (pool.used >= pool.capacity) continue;
       this.m.compose(
         this.pos.set(p.pos.x, p.pos.y, 0),
         // `orient` is the fence's axis; everything else faces one way and a
@@ -267,13 +279,20 @@ export class SceneryLayer {
       pool.used++;
     }
 
+    // Draw only what was placed this frame, the way `Pool.end` and
+    // `SolidPool.end` do it. Zero-scaling the tail collapses it on screen but
+    // still transforms it, still counts it and still walks it in the shadow
+    // pass — and the outline twin, which shares this `instanceMatrix`, pays
+    // for it a second time. Pools are 192 and the fullest one on the shipped
+    // city holds 55, so the tail was most of the cost.
     for (const pool of this.propPools.values()) {
-      for (let i = pool.used; i < pool.mesh.count; i++) pool.mesh.setMatrixAt(i, this.zero);
+      pool.mesh.count = pool.used;
+      pool.outline.count = pool.used;
       pool.mesh.instanceMatrix.needsUpdate = true;
     }
   }
 
-  private propPool(name: string): { mesh: THREE.InstancedMesh; used: number } | null {
+  private propPool(name: string): PropPool | null {
     const hit = this.propPools.get(name);
     if (hit) return hit;
     const geom = spriteGeometry(name, { zScale: propZ(name) });
@@ -292,7 +311,7 @@ export class SceneryLayer {
     // at distance, and it is tall enough to carry it.
     const twin = addOutline(mesh, this.group, name.startsWith('lamp') ? 0.8 : 0.55);
     twin.frustumCulled = false;
-    const pool = { mesh, used: 0 };
+    const pool = { mesh, outline: twin as THREE.InstancedMesh, capacity: mesh.count, used: 0 };
     this.propPools.set(name, pool);
     return pool;
   }
