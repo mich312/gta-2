@@ -1811,3 +1811,55 @@ the lines top right are the **kill feed**, and "Kessler Row" / "The Quay" in
 them are **gang names**. `evidence/README.md` claimed a street name in two
 captions — one fixed here, and the same wrong phrase remains in
 `render-3d-client.png`'s caption.
+
+
+---
+
+## Round 8 closed — verified on the merged tree
+
+```
+pnpm build                     clean
+npx tsc -p client --noEmit     clean
+pnpm test                      91 files, 981 tests, 0 failures
+citybake --check               exit 0 — 1182 blocks, 4014 buildings, 6 pinned warnings
+pnpm parity                    host parity OK — hash 1180701091, unchanged by C07
+                               (against a confirmed own server, probe -> 200)
+```
+
+**Ground truth: 87/943 -> 90/953 -> 91/966 -> 91/970 -> 91/971 -> 91/980 -> 91/981.**
+
+Three items closed: **R1-C07** (8 of 97 calls, the pi-residue divergence),
+**`ci/playLocal.mjs`** (35 s, three plates, after eight rounds un-retakeable),
+**R7-C05 verified** (confirmed, nit-to-minor, unfixed).
+
+### What round 8 says about long-deferred items
+
+All three had sat for rounds, and all three turned out to be smaller and more
+tractable than their filings implied:
+
+- **C07** was "~90 unpinned calls, needs a worldgen decision" for five rounds.
+  The runtime count is **8**, and the fix is hash-neutral. The "~90" was a grep
+  from round 3 that nobody re-counted.
+- **playLocal** was "hangs in `getInCar`, probably needs a GPU" for eight
+  rounds. It needed one URL parameter.
+- **R7-C05** was "may well be correct behaviour". The file already ruled the
+  other way, ten lines up.
+
+The common shape: **each was deferred on a plausible reason nobody had
+measured.** A grep count, a hardware assumption, a category judgement. All
+three collapsed in one round once someone counted, profiled, or read the
+adjacent lines.
+
+That is a cheaper failure than a wrong fix, but it is a real one — and it is an
+argument for a periodic pass over the *deferred* pile specifically, not just
+over the code.
+
+## Round 9 — the convergence sample, on the lenses left alone
+
+Round 5 re-sampled A and C, the lenses with the **most** attention, and still
+found a `blocking` defect. Round 9 samples **B and D**, reviewed exactly once
+each, in round 1.
+
+If yield tracks attention, these should produce more. If a review is simply a
+sample whose draw is independent of prior effort, they will produce about the
+same. Either answer is informative about how many rounds this method needs.
