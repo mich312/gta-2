@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import type { PersistenceStore } from './storeTypes.js';
 import { FileStore } from './store.js';
 import { SqliteStore, sqliteAvailable, sqliteUnavailableReason } from './sqliteStore.js';
@@ -17,13 +18,29 @@ export function jsonFallbackPath(path: string): string {
  * unavailable module degrades to the JSON store at the sibling .json path.
  * That changes which file holds the save data, so it warns rather than failing
  * over quietly.
+ *
+ * The other direction is quiet in the same way and is not hypothetical: an
+ * operator following README.md's note runs the file store on a build without
+ * node:sqlite, then upgrades Node or drops --without-sqlite, and this function
+ * silently opens an empty database beside a .json full of accounts. Same
+ * mistake, same warning — name the sibling and say it is not being read.
  */
 export function createStore(
   path: string,
   warn: (msg: string) => void = console.warn,
 ): PersistenceStore {
   if (path.endsWith('.json')) return new FileStore(path);
-  if (sqliteAvailable()) return new SqliteStore(path);
+  if (sqliteAvailable()) {
+    const orphan = jsonFallbackPath(path);
+    if (orphan !== path && existsSync(orphan)) {
+      warn(
+        `[persistence] using SQLite at ${path}, but ${orphan} also exists — the JSON file store ` +
+          'writes there when node:sqlite is missing, and nothing saved in it is read by this ' +
+          `store. To keep using it, set PERSIST_PATH=${orphan}; otherwise move it aside.`,
+      );
+    }
+    return new SqliteStore(path);
+  }
 
   const fallback = jsonFallbackPath(path);
   warn(

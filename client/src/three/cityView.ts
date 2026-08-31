@@ -246,6 +246,17 @@ export class CityView {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
 
+    // Count the whole frame, not its last pass.
+    //
+    // `WebGLRenderer.render` zeroes `info.render` at its own top, and the post
+    // chain drives every pass through `render` — so what `stats()` read was
+    // whatever the final pass did on its own: the grade's fullscreen triangle,
+    // printing as `draws 1  tris 0k` on a city of 762k. Take the reset over
+    // ourselves and do it once, at the top of `render()`, so the counters span
+    // scene, shadow map and post and are still *this* frame's rather than a
+    // total since the page loaded.
+    this.renderer.info.autoReset = false;
+
     // Sky, not field. This was `palette.field` — a leftover from before there
     // was a sky at all — and although `setNight` overwrites it on the first
     // frame, the value here is what any path that renders before that shows.
@@ -532,6 +543,10 @@ export class CityView {
   }
 
   render(): void {
+    // `autoReset` is off (see the constructor), so the frame's counters start
+    // here. Everything drawn between this and the next `render()` — shadow
+    // map, scene, every post pass — is what `stats()` reports.
+    this.renderer.info.reset();
     if (this.post) this.post.render();
     else this.renderer.render(this.scene, this.camera);
   }

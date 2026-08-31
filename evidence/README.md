@@ -44,6 +44,7 @@ star level over several seeds instead of hoping for one.
 | `city-3d-models.png` | Close up. The car is not a model anybody built — it is the `car` entry in `shared/data/sprites.json`, extruded. Tapered body polygon, raised cabin, tinted glass, red tail lights, headlights, dark tyres: every one of those is a shape in the 2D sprite with a `z` on it, and the sprite generator was already relighting flat art from those same heights. Same file, not flattened. |
 | `city-3d-live.png` | The game **playable** in 3D. Everything in it comes from data the 2D renderer already uses: the bodies are `sprites.json` entries extruded, the trees and bushes sit at the same `hash2` positions the tile layer plants them, the props are the sim's own and swap to their `_broken` art when destroyed, and the road markings run down the carriageway centres measured the same way. `/city3d.html`. |
 | `city-3d.png` | The generated city as actual geometry — 523 buildings at real heights, cast shadows, the river — built from the **volume grid** the 3D collision resolves against, not from the tile grid. A building's box is the span that stops you. Retake with `/city3d.html?seed=7&pitch=45`. |
+| `bug-3d-frame-cost.png` / `3d-frame-cost.png` | The flyover's own frame-cost readout, before and after the post chain's counters were fixed. `WebGLRenderer.render` zeroes `renderer.info` at its own top and `EffectComposer` drives every pass through it, so what the HUD read was the last pass alone — the grade's single fullscreen triangle, `draws 1  instances 619445  tris 0k`. The same camera now reads `draws 238  tris 7031k`: scene, shadow map and post, counted once per frame. On a box with no GPU this readout is the only frame-cost instrument there is, so a broken one is worse than none. Retake: `pnpm --filter client dev`, open `/city3d.html?fly=1&at=634,116&h=190&pitch=45&night=0`, wait for the ground to paint, then in the console `requestAnimationFrame = () => 0` and screenshot the HUD. |
 
 Quote draw calls from these, not frame rate: this box has no GPU, so its frame
 rate is SwiftShader's and says nothing about a real machine, while draw count
@@ -51,7 +52,10 @@ is a property of how the scene is built and is the same everywhere. Bare
 geometry is **9 draws / 762k triangles** for the whole 240×240 city; dressed —
 facades, planting, props, markings, roof parapets and clutter, kerbs,
 crossings and the live population — it is **179 draws / 3.2M triangles**.
-See 3D.md W3a.
+Both of those are scene plus shadow map only — the readout they came off could
+not see the post chain (`bug-3d-frame-cost.png`). It can now, so a fresh number
+off the HUD carries the bloom, output and grade passes on top and is a dozen or
+so draws higher than a like-for-like one. See 3D.md W3a.
 
 ## Buildings that lean
 
