@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import cityPlanJson from 'shared/data/city-plan.json';
-import { CITY_DATA, decodeBakedCity, parseCityPlan } from 'shared';
+import { CITY_DATA, decodeBakedCity, parseCityPlan, T_BRIDGE, T_LOT, T_ROAD } from 'shared';
 import { checkCity } from '../src/tools/cityCheck.js';
 
 /**
@@ -57,6 +57,81 @@ describe('the shipped city', () => {
       "Coast Road may bridge but 79 tiles of its course carry no carriageway at all, from 542,675 to 612,648 — a crossing longer than the plan's maxBridgeSpan of 72",
       'Coast Road may bridge but 22 tiles of its course carry no carriageway at all, from 679,606 to 694,596 — the course begins or ends out in the water, so the deck has land on one side only',
     ]);
+  });
+
+  it('notices when a landmark loses its street frontage', () => {
+    // R1-A05. The checker said "has no road to it" and never looked for a
+    // road: the rule behind that message floods over `drivable` ground — a
+    // car park, a farmyard, a runway — so 285 tiles of carriageway could be
+    // erased from around Mercy General and `checkCity` still returned
+    // nothing. The suite was strictly stronger than the checker whose message
+    // claimed the same property (`shared/test/city.test.ts`, "carries every
+    // kind of landmark, each with a way in"). Now the checker asks it too,
+    // which is what makes it true of a GENERATED city as well as this one.
+    const cut = decodeBakedCity(JSON.parse(CITY_DATA));
+    const l = cut.landmarks.find((m) => m.name === 'Mercy General');
+    expect(l).toBeDefined();
+    const dx = Math.floor((l as { doorX: number }).doorX / 16);
+    const dy = Math.floor((l as { doorY: number }).doorY / 16);
+    let erased = 0;
+    for (let oy = -12; oy <= 12; oy++) {
+      for (let ox = -12; ox <= 12; ox++) {
+        const i = (dy + oy) * cut.widthTiles + dx + ox;
+        const t = cut.tiles[i] as number;
+        if (t === T_ROAD || t === T_BRIDGE) {
+          cut.tiles[i] = T_LOT;
+          erased++;
+        }
+      }
+    }
+    expect(erased).toBeGreaterThan(100);
+    expect(checkCity(cut, plan).map((p) => p.message)).toContain(
+      'Mercy General (hospital) has no road within six tiles of its door',
+    );
+  });
+
+  it('tells a taxiway from a street across the runway', () => {
+    // R1-A08. Wave 2.3 promised "no street tile inside a runway rect" and
+    // shipped only the converse pin (`shared/test/city.test.ts`, every
+    // T_RUNWAY tile inside a rect), so a borough's grid could be laid across
+    // an airfield with nothing to say so. The rule cannot simply count road
+    // tiles: the bake cuts a driveway from every landmark door to the nearest
+    // street, and Marsh End's runs fourteen tiles up the strip to the hangar
+    // — a taxiway with a job (PROGRESS.md, wave 2.3). Nor can it count the
+    // sides that carriageway touches: on plangen seed 512 the door is on the
+    // far side of the strip, so that same driveway crosses the whole rect and
+    // touches street at both ends while still being one track to one door.
+    //
+    // The three cases, on fourteen tiles each. As shipped: silent.
+    expect(problems.filter((p) => p.message.includes('runs through'))).toEqual([]);
+
+    // A loop of street across the strip and back into the network at the
+    // west: both ends lead to the city, so traffic crosses the runway.
+    const W = city.widthTiles;
+    const looped = decodeBakedCity(JSON.parse(CITY_DATA));
+    for (let y = 598; y <= 608; y++) {
+      for (let x = 525; x <= 526; x++) looped.tiles[y * W + x] = T_ROAD;
+    }
+    for (let x = 499; x <= 526; x++) {
+      for (let y = 607; y <= 608; y++) looped.tiles[y * W + x] = T_ROAD;
+    }
+    expect(
+      checkCity(looped, plan)
+        .filter((p) => p.severity === 'error')
+        .map((p) => p.message),
+    ).toEqual([
+      'a street runs through Marsh End Airfield: 14 carriageway tiles inside the strip, ' +
+        'open to the network at 525,606 and 525,598',
+    ]);
+
+    // The same fourteen tiles with the far end left in the field: a track to
+    // nowhere is a track, whichever way it entered. Silent, as seed 512 must
+    // be.
+    const stub = decodeBakedCity(JSON.parse(CITY_DATA));
+    for (let y = 598; y <= 612; y++) {
+      for (let x = 525; x <= 526; x++) stub.tiles[y * W + x] = T_ROAD;
+    }
+    expect(checkCity(stub, plan).filter((p) => p.severity === 'error')).toEqual([]);
   });
 
   it('builds Kelvin Bridge, the crossing its own plan calls the signature span', () => {

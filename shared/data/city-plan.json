@@ -1733,9 +1733,9 @@
       "kind": "airstrip",
       "name": "Marsh End Airfield",
       "rect": [
-        504,
+        501,
         599,
-        30,
+        33,
         7
       ]
     },
@@ -1783,9 +1783,9 @@
       "kind": "airstrip",
       "name": "Gannet Rock Strip",
       "rect": [
-        76,
+        73,
         640,
-        30,
+        33,
         7
       ],
       "byAir": true
