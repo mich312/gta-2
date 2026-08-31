@@ -1314,6 +1314,22 @@
       ]
     },
     {
+      "name": "Hollis Bridge",
+      "width": 4,
+      "curve": false,
+      "bridges": true,
+      "points": [
+        [
+          378,
+          492
+        ],
+        [
+          402,
+          492
+        ]
+      ]
+    },
+    {
       "name": "Old Bridge",
       "width": 4,
       "curve": false,

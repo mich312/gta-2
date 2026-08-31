@@ -273,6 +273,30 @@ let drivewayEra: Int32Array | null = null;
 let drivewayCall = 0;
 
 function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: number): void {
+  // Twice, and the first attempt is the one that usually answers.
+  //
+  // The track is the shortest route from the door to the network, and the
+  // shortest route out of a landmark's door runs along the landmark's own
+  // flank — which lays carriageway flush against the wall with no kerb
+  // between them, where every other road-to-wall contact in the drawn city
+  // goes via pavement. Vantage Tower's drive is eight tiles of exactly that,
+  // and it is invisible to the landmark's own kerb ring, which is drawn
+  // before this pass exists. So: cut it once holding a tile off every wall,
+  // and only if no such route exists at all fall back to the one that hugs
+  // one — a landmark with no drive is a worse answer than a landmark with a
+  // drive against its wall.
+  if (cutTrack(tiles, W, H, dx, dy, true)) return;
+  cutTrack(tiles, W, H, dx, dy, false);
+}
+
+function cutTrack(
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+  dx: number,
+  dy: number,
+  keepOffWalls: boolean,
+): boolean {
   const near = (x: number, y: number): boolean => {
     for (let oy = -2; oy <= 2; oy++) {
       for (let ox = -2; ox <= 2; ox++) {
@@ -284,7 +308,12 @@ function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: numbe
     }
     return false;
   };
-  if (dx < 0 || dy < 0 || dx >= W || dy >= H || near(dx, dy)) return;
+  if (dx < 0 || dy < 0 || dx >= W || dy >= H || near(dx, dy)) return true;
+  const besideWall = (x: number, y: number): boolean =>
+    (x > 0 && tiles[y * W + x - 1] === T_BUILDING) ||
+    (x + 1 < W && tiles[y * W + x + 1] === T_BUILDING) ||
+    (y > 0 && tiles[(y - 1) * W + x] === T_BUILDING) ||
+    (y + 1 < H && tiles[(y + 1) * W + x] === T_BUILDING);
 
   if (drivewayFrom === null || drivewayFrom.length < W * H) {
     drivewayFrom = new Int32Array(W * H);
@@ -322,17 +351,21 @@ function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: numbe
         break;
       }
       if (!cuttable(t)) continue;
+      // The second tile of the track is the one to the east, so a route that
+      // keeps off walls has to keep its neighbour off them too.
+      if (keepOffWalls && (besideWall(nx, ny) || besideWall(nx + 1, ny))) continue;
       from[j] = i;
       era[j] = call;
       queue.push(j);
     }
   }
-  if (hit < 0) return;
+  if (hit < 0) return false;
   for (let i = hit; i !== start; i = from[i] as number) {
     if (!onNetwork(tiles[i] as number)) tiles[i] = T_ROAD;
     // Two tiles wide, so it is a track and not a footpath.
     if (cuttable(tiles[i + 1] as number)) tiles[i + 1] = T_ROAD;
   }
+  return true;
 }
 
 export function bakeCity(plan: CityPlan): BakedCity {
@@ -448,9 +481,81 @@ export function bakeCity(plan: CityPlan): BakedCity {
     buildings.push(rec);
   };
 
+  /**
+   * A landmark's plot, held off the carriageway.
+   *
+   * Every block in the city holds its buildings one tile inside its own edge,
+   * so the kerb belt gets laid between the wall and the road. A landmark does
+   * not go through that: its plot is drawn by hand, the recipe stamps its
+   * masses at the rect, and the kerb ring drawn round it afterwards can only
+   * paint GROUND — a ring tile that is already carriageway stays carriageway,
+   * because paving a road is not a kerb. So wherever the author's rect
+   * happens to touch tarmac the mass ends up flush against it: Sunridge
+   * Station and Seaview Infirmary are the two places in the drawn city where
+   * that happens, each with pavement on its block's other three sides, while
+   * every other road-to-wall contact in the city goes via pavement.
+   *
+   * The PLOT gives up the row, not the mass: the rect shrinks by one tile on
+   * the face that meets the road, the recipe lays the landmark out in what is
+   * left, and the freed row is paved. Shaving the stamped mass instead would
+   * leave the recipe and the tiles disagreeing about what a hospital is —
+   * which is the property `city.test.ts` pins as "the mass it stamped is
+   * still there".
+   */
+  const holdOffRoad = (
+    rect: readonly [number, number, number, number],
+  ): [number, number, number, number] => {
+    let [x, y, w, h] = rect;
+    const roadAt = (tx: number, ty: number): boolean => {
+      if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
+      const t = tiles[ty * W + tx] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    const kerb: number[] = [];
+    // One face at a time, and never past a plot four tiles across: a landmark
+    // that gives up its last row is not a landmark any more, and a plot boxed
+    // in by carriageway on all four sides is the drawing's statement to make,
+    // not the bake's to answer by demolition.
+    for (const side of ['w', 'e', 'n', 's'] as const) {
+      if (w < 5 || h < 5) break;
+      const vertical = side === 'w' || side === 'e';
+      const n = vertical ? h : w;
+      const fx = side === 'e' ? x + w : side === 'w' ? x - 1 : x;
+      const fy = side === 's' ? y + h : side === 'n' ? y - 1 : y;
+      let faces = false;
+      for (let k = 0; k < n && !faces; k++) {
+        faces = roadAt(fx + (vertical ? 0 : k), fy + (vertical ? k : 0));
+      }
+      if (!faces) continue;
+      const kx = side === 'e' ? x + w - 1 : x;
+      const ky = side === 's' ? y + h - 1 : y;
+      for (let k = 0; k < n; k++) {
+        const tx = vertical ? kx : kx + k;
+        const ty = vertical ? ky + k : ky;
+        if (tx >= 0 && ty >= 0 && tx < W && ty < H) kerb.push(ty * W + tx);
+      }
+      if (vertical) {
+        w--;
+        if (side === 'w') x++;
+      } else {
+        h--;
+        if (side === 'n') y++;
+      }
+    }
+    for (const i of kerb) {
+      const t = tiles[i] as number;
+      if (t === T_ROAD || t === T_BRIDGE || t === T_WATER) continue;
+      tiles[i] = T_SIDEWALK;
+      landmarkMass[i] = 1;
+    }
+    return [x, y, w, h];
+  };
+
   const stamp = (l: PlanLandmark): void => {
-    const [x, y, w, h] = l.rect;
     const recipe = RECIPES[l.kind];
+    // A plaza WANTS road through it, so it keeps the rect it was drawn with;
+    // everything else is held a tile off the carriageway.
+    const [x, y, w, h] = OPEN_TO_ROAD.has(l.kind) ? l.rect : holdOffRoad(l.rect);
     // DISTRICT_TYPES by index, not a positional copy of it: two hardcoded
     // lists here survived every review until wave 4.1, and a reorder of the
     // source of truth would have silently relabelled every stamped building
@@ -556,6 +661,269 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // fillRegion). Rural ground has no frontage either way.
     if ((b.angle !== 0 || b.shaped) && !b.rural) fillRegion(tiles, W, H, buildings, b, rng, within);
     else fillBlock(tiles, W, H, buildings, b, rng, wildAt, within, fringeAt);
+  }
+
+  // The clearance a removal left behind.
+  //
+  // The blocks are cut round the lattice, so the strip a street was carved in
+  // belongs to no block and no filler above has visited it. That is correct
+  // while the street is there — it is the carriageway and its verges. But
+  // three passes in the layout DELETE road after the blocks are cut (the ring
+  // shave, the bridge trim, the orphan prune, all marked in `layout.cleared`)
+  // and every one of them writes bare ground: the removal puts the GROUND
+  // back and not the country the carve cleared to make room. On Gannet Rock —
+  // an island WORLDGEN.md §12.9 calls wild and §14.6 calls deliberately
+  // trackless, whose entire lattice the orphan prune takes out for having no
+  // link to the mainland — that shipped a wood with a road-shaped hole in it:
+  // thirty tiles of dead-straight clearing with the tree line razor-straight
+  // on both flanks and no carriageway in it.
+  //
+  // So the country grows back over it. The seed is the deleted carriageway;
+  // it spreads a few tiles into the verge the block cut left beside it,
+  // because the strip that reads as a scar is the whole gap between blocks
+  // and not just the two tiles of tarmac in the middle. Everything else is
+  // the rural fill's own rule, asked again: the wildness field decides wood
+  // or meadow, woodland stays a tile off any surviving lane so every lane is
+  // drivable at full width, and it never touches the waterline, where trees
+  // are the cliff the shore pass put there and clearing or planting one would
+  // move a landing.
+  {
+    const covered = new Uint8Array(W * H);
+    for (const b of layout.blocks) {
+      for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
+        for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
+          if (b.mask[(ty - b.y) * b.w + (tx - b.x)] === 1) covered[ty * W + tx] = 1;
+        }
+      }
+    }
+    const rural = (i: number): boolean => {
+      const own = layout.owner[i] as number;
+      return own >= 0 && (plan.districts[own] as { rural?: boolean }).rural === true;
+    };
+    // Bare ground in no block, in country, still holding the meadow the
+    // removal wrote. Grown out from the deleted carriageway by `VERGE` tiles:
+    // far enough to take in the verge the block cut left, short enough that a
+    // seam touching a wide open shore does not swallow it.
+    const VERGE = 4;
+    const orphan = (i: number): boolean =>
+      covered[i] === 0 && tiles[i] === T_FIELD && layout.water[i] !== 1 && rural(i);
+    const reach = new Int32Array(W * H).fill(-1);
+    const bag: number[] = [];
+    for (let i = 0; i < W * H; i++) {
+      if (layout.cleared[i] !== 1 || !orphan(i)) continue;
+      reach[i] = 0;
+      bag.push(i);
+    }
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const d = reach[i] as number;
+      if (d >= VERGE) continue;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if ((reach[j] as number) >= 0 || !orphan(j)) continue;
+        reach[j] = d + 1;
+        bag.push(j);
+      }
+    }
+    const solidAt = (tx: number, ty: number, t: number): boolean =>
+      tx >= 0 && ty >= 0 && tx < W && ty < H && tiles[ty * W + tx] === t;
+    const near = (tx: number, ty: number, t: number, r: number): boolean => {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) if (solidAt(tx + dx, ty + dy, t)) return true;
+      }
+      return false;
+    };
+    // A HOLE IN A CANOPY, and nothing else.
+    //
+    // Country outside a block is bare whatever put it there — the north of
+    // Gannet Rock carries no blocks at all and is one unbroken meadow — so a
+    // rule that planted every orphaned tile the wildness field liked would
+    // stripe open grassland with dead-straight nine-tile woods, which is the
+    // defect this pass exists to remove wearing the other hat. What makes the
+    // corridor read wrong is that the wood stands on BOTH flanks of it, so
+    // that is the test: the gap closes only where it is a gap, and open
+    // country the removal ran through stays open country.
+    const SPAN = 8;
+    const flankedBy = (x: number, y: number): boolean => {
+      for (const [dx, dy] of [
+        [1, 0],
+        [0, 1],
+      ] as const) {
+        let both = true;
+        for (const s of [1, -1] as const) {
+          let hit = false;
+          for (let k = 1; k <= SPAN && !hit; k++) {
+            const nx = x + dx * k * s;
+            const ny = y + dy * k * s;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) break;
+            const t = tiles[ny * W + nx] as number;
+            if (t === T_TREES) hit = true;
+            else if (t !== T_FIELD) break; // built, water, tarmac: not a wood
+          }
+          if (!hit) both = false;
+        }
+        if (both) return true;
+      }
+      return false;
+    };
+    // Decided against the picture as the blocks left it, so the answer does
+    // not depend on which end of the corridor the scan reached first.
+    const plant = bag.filter((i) => {
+      const x = i % W;
+      const y = (i - x) / W;
+      if (!wildAt(x, y)) return false;
+      // One tile of verge keeps every surviving lane drivable at full width —
+      // the rule fillBlock states for the woodland it plants itself.
+      if (near(x, y, T_ROAD, 1) || near(x, y, T_BRIDGE, 1)) return false;
+      if (near(x, y, T_WATER, 1)) return false;
+      return flankedBy(x, y);
+    });
+    for (const i of plant) tiles[i] = T_TREES;
+
+    // ...and a ride left through it wherever the clearing was the only way.
+    //
+    // The corridor is a scar, but on Gannet Rock it was also the island's one
+    // internal route: the wood is a wall to a car and to a pedestrian alike,
+    // the cliff coast is sealed, and the meadow north of the airstrip reached
+    // the strip through the very clearing this pass has just closed. Planting
+    // it shut walled four thousand tiles off from everything and turned six
+    // `citybake --check` warnings into seven. Closing a hole in a canopy is
+    // worth doing; closing a way through is not, and the difference is
+    // measurable rather than a matter of taste — so it is measured. Ground
+    // that could be walked to before this pass can still be walked to after
+    // it: where the new canopy severed two pieces that used to be one, a
+    // single tile of the wood is taken back out, which is a ride through a
+    // wood and not a road anybody removed. One tile wide, so no corridor.
+    const open = (i: number, plantedIsOpen: boolean): boolean => {
+      if (plantedIsOpen && planted[i] === 1) return true;
+      const t = tiles[i] as number;
+      return t !== T_BUILDING && t !== T_WATER && t !== T_TREES;
+    };
+    const planted = new Uint8Array(W * H);
+    for (const i of plant) planted[i] = 1;
+    /** Four-connected pieces of open ground — the rule `cityCheck` walks. */
+    const label = (plantedIsOpen: boolean): Int32Array => {
+      const lab = new Int32Array(W * H).fill(-1);
+      let id = 0;
+      for (let s0 = 0; s0 < W * H; s0++) {
+        if ((lab[s0] as number) >= 0 || !open(s0, plantedIsOpen)) continue;
+        const stack = [s0];
+        lab[s0] = id;
+        while (stack.length > 0) {
+          const i = stack.pop() as number;
+          const x = i % W;
+          const y = (i - x) / W;
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const j = ny * W + nx;
+            if ((lab[j] as number) >= 0 || !open(j, plantedIsOpen)) continue;
+            lab[j] = id;
+            stack.push(j);
+          }
+        }
+        id++;
+      }
+      return lab;
+    };
+    // The picture as the fill left it: the planted tiles read as the open
+    // ground they were a moment ago.
+    const before = label(true);
+    // One severed piece rejoined per round, then look again: taking a ride
+    // out changes the map the next round is measured on. The cap is a
+    // backstop, not a budget — the drawn city needs two.
+    for (let round = 0; round < 24; round++) {
+      const after = label(false);
+      const groups = new Map<number, Map<number, number>>();
+      for (let i = 0; i < W * H; i++) {
+        const a = after[i] as number;
+        if (a < 0) continue;
+        const b = before[i] as number;
+        let g = groups.get(b);
+        if (g === undefined) {
+          g = new Map();
+          groups.set(b, g);
+        }
+        if (!g.has(a)) g.set(a, i);
+      }
+      let keepAt = -1;
+      let lostId = -1;
+      for (const [, g] of groups) {
+        if (g.size < 2) continue;
+        const seats = [...g.entries()];
+        keepAt = (seats[0] as [number, number])[1];
+        lostId = (seats[1] as [number, number])[0];
+        break;
+      }
+      if (keepAt < 0) break;
+      // Fewest tiles of new canopy back out, from the piece we keep to the
+      // piece it lost. Ground that is still open costs nothing to cross and
+      // a planted tile costs one, so the ride taken back out is the shortest
+      // it can be — 0-1 breadth-first, one deque, no heap.
+      const keepId = after[keepAt] as number;
+      const from = new Int32Array(W * H).fill(-1);
+      const buckets: number[][] = [[]];
+      for (let i = 0; i < W * H; i++) {
+        if ((after[i] as number) !== keepId) continue;
+        from[i] = i;
+        (buckets[0] as number[]).push(i);
+      }
+      let hit = -1;
+      for (let d = 0; d < buckets.length && hit < 0; d++) {
+        const bucket = buckets[d] as number[];
+        for (let q = 0; q < bucket.length && hit < 0; q++) {
+          const i = bucket[q] as number;
+          if ((after[i] as number) === lostId) {
+            hit = i;
+            break;
+          }
+          const x = i % W;
+          const y = (i - x) / W;
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const j = ny * W + nx;
+            if ((from[j] as number) >= 0) continue;
+            const free = (after[j] as number) >= 0;
+            if (!free && planted[j] !== 1) continue;
+            from[j] = i;
+            const nd = free ? d : d + 1;
+            while (buckets.length <= nd) buckets.push([]);
+            (buckets[nd] as number[]).push(j);
+          }
+        }
+      }
+      if (hit < 0) break;
+      // Every tile of new canopy on the way back comes out; the open ground
+      // it crossed on the way was never planted and is left alone.
+      for (let i = hit; (from[i] as number) !== i; i = from[i] as number) {
+        if (planted[i] !== 1) continue;
+        tiles[i] = T_FIELD;
+        planted[i] = 0;
+      }
+    }
   }
 
   // Then the landmark takes its plot back: anything built inside its footprint

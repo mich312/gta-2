@@ -522,3 +522,24 @@ something remembers who put it there, and so are a kerbside car the session
 laid down and a car ambient traffic abandoned. `copFleet` was already the
 register for the first; `ambientFleet` (state.ts) is its twin for the second,
 and `putAiVehicle` is its only writer.
+
+## Visual loop, iteration 2 — the four map-audit findings
+
+`before` plates are the shipped asset at `fcf0809`; `after` plates the one
+rebake at the end of the round. Both retake commands are the same line — what
+changed is `city.data.ts` under it — so re-running a `before` command today
+reproduces the `after` picture. `mapaudit-{before,after}.txt` and
+`citybake-check-{before,after}.txt` are the round's two scores.
+
+| file | what it shows |
+|---|---|
+| `iter2/gannet-corridor-before.png` | `bare-corridor` at 84,595. Gannet Rock, which the plan calls wild and trackless, with a seven-tile dead-straight clearing running thirty-two tiles through its wood and no carriageway in it. The orphan prune took the island's whole lattice out and wrote `T_FIELD`, which restores the ground and not the canopy the carve cleared. Retake: `node server/dist/tools/mapgen.js --crop=84,595,52 --scale=12 --out=evidence/iter2/gannet-corridor-before.png`. |
+| `iter2/gannet-corridor-after.png` | The same crop with the country grown back over what the removal orphaned: the canopy closes, and one tile of the clearing is left open as a ride, because the corridor was also the only way from the meadow north of the airstrip to the strip and planting it shut walled 4,210 tiles off from everything. One tile wide, so it is a path through a wood and not the shape of a road. Same command, `-after` for the name. |
+| `iter2/oldsuburbs-mouth-before.png` | `road-stops-short` at 401,594, the one hit of the seventeen that is genuinely impassable: the Old Suburbs seam street stops at 413,606 with three tiles of grass and an orchard tree across its mouth, four tiles short of the street it runs at. Retake: `node server/dist/tools/mapgen.js --crop=401,594,24 --scale=20 --out=evidence/iter2/oldsuburbs-mouth-before.png`. |
+| `iter2/oldsuburbs-mouth-after.png` | The junction cut. Same command, `-after` for the name. |
+| `iter2/hollis-lower-before.png` | `crossing-missing` on the lower Hollis Creek: four tiles of water between two pieces of road network, 144 tiles of driving to get round. Round 4 gave the creek its two arterial crossings a hundred tiles apart; this stretch had none. Retake: `node server/dist/tools/mapgen.js --crop=360,470,60 --scale=10 --out=evidence/iter2/hollis-lower-before.png`. |
+| `iter2/hollis-lower-after.png` | Hollis Bridge, six tiles of deck at x388-393 y490-493, carrying the street that already ran to both banks. One crossing answers all three of the signature's hits. Same command, `-after` for the name. |
+| `iter2/kerb-vantage-before.png` | `kerb-missing` at 483,81. Vantage Tower with the bake's own access track cut down its east flank, eight tiles of carriageway against the wall and no pavement between. Retake: `node server/dist/tools/mapgen.js --crop=483,81,28 --scale=18 --out=evidence/iter2/kerb-vantage-before.png`. |
+| `iter2/kerb-vantage-after.png` | The track one tile further out, with the kerb where it belongs and the tower's mass untouched. Same command, `-after` for the name. |
+| `iter2/kerb-seaview-before.png` / `-after.png` | `kerb-missing` at 570,415, Seaview Infirmary: the author's rect abuts a lattice street, so the hospital's east wall stood on it. After: the plot is held one tile off the road and the freed row is paved. Retake: `node server/dist/tools/mapgen.js --crop=570,415,27 --scale=18 --out=evidence/iter2/kerb-seaview-before.png`. |
+| `iter2/kerb-sunridge-before.png` / `-after.png` | The same at 295,454, Sunridge Station. Retake: `node server/dist/tools/mapgen.js --crop=295,454,26 --scale=18 --out=evidence/iter2/kerb-sunridge-before.png`. |
