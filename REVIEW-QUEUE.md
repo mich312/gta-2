@@ -1248,7 +1248,7 @@ This is the same failure one level down: the status was *right* that work
 happened, and wrong about what the work covered.
 
 ### R5-C02 — a body on the tarmac stops a car gun's rounds and bursts a rocket
-- status: [ ] open        verdict: **CONFIRMED round 6** — both halves; the physics defence refuted by measurement
+- status: [x] **FIXED round 7** — `a15bc3c`; `copCanBeShot` extracted and asked at all four sites
 - round: 5   severity: significant   lens: C
 - where: `fittings.ts:163-165`, `projectiles.ts:188-190`
 - `fireOnce` skips downed officers on purpose (`weapons.ts:165`, "shoot through a body, not into it"). `fireCarGuns` and `nearestHitAlong` do not: they select the corpse as the hit, and `damageCop` then returns immediately on `copIsDown` — the round is absorbed, for the 40 s the body lies there.
@@ -1554,3 +1554,28 @@ on the reverted files.
 written (lesson 5, again) and flagged it for checking. It was complete at 58
 lines. The risk was real; the outcome was luck, which is the argument for
 fixing the process rather than trusting the outcome.
+
+
+### R7-C05 — `scanAhead` brakes ambient traffic for a corpse in the road
+- status: [ ] open        verdict: **filed by the C02 fixer**, not verified
+- round: 7   severity: nit   lens: C
+- where: `shared/src/sim/traffic.ts:426`
+- **the fourth instance of "a body is not a live officer"**, after `anyCopSees`
+  (fixed long ago), `noticedBy` (R1-C02, round 4) and the two hit tests
+  (R5-C02, round 7). Different question though — physical avoidance rather
+  than a ray — so it may well be correct to brake for a body. Verify before
+  fixing.
+- the C02 fixer read it and correctly left it alone: it is another agent's file
+  this round.
+
+### On the helper, and why four instances justify it
+
+The C02 fix extracts `copCanBeShot` and asks it at **all four** sites, including
+`fireOnce`, which was already right. That conversion changes no behaviour and is
+the point: three sites had independently got the condition wrong, which is
+evidence it is not memorable as an inline expression. The codebase already
+argues this about itself — `onTheGround` in `bodies.ts`: *"one predicate, asked
+everywhere… so the answer cannot differ between the systems."*
+
+R7-C05 is the fifth site and was found **because** the rule now has a name to
+grep for.
