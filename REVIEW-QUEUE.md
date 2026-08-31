@@ -534,8 +534,14 @@ zero by construction — `floor` comes from a tile the sample filter accepts.
 #### Lens B — the renderer
 
 ### R1-B01 — street lamps and shop signs burn at midday in 3D
-- status: [ ] open        verdict: pending (verifier still running at round close)
+- status: [ ] open        verdict: **CONFIRMED — but the finding names the wrong lever** (verified round 3)
 - round: 1   severity: significant   lens: B
+- **the floor is not the defect.** Isolated with `?post=off` (bloom off, lights on) against `?post=off&lights=off`: direct illumination at midday is **+1 to +3 / 255** across the whole surround — imperceptible, exactly as the comment promises. What the player sees is the **bloom halo**: a 74 cd source ~3 world px from its own emissive fixture pushes it past `BLOOM_THRESHOLD` 1.05 and `UnrealBloomPass` paints the halo. That is the mechanism `lights3d.ts:576-583` describes and repaired for headlights only.
+- **do not cut `lights3d.ts:361`.** `renderer.ts:503` carries the identical `lit = 0.15 + 0.85 * night` and pushes the identical 0.075 alpha; 2D throws the same floor and it comes out invisible because 2D has no thresholded bloom. Cutting the floor moves the night curve and diverges the two renderers, which the file exists to mirror.
+- confirmed real: at (40,450) the 3D midday frame reads luma **129** where `lights=off` reads **4** — deep shade lifted thirty-fold at noon; the lamp does ~two-thirds as much visible work at midday as at midnight. Arithmetic exact: `lit` 0.15 -> alpha 0.075 -> `intensityOf` 73.5 cd -> `applyPoint` 73.8 cd.
+- **not the B03 shape** — tested explicitly. B03 was two independently documented endpoints; here three authored statements (GAPS.md:579 in a section GAPS.md:13 records as built, `lights3d.ts:366-368`, `post.ts:85-90`) say a lamp must not burn at noon, and the file records the bloom interaction as a bug it already fixed for another light family. A defect, not a design question.
+- corrections to the filing: the blown bulb is bright **art** in both renderers (`sprites.json` `lampBulb`), not the floor — the floor adds ~17 luma there; there is no "warm pool"; and the finding's 2D pixels were not on a lamp at all — at pitch 10 a 14 px head leans 7-20 screen px, so "the same pixel" was never a sound method.
+- evidence: `evidence/round3/V-R1-B01-*.png` (+ `-profile.mjs`, `-read.mjs`)
 - where: `lights3d.ts:361` (`lit = 0.15 + 0.85 * night`), consumed at `:379` and `:400`
 - prior art: REVIEW-3D.md records the *vehicle* version as fixed; the lamp/shop floor is recorded nowhere. `lights3d.ts:576-583` diagnoses the same floor for the other light family and gave headlights 0.06; the lamps that sentence names kept 0.15.
 
