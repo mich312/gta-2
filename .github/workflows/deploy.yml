@@ -44,6 +44,11 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: test
+    # `on.push` is filtered to main but `on.workflow_dispatch` is not, so
+    # without this a dispatch from any branch would test that branch and then
+    # reach the server. The deploy target is main; a dispatch from anywhere
+    # else runs the suite and stops here (the job shows as skipped).
+    if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4      # only to get ci/deploy.sh onto the runner
 
@@ -51,11 +56,17 @@ jobs:
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          # The sha the `test` job above passed. Handed to the server so it
+          # deploys that commit rather than re-resolving origin/main itself,
+          # which by now may have moved.
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || { echo "not a commit sha: '$DEPLOY_SHA'" >&2; exit 1; }
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            "root@${DEPLOY_HOST}" 'bash -s' < ci/deploy.sh
+            "root@${DEPLOY_HOST}" "bash -s -- ${DEPLOY_SHA}" < ci/deploy.sh
