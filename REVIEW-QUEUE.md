@@ -246,7 +246,7 @@ separate piece of work, filed below as R1-C07.
 - prior art: `traffic.ts:59` documents the negative-id convention as the thing that separates AI from players. It does not separate two AIs.
 
 ### R1-C07 — the trig gate stops at `shared/src/sim`; `shared/src/world` has ~90 unpinned calls
-- status: [ ] open        verdict: **CONFIRMED** (found by the R1-C03 fixer)
+- status: [x] **FIXED round 8** — `f9e99eb`; 8 of 97 calls, not a sweep
 - round: 1   severity: nit   lens: C
 - where: `shared/src/world/` — `layout.ts`, `plangen.ts`, `buildings.ts`, `heights.ts`, `turf.ts`, `amenities.ts`, `volume.ts`, `bake.ts`, `geometry.ts`, `marks.ts`
 - repro: `grep -rn "Math\.\(hypot\|atan2\|sin\|cos\)(" shared/src/world/ | wc -l`
@@ -1709,3 +1709,57 @@ produced better answers than the ones I had.
 
 Still with the author: the Ring's `maxBridgeSpan`, Marsh Causeway, Coast Road —
 and then promote the bridging gate from `warning` to `error`.
+
+
+## Round 8 — R1-C07, investigated rather than swept
+
+Filed in round 3 as "~90 unpinned calls in `shared/src/world`, needs a worldgen
+decision" and left for five rounds. The answer was neither a sweep nor a
+closure.
+
+**The escape hatch I offered was wrong.** "Baked offline, shipped as bytes" is
+half true, and `generate.ts:41-52` says so: GROUND (tiles, blocks, buildings,
+landmarks) is decoded from `city.data.ts`; **FURNITURE** (parked cars, ped
+spawns, props, moorings, ramps, turf, packages) is derived **per session from
+the seed**, on whatever host is asking — `session.ts:243`, `main.ts:650`
+("the whole city regenerates locally from the seed"), `live.ts:127`,
+`bot.ts:126`, `run.ts:35`. `hostParity` exercises the path players use.
+
+**Instrumented, not grepped.** Of 97 `Math` calls, **8 execute at runtime**:
+`drivableNear`, `bearingCarriageway`, `diagonalRoadDir`, `placeParking`,
+`assignTurf`. The other 89 are `plangen` (a drafting tool a human edits the
+output of), `citybake` (header: *"runs when somebody edits the plan, never when
+somebody plays"*) and the 3D render.
+
+**The defect is not precision loss.**
+
+```
+Math.sin(PI) = 1.2246467991473532e-16     dSin(PI) = 0
+const rightDot = kerbWest ? Math.sin(a) : -Math.cos(a);
+const heading  = rightDot > 0 ? a : a + PI;
+```
+
+On an east-west street `a` is exactly `PI`, so that `> 0` test is decided by
+**the sign of the residue of pi's own float representation** — which ECMA-262
+does not pin. A conforming engine returning 0 or a hair negative parks that car
+facing the opposite way, and the heading is hashed. The round-3 fixer's
+precision worry was real but aimed at the bake path, which shares no trig site
+with the runtime path.
+
+**The gate is a runtime count, not a source scan.** It runs `generateCity` with
+`Math` instrumented and asserts zero unpinned calls. A roster goes stale
+(FIXER.md's own warning); an import-graph walk over-approximates —
+`buildings.ts` *is* in `generate.ts`'s graph and its trig never executes.
+Counting can do neither. Two-pass: bare tally on the green path, stack capture
+only on failure.
+
+`city.data.ts` byte-identical, parity hash unchanged, and the behavioural
+change stated plainly: one parked car per city, in ~3 seeds in 8, now faces the
+other way. It was a coin flip before; it is the same coin on every host now.
+
+### Filed separately, low priority
+
+The 89 remaining calls stay unpinned deliberately. The one real exposure left is
+`citybake --check` reproducing the committed bake on a **non-V8 CI runner** —
+which would fail loudly rather than desync a session, and pinning it means
+rebaking the city. That genuinely is the worldgen decision round 3 described.
