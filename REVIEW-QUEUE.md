@@ -1871,7 +1871,7 @@ same. Either answer is informative about how many rounds this method needs.
 is: it still yields.
 
 ### R9-D01 — `ci/test.mjs` reports green and exits 0 when its filter matches nothing
-- status: [ ] open   severity: significant
+- status: [x] **FIXED round 10** — `91a9143`; bad filter now exits 1 with an unmistakable message
 - where: `ci/test.mjs:53` (empty-collection guard gated on `filters.length === 0`) and `:62-63` (unconditional green print)
 ```
 node ci/test.mjs nosuchtestfilterxyz  ->  green: 0 files, 0 failures   exit 0
@@ -1892,7 +1892,7 @@ independently.
   `< 50` guard applies.
 
 ### R9-D02 — `persistCheck` accuses the server of losing a wallet it did send
-- status: [ ] open   severity: significant
+- status: [x] **FIXED round 10** — `91a9143`; 15 failures in 40 runs -> 0 in 65
 - where: `server/src/tools/persistCheck.ts:62-66` — `next()` registers its waiter
   only in the microtask **after** the previous `await` resolves
 - the wallet is delivered at 1695 ms and the waiter appears at 1695 ms, the same
@@ -1920,7 +1920,7 @@ independently.
   places the README says the city does not have.**
 - `PROGRESS.md:412` records the change the README missed.
 
-### R9-D04 (nit) — a failed `persistCheck` orphans a live 30 Hz server
+### R9-D04 (nit) — a failed `persistCheck` orphans a live 30 Hz server  **[x] FIXED round 10**
 - `main().catch()` exits without touching its children; `server.kill` is only on
   the happy path. Ten failures took the box from load 1.5 to **8.44**, and the
   failure rate from 1-in-10 to 10-in-10. A positive feedback loop on top of
@@ -2087,3 +2087,69 @@ frame.
   including `clinic -> shopClothing`. **The offline map render marks clinics as
   clothing shops.** Left alone because it is another fixer's directory this
   round.
+
+
+## Round 10 — the two instruments this exercise relied on and could not trust
+
+### R9-D01 fixed, and the test deliberately not written
+
+An empty collection is now a failure whether or not a filter was given:
+
+```
+$ node ci/test.mjs nosuchtestfilterxyz
+[ci/test] FAIL: NO TEST FILE MATCHED "nosuchtestfilterxyz" — nothing ran, so
+nothing was verified. This is NOT a pass: check the filter spelling, or whether
+the test file was renamed or removed.                                    exit 1
+
+$ node ci/test.mjs noise
+[ci/test] green: 1 files matching "noise", 0 failures                    exit 0
+```
+
+Verified independently after merge. The `onTaskUpdate` starvation filter is
+untouched and still filtered five errors in the closing run.
+
+**No regression test, and the argument for that is right**: `ci/` is not one of
+vitest's three projects, and no test in this repo spawns a child process — so
+testing a CLI wrapper would have been the first of its kind, and would have
+nested a vitest run inside the suite **on the very box whose contention that
+wrapper exists to tolerate.** The failure message carries the weight instead.
+
+### R9-D02 fixed — and the fixer caught its own false green
+
+The invariant: the buffer holds only what arrived **since the last request sent
+or the last reply accepted.**
+
+The second half is the whole fix, and it was found by disbelieving the first
+draft. Clearing only on request-sent *passes while verifying nothing*: the
+server also sends a wallet on join — the **guest** wallet, which
+`economy.ts:136` seeds with `startingCash`, so it reads 500 too. Probed by
+marking the join wallet `cash: 1234`, that version **read 1234 in both lives
+and passed**, comparing two guest wallets and blind to whatever the account had
+stored. The shipped version reads 500/500 twelve times of twelve, and a
+simulated 100-cash loss on the login path correctly fails.
+
+Measured by **rate at stated load**, orphans killed between runs:
+
+| | failed | orphans |
+| --- | --- | --- |
+| before, load 1.4-2.9 | **4 / 20** | 4 |
+| before, load 5.6-10.0 | **11 / 20** | 11 |
+| after, load 0.6-1.3 | 0 / 20 | 0 |
+| after, load 5.6-6.7 | 0 / 25 | 0 |
+| after, load 9.1-11.5 | **0 / 20** | 0 |
+
+Zero of 65, including 20 runs *above* the band where the unfixed tree failed 11
+of 20. Orphan cleanup was tested by **forcing** a failure, since a fixed check
+stops failing on its own; SIGTERM mid-run also leaves 0 servers.
+
+### Flagged by the fixer, unprompted
+
+On the **happy** path life-2's server now takes SIGTERM then SIGKILL
+microseconds later when the parent exits, where before it shut down on its own.
+Judged harmless — the check has read everything it needs and the store is a
+`mkdtemp` file — but stated plainly: *"if anything later depends on that
+server's graceful shutdown writing something, this is where it will bite."*
+
+That is FIXER.md's "ask what your change enables" applied by a fixer to its own
+work. Three fixes in this exercise revealed something underneath them; this is
+the first that predicted where its own would.
