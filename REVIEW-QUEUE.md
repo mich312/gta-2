@@ -330,6 +330,7 @@ separate piece of work, filed below as R1-C07.
 
 ### R1-A01 — Kelvin Bridge and Marsh Causeway bake to nothing
 - status: [x] fixed (Kelvin Bridge) + [~] escalated (Marsh Causeway, the Ring's east crossing)
+- fixed by: `01332db` (worktree branch `worktree-agent-a666958f7e415fc23`, not pushed)
 - round: 1   severity: **blocking**   lens: A
 - where: `shared/data/city-plan.json` (both roads); `layout.ts:2298-2356` (no-piers pass); `cityCheck.ts:42` (no rule)
 - repro: `node server/dist/tools/mapgen.js --crop=436,336,44 --scale=16 --out=…`
@@ -450,6 +451,7 @@ sea. Nobody had filed this. Left alone (out of scope), pinned in
 
 ### R1-A03 — The Docks' contour fabric lays no cross streets
 - status: [x] fixed
+- fixed by: `01332db` (same commit as R1-A01 — one rebake)
 - round: 1   severity: significant   lens: A
 - where: `layout.ts:1625` (contour cross streets) and `layout.ts:1273` (`frameDeg` PCA)
 - **the reviewer found the symptom; the verifier found the cause.** `frameDeg`'s PCA samples only tiles with `bandField <= 2`. The Docks' banding shore is on its **east** side, so the true mean tangent is 90 degrees — but the nearest owned dry tile is 9 away, nothing matches, `n === 0`, and it silently falls back to the authored `angle: 0`. The cross streets are carved **parallel to the bands they were meant to cross**.
