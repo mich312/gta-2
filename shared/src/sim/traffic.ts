@@ -1,5 +1,5 @@
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
-import { clamp, q8, q256 } from '../math/vec.js';
+import { clamp, distVec, q8, q256 } from '../math/vec.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
 import { getTrafficTuning, getTuning, getVehicleTuning, type TrafficTuning } from '../tuning.js';
 import type { GameState, TrafficDriver, VehicleState } from './state.js';
@@ -1135,7 +1135,7 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     for (const pid of state.players.ids) {
       const p = state.players.byId[pid];
       if (!p) continue;
-      nearest = Math.min(nearest, Math.hypot(p.pos.x - v.pos.x, p.pos.y - v.pos.y));
+      nearest = Math.min(nearest, distVec(p.pos, v.pos));
     }
     // A car on an errand is not set dressing: it despawns when the errand
     // ends, not when nobody happens to be watching it drive there — and that
@@ -1183,7 +1183,7 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
   for (let i = 0; i < spawns.length; i++) {
     const candidate = spawns[(offset + i) % spawns.length];
     if (!candidate) continue;
-    const d = Math.hypot(candidate.x - player.pos.x, candidate.y - player.pos.y);
+    const d = distVec(candidate, player.pos);
     if (d < t.spawnMinDist || d > t.spawnMaxDist) continue;
 
     const place = aiSpawnPlacement(state, map, candidate);
@@ -1394,7 +1394,12 @@ export function ejectDriver(
   if (fleeFrom) {
     const dx = door.x - fleeFrom.x;
     const dy = door.y - fleeFrom.y;
-    const d = Math.hypot(dx, dy);
+    // `Math.sqrt`, not `Math.hypot`: this is the carjack path, and `ped.dirX`
+    // and `ped.dirY` below are hashed (`net/hash.ts:123-126`) and shipped with
+    // no rounding (`snapshot.ts`). ECMA-262 pins sqrt to the exactly rounded
+    // result and leaves hypot approximated — measured on the shipped door
+    // offsets, the two forms disagree on 33% of them.
+    const d = Math.sqrt(dx * dx + dy * dy);
     ped.dirX = d > 0.001 ? dx / d : dCos(across) * door.side;
     ped.dirY = d > 0.001 ? dy / d : dSin(across) * door.side;
     ped.mode = 'flee';

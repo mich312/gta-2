@@ -1,5 +1,5 @@
 import { DT, PLAYER_RADIUS, TICK_RATE } from '../constants.js';
-import { q8 } from '../math/vec.js';
+import { distVec, q8 } from '../math/vec.js';
 import { nextIntRange } from '../rng/prng.js';
 import { getTuning, getWeaponTuning } from '../tuning.js';
 import type { GameState, PedState, PickupState, PlayerState } from './state.js';
@@ -229,7 +229,7 @@ function acquireTarget(
   if (ped.targetId !== null) {
     const held = state.players.byId[ped.targetId];
     if (canSee(held)) {
-      const d = Math.hypot(held.pos.x - ped.pos.x, held.pos.y - ped.pos.y);
+      const d = distVec(held.pos, ped.pos);
       if (d <= getTuning().peds.armedSightRange) return held;
     }
     return null;
@@ -244,7 +244,7 @@ function acquireTarget(
     const p = state.players.byId[pid];
     if (!canSee(p)) continue;
     if (!isHostile(p, ped.gangId)) continue;
-    const d = Math.hypot(p.pos.x - ped.pos.x, p.pos.y - ped.pos.y);
+    const d = distVec(p.pos, ped.pos);
     if (d < bestD) {
       bestD = d;
       target = p;
@@ -326,7 +326,11 @@ function stepArmedPed(
 
   const dx = target.pos.x - ped.pos.x;
   const dy = target.pos.y - ped.pos.y;
-  const d = Math.max(1, Math.hypot(dx, dy));
+  // `Math.sqrt`, not `Math.hypot`: ECMA-262 pins the first to the exactly
+  // rounded result and leaves the second approximated, and `ped.dirX`/`dirY`
+  // are hashed (`net/hash.ts`) and shipped unrounded. Same rule, same reason,
+  // as `courseIndex.ts:67` and `geometry.ts:434`.
+  const d = Math.max(1, Math.sqrt(dx * dx + dy * dy));
   ped.dirX = dx / d;
   ped.dirY = dy / d;
 
@@ -390,7 +394,7 @@ function stepEscortee(state: GameState, map: CityMap, ped: PedState): boolean {
   ped.mode = 'following';
   const dx = lead.pos.x - ped.pos.x;
   const dy = lead.pos.y - ped.pos.y;
-  const d = Math.hypot(dx, dy);
+  const d = Math.sqrt(dx * dx + dy * dy); // pinned; see `stepArmedPed` above
   if (d < 0.001) return true;
   ped.dirX = dx / d;
   ped.dirY = dy / d;

@@ -714,6 +714,11 @@ describe('escalation by kind', () => {
     car.driverId = -100000 - 500;
     insertEntity(state.vehicles, car);
     cop.vehicleId = 501;
+    // The force issued this car, exactly as `motorise` would have. Without
+    // the register entry it is indistinguishable from the cruiser parked
+    // outside a police station, which the officer may not take and the
+    // retirement sweep may not clear.
+    state.copFleet[501] = 500;
     return state;
   }
 
@@ -729,6 +734,62 @@ describe('escalation by kind', () => {
     expect(cop.vehicleId).toBeNull();
     // The cruiser is left behind as an ordinary abandoned car.
     expect(state.vehicles.byId[501]!.driverId).toBeNull();
+  });
+
+  it('an officer who pulled up gets back in when the fugitive pulls away', () => {
+    // The other half of the dismount above, and the one that was missing.
+    // `motorise` runs once, at spawn, and `cop.vehicleId` had no other
+    // producer — so pulling up was permanent: the officer walked for the rest
+    // of their life and the cruiser stood in the road for the rest of the
+    // session, holding a slot in the per-kind budget that would have
+    // motorised the next wave. A four-star chase settled at six parked
+    // cruisers and no motorised officers within about forty seconds, and no
+    // test noticed because none of them followed a chase past the first
+    // dismount.
+    const t = getTuning().police;
+    const at = openSquare(map, 14);
+    let state = wedged(at, { x: at.x + t.dismountDist - 40, y: at.y });
+    state = step(state, {}, [], map);
+    expect(state.cops.byId[500]!.vehicleId, 'did not pull up').toBeNull();
+    const car = state.vehicles.byId[501]!;
+    // The fugitive is away up the road — out of sight, so the officer is
+    // steering at the radio's last position rather than at what they can see,
+    // which is the ordinary shape of a chase that has just lost contact.
+    const gone = { x: car.pos.x + t.dismountDist * 3, y: car.pos.y };
+    for (let i = 0; i < 60; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 410;
+      p.pos = { x: gone.x, y: gone.y };
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      state = step(state, {}, [], map);
+    }
+    expect(state.cops.byId[500]!.vehicleId, 'never got back in').toBe(501);
+    expect(state.vehicles.byId[501]!.driverId).toBe(-100000 - 500);
+  });
+
+  it('the cruisers a chase leaves behind do not outlive it', () => {
+    // Nothing in `shared/src` removed an abandoned undamaged cruiser: the
+    // wreck clearer only takes wrecks and traffic's cull is gated on an AI
+    // driver a driverless cruiser does not have. So every chase added to a
+    // permanent pile, and since `motorise` budgets on the vehicle table as it
+    // stands, the pile eventually spent the whole `copcar` allowance.
+    const t = getTuning().police;
+    let state = chaseAt(4, 900, 88).state;
+    expect(copCars(state), 'no cruisers turned out to leave behind').toBeGreaterThan(0);
+    // The fugitive is streets away and no longer wanted: nobody is coming
+    // back for these cars, and nobody can see them go.
+    const from = state.players.byId[1]!.pos;
+    const away = map.vehicleSpawns.find(
+      (s) => Math.hypot(s.x - from.x, s.y - from.y) > t.spawnMaxDist * 3,
+    );
+    expect(away, 'no distant kerb on this map').toBeDefined();
+    for (let i = 0; i < 900; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 0;
+      p.pos = { x: away!.x, y: away!.y };
+      state = step(state, {}, [], map);
+    }
+    expect(copCars(state), 'litter survived the chase').toBe(0);
   });
 
   it('an officer who cannot find the suspect gives up, rather than hunting for ever (P1a)', () => {
