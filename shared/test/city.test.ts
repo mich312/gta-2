@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import cityPlanJson from '../data/city-plan.json';
 import worldgenJson from '../data/worldgen.json';
-import { parseCityPlan, pointInPoly } from '../src/world/plan.js';
-import { buildLayout } from '../src/world/layout.js';
+import { parseCityPlan, pointInPoly, roadCourses, segmentDistance } from '../src/world/plan.js';
+import { buildLayout, riverCourses } from '../src/world/layout.js';
 import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js';
 import { bevelOther } from '../src/world/bevel.js';
 import { generateCity } from '../src/world/generate.js';
@@ -513,6 +513,118 @@ describe('the city, as an asset', () => {
     // Four crossings' worth: the boroughs are joined, and joining them is
     // what the bridges are for.
     expect(bridges).toBeGreaterThan(400);
+  });
+
+  it('crosses every named waterway an arterial is drawn over', () => {
+    // R1-A02. The test above asks whether the decks that exist are honest
+    // crossings; it cannot see a crossing that was never laid. Nor can the
+    // connectivity test, which is satisfied by any way round however long.
+    // So Hollis Creek — a named river with two arterials drawn straight
+    // across it, The Esplanade and Longacre Road — shipped with no crossing
+    // anywhere along its length and nothing red: both roads carried
+    // `bridges: false`, the bake stopped them at the bank, and the drive from
+    // one bank to the other was 458 road tiles for a gap of eight.
+    //
+    // The property is about the artifact, not the flag: a road course that
+    // goes land, named water, land is a crossing the drawing asks for, and
+    // the map has to carry one somewhere on that waterway.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    // The CARVED courses, not the drawn ones. Asked of the polylines in the
+    // plan, "which river is this water" answers Hollis Creek for the middle
+    // of Old Bridge's deck, a hundred tiles from the creek and squarely over
+    // the Kelvin: the Kelvin's meander is 44 and its drawn line is nowhere
+    // near its channel. That misattribution is exactly strong enough to hide
+    // the bug this test is for.
+    const rivers = riverCourses(plan);
+
+    // Which named river a stretch of water belongs to: the nearest carved
+    // centreline within reach. Reach only has to clear the widest channel's
+    // half-width (17, the Kelvin at its mouth); the answer is the same for
+    // anything from 12 to 64, because it is the nearest-centreline split that
+    // separates the two rivers, not the radius. Water out of reach of every
+    // river — the strait's bays, the sound, the open sea — belongs to none of
+    // them and is not this test's business.
+    const REACH = 24;
+    const owner = (x: number, y: number): number => {
+      let best = -1;
+      let bestD = REACH;
+      for (let i = 0; i < rivers.length; i++) {
+        const pts = (rivers[i] as (typeof rivers)[number]).points;
+        for (let k = 0; k + 1 < pts.length; k++) {
+          const [ax, ay] = pts[k] as [number, number];
+          const [bx, by] = pts[k + 1] as [number, number];
+          const d = segmentDistance(x, y, ax, ay, bx, by);
+          if (d < bestD) {
+            bestD = d;
+            best = i;
+          }
+        }
+      }
+      return best;
+    };
+
+    // Bridge tiles standing on each named river.
+    const decked = rivers.map(() => 0);
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        if (map.tiles[ty * W + tx] !== T_BRIDGE) continue;
+        const r = owner(tx, ty);
+        if (r >= 0) decked[r] = (decked[r] as number) + 1;
+      }
+    }
+
+    // Roads drawn across each named river: sampled along the carved course,
+    // dry ground, then that river's water, then dry ground again.
+    const crossers = rivers.map(() => [] as string[]);
+    for (const road of plan.roads) {
+      for (const course of roadCourses(road)) {
+        const state = rivers.map(() => 0); // 0 before, 1 in the water, 2 through
+        for (let k = 0; k + 1 < course.length; k++) {
+          const [ax, ay] = course[k] as [number, number];
+          const [bx, by] = course[k + 1] as [number, number];
+          const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay)));
+          for (let s = 0; s <= steps; s++) {
+            const x = Math.round(ax + ((bx - ax) * s) / steps);
+            const y = Math.round(ay + ((by - ay) * s) / steps);
+            if (x < 0 || y < 0 || x >= W || y >= H) continue;
+            const t = map.tiles[y * W + x] as number;
+            // A bridge tile reads as the water it stands over: the course
+            // that is now decked is exactly the one that crosses.
+            const wet = t === T_WATER || t === T_BRIDGE;
+            const r = wet ? owner(x, y) : -1;
+            for (let i = 0; i < rivers.length; i++) {
+              if (r === i) {
+                if (state[i] === 0) state[i] = 1;
+              } else if (!wet && state[i] === 1) {
+                state[i] = 2;
+              }
+            }
+          }
+        }
+        rivers.forEach((_, i) => {
+          if (state[i] === 2 && !(crossers[i] as string[]).includes(road.name)) {
+            (crossers[i] as string[]).push(road.name);
+          }
+        });
+      }
+    }
+
+    for (let i = 0; i < rivers.length; i++) {
+      const river = rivers[i] as (typeof rivers)[number];
+      const across = crossers[i] as string[];
+      if (across.length === 0) continue;
+      expect(
+        decked[i],
+        `${river.name} is crossed by no bridge, though the plan draws ${across.join(', ')} across it`,
+      ).toBeGreaterThan(0);
+    }
+    // And the drawing does put arterials over both named waterways, so
+    // neither river is passing this test by having nothing to cross it.
+    expect(rivers.map((r, i) => [r.name, (crossers[i] as string[]).length > 0])).toEqual([
+      ['The Kelvin', true],
+      ['Hollis Creek', true],
+    ]);
   });
 
   it('refuses a plan that puts a landmark in the water', { timeout: 60_000 }, () => {

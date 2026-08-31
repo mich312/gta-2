@@ -330,3 +330,17 @@ first (`pnpm --filter client dev`) and read a plate back with
 | `round3/F-R1-B01-3d-noon-lightsoff.png` | The control the two above are measured against — midday with `?lights=off`, so no street lighting exists at all. The `after` plate matches it across the lamp to within a luma. Retake: same command with `&lights=off`. |
 | `round3/F-R1-B01-crop-noon-before.png` / `-after.png` | The lamp itself, 140x100 px of the frame at 5x. Before: a blown bulb and a halo up the wall. After: the grey head and cream bulb of the art, unlit. |
 | `round3/F-R1-B01-3d-night-before.png` / `-after.png` | The gate on the fix. At midnight the key light sums to 1.00, so the threshold is still exactly its old 1.05 and the night is untouched: (40,450) reads 148 either side, and a whole-frame diff finds fewer differing pixels between the two than between two runs of the *same* build (the lamp flicker rides on wall-clock). Retake: same command with `&night=1`. |
+
+## Review round 4 — R1-A02, the creek nobody crossed
+
+The `before` plates are `3bd853e`; the `after` plates the rebake in the same
+commit as the fix. Both retake commands are the same line — what changed is
+the asset under it — so re-running a `before` command today reproduces the
+`after` picture.
+
+| file | what it shows |
+|---|---|
+| `round4/A02-esplanade-before.png` | R1-A02. Hollis Creek at The Esplanade, before. The creek is eight tiles of water, and the seafront arterial drawn straight across it stops dead on both banks in a rounded turning head — the plan carried `bridges: false` on the road, so the bake was never allowed to lay a deck. Nothing was broken enough to fail: the two banks are connected, just 458 road tiles apart the long way round the creek's head. Retake: `node server/dist/tools/mapgen.js --crop=372,408,44 --scale=16 --out=evidence/round4/A02-esplanade-before.png`. |
+| `round4/A02-esplanade-after.png` | The same crop with the road's `bridges` flag flipped to true: 31 tiles of deck at x394-401, y423-427, the Esplanade running through the frame unbroken, and the bank-to-bank drive down from 458 tiles to 20. Same command, `-after` for the name. |
+| `round4/A02-longacre-before.png` | The creek's other arterial, Longacre Road, four tiles from bank to bank and stopped in the same pair of turning heads. 124 road tiles between them. Retake: `node server/dist/tools/mapgen.js --crop=310,505,60 --scale=12 --out=evidence/round4/A02-longacre-before.png`. |
+| `round4/A02-longacre-after.png` | The same crop crossed: 10 tiles of deck at x332-334, y530-533, and 6 tiles between the banks. Same command, `-after` for the name. |

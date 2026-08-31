@@ -339,10 +339,7 @@ function paintCoast(plan: CityPlan): Coast {
   const H = plan.heightTiles;
   const g = plan.geography;
 
-  const rivers: PlanStroke[] = g.rivers.map((r) => ({
-    ...r,
-    points: r.meander > 0 ? meanderPolyline(r.points, MEANDER_SEED, r.meander, 4, latticeHash) : r.points,
-  }));
+  const rivers: PlanStroke[] = riverCourses(plan);
   const spits: PlanStroke[] = g.spits.map((s) => ({
     ...s,
     points: s.meander > 0 ? meanderPolyline(s.points, MEANDER_SEED ^ 0x99, s.meander, 3, latticeHash) : s.points,
@@ -496,6 +493,25 @@ export type { Coast };
  */
 export function paintShore(plan: CityPlan): Coast {
   return paintCoast(plan);
+}
+
+/**
+ * Where each named river actually runs: its authored polyline after the
+ * meander, which is the line `paintCoast` cuts the channel along.
+ *
+ * The drawn line is not the river. Hollis Creek's polyline passes several
+ * tiles clear of its own water, and the Kelvin's is forty tiles off its
+ * channel where the meander swings hardest — so "which river is this water"
+ * answered from `plan.geography.rivers` names the wrong one, and does it
+ * worst near a confluence, where the two answers are the ones that matter.
+ * The seed lives in this file; anything asking that question has to read it
+ * from here rather than keep a copy (R1-A02).
+ */
+export function riverCourses(plan: CityPlan): PlanStroke[] {
+  return plan.geography.rivers.map((r) => ({
+    ...r,
+    points: r.meander > 0 ? meanderPolyline(r.points, MEANDER_SEED, r.meander, 4, latticeHash) : r.points,
+  }));
 }
 
 /* ------------------------------------------------------------------ */
