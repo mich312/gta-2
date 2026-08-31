@@ -1,0 +1,21 @@
+# Anywhere City 768x768 from /tmp/claude-0/-home-user-gta-2/297482db-7a0b-5d48-914d-987762c0d996/scratchpad/old.city.data.ts
+# summary
+# road-deadend            10
+# road-stops-short        16
+# road-speck               0
+# road-notch               0
+# road-width-jump          1  noisy
+# junction-stub            0
+# walk-orphan              0
+# kerb-missing             3
+# crossing-missing         8
+# shore-staircase          0
+# built-staircase         29  noisy
+# bare-corridor            1
+# patch-square             0
+# edge-notch               0
+# fabric-coarse            1
+# course-coverage-outlier       2
+# street-serves-nothing       6  noisy
+# lanes-serving-nothing       2
+# TOTAL                   79
