@@ -518,6 +518,23 @@ export interface GameState {
   /** Ambulances currently answering a casualty, per vehicle id. Server-only. */
   ambulanceCalls: Record<number, AmbulanceCall>;
   /**
+   * Which vehicles the POLICE put on the street, per vehicle id, holding the
+   * officer they were issued to (-1 for a roadblock, which is issued to
+   * nobody).
+   *
+   * Server-only sim state, for the same reason as `trafficDrivers` and
+   * `vehicleHitTick`: no client runs the dispatcher, so it has no business in
+   * the snapshot diff or the desync hash.
+   *
+   * It exists because "an abandoned cruiser" and "the cruiser parked outside
+   * the police station" are the same object otherwise — both are a driverless
+   * `copcar` — and only one of them is litter. The station's is a vehicle
+   * HOME (`amenities.ts`), the answer to "where do I find a police car", and
+   * must survive; the one an officer walked away from must not accumulate
+   * for the rest of the session, holding a slot in `motorise`'s budget.
+   */
+  copFleet: Record<number, number>;
+  /**
    * Where every vehicle was on each of the last few ticks, newest first.
    *
    * Server-only sim state, for the same reason as `trafficDrivers` and
@@ -545,6 +562,7 @@ export function createGameState(seed: number): GameState {
     trafficDrivers: {},
     vehicleHitTick: {},
     ambulanceCalls: {},
+    copFleet: {},
     vehicleTrail: [],
   };
 }
@@ -770,6 +788,7 @@ export function cloneState(s: GameState): GameState {
     trafficDrivers: cloneTrafficDrivers(s.trafficDrivers),
     vehicleHitTick: { ...s.vehicleHitTick },
     ambulanceCalls: cloneAmbulanceCalls(s.ambulanceCalls),
+    copFleet: { ...s.copFleet },
     // Frames are written once and never mutated, so the array of references
     // is the whole clone.
     vehicleTrail: s.vehicleTrail.slice(),

@@ -1,8 +1,8 @@
 import { DT, PLAYER_RADIUS, TICK_RATE } from '../constants.js';
-import { clamp, q8 } from '../math/vec.js';
+import { clamp, lenVec, q8 } from '../math/vec.js';
 import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01, nextIntRange } from '../rng/prng.js';
-import { getTuning, getWeaponTuning } from '../tuning.js';
+import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
 import type { CopKindTuning } from '../tuning.js';
 import type { CopState, GameState, PlayerState, VehicleState } from './state.js';
 import {
@@ -22,7 +22,7 @@ import { isFriendly } from './respect.js';
 import { gangAt } from '../world/turf.js';
 import type { CityMap } from '../world/types.js';
 import { moveWithCollision } from '../world/collide.js';
-import { pushOutOfVehicles } from './bodies.js';
+import { distanceToBox, pushOutOfVehicles, vehicleBox } from './bodies.js';
 import { CARDINAL_ANGLE, dirIsOpen, nearestCardinal } from './roadgrid.js';
 
 /**
@@ -477,7 +477,10 @@ function copFire(
   // junction at 200 px/s. Both terms are computed from sim state and the roll
   // is still the same single draw, so the rng stream is unchanged.
   const d = dist(cop.pos.x, cop.pos.y, target.pos.x, target.pos.y);
-  const targetSpeed = Math.hypot(target.vel.x, target.vel.y);
+  // `lenVec` (Math.sqrt), not `Math.hypot`: sqrt is the exactly rounded
+  // result under ECMA-262 and hypot is not, and this decides whether an
+  // arrest lands — which writes `player.mode` and the officer's own state.
+  const targetSpeed = lenVec(target.vel);
   const spread =
     weapon.spread *
     (1 + t.rangeSpread * Math.min(1, d / Math.max(1, t.fireRange))) *
@@ -594,6 +597,76 @@ function motorise(state: GameState, cop: CopState, heading: number, kind = 'copc
   v.driverId = copDriverId(cop.id);
   insertEntity(state.vehicles, v);
   cop.vehicleId = id;
+  state.copFleet[id] = cop.id;
+}
+
+/**
+ * Multiple of `dismountDist` the target has to be past before an officer on
+ * foot goes back for a car. Hysteresis against the dismount at `dismountDist`
+ * itself: without a gap between the two an officer who has just pulled up
+ * gets straight back in and pulls up again on the next tick.
+ */
+const REMOUNT_GOAL_FACTOR = 2;
+/**
+ * How far an officer will walk to a car. About one dismount's worth: this is
+ * meant to catch the cruiser they parked a moment ago and the one the officer
+ * next to them left, not to send the whole force off across the city looking
+ * for transport instead of chasing.
+ */
+const REMOUNT_WALK_DIST = 180;
+
+/**
+ * Put an officer on foot back behind the wheel of a police vehicle that is
+ * already standing there.
+ *
+ * `motorise` runs exactly once per officer, at spawn, and `cop.vehicleId` has
+ * no other producer — so an officer who pulled up at `dismountDist` or bailed
+ * out of a wedged car was on foot for the rest of their life, and the car they
+ * left stood in the road for the rest of the session holding a slot in the
+ * per-kind budget `motorise` checks. A four-star chase settled at six parked
+ * cruisers, no motorised officers, and no way to ever get one again: the
+ * motorised response PROGRESS.md describes lasted about twenty seconds.
+ *
+ * Nothing is created here. The objection in `maybeSpawnCop` — that motorising
+ * mid-chase drops a vehicle under a standing officer, usually on a pavement,
+ * where it wedges on the first tick — is about conjuring a car; this one is
+ * already parked on a road, because an officer got out of it there.
+ *
+ * Returns the vehicle the officer should walk to when it is out of reach, so
+ * the ordinary on-foot movement below does the walking; null when the officer
+ * either boarded or has no car worth going back for.
+ */
+function remount(state: GameState, cop: CopState, goalD: number): VehicleState | null {
+  const t = getTuning().police;
+  if (goalD <= t.dismountDist * REMOUNT_GOAL_FACTOR) return null;
+  let best: VehicleState | null = null;
+  let bestD = REMOUNT_WALK_DIST;
+  for (const id of state.vehicles.ids) {
+    const v = state.vehicles.byId[id];
+    if (!v || v.driverId !== null || v.condition !== 'ok') continue;
+    // The force's own vehicles, and only those. `copFleet` is the register of
+    // what the police put on the street, which is what separates the cruiser
+    // an officer walked away from — theirs to get back into — from the one
+    // parked outside the station, which is a vehicle home and scenery.
+    if (state.copFleet[v.id] === undefined) continue;
+    const d = dist(cop.pos.x, cop.pos.y, v.pos.x, v.pos.y);
+    if (d < bestD) {
+      bestD = d;
+      best = v;
+    }
+  }
+  if (!best) return null;
+  // Measured from the bodywork and against the same reach a player boards on,
+  // because `pushOutOfVehicles` keeps an officer outside the shell — a
+  // centre-to-centre test could never be satisfied.
+  if (distanceToBox(cop.pos.x, cop.pos.y, vehicleBox(best)) > getVehicleTuning(best.kind).enterReach) {
+    return best;
+  }
+  best.driverId = copDriverId(cop.id);
+  cop.vehicleId = best.id;
+  cop.stuckTicks = 0;
+  state.copFleet[best.id] = cop.id;
+  return null;
 }
 
 /**
@@ -650,6 +723,15 @@ function drivePursuit(
   const v = state.vehicles.byId[cop.vehicleId];
   if (!v || v.condition !== 'ok') {
     // Cruiser destroyed: the officer continues on foot.
+    cop.vehicleId = null;
+    return;
+  }
+  // Or somebody else took the wheel out from under them. `cop.vehicleId` and
+  // `v.driverId` are set together and have to be read together, or an officer
+  // goes on ghost-driving a car that is no longer theirs — and, now that an
+  // officer on foot can get back into a free police car, a second officer
+  // could be handed the same one.
+  if (v.driverId !== copDriverId(cop.id)) {
     cop.vehicleId = null;
     return;
   }
@@ -754,6 +836,67 @@ function drivePursuit(
 }
 
 /**
+ * Retire police vehicles nobody is coming back for.
+ *
+ * Every way an officer parts company with a car — the deliberate dismount, the
+ * wedged bail-out, being shot off the street — leaves it standing in the road
+ * with `driverId = null` and condition `ok`, and nothing in `shared/src` ever
+ * removed one: the wreck clearer only takes wrecks, and traffic's cull is
+ * gated on an AI driver a driverless cruiser does not have. So the litter of a
+ * chase was permanent, and — because `motorise`'s budget counts every vehicle
+ * of the kind, parked ones included — six dead cruisers permanently spent the
+ * whole `copcar` allowance and no wave could ever be motorised again.
+ *
+ * The rule is the same one traffic uses, at the police's own scale: past
+ * `spawnMaxDist` from every player this car is further away than dispatch
+ * would send a fresh unit from, so it is not part of anybody's response. That
+ * is also comfortably outside the server's interest radius, so no client has
+ * ever been told the car exists and nothing blinks out in view.
+ *
+ * A car with an officer walking back to it (see `remount`) is kept.
+ */
+function retireAbandoned(state: GameState): void {
+  const t = getTuning().police;
+  const doomed: number[] = [];
+  for (const id of state.vehicles.ids) {
+    const v = state.vehicles.byId[id];
+    if (!v || v.driverId !== null || v.condition !== 'ok') continue;
+    if (state.copFleet[id] === undefined) continue;
+    let keep = false;
+    for (const pid of state.players.ids) {
+      const p = state.players.byId[pid];
+      if (!p) continue;
+      if (dist(p.pos.x, p.pos.y, v.pos.x, v.pos.y) <= t.spawnMaxDist) {
+        keep = true;
+        break;
+      }
+    }
+    if (keep) continue;
+    for (const cid of state.cops.ids) {
+      const cop = state.cops.byId[cid];
+      if (!cop || copIsDown(cop)) continue;
+      if (dist(cop.pos.x, cop.pos.y, v.pos.x, v.pos.y) <= REMOUNT_WALK_DIST) {
+        keep = true;
+        break;
+      }
+    }
+    if (keep) continue;
+    doomed.push(id);
+  }
+  for (const id of doomed) {
+    removeEntity(state.vehicles, id);
+    delete state.vehicleHitTick[id];
+  }
+  // The register cannot outlive what it registers, or it grows for the
+  // lifetime of the process — the same rule `stepTrafficPopulation` applies
+  // to `trafficDrivers`. A cruiser blown up by the fugitive leaves through
+  // the wreck clearer, not through the loop above.
+  for (const key of Object.keys(state.copFleet)) {
+    if (!state.vehicles.byId[Number(key)]) delete state.copFleet[Number(key)];
+  }
+}
+
+/**
  * Throw two cruisers across the road ahead of a fugitive. Deterministic: the
  * spot is derived from the kerbside spawn list, walked from an rng offset,
  * exactly like ordinary cop spawns.
@@ -775,7 +918,7 @@ function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
   if (cars + 2 > (t.vehicleCaps[kind] ?? t.maxCopCars) + 2) return;
 
   // Ahead means ahead of travel if moving, otherwise ahead of aim.
-  const speed = Math.hypot(p.vel.x, p.vel.y);
+  const speed = lenVec(p.vel); // pinned; see `copFire`
   const driving = p.vehicleId !== null ? state.vehicles.byId[p.vehicleId] : null;
   const heading = driving ? driving.heading : speed > 1 ? dAtan2(p.vel.y, p.vel.x) : p.aimAngle;
   const ax = p.pos.x + dCos(heading) * t.roadblockAheadDist;
@@ -804,6 +947,10 @@ function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
         across,
       );
       insertEntity(state.vehicles, v);
+      // Issued to nobody: a roadblock is parked deliberately and has no
+      // officer, but it is still the force's car and still litter once the
+      // fugitive is streets away from it.
+      state.copFleet[id] = -1;
     }
     return;
   }
@@ -843,6 +990,10 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     p.wantedLevel = wantedLevelOf(p);
   }
 
+  // Before dispatch, not after: `motorise`'s per-kind budget is counted on
+  // the vehicle table as it stands, so last chase's litter has to be off the
+  // street before this one's wave asks for a car.
+  retireAbandoned(state);
   maybeSpawnCop(state, map);
   for (const pid of state.players.ids) {
     const p = state.players.byId[pid];
@@ -999,9 +1150,28 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
       cop.lastSeenY = q8(cop.pos.y + dSin(angle) * stride);
     }
 
-    const goalX = seen ? target.pos.x : cop.lastSeenX;
-    const goalY = seen ? target.pos.y : cop.lastSeenY;
-    const goalD = dist(cop.pos.x, cop.pos.y, goalX, goalY);
+    let goalX = seen ? target.pos.x : cop.lastSeenX;
+    let goalY = seen ? target.pos.y : cop.lastSeenY;
+    let goalD = dist(cop.pos.x, cop.pos.y, goalX, goalY);
+    let walkingToCar = false;
+
+    // Back to the car once the fugitive has pulled away again. Gated on the
+    // same star the motorised response starts at, so this cannot put a car
+    // under a two-star posse that is meant to be on foot — see `carsFromStar`
+    // below and in `maybeSpawnCop`.
+    if (
+      cop.vehicleId === null &&
+      !copStats(cop.kind).flies &&
+      wantedLevelOf(target) >= t.carsFromStar
+    ) {
+      const walkTo = remount(state, cop, goalD);
+      if (walkTo) {
+        goalX = walkTo.pos.x;
+        goalY = walkTo.pos.y;
+        goalD = dist(cop.pos.x, cop.pos.y, goalX, goalY);
+        walkingToCar = true;
+      }
+    }
 
     // Escalation by KIND, not just count. Below carsFromStar the response is
     // the on-foot posse it always was; at and above it, officers arrive
@@ -1035,7 +1205,14 @@ export function stepPolice(state: GameState, map: CityMap, events: SimEvent[]): 
     // huddle around you all at minimum range. A unit that has LOST the suspect
     // ignores its standoff — you cannot cordon somebody you cannot find, and
     // the search has to be allowed to walk right up to the last-seen point.
-    const standoff = seen ? Math.max(t.bustRadius - 2, copStats(cop.kind).preferredRange) : t.bustRadius - 2;
+    // An officer walking back to a car has no standoff at all: a rifleman's
+    // cordon distance measured against the car door would stop him a
+    // preferredRange short of it and he would never get in.
+    const standoff = walkingToCar
+      ? 0
+      : seen
+        ? Math.max(t.bustRadius - 2, copStats(cop.kind).preferredRange)
+        : t.bustRadius - 2;
     // In the air: straight at the goal, over everything. No tile collision,
     // no being shoved by traffic, no wall-slide — and no arrest, because
     // nobody gets out (see the `tryBust` gate below).

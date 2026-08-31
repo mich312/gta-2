@@ -1,6 +1,6 @@
 import { PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
-import { HALF_PI, PI, dCos, dSin, wrapAngle } from '../math/trig.js';
+import { HALF_PI, PI, dAtan2, dCos, dSin, wrapAngle } from '../math/trig.js';
 import { nextFloat01 } from '../rng/prng.js';
 import { getTuning, getVehicleTuning, getWeaponTuning } from '../tuning.js';
 import type {
@@ -356,11 +356,20 @@ export function damageCop(
   if (attacker && kind && kind.frontalDamage !== 1) {
     // Which way the officer is facing: their own heading of travel, or the
     // bearing to whoever they are chasing when they are standing still.
+    // `dAtan2`, not `Math.atan2`: ECMA-262 leaves the library's atan2
+    // approximated, so two conforming engines may return angles apart in the
+    // last bits — and the test below is a strict comparison against HALF_PI,
+    // which turns that bit into a 0.6x multiplier on `cop.health`, a hashed
+    // field (`net/hash.ts`) that `snapshot.ts` ships without rounding. It is
+    // a knife edge in practice, not only in principle: over 2.96M staged
+    // (cop velocity, attacker offset) pairs, 19 sit close enough to the
+    // 90-degree boundary that the choice of atan2 decides the verdict. See
+    // `math/trig.ts`: sim code never calls Math trig directly.
     const facing =
       cop.vel.x !== 0 || cop.vel.y !== 0
-        ? Math.atan2(cop.vel.y, cop.vel.x)
-        : Math.atan2(attacker.pos.y - cop.pos.y, attacker.pos.x - cop.pos.x);
-    const bearing = Math.atan2(attacker.pos.y - cop.pos.y, attacker.pos.x - cop.pos.x);
+        ? dAtan2(cop.vel.y, cop.vel.x)
+        : dAtan2(attacker.pos.y - cop.pos.y, attacker.pos.x - cop.pos.x);
+    const bearing = dAtan2(attacker.pos.y - cop.pos.y, attacker.pos.x - cop.pos.x);
     // Within a 90-degree arc off the nose counts as frontal.
     if (Math.abs(wrapAngle(bearing - facing)) < HALF_PI) dealt = damage * kind.frontalDamage;
   }

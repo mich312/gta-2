@@ -1,4 +1,5 @@
 import { TICK_RATE } from '../constants.js';
+import { TWO_PI, dCos } from '../math/trig.js';
 
 /**
  * The clock.
@@ -32,7 +33,14 @@ export function timeOfDay(tick: number, dayLengthSec: number): number {
  */
 export function nightAmount(tod: number): number {
   // 1 at midnight (tod 0), 0 at midday (tod 0.5), smooth through both.
-  return 0.5 + 0.5 * Math.cos(tod * 2 * Math.PI);
+  //
+  // `dCos`, not `Math.cos`. ECMA-262 leaves the library trig approximated, so
+  // two hosts may disagree in the last bit — and this is not renderer-only:
+  // `crowdScale` below feeds `topUpPeds`, which ROUNDS it into a spawn target,
+  // so a sub-ulp difference can be one pedestrian more on one host and the
+  // whole ambient stream then diverges. `ci/hostParity.mjs` exists to prove it
+  // does not. See `math/trig.ts`.
+  return 0.5 + 0.5 * dCos(tod * TWO_PI);
 }
 
 /**
