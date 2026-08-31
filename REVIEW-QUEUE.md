@@ -1266,7 +1266,7 @@ happened, and wrong about what the work covered.
 - `damageCop` absorbs the round at `weapons.ts:345`, the first statement in the function; `git log -L` shows the `fittings.ts` cop loop unchanged since the file was introduced, so nothing made corpses collidable on purpose.
 
 ### R5-C03 — the ambient cull leaks a permanent driverless car every time it fires
-- status: [ ] open        verdict: pending verification
+- status: [ ] open        verdict: **CONFIRMED round 6** — leak real and unbounded; **the named line is not the main leak**
 - round: 5   severity: significant   lens: C
 - where: `traffic.ts:1189` against `putAiVehicle` at `:1314`
 - the cull writes `driverId = null` with the comment "becomes an ordinary parked car, then is reused", and `putAiVehicle` mints a brand-new entity instead. Nothing in `shared/src` removes an intact driverless non-police vehicle. The one reuse channel needs a ped within 40 px, and a culled car is by construction 1100 px from every player.
