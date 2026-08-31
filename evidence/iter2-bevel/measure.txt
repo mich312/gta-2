@@ -1,0 +1,160 @@
+=== 1. deck width vs the course width it carries ===
+Kelvin Bridge        width=4 angle=0.0deg  deck 218 tiles max|d|=3.50  road-of-same-course 402 tiles max|d|=3.50
+Old Bridge           width=4 angle=2.9deg  deck 242 tiles max|d|=1.97  road-of-same-course 300 tiles max|d|=3.47
+Marsh Causeway       width=4 angle=3.3deg  deck 0 tiles max|d|=0.00  road-of-same-course 120 tiles max|d|=3.48
+North Sound Bridge   width=4 angle=10.1deg  deck 177 tiles max|d|=1.98  road-of-same-course 285 tiles max|d|=3.49
+South Sound Bridge   width=4 angle=15.1deg  deck 182 tiles max|d|=2.00  road-of-same-course 178 tiles max|d|=3.48
+
+South Sound Bridge perpendicular cross-sections (deck tiles crossed):
+  s= 10  deck tiles across = 0  perp extent = - tiles
+  s= 18  deck tiles across = 4  perp extent = 3.05 tiles
+  s= 26  deck tiles across = 5  perp extent = 4.05 tiles
+  s= 34  deck tiles across = 5  perp extent = 4.10 tiles
+  s= 42  deck tiles across = 6  perp extent = 4.10 tiles
+  s= 50  deck tiles across = 5  perp extent = 4.10 tiles
+  s= 58  deck tiles across = 5  perp extent = 4.10 tiles
+  s= 66  deck tiles across = 0  perp extent = - tiles
+
+=== 2. tread length vs edge angle, all built-staircase sites ===
+kind          at         span count meanTread  angle  1/tan(angle)  ratio
+bridge deck  274,361      45     8       5.6   10.1           5.6   1.00
+bridge deck  200,226      45     9       5.0   11.3           5.0   1.00
+quay         427,678      59    16       3.7   15.2           3.7   1.00
+quay         640,382      32     5       6.4    8.9           6.4   1.00
+quay         205,463      37     8       4.6   12.2           4.6   1.00
+quay         643,601      26     4       6.5    8.7           6.5   1.00
+bridge deck  178,478      44    12       3.7   15.3           3.7   1.00
+quay         304,692      51    18       2.8   19.4           2.8   1.00
+quay         67,274       40    12       3.3   16.7           3.3   1.00
+bridge deck  274,305      22     4       5.5   10.3           5.5   1.00
+quay         686,388      42    15       2.8   19.7           2.8   1.00
+quay         337,756      24     5       4.8   11.8           4.8   1.00
+quay         214,531      37    13       2.8   19.4           2.8   1.00
+quay         176,332      20     4       5.0   11.3           5.0   1.00
+quay         65,399       37    14       2.6   20.7           2.6   1.00
+quay         388,671      19     4       4.8   11.9           4.8   1.00
+quay         172,379      26     8       3.3   17.1           3.3   1.00
+quay         464,739      17     4       4.3   13.2           4.3   1.00
+quay         543,327      26    10       2.6   21.0           2.6   1.00
+quay         730,415      20     6       3.3   16.7           3.3   1.00
+quay         206,454      18     5       3.6   15.5           3.6   1.00
+quay         207,436      18     6       3.0   18.4           3.0   1.00
+quay         660,455      19     7       2.7   20.2           2.7   1.00
+quay         704,403      16     5       3.2   17.4           3.2   1.00
+quay         494,739      14     4       3.5   15.9           3.5   1.00
+quay         657,568      15     5       3.0   18.4           3.0   1.00
+quay         350,688      15     5       3.0   18.4           3.0   1.00
+sites: 27
+
+=== 2b. what each reported chain actually borders, and whether it is drawn ===
+kind          at         span  outward neighbours along the chain            water faces  dissolved
+bridge deck  274,361      45  water:44 quay:1                                       44  5%
+bridge deck  200,226      45  water:45                                              45  2%
+quay         427,678      59  water:59                                              59  100%
+quay         640,382      32  road:14 sidewalk:9 field:9                             0  -
+quay         205,463      37  water:36 bridge:1                                     36  100%
+quay         643,601      26  water:26                                              26  100%
+bridge deck  178,478      44  water:44                                              44  2%
+quay         304,692      51  water:51                                              51  100%
+quay         67,274       40  sidewalk:29 road:8 lot:3                               0  -
+bridge deck  274,305      22  water:22                                              22  9%
+quay         686,388      42  water:42                                              42  100%
+quay         337,756      24  water:24                                              24  100%
+quay         214,531      37  sidewalk:26 field:10 park:1                            0  -
+quay         176,332      20  sidewalk:15 road:5                                     0  -
+quay         65,399       37  water:37                                              37  100%
+quay         388,671      19  water:19                                              19  100%
+quay         172,379      26  sidewalk:15 road:8 lot:3                               0  -
+quay         464,739      17  water:17                                              17  100%
+quay         543,327      26  field:26                                               0  -
+quay         730,415      20  water:20                                              20  100%
+quay         206,454      18  sidewalk:13 road:4 park:1                              0  -
+quay         207,436      18  sidewalk:12 park:3 road:3                              0  -
+quay         660,455      19  field:19                                               0  -
+quay         704,403      16  water:16                                              16  100%
+quay         494,739      14  water:14                                              14  100%
+quay         657,568      15  sidewalk:10 road:5                                     0  -
+quay         350,688      15  field:11 road:4                                        0  -
+
+=== 3. shore gate: worst len*tan(theta) on the natural coast ===
+  waterline: worst excess 1.68 at 638,645 len=14 off=6.8deg
+    excess histogram (>=6-tile treads): 0.0:5 0.5:6 1.0:2 1.5:2
+  shore band: worst excess 0.96 at 622,655 len=8 off=6.8deg
+    excess histogram (>=6-tile treads): 0.0:7 0.5:4
+
+=== 4. the 45-degree control (WORLDGEN.md 31) ===
+  synthetic 45deg water/bridge edge: 30 inner corners, 30 bevels set — FLATTENED
+  shipped crossings, bevels on the water side of the deck:
+    Kelvin Bridge        angle   0.0deg  water tiles with 2+ deck neighbours:   2  bevelled water tiles touching deck:   2
+    Old Bridge           angle   2.9deg  water tiles with 2+ deck neighbours:   6  bevelled water tiles touching deck:   6
+    Marsh Causeway       angle   3.3deg  water tiles with 2+ deck neighbours:   0  bevelled water tiles touching deck:   0
+    North Sound Bridge   angle  10.1deg  water tiles with 2+ deck neighbours:  15  bevelled water tiles touching deck:  15
+    South Sound Bridge   angle  15.1deg  water tiles with 2+ deck neighbours:  22  bevelled water tiles touching deck:  22
+
+=== 5. shore-chain coverage of each staircase edge ===
+kind          at         span  edge tiles  on a coast chain   masked by the curve layer
+bridge deck  274,361      45         174                 3   2%
+bridge deck  200,226      45          87                 2   2%
+quay         427,678      59          83                57   69%
+quay         640,382      32          45                26   58%
+quay         205,463      37          49                30   61%
+quay         643,601      26          39                28   72%
+bridge deck  178,478      44          87                 3   3%
+quay         304,692      51          87                68   78%
+quay         67,274       40          57                45   79%
+bridge deck  274,305      22          47                 3   6%
+quay         686,388      42          74                54   73%
+quay         337,756      24          47                36   77%
+quay         214,531      37          60                43   72%
+quay         176,332      20          29                19   66%
+quay         65,399       37          53                39   74%
+quay         388,671      19          27                19   70%
+quay         172,379      26          37                33   89%
+quay         464,739      17          25                19   76%
+quay         543,327      26          42                28   67%
+quay         730,415      20          30                20   67%
+quay         206,454      18          27                16   59%
+quay         207,436      18          27                22   81%
+quay         660,455      19          27                20   74%
+quay         704,403      16          30                18   60%
+quay         494,739      14          21                12   57%
+quay         657,568      15          23                17   74%
+quay         350,688      15          23                19   83%
+
+=== 6. deck-tile overhang past the course ribbon (tiles) ===
+Kelvin Bridge         203 deck tiles  max centre offset 1.50 (ribbon edge 2.00)  max tile-corner reach 2.00  => overhang past ribbon 0.00 tiles, past casing -0.13
+Old Bridge            230 deck tiles  max centre offset 1.97 (ribbon edge 2.00)  max tile-corner reach 2.50  => overhang past ribbon 0.50 tiles, past casing 0.37
+North Sound Bridge    158 deck tiles  max centre offset 1.98 (ribbon edge 2.00)  max tile-corner reach 2.56  => overhang past ribbon 0.56 tiles, past casing 0.43
+South Sound Bridge    182 deck tiles  max centre offset 2.00 (ribbon edge 2.00)  max tile-corner reach 2.61  => overhang past ribbon 0.61 tiles, past casing 0.48
+
+=== 5b. staircase step faces dissolved by the coast curve ===
+kind          at         span   step faces  dissolved   left drawn
+bridge deck  274,361      45          203         0%          203
+bridge deck  200,226      45          102         0%          102
+quay         427,678      59          103       100%            0
+quay         640,382      32           51       100%            0
+quay         205,463      37           59       100%            0
+quay         643,601      26           50       100%            0
+bridge deck  178,478      44          109         0%          109
+quay         304,692      51          127       100%            0
+quay         67,274       40           83       100%            0
+bridge deck  274,305      22           52         0%           52
+quay         686,388      42          101       100%            0
+quay         337,756      24           63       100%            0
+quay         214,531      37           84       100%            0
+quay         176,332      20           34       100%            0
+quay         65,399       37           74       100%            0
+quay         388,671      19           34       100%            0
+quay         172,379      26           49       100%            0
+quay         464,739      17           35       100%            0
+quay         543,327      26           58       100%            0
+quay         730,415      20           43       100%            0
+quay         206,454      18           33       100%            0
+quay         207,436      18           38       100%            0
+quay         660,455      19           38       100%            0
+quay         704,403      16           42       100%            0
+quay         494,739      14           30       100%            0
+quay         657,568      15           30       100%            0
+quay         350,688      15           34       100%            0
+  quays/yards: 1293 step faces, 0 still drawn square (0%)
+  bridge decks: 466 step faces, 466 still drawn square (100%)

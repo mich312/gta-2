@@ -3,6 +3,7 @@ import {
   decodeBakedCity,
   parseCityPlan,
   pointInPoly,
+  shoreChains,
   T_BANK,
   T_BRIDGE,
   T_BUILDING,
@@ -1179,10 +1180,41 @@ function tileName(t: number): string {
  * staircase of short treads all stepping the same way, and that is the whole
  * signature. It predicts the same defect at every shallow built/water and
  * built/field boundary, not only at bridges.
+ *
+ * **And then it has to ask whether the step is DRAWN.** The first cut of this
+ * signature did not, and reported twenty-four places where twenty of them are
+ * never seen. A tread is not a defect by being long: a faithful rasterisation
+ * of a line `theta` off the axis has treads of about `1/tan(theta)`, and
+ * measured across all twenty-four the tread was `1.00x` what the edge's own
+ * angle accounts for — under the 1.7 the shipped coast reaches and well under
+ * `shore-staircase`'s 2.0 gate. What separates a defect from a correct raster
+ * here is the CURVE LAYER, exactly as it is one signature up: both shipped
+ * painters repaint a tile the coast course runs through against the chord
+ * (`paintShoreTile` -> `paintShoreMaterial`, which has a `T_BANK` case; the
+ * 3D `shoreCut` prisms), so a step face with either of its two tiles on a
+ * chain is never drawn at all. Measured on the shipped bake: 1,293 of 1,293
+ * quay step faces dissolved, 0 of 466 bridge-deck ones — because a deck is
+ * refused by name in all three painters ("the coast runs UNDER it", "a deck
+ * is not ground at all") and no curve describes a deck's own outer edge.
+ *
+ * That is not gated on here, deliberately. Refusing the dissolved chains
+ * lets a LANDWARD chain of the same quay through the one-edge-one-finding
+ * dedup in their place — quay against pavement, against field — and those
+ * are a different question this signature has not measured. So the fact is
+ * REPORTED instead, per finding, and the reader can act on the ones whose
+ * step faces are actually drawn.
  */
 function builtStaircase(a: Audit, minSpan: number): Finding[] {
-  const { W, H, tiles } = a;
+  const { W, H, tiles, at, city } = a;
   const out: Finding[] = [];
+  // The coast course and the band's inner edge, per tile — the same
+  // `shoreChains` both painters index, so this asks the question they answer.
+  const coast = shoreChains(city.shores, W, H);
+  const band = shoreChains(city.banks, W, H);
+  const onCurve = (x: number, y: number): boolean => {
+    const i = y * W + x;
+    return coast.has(i) || band.has(i);
+  };
   // Built surfaces whose OUTLINE is a drawn shape rather than a block edge.
   // Buildings and pavement are left out: the urban lattice is square by
   // design and every block corner would answer this question yes.
@@ -1253,6 +1285,24 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
             const span = last.at + last.len - first.at;
             const count = j - i + 1;
             if (count >= 4 && span >= minSpan) {
+              // Is any of this staircase actually drawn? Each profile
+              // position contributes a step face where the tile just outside
+              // the outline is open water; the curve layer dissolves that
+              // face if either of its two tiles is on a chain.
+              let faces = 0;
+              let dissolved = 0;
+              for (let q = first.at; q < first.at + span; q++) {
+                const v = prof[q] as number;
+                if (v < 0) continue;
+                const step = side === 0 ? -1 : 1;
+                const x = byColumn ? b.x0 + q : v;
+                const y = byColumn ? v : b.y0 + q;
+                const ox = byColumn ? x : x + step;
+                const oy = byColumn ? y + step : y;
+                if (at(ox, oy) !== T_WATER) continue;
+                faces++;
+                if (onCurve(x, y) || onCurve(ox, oy)) dissolved++;
+              }
               const meanTread = span / count;
               const midP = first.at + span / 2;
               const mx = byColumn ? b.x0 + midP : (first.v + last.v) / 2;
@@ -1265,7 +1315,7 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
                 w: cw,
                 severity: meanTread >= 3 ? 'high' : 'med',
                 rank: span * meanTread,
-                reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread, so every step here is drawn`,
+                reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread. ${faces === 0 ? 'This edge faces dry ground, which no coast curve describes, so it is drawn as it lies' : dissolved === faces ? `All ${faces} of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn` : `${faces - dissolved} of its ${faces} step faces onto open water have no coast curve over them and are drawn square`}`,
               });
             }
             i = j + 1;
