@@ -1635,3 +1635,51 @@ quietly eat the player's car and the city's designed stock.
 C03 leak had been silently eating the police allowance too. That connection is
 moot now, but the counting rule stays fragile — the same shape as R1-C05's
 roadblock arithmetic.
+
+
+---
+
+## Round 7 closed — verified on the merged tree
+
+```
+pnpm build                     clean
+npx tsc -p client --noEmit     clean
+pnpm test                      91 files, 980 tests, 0 failures
+citybake --check               exit 0 — 1182 blocks, 4014 buildings, 6 pinned warnings
+pnpm parity                    host parity OK — hash 1180701091
+                               (against a confirmed own server on 5175)
+```
+
+**Ground truth: 87/943 -> 90/953 -> 91/966 -> 91/970 -> 91/971 -> 91/980.**
+
+Five fixed this round: C01, C02, C03, A03, A04.
+
+### The round's lesson: brief with evidence and constraints, not instructions
+
+**Two of five fixers reached a different conclusion than my brief pointed at,
+and both were right.**
+
+- I leaned toward gating `tryCarjack`. The fixer traced every writer of
+  `driverId` and showed that once C01 lands, no `copFleet` vehicle can carry a
+  civilian driver at all — so gating would have deleted a genre verb to fix a
+  symptom the sibling fix had already removed.
+- The obvious A04 repair is to re-stamp the landmark. The fixer rejected it
+  because a mass re-laid at the end goes down over the kerb ring, the driveway
+  cut and the tree clearing that later passes drew *around where the walls
+  stood*.
+
+Both briefs gave the verified mechanism, the things that must not break, and an
+explicit "argue your choice". Neither gave a patch. That is the shape that
+produced better answers than the ones I had.
+
+## Round 8 — what is left
+
+| item | state |
+| --- | --- |
+| **R1-C07** | ~90 unpinned `Math` trig calls in `shared/src/world`, which `hostParity` runs on both hosts. Flagged in round 3 as needing a worldgen decision, never taken. |
+| **`ci/playLocal.mjs` hangs** | hangs in `getInCar`; three evidence plates cannot be retaken. Round 5 could not tell whether it is box-specific. |
+| **R7-C05** | `scanAhead` brakes ambient traffic for a corpse — the fifth site of the class, and unverified. May be correct behaviour. |
+| **`motorise`'s counting** | counts every vehicle of the kind on the map; fragile, same shape as R1-C05. Filed, not verified. |
+
+Still with the author: the Ring's `maxBridgeSpan`, Marsh Causeway, Coast Road —
+and then promote the bridging gate from `warning` to `error`.
