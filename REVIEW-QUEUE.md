@@ -274,7 +274,7 @@ separate piece of work, filed below as R1-C07.
 - verification: `pnpm build` clean; `pnpm test` 88 files / 945 tests / 0 failures (4 ignored onTaskUpdate runner-noise errors); `citybake --check` exit 0, 1156 blocks / 4066 buildings / 29 landmarks / 66 shops, unchanged from the round's ground truth.
 
 ### R1-D02 — the published evidence no longer reproduces from its own retake commands
-- status: [ ] open        verdict: **CONFIRMED**, count intact at 13
+- status: [x] **FIXED round 5** — `526fe83` + a post-merge re-retake; every deterministic plate now reproduces at 0px        verdict: CONFIRMED
 - round: 1   severity: significant   lens: D
 - where: `evidence/README.md` and 13 of the 15 checkable PNGs it indexes
 - repro: `node evidence/round1/D-pngdiff.mjs evidence/<name>.png <retake>`
@@ -1301,3 +1301,60 @@ pre-fix bake before being trusted.
   fill paints over Marsh Post's east wall). Two agents reached the same
   defect from opposite directions — one auditing the shipped bytes, one
   reading a diff its own fix produced. Fix them together.
+
+
+## R1-D02 fixed — and the sequencing hazard bit anyway
+
+~30 plates retaken, **three retake commands repaired**, five captions
+rewritten, four plates recorded as un-retakeable *with reasons* rather than
+left looking current.
+
+**The instrument was calibrated per plate class first**, which is the part to
+copy. Two runs of the same command give:
+
+| plate class | same-command noise floor |
+| --- | --- |
+| `mapgen` / `plangen` crop | **0 px** |
+| contact sheet via `ci/shot.mjs` | **0 px** |
+| `city3d.html` flyover | 241/2,200,000 = 0.011% |
+| live client via `F-R1-B01-shot.mjs` | 141,099/921,600 = **15.31%** |
+
+So a whole-frame percentage means nothing on a live-client plate, which is why
+the round-3 R1-B01 set could not be surveyed the same way.
+
+**Three commands were broken, not merely stale.** `plangen-seed500`'s
+documented line passes `--seed 500`, but plangen parses `--key=value` only —
+it silently drew seed **NaN** into `plangen-seedNaN.png`. `plangen-shore` had
+the same fault plus a bare `--crop` that threw before drawing. `airstrip`'s
+command draws the whole 1536x1536 map, i.e. the same picture as
+`city-anywhere`.
+
+**Four captions described a coastline that no longer exists** — written in
+terms of the bevel cutting 45-degree wedges out of a staircase, when the coast
+moved onto a curve upstream of the raster and there is no staircase left.
+
+**A third dead instrument, found and repaired.** `fallSheet.ts` held the
+throttle while climbing, so the chopper ended 150 ticks downrange over solid
+ground, `exitVehicle` found no clear spot beside the hull, the door never
+opened, and the sheet flat-lined — reading as "the fall no longer happens".
+After the round-1 corpse-witness script and the round-4 parity port, that is
+three instruments in two rounds that were confidently reporting nothing.
+
+### The sequencing hazard bit anyway
+
+This entry was deliberately scheduled last, after four rebakes. It still went
+stale during its own round, because the R5-A01 blocking fix rebaked the city
+**while D02 was running**. Re-surveyed on the merged tree, four plates had
+drifted — `city-anywhere` (809 px), `vector-p1-coast` (0.428%),
+`city-roadnet` (160 px), `city-lanes` (135 px) — and were retaken; all four
+now reproduce at 0 px.
+
+The lesson is not "schedule it later". It is that **an evidence refresh is
+only valid against a frozen tree**, and no ordering achieves that while other
+work is in flight. If this were a standing job it should run as a gate on the
+merge commit, not as a task in a round.
+
+The naive re-survey also flagged four `*-before.png` plates as drifted. They
+are deliberately historical and are *supposed* to differ — worth noting because
+an automated staleness gate would need that exclusion, or it would cry wolf on
+every before-shot in the repo.
