@@ -1,0 +1,6 @@
+palette    shopGun #c8583c   shopClothing #3ca0c8   shopSpray #c8a13c
+shop count {"gun":20,"clothing":20,"spray":26,"clinic":5}
+gun       door 108,251     awning #d6826d  doormat #e9bcb1  interior(r.y row) #40413d
+clothing  door 268,153     awning #6db8d6  doormat #b1d9e9  interior(r.y row) #4a3c4a
+spray     door 615,467     awning #6db8d6  doormat #b1d9e9  interior(r.y row) #413f4f
+clinic    door 606,143     awning #6db8d6  doormat #b1d9e9  interior(r.y row) -

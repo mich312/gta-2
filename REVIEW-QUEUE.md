@@ -1863,3 +1863,85 @@ each, in round 1.
 If yield tracks attention, these should produce more. If a review is simply a
 sample whose draw is independent of prior effort, they will produce about the
 same. Either answer is informative about how many rounds this method needs.
+
+
+## Round 9 — lens D (reviewed once, in round 1)
+
+**3 significant, 2 nits.** The convergence answer for the least-attended lens
+is: it still yields.
+
+### R9-D01 — `ci/test.mjs` reports green and exits 0 when its filter matches nothing
+- status: [ ] open   severity: significant
+- where: `ci/test.mjs:53` (empty-collection guard gated on `filters.length === 0`) and `:62-63` (unconditional green print)
+```
+node ci/test.mjs nosuchtestfilterxyz  ->  green: 0 files, 0 failures   exit 0
+npx vitest run nosuchtestfilterxyz    ->  exit 1
+```
+The wrapper is **more permissive than the runner it wraps**. Confirmed
+independently.
+- **This is a defect in this exercise's own instrument.** `REVIEWER.md:25`
+  instructs every reviewer to run `node ci/test.mjs <filter>`. A mistyped
+  filter, or a test renamed by another lens's fix, answers `green: 0 files` —
+  which reads as "verified, the test passes" about a test that no longer
+  exists.
+- **Exposure, checked**: the filters used in these nine rounds were `noise` and
+  `police`, and every recorded result carries a non-zero count (9/9, 10/10,
+  59/59, 41/41, 45/45). A no-match run prints `0 files`, which none did. **No
+  verification here was fooled** — a close call, not a hit.
+- CI itself is unexposed: both workflows call `pnpm test` unfiltered, where the
+  `< 50` guard applies.
+
+### R9-D02 — `persistCheck` accuses the server of losing a wallet it did send
+- status: [ ] open   severity: significant
+- where: `server/src/tools/persistCheck.ts:62-66` — `next()` registers its waiter
+  only in the microtask **after** the previous `await` resolves
+- the wallet is delivered at 1695 ms and the waiter appears at 1695 ms, the same
+  event-loop turn, so it lands before anyone is listening. The server is
+  innocent: a full frame trace shows both lives answering `account {ok:true}`
+  then `wallet {cash:500}`, 500 before the restart and 500 after.
+- 1 of 10 failures on a quiet box, 6 of 10 at load 5.9, **10 of 10** with
+  orphans left running.
+- **Fourth instrument this exercise has caught lying**, after the
+  corpse-witness repro, `fallSheet`, and `pnpm parity` pointed at another
+  agent's server. This one is the worst of the four: `README.md:180` publishes
+  it as the e2e persistence check and `ROADMAP.md:563` makes it the gate for
+  anything touching the economy, and its failure message reads as *the save
+  file did not come back*.
+
+### R9-D03 — `README.md` describes a city half the size, with half the boroughs
+- status: [ ] open   severity: significant
+- `README.md:96-104`, present tense: "384x384 tiles … three boroughs joined by
+  four bridges", table listing Port Vasco, Ravenhill, Sunridge.
+- Shipped: **768x768**, **six boroughs** (Kelvin, Ravenhill, Sunridge, Marsh
+  End, Port Vasco, Gannet Rock), 16 districts, five crossing-named roads.
+- `evidence/README.md` describes the real city, so the evidence index and the
+  front door disagree about size, borough count and crossing count.
+- **Three of this exercise's own findings — R1-A01, R1-A02, R5-A01 — are about
+  places the README says the city does not have.**
+- `PROGRESS.md:412` records the change the README missed.
+
+### R9-D04 (nit) — a failed `persistCheck` orphans a live 30 Hz server
+- `main().catch()` exits without touching its children; `server.kill` is only on
+  the happy path. Ten failures took the box from load 1.5 to **8.44**, and the
+  failure rate from 1-in-10 to 10-in-10. A positive feedback loop on top of
+  R9-D02 — debugging it the obvious way, by running it again, loads your own box
+  with every attempt.
+
+### R9-D05 (nit) — `city-anywhere.png` drifts by 72 px
+- **and I inferred this wrong.** Seeing lens D retake a dozen plates, I said the
+  evidence had gone stale a third time and called it structural. It widened the
+  spot-check from three plates to all twelve and **eleven reproduce at 0 px**
+  five rebakes on. R1-D02's fix is holding.
+- The one drift is 72 px (0.003%), a single 6x12 cluster at Marsh Post from
+  round 7's own A04 fix. Round 5's prediction — "an evidence refresh is only
+  valid against a frozen tree" — came true at the smallest possible size, not
+  the largest.
+
+### Checked and not filed
+
+Reconnect (`maxPlayers` exemption holds; R1-D01 and R1-D05 both still hold);
+interest-radius boundary crossings; both persistence backends' `putAccount`
+conflict behaviour (differs, but no caller exercises it); the deploy gate
+(R1-D03 and R1-D06 still hold). Two unmeasured hunches went to a labelled
+**suspicions** section, per the new REVIEWER.md rule — CI never compiles or
+bundles the client, and `pnpm parity` is called a gate but runs in no workflow.
