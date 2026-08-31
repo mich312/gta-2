@@ -256,12 +256,12 @@ A finding is not work until it is CONFIRMED.
 - evidence: `evidence/round1/V-B02-block-2d.png` against `V-B02-block-3d.png` — seven warm glow pools ringing the block against dark slabs and two faintly striped walls.
 
 ### R1-B03 — the two renderers agree at midday and disagree by 1.7x at dusk
-- status: [~] **escalated — a design question, not a defect**
+- status: [x] **closed — won't fix, working as designed**
 - round: 1   severity: ~~significant~~ **escalated**   lens: B
 - the measurement reproduces: 3D luma 22.8 vs 2D 40.7 at `night=0.6`; midday agrees to **1/255**, tighter than filed. Lighting arithmetic confirmed (2.50 against 4.75 = 52.6%; the 2D grade multiply is exactly 187).
 - **but no invariant is violated.** `BUGS.md` §4 explicitly declines to touch the night end: "The night end is left exactly where it was tuned — night has to actually be dark or a street lamp cannot read against it, and that is the whole point of having lamps." Both night levels are independently and deliberately documented (`cityView.ts:433`, `config.ts:57`, `PROGRESS.md:598`). §4 also pre-dismisses whole-frame luma as evidence, weakening the finding's histogram paragraph.
 - what survives: §4's own operative criterion is the modal road pixel, and *that* agrees at noon and fails at dusk. So "calibrated at one point on a two-point curve" is fair — but closing the gap means overriding two documented art decisions.
-- **for the user, not a fixer.** A coder dispatched at this would "fix" a deliberate choice.
+- **DECIDED by the user, 2026-08-31: leave it — working as designed.** The two renderers were tuned independently for stated reasons; the 2D path is a fallback and need not match numerically at every hour. Closed as a non-defect. Round 2's lens B must not re-file it: it is now prior art.
 - correction: the vignette claim is wrong for (700,60) (r=305.9, outside the 230.4 inner radius) — immaterially, since the contamination shrinks the gap rather than creating it.
 
 ### R1-B04 — `city3d.html`'s draw/triangle readout has reported `draws 1  tris 0k` since the post chain landed
@@ -289,3 +289,35 @@ transaction, 6.1 ms at 20k rows against a 33.3 ms tick; an unguarded
 
 Not checked: `play-dusk/drift/foot.png` — `ci/playLocal.mjs` hung in `getInCar`
 past 420 s twice under container contention.
+
+
+---
+
+## Round 2 — the top tier
+
+Six confirmed findings go to fixers. The nits, the evidence refresh (D02) and
+the two verifier-surfaced findings (D06, D07) stay open for round 3.
+
+**The partition rule, corrected by round 1's experience.** "Parallel only
+across disjoint directories" is not sufficient in this repo: every fixer runs
+`pnpm build`, which writes shared `server/dist` and `shared/dist`, so four
+agents in one checkout corrupt each other's output whatever source files they
+touch. The partition must be by **build artifact**, which means one git
+worktree per group.
+
+| worktree | findings | serial because |
+| --- | --- | --- |
+| worldgen | A01 then A03 | both edit `layout.ts`; both force a rebake of `city.data.ts`, which must happen once, at the end |
+| sim | C01 then C03 | both edit `police.ts` |
+| netcode | D01 | `server/src/session.ts` + `client/src/main.ts` |
+| ci | D03 | `ci/deploy.sh` + `.github/workflows/`, no build |
+
+### Not in round 2, and why
+
+- **B03** — closed above. A decision, taken.
+- **D02** (13 stale evidence PNGs) — real, but a documentation-debt job, and
+  the worldgen fixes in this round will invalidate more of them. Retake after
+  the city is rebaked, not before.
+- **B01** — its verifier had not returned when round 1 closed. Unverified
+  findings do not go to fixers.
+- the nits (A05, A06, A08, B04, B05, C05, D05, D07) and D06 — round 3.
