@@ -534,7 +534,7 @@ zero by construction — `floor` comes from a tile the sample filter accepts.
 #### Lens B — the renderer
 
 ### R1-B01 — street lamps and shop signs burn at midday in 3D
-- status: [ ] open        verdict: **CONFIRMED — but the finding names the wrong lever** (verified round 3)
+- status: [x] **FIXED round 3** — `d342238`; the bloom threshold became a ratio to the key light        verdict: CONFIRMED
 - round: 1   severity: significant   lens: B
 - **the floor is not the defect.** Isolated with `?post=off` (bloom off, lights on) against `?post=off&lights=off`: direct illumination at midday is **+1 to +3 / 255** across the whole surround — imperceptible, exactly as the comment promises. What the player sees is the **bloom halo**: a 74 cd source ~3 world px from its own emissive fixture pushes it past `BLOOM_THRESHOLD` 1.05 and `UnrealBloomPass` paints the halo. That is the mechanism `lights3d.ts:576-583` describes and repaired for headlights only.
 - **do not cut `lights3d.ts:361`.** `renderer.ts:503` carries the identical `lit = 0.15 + 0.85 * night` and pushes the identical 0.075 alpha; 2D throws the same floor and it comes out invisible because 2D has no thresholded bloom. Cutting the floor moves the night curve and diverges the two renderers, which the file exists to mirror.
@@ -942,9 +942,56 @@ lies while reading correct.
   (A08, D07).
 - **the renderBench suspicion** — refuted; the instrument is correct.
 
-### In flight
+### R1-B01 fixed — and both earlier diagnoses were wrong
 
-- **R1-B01** — fixer running on a pinned base.
+The filing blamed the day floor. Round 3's verifier blamed "the bloom". Neither
+was the mechanism.
+
+`UnrealBloomPass`'s high pass **emits the whole texel it admits, not the
+excess**, so a surface 2% over threshold glows as hard as a source 2000% over —
+and `BLOOM_THRESHOLD` was an **absolute** 1.05 while the rig swings its key
+light **4.75x** across the day. At noon, sunlit art clears an absolute
+threshold on its own.
+
+Fix: the threshold becomes a ratio — 1.05 *per unit of key light* — with
+`CityView` handing `PostChain` the sum of the three intensities it has just
+written, so retuning the rig cannot leave the threshold behind. ~10 lines, two
+files.
+
+**Why this is a framing and not a fudge factor**: sweeping the absolute
+threshold puts the halo's collapse at 5.0, and the key-light ratio predicts
+**4.99**.
+
+The other two routes were killed by measurement, not argument. Cutting the day
+floor needs it at **exactly 0.00** — 0.06, the headlight's own floor, still
+leaves a halo of 67 — and zero contradicts `lights3d.test.ts`'s assertion that
+the lamps are still on their posts at midday. Selective bloom would need a
+second full scene render: in three@0.185.1 `layers.test` is only evaluated
+against the camera, never per object.
+
+Measured: midday (40,450) **129 -> 3** against a lights-off control of 4.
+Night unchanged **by construction** — the key light sums to exactly 1.00 at
+midnight, so the threshold is still 1.05 — and verified against a noise floor,
+which is the part worth copying: **290** pixels differ by >25 luma between
+builds at night, against **411** between two runs of the *same* build. The
+change is smaller than the noise, and the noise was identified (lamp flicker on
+wall-clock, plus a random HUD guest name).
+
+Both renderers stayed in step by not being touched: `lights3d.ts:361` and
+`renderer.ts:503` still carry `0.15 + 0.85 * night` character for character.
+The change lives entirely in the 3D post chain, which has no 2D counterpart.
+
+Stated trade, in the code comment: at midday a source must now be brighter than
+a sunlit white surface to bloom.
+
+### Filed by the B01 fixer, for a later round
+
+The headlight floor was cut to 0.06 **because of this same bloom mechanism** —
+aimed at the same wrong lever this finding was. With the threshold now scaled
+to the key light, that floor may no longer need to differ from the lamps' 0.15.
+Separately, 3D headlights diverge from 2D's, which have no night gating at all
+(constant 0.46/0.32/0.7, `renderer.ts:1772-1793`). A real divergence, predating
+this finding; reverting is its own measured decision.
 
 ### Waiting on the author
 
