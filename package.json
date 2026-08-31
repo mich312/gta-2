@@ -10,6 +10,7 @@
     "replay": "pnpm build && node server/dist/replay/run.js",
     "citybake": "pnpm build && node server/dist/tools/citybake.js",
     "mapgen": "pnpm build && node server/dist/tools/mapgen.js",
+    "mapaudit": "pnpm build && node server/dist/tools/mapAudit.js",
     "chase": "pnpm build && node server/dist/tools/chase.js",
     "sprites": "pnpm build && node server/dist/tools/sprites.js",
     "parity": "pnpm build && node ci/hostParity.mjs",
