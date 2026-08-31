@@ -1,0 +1,5 @@
+default (what playLocal uses): 0.33 fps (3051 ms/frame), renderMs p50=16.7 p95=4082.6, screenshot 43970 ms ok
+--disable-gpu: 0.35 fps (2851 ms/frame), renderMs p50=16.7 p95=3536.2, screenshot 34015 ms ok
+--disable-gpu --disable-accelerated-2d-canvas: 0.29 fps (3462 ms/frame), renderMs p50=16.7 p95=4286.4, screenshot 37561 ms ok
+--disable-gpu-vsync --disable-frame-rate-limit: 0.38 fps (2651 ms/frame), renderMs p50=0.7 p95=3.2, screenshot 27721 ms ok
+--disable-gpu + vsync off: 0.37 fps (2703 ms/frame), renderMs p50=0.4 p95=2.2, screenshot 30425 ms ok

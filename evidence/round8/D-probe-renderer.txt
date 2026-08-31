@@ -1,0 +1,9 @@
+?local=1&extrude=1&seed=7&night=0.55
+   0.37 fps (2712 ms/frame), 6 s of KeyW moved 99 px, screenshot 42956 ms
+   console: Failed to load resource: the server responded with a status of 404 (Not Found) | [.WebGL-0x13b4028ffe00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+?local=1&extrude=1&seed=7&night=0.55&render=2d
+   57.37 fps (17 ms/frame), 6 s of KeyW moved 338 px, screenshot 233 ms
+?local=1&extrude=1&seed=7&night=0.55&render=2d&lights=cheap
+   59.60 fps (17 ms/frame), 6 s of KeyW moved 338 px, screenshot 200 ms
+?local=1&seed=7&night=0.55&render=2d
+   59.06 fps (17 ms/frame), 6 s of KeyW moved 338 px, screenshot 191 ms

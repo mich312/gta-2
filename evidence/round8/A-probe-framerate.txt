@@ -1,0 +1,16 @@
+goto(load): 513 ms
+networkidle: 828 ms
+first 30 sim ticks: 8944 ms
+10 s idle: sim advanced 462 ticks (30/s = 300 expected), fps=0.2659291564725576 frameMs=3766.399999999998 peak=3766.399999999998 renderMs=[object Object]
+rAF: 4 frames in 10679 ms = 0.37 fps, 2670 ms/frame
+hold KeyD 250 ms -> moved 9.6 px (38.5 px/s), sim ticks 120
+hold KeyD 1000 ms -> moved 0.0 px (0.0 px/s), sim ticks 96
+hold KeyD 4000 ms -> moved 0.0 px (0.0 px/s), sim ticks 8
+hold KeyD 12000 ms -> moved 0.0 px (0.0 px/s), sim ticks 503
+state: {"fps":0.22058012573067165,"frameMs":4449.900000000009,"frameMsPeak":4449.900000000009,"renderMs":{"p50":16.800000000745058,"p95":5039.800000000745,"p99":7681.5,"max":7681.5},"tick":3236,"mode":"foot","pos":{"x":6362,"y":3384},"nearest":{"id":63,"kind":"gangcar","dx":158,"dy":-16,"dist":158.8080602488425},"weapon":"fists"}
+screenshot FAILED after 30011 ms: page.screenshot: Timeout 30000ms exceeded.
+Call log:
+[2m  - taking page screenshot[22m
+[2m  - waiting for fonts to load...[22m
+[2m  - fonts loaded[22m
+
