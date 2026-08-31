@@ -197,6 +197,27 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
 };
 
 /**
+ * The solid footprints a landmark of this kind and size stamps, as
+ * `[dx, dy, w, h]` offsets inside its rect.
+ *
+ * Exported for `checkCity`, which asks the one question the bake never asked
+ * itself: is a landmark's stamped mass still standing when the bake ends?
+ * Everything downstream reads the tile plane, so a wall quietly repainted by
+ * a later pass leaves a `Building` record claiming ground that is now park
+ * and nothing anywhere complains (R5-A04).
+ */
+export function landmarkParts(
+  kind: LandmarkKind,
+  w: number,
+  h: number,
+): Array<[number, number, number, number]> {
+  return RECIPES[kind]
+    .parts(w, h)
+    .filter(([, , pw, ph]) => pw >= 1 && ph >= 1)
+    .map(([dx, dy, pw, ph]) => [dx, dy, pw, ph] as [number, number, number, number]);
+}
+
+/**
  * Kinds whose footprint welcomes carriageway: a plaza with no streets
  * flowing through it is a courtyard. Their GROUND never overwrites road (the
  * `paintable` guard), and their solid parts are validated individually
@@ -361,10 +382,34 @@ export function bakeCity(plan: CityPlan): BakedCity {
   const buildings: Building[] = [];
   const landmarks: Landmark[] = [];
 
+  /**
+   * Tiles a landmark's own stamp has already made solid.
+   *
+   * `paintable()` explicitly allows `T_BUILDING`, which is right for the
+   * apron inside a landmark's own block — the clear pass has just demolished
+   * everything there — and wrong for a NEIGHBOUR's landmark mass, which the
+   * same pass deliberately refuses to demolish (`landmarkBuilt`). Without
+   * this mask the two halves disagreed: the building record survived and its
+   * walls did not. Chapel Green's four-tile reclaim apron reached three
+   * columns into Marsh Post and painted six rows of the police station to
+   * park, leaving a 7x7 record over a 4x7 building (R5-A04).
+   *
+   * A mask rather than a re-stamp after the ground passes: the stamp also
+   * pushes the `Building` and `Landmark` records and finds the doorway, so
+   * re-running it would duplicate records or need to be split in two, and a
+   * mass re-laid at the end would go down over the kerb ring, the driveways
+   * and the tree clearing that were all drawn around where it used to be.
+   * Refusing the paint keeps every pass's output exactly where it was, and
+   * it sits one line from the `landmarkBuilt` guard that makes the same
+   * promise about the records.
+   */
+  const landmarkMass = new Uint8Array(W * H);
+
   const ground = (x: number, y: number, w: number, h: number, tile: number): void => {
     for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
       for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) {
         const i = ty * W + tx;
+        if (landmarkMass[i] === 1) continue;
         if (paintable(tiles[i] as number)) tiles[i] = tile;
       }
     }
@@ -393,7 +438,10 @@ export function bakeCity(plan: CityPlan): BakedCity {
     storeys?: number,
   ): void => {
     for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
-      for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) tiles[ty * W + tx] = T_BUILDING;
+      for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) {
+        tiles[ty * W + tx] = T_BUILDING;
+        landmarkMass[ty * W + tx] = 1;
+      }
     }
     const rec: Building = { x, y, w, h, district, ...(storeys !== undefined ? { storeys } : {}) };
     landmarkBuilt.add(rec);

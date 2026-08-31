@@ -441,3 +441,50 @@ the illegal shop carve was painting `T_FLOOR` back over two of them. Marsh
 Post therefore draws as a four-tile-wide building inside a seven-tile
 landmark rect. Nothing in `checkCity` looks at whether a landmark's own mass
 survived the ground passes.
+
+## Round 7 — the landmark that lost its walls, and the boats in the ponds
+
+The two nits round 6 confirmed, fixed. Both are about a worldgen pass that
+asked a local question and got a locally correct answer.
+
+**R5-A04** is the defect the round-5 note above filed and did not fix. The
+bake stamps a landmark's mass from `RECIPES[kind].parts` and then goes on
+painting: `ground()` guards only on `paintable()`, which explicitly permits
+`T_BUILDING`, so Chapel Green's four-tile reclaim apron — painted twelve
+landmarks after Marsh Post was stamped — repainted three columns by six rows
+of the police station to `T_PARK`. The `Building` record went on claiming all
+forty-nine tiles. Nothing downstream reads that record for solidity
+(`collide.ts`, `volume.ts`, `cityGeometry.ts`, `extrude.ts` all follow the
+tile plane), which is precisely why nothing went red.
+
+The fix is a mask, not a re-stamp: `solid()` records every tile a landmark
+stamp made a wall, and `ground()` refuses to paint one. It sits one line from
+the `landmarkBuilt` guard that already stops the same pass DEMOLISHING
+another landmark's records — the two halves now agree.
+
+**R5-A03**: `placeBoatSpawns` asked for a 3x3 of open water and a bank within
+three tiles and never asked whether the water went anywhere, so five of the
+city's 460 moorings were motorboats in two ornamental park ponds. One
+border-seeded flood over the water-or-bridge medium now labels the sea once
+per bake (~6 ms; a flood per candidate would be 13,391 of them), and a
+candidate outside it is not a mooring. Water-or-bridge is exactly what
+`collide.ts` lets a boat occupy, so BUGS.md §9.2's older guarantee — no
+mooring shut in by a bridge — is kept by the same test.
+
+The seagoing test sits with the pass's other guards rather than at the point
+the mooring is pushed, and that costs nothing: the scan produces 557
+candidates and `spread` caps them at 460, so ANY change to the candidate list
+reshuffles which moorings ship. There was no minimality to buy by filtering
+late. The count is 460 before and after; only the five in the ponds are gone.
+
+| file | what it shows |
+|---|---|
+| `round7/census-live.mjs` | The round-6 census re-pointed at a LIVE bake instead of the shipped bytes, so the fix can be measured before the city is rebaked. Prints two censuses: RECORD (a `Building` record the tile plane no longer backs — round 6's question) and RECIPE (every tile `RECIPES[kind].parts` stamped still `T_BUILDING` — the question `checkCity` now asks). At `a6f115a` both print `affected=1 of 29`, Marsh Post, the same 18 tiles; after the fix both print `0 of 29`. Rerun: `node evidence/round7/census-live.mjs`. |
+| `round7/A04-before-marsh-post.png` | Marsh Post at `a6f115a`, 20 tiles at 26x. The police station is drawn as an L: three of its seven columns are park, inside its own sidewalk ring, with the doorway marker on the pavement below. Retake: `node server/dist/tools/mapgen.js --crop=530,543,20 --scale=26 --out=evidence/round7/A04-before-marsh-post.png` — against the pre-fix `city.data.ts`. |
+| `round7/A04-after-marsh-post.png` | The same crop after the rebake: one solid seven-by-seven station filling its ring. Same command, `-after` for the name. |
+| `round7/A03-moorings.mjs` | Renders a crop with every mooring in it marked, because `mapgen` draws ground and a boat spawn is not ground. White dot = its water reaches the open sea; magenta dot over a red cross = it does not. Usage: `node evidence/round7/A03-moorings.mjs <x> <y> <size> <out.png>`. |
+| `round7/A03-before-ravenhill-pond.png` | Ravenhill Park's pond at `a6f115a`: 86 tiles of water inside a closed ring of sand inside grass, with two motorboats moored in it. Retake: `node evidence/round7/A03-moorings.mjs 494 49 22 evidence/round7/A03-before-ravenhill-pond.png` — against the pre-fix `amenities.ts`. |
+| `round7/A03-before-sunridge-pond.png` | Sunridge Park's pond, 107 tiles, three motorboats. Retake: `node evidence/round7/A03-moorings.mjs 290 637 24 evidence/round7/A03-before-sunridge-pond.png`. |
+| `round7/A03-after-ravenhill-pond.png` / `A03-after-sunridge-pond.png` | The same two ponds, same commands, `-after` for the name: the ponds are unchanged — WORLDGEN.md §29 gave them their rings and beaches on purpose — and there is no boat in either. |
+| `round7/A03-after-harbour-control.png` | The positive control, and the reason the plate above is not just "the pass stopped working": the north shore off the Coast Road, three moorings still drawn and all three white. City total is 460 moorings before and after. Retake: `node evidence/round7/A03-moorings.mjs 505 0 40 evidence/round7/A03-after-harbour-control.png`. |
+| `round7/probe-flood.mjs` | What the seagoing flood costs at map scale: 293,883 sea tiles of 589,824, ~6 ms per flood after warm-up, against a ~16 s bake and a ~500 ms `generateCity`. Rerun: `node evidence/round7/probe-flood.mjs`. |
