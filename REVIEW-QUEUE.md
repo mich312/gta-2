@@ -74,13 +74,93 @@ A finding is not work until it is CONFIRMED.
 #### Lens C — the simulation
 
 ### R1-C01 — motorised pursuit shuts down permanently; abandoned cruisers are never removed
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] fixed       verdict: **CONFIRMED**
 - round: 1   severity: significant   lens: C
 - where: `shared/src/sim/police.ts:678`, `:747`, `:1110`, `motorise` at `:573-593`
 - repro: `node evidence/round1/C-repro-copcars.mjs 4 240 mortal`
 - verified: independent run tagging each cruiser by origin (motorise vs roadblock) — all four abandoned by t=20s, none re-motorised over the next 160s. `cop.vehicleId` has exactly one producer, at officer creation. The only escape hatch found is the wreck clearer, which is gated on no player within 260px — closed during a chase, which is when the cars are parked next to the player. `ci/test.mjs police` green 59/59; no test covers a chase past the first dismount.
 - correction: the "car at 330 px/s" figure is from code comments; `vehicles.json` tops out at 252. Immaterial.
 - prior art: PROGRESS.md "Police pursuit driving" claims this fixed — promotion upheld
+
+**Fixed by** `14a24fd` on `worktree-agent-a6f80c5fe8733d452` (not pushed). Both halves, since
+they are not exclusive and neither alone is enough:
+
+1. **`remount`** (`police.ts`). An officer on foot whose target is more than
+   `2 x dismountDist` away goes back to a free police vehicle within 180 px —
+   walking to it when it is out of door reach, boarding on the same
+   `enterReach` measure a player boards on. Gated on `carsFromStar`, so it
+   cannot motorise a two-star posse. The dismount at `dismountDist` was always
+   meant to be temporary; nothing put the officer back.
+2. **`retireAbandoned`** (`police.ts`, run at the top of `stepPolice`, before
+   dispatch so the budget is counted after the sweep). A driverless, intact
+   police vehicle more than `spawnMaxDist` (640 px) from every player and more
+   than 180 px from every live officer is removed. 640 is beyond the ring
+   dispatch draws from AND beyond the server's 600 px interest radius, so no
+   client was ever told the car exists — nothing blinks out in view — and it
+   is comfortably past `roadblockAheadDist` (420), so a fresh roadblock is
+   never swept.
+3. **`GameState.copFleet`** (`state.ts`), a server-only side table on the
+   `trafficDrivers` / `vehicleHitTick` idiom: vehicle id -> the officer it was
+   issued to. Needed because "an abandoned cruiser" and "the cruiser parked
+   outside the police station" are otherwise the same object — a driverless
+   `copcar` — and the station's is a vehicle HOME (`amenities.ts:862`,
+   `session.ts:325`), the documented answer to "where do I find a police car".
+   A distance rule alone would have deleted it. Only fleet cars are remounted
+   or retired.
+4. One-line invariant in `drivePursuit`: an officer whose car's `driverId` is
+   no longer theirs goes on foot. `cop.vehicleId` and `v.driverId` are written
+   together and were not read together, so an officer could ghost-drive a car
+   the traffic system had parked (see R1-C06 below) — and, now that a second
+   officer can board a free car, could have been handed the same one.
+
+**Rejected**: motorising mid-chase (a fresh `motorise` call), which
+`maybeSpawnCop:400-404` argues against for good reason — it drops a car under
+a standing officer, usually on a pavement, where it wedges on the first tick.
+`remount` creates nothing; it puts an officer into a car already parked on a
+road because an officer got out of it there.
+
+**Test**: `shared/test/police.test.ts` +2, immediately after the existing "an
+officer pulls up and finishes the chase on foot":
+- "an officer who pulled up gets back in when the fugitive pulls away" —
+  without the fix: `never got back in: expected null to be 501`.
+- "the cruisers a chase leaves behind do not outlive it" — a real four-star
+  chase, then the fugitive is streets away and clean; without the fix:
+  `litter survived the chase: expected 4 to be +0`.
+Both were run against the unfixed `police.ts` and fail; police suite 59 -> 61.
+
+**Instrument note.** The round-1 repro does not sustain a chase. Its autopilot
+steers directly away from the nearest officer, which drives into a building:
+on seed 6006 the fugitive wedges at (4471, 8707) at t≈15s and never moves
+again (`me.pos` identical at every 15 s sample from t=15 to t=225). Everything
+it prints after that is a stationary suspect with the force standing round
+them, and a force that has arrived and got out at a suspect going nowhere is
+behaving correctly — so the script can show the defect but not the fix.
+`evidence/round1/C-repro-copcars-driving.mjs` is the same measurement over a
+fugitive that keeps driving (steers along the road grid, reverses out when it
+stops making progress) and adds a `travelled` column so a wedge is visible.
+
+before — `node evidence/round1/C-repro-copcars-driving.mjs 4 240`
+```
+t= 15s  copcars=3 (driven 0, abandoned 3)  live officers=4   motorised=1  travelled=1984px
+t= 45s  copcars=6 (driven 1, abandoned 5)  live officers=11  motorised=2  travelled=3517px
+t= 60s  copcars=6 (driven 0, abandoned 6)  live officers=5   motorised=0  travelled=4453px
+t=225s  copcars=6 (driven 0, abandoned 6)  live officers=5   motorised=0  travelled=5245px
+officers dispatched: 12; ever had a car: 7; still in one at the end: 0
+```
+after
+```
+t= 15s  copcars=2 (driven 1, abandoned 1)  live officers=2  motorised=1  travelled=2076px
+t= 45s  copcars=5 (driven 2, abandoned 3)  live officers=6  motorised=5  travelled=3536px
+t= 60s  copcars=4 (driven 1, abandoned 3)  live officers=6  motorised=3  travelled=4401px
+t= 90s  copcars=3 (driven 1, abandoned 2)  live officers=5  motorised=2  travelled=6258px
+t=225s  copcars=2 (driven 0, abandoned 2)  live officers=6  motorised=1  travelled=6837px
+officers dispatched: 13; ever had a car: 9; still in one at the end: 2
+```
+The fleet no longer pins at the cap, and officers are still motorised at the
+end of a four-star chase instead of nought from t=60s on. (This bench also
+wedges eventually, at t≈105s; the moving stretch is the measurement.)
+
+- round-1 repro, for the record: `node evidence/round1/C-repro-copcars.mjs 4 240 mortal` goes from `copcars=6 (driven 0, abandoned 6) motorised=0` at every sample from t=45s, `ever had a car: 6`, to `ever had a car: 9` with occasional motorised officers — the small change is the wedge, not the fix. Its "308 officers dispatched" is a stationary suspect being arrested and re-heated in place.
 
 ### R1-C02 — `noticedBy` skips both its filters: a corpse witnesses crimes, an invisible player is seen
 - status: [ ] open        verdict: **CONFIRMED**
@@ -91,13 +171,50 @@ A finding is not work until it is CONFIRMED.
 - prior art: none. `police.ts:55` records the identical bug fixed in `anyCopSees` fifteen lines above.
 
 ### R1-C03 — `Math.atan2`/`Math.hypot` in shared sim code, writing hashed fields
-- status: [ ] open        verdict: **CONFIRMED**, and understated
+- status: [x] fixed       verdict: **CONFIRMED**, and understated
 - round: 1   severity: significant   lens: C
 - where: `shared/src/sim/weapons.ts:361-363`, `traffic.ts:1397`, `police.ts:480`, `:778`
 - repro: `node evidence/round1/C-repro-math-trig.mjs`
 - verified: the reviewer's part-3 instrument (Math.atan2 vs the repo's own `dAtan2`) is weak — that difference is deliberate. Rebuilt without it, comparing V8 against a hypothetical +1-ulp engine (ECMA-262-legal): the frontal verdict still flips, and `ped.dirX` still diverges in 31% of carjack door offsets. Values traced into `net/hash.ts:111,123-126`; `snapshot.ts` applies no rounding.
 - understated: also unpinned — `peds.ts:232,247,329,393`, `traffic.ts:1138,1186`, `daynight.ts:35`
 - prior art: WORLDGEN.md §41.5 fixed this class in worldgen; the sweep never covered `shared/src/sim`. The repo argues this case against itself at `courseIndex.ts:67`, `geometry.ts:434`, `traffic.ts:436`.
+
+**Fixed by** `14a24fd` on `worktree-agent-a6f80c5fe8733d452` (not pushed). All thirteen calls in five
+files — the four sites filed and the seven the verifier added, following §41.5's own
+approach — `Math.hypot` -> `Math.sqrt` (ECMA-262 pins sqrt to the exactly
+rounded result and leaves hypot approximated), `Math.atan2` -> `dAtan2`,
+`Math.cos` -> `dCos`:
+
+| file | was | now |
+|---|---|---|
+| `weapons.ts:361-363` | `Math.atan2` x3 (shield facing/bearing) | `dAtan2` |
+| `traffic.ts:1397` | `Math.hypot` (`ejectDriver`, the carjack door) | `Math.sqrt(dx*dx+dy*dy)` |
+| `traffic.ts:1138,1186` | `Math.hypot` | `distVec` |
+| `police.ts:480,778` | `Math.hypot` | `lenVec` |
+| `peds.ts:232,247` | `Math.hypot` | `distVec` |
+| `peds.ts:329,393` | `Math.hypot` | `Math.sqrt(dx*dx+dy*dy)` |
+| `daynight.ts:35` | `Math.cos(tod * 2 * Math.PI)` | `dCos(tod * TWO_PI)` |
+
+`lenVec`/`distVec` (`math/vec.ts`) are already the `Math.sqrt` form; no new
+helper was added. Every site carries a comment saying which value it reaches.
+
+`daynight.ts:35` is worth naming: it looks like renderer-only, and is not.
+`nightAmount` -> `crowdScale` -> `session.ts:497 topUpPeds`, which **rounds**
+it into a pedestrian spawn target — so a last-bit disagreement between two
+hosts is one pedestrian more on one of them, and the ambient stream diverges
+from there. That is precisely what `ci/hostParity.mjs` exists to catch.
+
+**Test**: `shared/test/trig.test.ts` gains "the trig rule holds in sim code" —
+a source gate over `shared/src/sim/**`, in the file whose own header already
+said "the rule is only that SIM code never does" without enforcing it. Scanned
+rather than listed, on the reasoning `server/test/portable.test.ts` gives for
+walking its import graph: a roster goes stale the first time somebody adds a
+file, silently. Run against the unfixed tree it names every one of them and fails. Scope is `shared/src/sim` only — worldgen has its own, larger, question
+and §41.5 covered part of it; widening the gate to `shared/src/world` is a
+separate piece of work, filed below as R1-C07.
+
+- `pnpm parity`: **host parity OK — seed=7 ticks=600 samples=20, final hash 437625668** ("the same simulation, in Node and in a browser, tick for tick"). This is the instrument that exists for exactly this property, and it passes after the change.
+- no test expectation was changed. The suite is green as it stood; the numerics moved by less than any assertion's tolerance (`dSin` is within 6e-8 of `Math.sin`, and the sqrt/hypot swap moves values by at most one ulp).
 
 ### R1-C04 — the car bomb is free arson, and its casualties are credited to nobody
 - status: [ ] open        verdict: **CONFIRMED**
@@ -115,6 +232,26 @@ A finding is not work until it is CONFIRMED.
 - verified: the algebra holds and both jumps were attributed to roadblock ticks (two driverless vehicles 27.96px apart = 2x the 14px offset at `:803`). One-character fix: `cap + 2` -> `cap`.
 - **but**: `shared/test/police.test.ts:1670` asserts `cap + 2` as deliberate, with reasoning, and is green. The prior-art claim "recorded nowhere" is false. And the motivation fails its own bar: tank cap 3 + 2 = 5, against a stated intent of "cannot end up with six tanks". Bounded and non-cumulative; permanence belongs to R1-C01, not here.
 - correction: the citation "GTA.md P3c" is mislabelled — the string appears nowhere in the repo; the sentence is in GTA.md's "S3 — the military at five stars".
+
+#### Found while fixing round 1 (lens C's ground), filed for round 2
+
+### R1-C06 — ambient traffic adopts police cruisers as its own cars
+- status: [ ] open        verdict: **CONFIRMED** (found by the R1-C01 fixer, not by a lens)
+- round: 1   severity: significant   lens: C
+- where: `shared/src/sim/traffic.ts:115` (`isAiDriver(d) => d < -1`) against `police.ts:564` (`copDriverId = -100000 - copId`)
+- repro: `node evidence/round1/C-probe-traffic-adopts-cruisers.mjs` — prints `tick 17 cop cruisers with an ambient-traffic driver record: 4`
+- what happens: a cop cruiser's `driverId` is negative, so `isAiDriver` is true for it. `stepTraffic` (traffic.ts:892, the `isAiDriver` filter at :896 and the `freshDriver` mint at :906) therefore picks it up, mints a `trafficDrivers` record for it and **drives it**, on top of `drivePursuit` driving it in the same tick (`step.ts:133` then `:151`). `stepTrafficPopulation`'s alighting path can then "park" it — `ejectDriver`, `v.driverId = null` — while the officer's `cop.vehicleId` still points at it. Measured before any of the R1-C01 work: the officer went on ghost-driving a car with no driver.
+- also in range: `stepTrafficPopulation:1081-1083` lets a **pedestrian** board an abandoned cruiser (`v.driverId !== null` is the only occupancy test), and `:1130-1147` culls cop cruisers at `despawnDist` as if they were ambient stock.
+- the R1-C01 fix adds a one-line invariant in `drivePursuit` (an officer whose car's `driverId` is not theirs is on foot), which stops the ghost-driving. It does **not** stop the traffic AI steering a cruiser mid-pursuit — that needs `isAiDriver` to distinguish the two negative bands, or the police band to be excluded where traffic iterates. Left alone deliberately: it is a traffic change, not a police one, and it is bigger than the finding it was found under.
+- prior art: `traffic.ts:59` documents the negative-id convention as the thing that separates AI from players. It does not separate two AIs.
+
+### R1-C07 — the trig gate stops at `shared/src/sim`; `shared/src/world` has ~90 unpinned calls
+- status: [ ] open        verdict: **CONFIRMED** (found by the R1-C03 fixer)
+- round: 1   severity: nit   lens: C
+- where: `shared/src/world/` — `layout.ts`, `plangen.ts`, `buildings.ts`, `heights.ts`, `turf.ts`, `amenities.ts`, `volume.ts`, `bake.ts`, `geometry.ts`, `marks.ts`
+- repro: `grep -rn "Math\.\(hypot\|atan2\|sin\|cos\)(" shared/src/world/ | wc -l`
+- why it is a nit and not a blocker: worldgen runs once per window and the result is a map, not a stepped state — it does not go through `hashSnapshot`. But `generateCity` is shared code that both hosts run (`ci/hostParity.mjs` regenerates it on each side), so the class is the same one §41.5 already found and fixed two instances of, and there is no gate keeping the rest out.
+- what the R1-C03 fix did NOT do: widen `shared/test/trig.test.ts`'s scan to `shared/src/world`. Turning ~90 sites is a worldgen change with its own review, and `dSin`/`dCos` are only accurate to ~6e-8 — enough for the sim, possibly not for a distance field. Needs a decision, not a sweep.
 
 #### Lens D — the seams
 
@@ -192,7 +329,7 @@ A finding is not work until it is CONFIRMED.
 #### Lens A — worldgen
 
 ### R1-A01 — Kelvin Bridge and Marsh Causeway bake to nothing
-- status: [ ] open        verdict: **CONFIRMED — blocking upheld**
+- status: [x] fixed (Kelvin Bridge) + [~] escalated (Marsh Causeway, the Ring's east crossing)
 - round: 1   severity: **blocking**   lens: A
 - where: `shared/data/city-plan.json` (both roads); `layout.ts:2298-2356` (no-piers pass); `cityCheck.ts:42` (no rule)
 - repro: `node server/dist/tools/mapgen.js --crop=436,336,44 --scale=16 --out=…`
@@ -200,6 +337,107 @@ A finding is not work until it is CONFIRMED.
 - **worse than filed**: a connected-component enumeration of every deck returns **6 crossings, not 8** — the Ring's east crossing is also absent, so the entire eastern half of the strait has none. Detours measured by BFS: 726 and 984 road tiles against euclidean 121 and 124 (6x and 8x).
 - severity checked against REVIEWER.md's ladder: the render shows a four-lane carriageway with a painted centre line ending in a rounded cap on a bare bank. "Geometry the player sees that is plainly wrong" — blocking stands.
 - prior art: WORLDGEN.md §23.1 files the deck removal as a FIX and never records that the crossing is gone; §12.3 still claims it.
+
+**Round 2 — the gate, built first.** `checkCity` rule 5: for every `bridges: true`
+road, walk the courses the layout actually carves (`roadCourses`, moved to
+`plan.ts` so the checker and the bake cannot drift apart — for a dual
+carriageway that is the two offsets, not the reservation down the middle) and
+report any stretch longer than the road is wide where no tile of the
+carriageway's cross-section is road or bridge.
+
+Not in `parseCityPlan`, for the reason `plan.ts:442` already gives about
+`bandShore`: the geography is not rasterised at parse time, so "is there land
+at the end of this line" is not a question the schema can ask. In `checkCity`
+it also holds a *generated* plan to the same rule.
+
+**A warning, not an error, and that was a judgement call.** The rule reports a
+disagreement between the plan and the map, and which of the two is wrong is a
+design decision each time. Making it an error today would leave
+`citybake --check` permanently red on three pre-existing crossings nobody has
+decided about — worse than a rule that names them. Enforcement is not lost:
+`server/test/shippedCity.test.ts` pins the surviving six messages verbatim, so
+a *new* broken crossing, or one of these getting worse, is a red `pnpm test`.
+**Promote the rule to `error` once the three below are decided.**
+
+- **reproduction** (the gate on the shipped city, before any plan edit):
+  `evidence/round2/A01-gate-before.txt` — 7 warnings, naming Kelvin Bridge and
+  Marsh Causeway as filed, plus three the finding did not have.
+- **fixed — Kelvin Bridge.** The polyline ran `[[452,288],[452,400]]`; the
+  warped south bank at x=452 is at y=415. Extended to `[452,418]`, three tiles
+  onto the bank. The deck now has two landfalls, survives the no-piers pass,
+  and the crossing is 52 tiles of water against `maxBridgeSpan` 72. Deck
+  components 9 -> 10; the new one is 214 tiles at (450,357)-(453,414).
+  before: `evidence/round2/A01-kelvin-bridge-before.png`
+  after:  `evidence/round2/A01-kelvin-bridge-after.png`
+- **new test**: `server/test/bridgingRoads.test.ts` bakes the plan with Kelvin
+  Bridge put back to y=400 and asserts the checker names it. Plus
+  `server/test/shippedCity.test.ts` — the warning pin, and "builds Kelvin
+  Bridge" on the shipped bytes.
+
+#### ESCALATED — Marsh Causeway
+The north end (566,292) is 17 tiles out in open water (the bank at x=566 is
+y=275), and the bay it aims at is **93-100 tiles** wide on that line against
+`maxBridgeSpan` 72. Not a polyline nudge. Measured options:
+
+| option | cost | measured |
+|---|---|---|
+| extend the polyline north to the bank | one number | makes the *landfall* right and the crossing still 98 tiles: the warning changes wording, the causeway is still not there. **Cosmetic. Do not do this.** |
+| reroute to the narrows at x≈600 (`[[600,290],[600,375]]`) | moves the causeway ~34 tiles east | the bay is **62 tiles** there. Baked: deck tiles 1496 -> 1742, Marsh Causeway's warning gone, `checkCity` 0 errors. **Works** — but it lands somewhere else on both banks, and where a named causeway meets Marsh End is an authoring decision, not a fixer's. |
+| raise `maxBridgeSpan` past 100 | one number, whole-map blast radius | not measured; 100 is longer than the Kelvin is wide, so "wider than this and the water is sea" stops meaning anything. |
+| accept it: drop `bridges` and let the boat be the way across | one flag | honest, and the plan's own note for `maxBridgeSpan` argues for it. Costs the causeway its name. |
+
+#### ESCALATED — the Ring's east crossing, and it is a THIRD cause
+Not a short polyline and not a wide sea: it misses by **one to three tiles**.
+The eastern bay's vertical water span by column, from the finished mask:
+
+```
+x=592  62      x=628  71      x=644  73  <- ring cw0
+x=608  63      x=636  71      x=648  73
+x=620  70      x=640  72      x=652  75  <- ring cw1
+```
+
+`maxBridgeSpan` is 72, and `trimBridges` drops a deck whose narrowest run is
+*strictly greater*. So the ring crosses at 73-75 and both carriageways go.
+Measured: `maxBridgeSpan: 76` restores it — deck tiles 1496 -> 2078, 0 errors,
+and nothing else in the city gains a deck (the whole +582 is the ring's two
+carriageways). One number, and the smallest fix on this page — but it is the
+plan's definition of what counts as sea, so it wants the author, not me.
+The alternative is moving the ring's east side ~16 tiles west to x≈628, which
+is a signature road through Marsh End.
+
+#### Knock-on, all in the same commit
+Three tests went red on the rebake. None was loosened; all three assertions
+they were written to make still stand.
+
+- `shared/test/coastCache.test.ts` — **the test's classifier was wrong, and the
+  fix exposed it.** A bridge deck spans its channel wall to wall, so restoring
+  Kelvin Bridge sealed the reach of the strait between it and Old Bridge from
+  the map border: enclosed water 20,249 -> 29,286 tiles. Three of the seven
+  known waterline TIES fell inside it, and the test asked "is this water the
+  border flood cannot reach" *before* "is this tile exactly on a ring", so it
+  reported them as ponds — water carved behind the curve's back, at distance
+  **0.0000** from the curve. The two `else if` arms are now in the other
+  order. Every assertion is unchanged (`unexplained === 0`, `ties <= 16`,
+  `decks > 0`, `ponds === 0`) and the pond detector is not blinded: an
+  unringed pond is nowhere near a ring, so it still lands in the pond arm.
+  **Worth a reviewer's eye** — it is the one place a test changed shape.
+- `shared/test/police.test.ts` "lifting one under a cop's nose is" and
+  `shared/test/powerups.test.ts` "the jail card is spent instead of the
+  arrest" — both staged their officer at a FIXED offset (+12 px, +8 px) from
+  the player spawn. The rebake moved the spawn list; this seed's player now
+  lands on a kerb, and the ground east of it is the building behind the
+  pavement, so the officer was placed inside a wall and witnessed nothing.
+  Both now use `clearSpot`, which is what their own siblings do and what
+  `police.test.ts:1177` already records an hour lost to.
+- `server/test/session.test.ts` failed once under load in the full run and
+  passes on its own. Runner starvation, not a change.
+
+#### Not R1-A01, found by its gate — the Coast Road
+Three stretches, **169 + 79 + 22 tiles**, where the Coast Road has no
+carriageway at all: the coastline warp moved the south shore inland of the
+course the road was drawn on, so for a third of its length the road is out at
+sea. Nobody had filed this. Left alone (out of scope), pinned in
+`shippedCity.test.ts`, **file it as its own round-3 finding.**
 
 ### R1-A02 — Hollis Creek is crossed nowhere along its length
 - status: [ ] open        verdict: **CONFIRMED**
@@ -211,7 +449,7 @@ A finding is not work until it is CONFIRMED.
 - prior art: none. No recorded decision to argue with, just an absence.
 
 ### R1-A03 — The Docks' contour fabric lays no cross streets
-- status: [ ] open        verdict: **CONFIRMED — and root-caused**
+- status: [x] fixed
 - round: 1   severity: significant   lens: A
 - where: `layout.ts:1625` (contour cross streets) and `layout.ts:1273` (`frameDeg` PCA)
 - **the reviewer found the symptom; the verifier found the cause.** `frameDeg`'s PCA samples only tiles with `bandField <= 2`. The Docks' banding shore is on its **east** side, so the true mean tangent is 90 degrees — but the nearest owned dry tile is 9 away, nothing matches, `n === 0`, and it silently falls back to the authored `angle: 0`. The cross streets are carved **parallel to the bands they were meant to cross**.
@@ -220,6 +458,47 @@ A finding is not work until it is CONFIRMED.
   28x22 is the authored 28x24 cell. The pitch is honoured everywhere and silently dropped here.
 - **latent beyond this district**: Terraces and Beachfront take the same fallback and survive only because their shore is horizontal, so `angle: 0` happens to equal the true tangent. Any future borough on a non-horizontal shore inherits the bug.
 - prior art: none found.
+
+**Round 2 — fixed at the fallback, not at The Docks.** The defect is the
+*absolute* threshold. `bandField <= 2` assumes a contour borough owns dry
+ground within two units of the water it bands against, which is false whenever
+its `bandShore` box sits off its own land. So the sample is taken **relative to
+the borough**: find the lowest `bandField` over the borough's own dry tiles
+(`floor`), then sample `bandField <= floor + 2` — the borough's innermost band,
+whatever distance that turns out to be, with the same two units of thickness.
+
+Measured `floor` / `n` / `frameDeg`, over the shipped plan:
+
+```
+The Terraces   floor=8   n=10    frameDeg=178   (authored 0)   <- ALSO had n===0
+Beachfront     floor=1   n=146   frameDeg=1     (authored 0)
+The Docks      floor=9   n=56    frameDeg=90    (authored 0)
+```
+
+The Terraces was the second silent fallback and nobody had noticed: it is 2
+degrees off the authored angle, which is why it looked fine. Beachfront was
+the only one measuring anything at all.
+
+And **no silent guess is left**: if a contour borough owns no dry ground, there
+is no shore to take a frame from and `buildLayout` now throws, the way it
+already throws for a `bandShore` box with no water in it. `n` can no longer be
+zero by construction — `floor` comes from a tile the sample filter accepts.
+
+- **before** (whole-city census, per district, blocks / median area / biggest):
+  `The Docks   14 blocks  median 1691  biggest 27x158`
+- **after**:
+  `The Docks   51 blocks  median  330  biggest  30x22`  (authored cell 28x24)
+  `The Terraces 155 -> 148`, `Beachfront 124 -> 124`, city total 1156 -> 1182
+- before: `evidence/round2/A03-docks-before.png`
+- after:  `evidence/round2/A03-docks-after.png`
+- **new test**: `shared/test/city.test.ts` — "cuts every contour borough across
+  its bands, at whatever angle its shore runs". Every contour borough, not The
+  Docks: median block area under 1.5x its authored cell, and more than 20
+  blocks. The Docks scored 2.5x and 14 before the fix.
+- **knock-on, and it is in the same commit**: giving The Docks its cross
+  streets put one of them through the `Harbour Precinct` landmark rect, and
+  `bakeCity` refused the plan. Moved to the rect `citybake --fit` named,
+  `[87,317] -> [83,328]`, 15 tiles down the same quay.
 
 ### R1-A04 — known: a public street still crosses Marsh End Airfield's runway
 - status: [-] refuted        verdict: **REFUTED as filed**
