@@ -87,3 +87,31 @@ prior art: <doc section, or "none found">
 
 Then reply with those blocks as your final message, and nothing else — no
 preamble, no summary of your process, no offer to fix them.
+
+
+## Suspicions are not findings
+
+Twice in this exercise a reviewer or verifier has reached past its brief and
+flagged something it had not measured. Both were investigated and both were
+**wrong** — `ci/renderBench.mjs` pinning both arms to `render=2d` is correct
+(the A/B variable is `extrude`, which only the 2D tile layer honours), and
+`carsFromStar` is live (via `remount`, a path this exercise's own round-3 fix
+created).
+
+The instinct is useful; the filing is not. Put an unmeasured hunch in a
+clearly-labelled **suspicions** section at the end of your findings file, never
+in a finding block. A suspicion costs the next round one cheap check. A
+suspicion dressed as a finding costs a fixer a round, and may get a working
+instrument "repaired".
+
+## Your finding will be read against a tree that has moved
+
+Between filing and fixing, the city gets rebaked and other lenses' fixes land.
+Three findings in this exercise were accurate when written and stale when read:
+a tile count (7, later 18), a seed list (4 of 6, later 3 of 6, different seeds),
+and one whose entire premise had been inverted by another round's fix.
+
+So: **name the commit you measured on**, and prefer a repro that recomputes its
+own staging over one that hard-codes coordinates. A script that posts an
+officer at a fixed offset will one day post him inside a wall, print `false` on
+every row including its control, and read exactly like "already fixed".

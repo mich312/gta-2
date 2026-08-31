@@ -52,6 +52,24 @@ cp /tmp/mine.ts shared/src/sim/police.ts   # put it back
 Before you commit, run `git diff --stat` and confirm it lists only the files
 you meant to change.
 
+## Never write to the shared checkout
+
+Your worktree is not as isolated as it looks. Established the hard way, in
+this order:
+
+| shared thing | how it bit |
+| --- | --- |
+| `dist` build trees | four fixers building at once corrupt each other |
+| `REVIEW-QUEUE.md` | four copies, last write wins, three silently reverted |
+| the base commit | every worktree is cut from the **merge-base**, not the head |
+| `refs/stash` | one stack for all worktrees; two fixers popped each other's work |
+| the working directory | the orchestrator's `git add -A` sweeps a non-isolated agent's half-written files |
+
+So: **report your status, do not write it.** The orchestrator records the
+queue. Write evidence only under your round's own directory. Before you
+commit, run `git diff --stat` and confirm it lists only files you meant to
+change — foreign files have landed in two agents' trees already.
+
 ## A repro that does not reproduce is not evidence
 
 Repro scripts decay. The world moves under them — a rebake puts a wall where
@@ -64,3 +82,36 @@ does not fire, the script is broken, not the code. Repair the staging (the
 house helper is `shared/test/helpers.ts`) before you conclude anything. If a test now fails and
 you believe the test is wrong, that is an `ESCALATED` finding of its own, not
 a line to delete.
+
+
+## Fix what the filing names, not what the summary says
+
+R1-C06 named three cases. The fix covered two, the fixer honestly reported
+"at two sites", and the finding was marked FIXED. The third case was still
+live two rounds later — and the fix had made it *worse*, because gating the
+other two paths removed the only mechanism that used to clean it up.
+
+So, when you finish: **re-read the finding's own filing, item by item**, and
+say in your report which items you covered and which you did not. A partial
+fix is a fine outcome and an honest one. A partial fix reported as a fix is
+how a defect gets a `[x]` next to it and survives.
+
+And ask what your change *enables*, not only what it repairs. Three times in
+this exercise a fix has revealed or worsened something adjacent: officers run
+over by their own cruisers (round 3), the ped-boarding door (round 3), and
+Marsh Post's wall unmasked (round 5). If your change removes a behaviour that
+was cleaning something up, say so.
+
+## Your measurement must be at the real scale
+
+A finding measured against a toy fleet is a finding measured wrong. A real
+session lays down **655 vehicles and 799 pedestrians** for the shipped city
+(`session.ts:284`, `VEHICLES_PER_CITY 48 x areaScale 4`), and the tick budget
+is 33 ms against a base already near 27. A repro that seeds 193 and caps the
+crowd at 200 will report a percentage three times too large and a cost curve
+that flatters the fix.
+
+Check, too, that the thing you are measuring is still moving. One round-5
+repro "plateaued" — because the player had wedged at speed 0 four minutes in,
+and the plateau was a stationary spawn ring filling up. It looked exactly like
+a fixed leak.
