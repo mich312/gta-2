@@ -1430,7 +1430,7 @@
       "note": "The seafront road, following the shore rather than the grid \u2014 which is what leaves the triangular blocks behind it.",
       "width": 4,
       "curve": true,
-      "bridges": false,
+      "bridges": true,
       "points": [
         [
           228,
@@ -1498,7 +1498,7 @@
       "name": "Longacre Road",
       "width": 4,
       "curve": true,
-      "bridges": false,
+      "bridges": true,
       "points": [
         [
           256,
