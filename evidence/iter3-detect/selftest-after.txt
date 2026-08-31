@@ -1,0 +1,19 @@
+# selftest: plant a known defect, then look for it
+# road-speck          FIRED    0 -> 1 at 470,40 — a lone tile of tarmac in open field
+# road-notch          FIRED    0 -> 1 at 540,10 — a wall punched through the middle of a carriageway
+# road-deadend        FIRED    9 -> 10 at 459,325 — a 3-wide street ending in open ground
+# road-stops-short    FIRED    13 -> 16 at 472,312 — a street stopping two tiles short of the avenue it runs at
+# road-width-jump     FIRED    1 -> 2 at 519,324 — a straight street stepping 3 -> 5 tiles wide
+# junction-stub       FIRED    0 -> 1 at 459,312 — a crossroads-shaped patch with one street leaving it
+# walk-orphan         FIRED    0 -> 1 at 426,312 — a ring of pavement with no street anywhere near it
+# patch-square        FIRED    0 -> 1 at 429,312 — a perfect 6x6 stamp of woodland in a meadow
+# edge-notch          FIRED    0 -> 1 at 444,293 — a single tile of open water in the middle of a meadow
+# bare-corridor       FIRED    0 -> 1 at 663,391 — a 6-wide ruler-straight lane cut 30 tiles through a wood
+# built-staircase     FIRED    24 -> 25 at 493,28 — a 5-tile-tread staircase on the edge of a yard
+# kerb-missing        FIRED    0 -> 1 at 406,40 — a building wall laid straight onto the carriageway
+# shore-staircase     FIRED    0 -> 2 at 607,630 — a 14-tile horizontal tread cut into a diagonal waterline
+# course-coverage-outlier  FIRED    2 -> 3 at 286,184 — every centreline of the best-covered borough deleted, its tarmac untouched
+# street-serves-nothing  FIRED    4 -> 5 at 461,312 — a 3-wide street carved in open field with a course down it and nothing at either end
+# lanes-serving-nothing  FIRED    2 -> 3 at 64,566 — a lattice of lanes laid over empty ground outside every district polygon
+# every planted control fired
+# crossing-missing and fabric-coarse are calibrated against the 1469611 bake (--data), not planted

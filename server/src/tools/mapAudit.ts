@@ -20,6 +20,7 @@ import {
   T_WATER,
   type BakedCity,
   type CityPlan,
+  type StreetCourse,
 } from 'shared';
 
 /**
@@ -88,8 +89,16 @@ const SEV_ORDER: Record<Severity, number> = { high: 0, med: 1, low: 2 };
  * median, and the gates below remove those by construction rather than by
  * understanding them. What survives is a street narrowing where its borough
  * ends, which is real geometry and probably deliberate.
+ *
+ * `street-serves-nothing` earns it differently and more cheaply: four hits,
+ * two of them right. Two of the four are coast roads whose COURSE was trimmed
+ * at the waterline while the tarmac carries on round the bend, and no gate
+ * this tool can express separates them from the islet street the signature
+ * exists to find — that one joins the bridge approach sideways at exactly the
+ * same angle. Four crops is a cheap glance; a reviewer taking all four for
+ * defects is not.
  */
-const NOISY = new Set<string>(['road-width-jump', 'built-staircase']);
+const NOISY = new Set<string>(['road-width-jump', 'built-staircase', 'street-serves-nothing']);
 
 /* ------------------------------------------------------------------ */
 /* The map, and the small vocabulary every signature shares            */
@@ -1665,6 +1674,400 @@ function coarseFabric(city: BakedCity, plan: CityPlan, ratioGate: number): Findi
 }
 
 /* ------------------------------------------------------------------ */
+/* 12. course-coverage-outlier — the boroughs the vector work skipped  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Which carriageway tiles lie UNDER a road course, by the renderer's own
+ * rule.
+ *
+ * Not a re-derivation: this is `TileLayer.indexCourses`' `courseCover`
+ * (`client/src/render/tiles.ts`) — the tile centre within `width / 2 + 0.05`
+ * of a non-`path` centreline — copied because the question this signature
+ * asks is exactly the question the client asks per tile, and an audit that
+ * used its own definition would be measuring something the game does not do.
+ * §26.1 measures the same thing city-wide and reports 76.1%.
+ */
+function courseCoverPlane(city: BakedCity): Uint8Array {
+  const W = city.widthTiles;
+  const H = city.heightTiles;
+  const cover = new Uint8Array(W * H);
+  for (const c of city.courses) {
+    if (c.kind === 'path') continue;
+    const inner = c.width / 2 + 0.05;
+    for (let k = 0; k + 1 < c.points.length; k++) {
+      const [ax, ay] = c.points[k] as readonly [number, number];
+      const [bx, by] = c.points[k + 1] as readonly [number, number];
+      const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - inner - 1));
+      const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx) + inner + 1));
+      const y0 = Math.max(0, Math.floor(Math.min(ay, by) - inner - 1));
+      const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by) + inner + 1));
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy || 1;
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const px = tx + 0.5 - ax;
+          const py = ty + 0.5 - ay;
+          const t = Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
+          const qx = px - t * dx;
+          const qy = py - t * dy;
+          if (qx * qx + qy * qy <= inner * inner) cover[ty * W + tx] = 1;
+        }
+      }
+    }
+  }
+  return cover;
+}
+
+/** A borough big enough for a coverage rate to mean anything. */
+const COVERAGE_MIN_ROAD = 500;
+
+/**
+ * A borough whose streets were never given centrelines, when the rest of the
+ * city's were.
+ *
+ * §26.1 reports course coverage as ONE number for the whole city — 76.1% —
+ * and explains the missing quarter as "junction box and merged sheet, which
+ * SHOULD be bare". The average hides the shape of it: coverage is not spread
+ * thin over the city, it is missing in lumps. Measured per borough on the
+ * shipped bake, twelve are between 69% and 91% and two are at 20% and 29%.
+ *
+ * **What that costs, and what it does NOT cost.** Every wave from §16 to §42
+ * — the kerb casing, the junction punch-out, the ribbon lane markings, the
+ * course follower, the diagonal kerb bevel — is keyed on `courses`, so all of
+ * it skips a borough with no courses in it. But the tarmac is NOT left bare:
+ * `paintRoad` falls through to `paintLaneMarks` for any tile the cover mask
+ * misses (`client/src/render/tiles.ts:1962`), which is the whole reason §26.1
+ * could not delete the per-tile marking system. **So this signature is about
+ * missing COURSES, never about missing paint**, and a reviewer who crops one
+ * of these and sees painted lanes has confirmed the finding, not refuted it.
+ *
+ * The gate is relative on purpose — a fraction of the MEDIAN borough's rate,
+ * not an absolute percentage — so it says "these two are unlike the rest of
+ * the city" rather than picking a number, and so it goes quiet by itself when
+ * a rebake raises coverage everywhere. The median rather than the mean
+ * because one wrecked borough must not move the bar that catches it.
+ */
+function coverageOutliers(city: BakedCity, plan: CityPlan, ratioGate: number): Finding[] {
+  const W = city.widthTiles;
+  const H = city.heightTiles;
+  const owner = ownerPlane(plan, city.tiles, W, H);
+  const cover = courseCoverPlane(city);
+  const n = plan.districts.length;
+  const road = new Int32Array(n);
+  const covered = new Int32Array(n);
+  const courses = new Int32Array(n);
+  for (let i = 0; i < city.tiles.length; i++) {
+    if (!isRoad(city.tiles[i] as number)) continue;
+    const d = owner[i] as number;
+    if (d < 0) continue;
+    road[d] = (road[d] as number) + 1;
+    if (cover[i] === 1) covered[d] = (covered[d] as number) + 1;
+  }
+  for (const c of city.courses) {
+    if (c.kind === 'path') continue;
+    const [mx, my] = c.points[Math.floor(c.points.length / 2)] as readonly [number, number];
+    const tx = Math.min(W - 1, Math.max(0, Math.floor(mx)));
+    const ty = Math.min(H - 1, Math.max(0, Math.floor(my)));
+    const d = owner[ty * W + tx] as number;
+    if (d >= 0) courses[d] = (courses[d] as number) + 1;
+  }
+  const rated: number[] = [];
+  for (let d = 0; d < n; d++) {
+    if ((road[d] as number) < COVERAGE_MIN_ROAD) continue;
+    rated.push((covered[d] as number) / (road[d] as number));
+  }
+  if (rated.length < 4) return [];
+  const sorted = rated.slice().sort((p, q) => p - q);
+  const median = sorted[Math.floor(sorted.length / 2)] as number;
+  const gate = median * ratioGate;
+  const out: Finding[] = [];
+  for (const [di, d] of plan.districts.entries()) {
+    const r = road[di] as number;
+    if (r < COVERAGE_MIN_ROAD) continue;
+    const rate = (covered[di] as number) / r;
+    if (rate >= gate) continue;
+    let sx = 0;
+    let sy = 0;
+    for (const [px, py] of d.area) {
+      sx += px;
+      sy += py;
+    }
+    const [cx, cy, cw] = crop(sx / d.area.length, sy / d.area.length, 160, W, H);
+    out.push({
+      sig: 'course-coverage-outlier',
+      x: cx,
+      y: cy,
+      w: cw,
+      severity: rate < gate / 2 ? 'high' : 'med',
+      rank: r - (covered[di] as number),
+      reason: `${d.name}: ${(100 * rate).toFixed(1)}% of ${r} carriageway tiles lie under a course (${courses[di]} courses), against a ${(100 * median).toFixed(1)}% median borough — ${r - (covered[di] as number)} tiles that the kerb casing, the junction punch-out, the ribbon markings, the follower and the kerb bevel all skip, because every one of them is keyed on courses. Missing COURSES, not missing paint: bare tarmac still gets per-tile lane marks`,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* 13. street-serves-nothing — a course with nowhere at either end     */
+/* ------------------------------------------------------------------ */
+
+/** Length of a course in tiles. */
+function courseLength(c: StreetCourse): number {
+  let len = 0;
+  for (let k = 1; k < c.points.length; k++) {
+    const [ax, ay] = c.points[k - 1] as readonly [number, number];
+    const [bx, by] = c.points[k] as readonly [number, number];
+    len += Math.hypot(bx - ax, by - ay);
+  }
+  return len;
+}
+
+/** Distance from a point to a course's polyline, in tiles. */
+function distToCourse(c: StreetCourse, x: number, y: number): number {
+  let best = Infinity;
+  for (let k = 0; k + 1 < c.points.length; k++) {
+    const [ax, ay] = c.points[k] as readonly [number, number];
+    const [bx, by] = c.points[k + 1] as readonly [number, number];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 === 0 ? 0 : ((x - ax) * dx + (y - ay) * dy) / len2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = ax + dx * t - x;
+    const py = ay + dy * t - y;
+    const d = Math.hypot(px, py);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * How much tarmac lies beyond an endpoint, marching out along the street's
+ * own direction and sampling the FULL carriageway width at each step.
+ *
+ * The width matters: a single ray down a 3-wide street that runs a few
+ * degrees off the axis walks out of its own road within four tiles and
+ * reports a cap that is not there. That mistake alone accounted for four of
+ * this signature's first sixteen candidates.
+ */
+function tarmacBeyond(
+  a: Audit,
+  x: number,
+  y: number,
+  dx: number,
+  dy: number,
+  half: number,
+  limit: number,
+): number {
+  const px = -dy;
+  const py = dx;
+  const steps = Math.max(1, Math.round(half * 2));
+  for (let s = 1; s <= limit + 1; s++) {
+    let any = false;
+    for (let k = 0; k <= steps && !any; k++) {
+      const off = -half + (k * half * 2) / steps;
+      if (isRoad(a.at(Math.floor(x + dx * s + px * off), Math.floor(y + dy * s + py * off)))) {
+        any = true;
+      }
+    }
+    if (!any) return s - 1;
+  }
+  return Infinity;
+}
+
+/**
+ * A short street whose course meets no other course at EITHER end, and whose
+ * tarmac stops at both ends too.
+ *
+ * The point of this one is that connectivity cannot see it. The shipped
+ * carriageway is a single 4-connected component of about 100,000 tiles, so
+ * `checkCity` is satisfied by a street that is reachable; degree is a
+ * different question, and a street whose both ends are terminal is a street
+ * with nowhere to go. The control is the islet in the strait at 468-471 x
+ * 357-374 — a fully painted 11.7-tile street with a cap at each end, entered
+ * only by leaving Kelvin Bridge sideways at mid-span.
+ *
+ * `noisy`, and measured: of the four candidates on the shipped bake, one is
+ * the islet, one is the tip of the spit at 80,505, and two (669,153 and
+ * 711,282) are coast roads whose course was trimmed at the waterline while
+ * the tarmac carries on around the bend — the course ends, the street does
+ * not. Half is not a rate a reviewer should trust, so the caveat travels in
+ * the output rather than in this comment.
+ */
+function streetsServingNothing(
+  a: Audit,
+  city: BakedCity,
+  maxLen: number,
+  capReach: number,
+): Finding[] {
+  const roads = city.courses.filter((c) => c.kind !== 'path');
+  /** How near another centreline has to come to count as meeting this end. */
+  const MEET = 2;
+  const out: Finding[] = [];
+  for (const [i, c] of roads.entries()) {
+    const len = courseLength(c);
+    if (len < 4 || len >= maxLen) continue;
+    const p0 = c.points[0] as readonly [number, number];
+    const p1 = c.points[1] as readonly [number, number];
+    const q1 = c.points[c.points.length - 1] as readonly [number, number];
+    const q0 = c.points[c.points.length - 2] as readonly [number, number];
+    const n0 = Math.hypot(p0[0] - p1[0], p0[1] - p1[1]) || 1;
+    const n1 = Math.hypot(q1[0] - q0[0], q1[1] - q0[1]) || 1;
+    const met = (x: number, y: number): boolean =>
+      roads.some((o, j) => j !== i && distToCourse(o, x, y) <= MEET);
+    if (met(p0[0], p0[1]) || met(q1[0], q1[1])) continue;
+    const half = c.width / 2;
+    const b0 = tarmacBeyond(a, p0[0], p0[1], (p0[0] - p1[0]) / n0, (p0[1] - p1[1]) / n0, half, capReach);
+    const b1 = tarmacBeyond(a, q1[0], q1[1], (q1[0] - q0[0]) / n1, (q1[1] - q0[1]) / n1, half, capReach);
+    if (b0 > capReach || b1 > capReach) continue;
+    const [cx, cy, cw] = crop((p0[0] + q1[0]) / 2, (p0[1] + q1[1]) / 2, Math.ceil(len), a.W, a.H);
+    out.push({
+      sig: 'street-serves-nothing',
+      x: cx,
+      y: cy,
+      w: cw,
+      severity: b0 + b1 <= 2 ? 'med' : 'low',
+      rank: 40 - len,
+      reason: `${len.toFixed(1)}-tile ${c.kind} from ${p0[0].toFixed(0)},${p0[1].toFixed(0)} to ${q1[0].toFixed(0)},${q1[1].toFixed(0)} meets no other centreline at either end, and its tarmac stops ${b0} and ${b1} tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable`,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* 14. lanes-serving-nothing — ground no borough claimed               */
+/* ------------------------------------------------------------------ */
+
+/** Tiles inside some district polygon — point-in-polygon only, no flood. */
+function polyMask(plan: CityPlan, W: number, H: number): Uint8Array {
+  const mask = new Uint8Array(W * H);
+  for (const d of plan.districts) {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const [px, py] of d.area) {
+      x0 = Math.min(x0, px);
+      y0 = Math.min(y0, py);
+      x1 = Math.max(x1, px);
+      y1 = Math.max(y1, py);
+    }
+    for (let ty = Math.max(0, Math.floor(y0)); ty <= Math.min(H - 1, Math.ceil(y1)); ty++) {
+      for (let tx = Math.max(0, Math.floor(x0)); tx <= Math.min(W - 1, Math.ceil(x1)); tx++) {
+        const i = ty * W + tx;
+        if (mask[i] === 0 && pointInPoly(d.area, tx + 0.5, ty + 0.5)) mask[i] = 1;
+      }
+    }
+  }
+  return mask;
+}
+
+/** A stretch of land outside every district polygon, and what is on it. */
+interface Fringe {
+  land: number;
+  road: number;
+  built: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/**
+ * The land regions no district polygon claims, so both this signature and its
+ * control speak about the same regions.
+ */
+function fringeRegions(a: Audit, plan: CityPlan): Fringe[] {
+  const { W, H, tiles } = a;
+  const inPoly = polyMask(plan, W, H);
+  const seen = new Uint8Array(W * H);
+  const out: Fringe[] = [];
+  const bag = new Int32Array(W * H);
+  for (let s = 0; s < tiles.length; s++) {
+    if (seen[s] === 1 || inPoly[s] === 1 || tiles[s] === T_WATER) continue;
+    let tail = 0;
+    bag[tail++] = s;
+    seen[s] = 1;
+    const f: Fringe = { land: 0, road: 0, built: 0, x0: W, y0: H, x1: -1, y1: -1 };
+    for (let q = 0; q < tail; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      f.land++;
+      if (x < f.x0) f.x0 = x;
+      if (y < f.y0) f.y0 = y;
+      if (x > f.x1) f.x1 = x;
+      if (y > f.y1) f.y1 = y;
+      const t = tiles[i] as number;
+      if (isRoad(t)) f.road++;
+      if (t === T_BUILDING || t === T_FLOOR) f.built++;
+      for (const [dx, dy] of DIRS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (seen[j] === 1 || inPoly[j] === 1 || tiles[j] === T_WATER) continue;
+        seen[j] = 1;
+        bag[tail++] = j;
+      }
+    }
+    out.push(f);
+  }
+  return out;
+}
+
+/**
+ * Ground that got a road network and nothing to drive to.
+ *
+ * The fringe pass places buildings only "within its own district's pitch of
+ * town" (WORLDGEN.md §14.6 D5), but the road carve has no such rule, so land
+ * that falls outside every district polygon can be laid with lanes and then
+ * left empty. On the shipped bake 6,127 carriageway tiles are outside every
+ * polygon; most of them are the warp fringe hanging off a borough, with that
+ * borough's buildings a few tiles away, and those are not this finding.
+ *
+ * This one is the regions where there is nothing on either side: the headland
+ * north of Kelvin Bridge, 5,749 tiles of land carrying 1,197 tiles of
+ * carriageway and not one building — ground every player crosses between the
+ * two halves of the city.
+ *
+ * The gates are what looking at the crops forced. The land floor throws out
+ * the arterial corridors that run BETWEEN two polygons — a 103x7 strip at
+ * 77,247 is 96% road with no buildings on it, and every one of them belongs
+ * to the boroughs on either side. The building floor is what separates empty
+ * ground from a fringe that is doing its job.
+ */
+function lanesServingNothing(
+  a: Audit,
+  plan: CityPlan,
+  minLand: number,
+  minRoadShare: number,
+): Finding[] {
+  /** Above this share of built tiles, the lanes have something to serve. */
+  const BUILT_SHARE = 0.01;
+  const out: Finding[] = [];
+  for (const f of fringeRegions(a, plan)) {
+    if (f.land < minLand) continue;
+    const roadShare = f.road / f.land;
+    if (roadShare < minRoadShare) continue;
+    if (f.built / f.land >= BUILT_SHARE) continue;
+    const span = Math.max(f.x1 - f.x0 + 1, f.y1 - f.y0 + 1);
+    const [cx, cy, cw] = crop((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2, span, a.W, a.H);
+    out.push({
+      sig: 'lanes-serving-nothing',
+      x: cx,
+      y: cy,
+      w: cw,
+      severity: f.built === 0 ? 'high' : 'med',
+      rank: f.road,
+      reason: `${f.x0},${f.y0}-${f.x1},${f.y1}: ${f.land} tiles of land outside every district polygon carry ${f.road} carriageway tiles (${(100 * roadShare).toFixed(1)}%) and ${f.built} built tiles — lanes with nothing to drive to, because the fringe pass only places buildings within a district's own pitch of town (§14.6 D5) and this ground is in no district`,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* Loading                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -1703,6 +2106,9 @@ const ALL_SIGS = [
   'patch-square',
   'edge-notch',
   'fabric-coarse',
+  'course-coverage-outlier',
+  'street-serves-nothing',
+  'lanes-serving-nothing',
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -1724,7 +2130,19 @@ const ALL_SIGS = [
 interface Plant {
   sig: string;
   where: string;
-  apply: (tiles: Uint8Array, W: number, at: (x: number, y: number) => number) => [number, number];
+  apply: (
+    tiles: Uint8Array,
+    W: number,
+    at: (x: number, y: number) => number,
+    plan: CityPlan,
+    base: Audit,
+  ) => [number, number];
+  /**
+   * Some defects are in the VECTORS, not the raster: a borough loses its
+   * centrelines while its tarmac stays exactly where it was. A plant that
+   * needs one edits the courses here, after `apply` has run.
+   */
+  courses?: (courses: StreetCourse[]) => StreetCourse[];
 }
 
 /** A patch of open field big enough to build a defect in, away from the city. */
@@ -1746,6 +2164,11 @@ function findMeadow(a: Audit, w: number, h: number, startY: number): [number, nu
 
 function selftest(city: BakedCity, plan: CityPlan): void {
   const base = buildAudit(city);
+  // What a plant's `apply` worked out and its `courses` needs a moment later.
+  // Plants run one at a time, each against a fresh copy of the tiles.
+  let victimBorough = -1;
+  let victimOwner: Int16Array | null = null;
+  let stubEnds: number[] = [0, 0, 0, 0];
   const plants: Plant[] = [
     {
       sig: 'road-speck',
@@ -1910,6 +2333,94 @@ function selftest(city: BakedCity, plan: CityPlan): void {
         throw new Error('no off-axis waterline to flatten');
       },
     },
+    /* The three course- and region-shaped signatures. Their defects are not
+     * marks on the raster — one deletes centrelines and leaves the tarmac
+     * exactly where it was, one adds a centreline, one lays lanes on ground
+     * no borough claims — so they plant through `courses` as well as `apply`. */
+    {
+      sig: 'course-coverage-outlier',
+      where: 'every centreline of the best-covered borough deleted, its tarmac untouched',
+      apply: (_t, W, _at, plan, base) => {
+        const owner = ownerPlane(plan, base.tiles, W, base.H);
+        const cover = courseCoverPlane(base.city);
+        const covered = new Int32Array(plan.districts.length);
+        for (let i = 0; i < base.tiles.length; i++) {
+          const d = owner[i] as number;
+          if (d >= 0 && cover[i] === 1 && isRoad(base.tiles[i] as number)) {
+            covered[d] = (covered[d] as number) + 1;
+          }
+        }
+        let best = -1;
+        for (let d = 0; d < covered.length; d++) {
+          if (best < 0 || (covered[d] as number) > (covered[best] as number)) best = d;
+        }
+        victimBorough = best;
+        victimOwner = owner;
+        const d = plan.districts[best] as CityPlan['districts'][number];
+        let sx = 0;
+        let sy = 0;
+        for (const [px, py] of d.area) {
+          sx += px;
+          sy += py;
+        }
+        return [Math.round(sx / d.area.length), Math.round(sy / d.area.length)];
+      },
+      courses: (cs) =>
+        cs.filter((c) => {
+          if (c.kind === 'path' || victimOwner === null) return true;
+          const W = city.widthTiles;
+          const [mx, my] = c.points[Math.floor(c.points.length / 2)] as readonly [number, number];
+          const tx = Math.min(W - 1, Math.max(0, Math.floor(mx)));
+          const ty = Math.min(city.heightTiles - 1, Math.max(0, Math.floor(my)));
+          return (victimOwner[ty * W + tx] as number) !== victimBorough;
+        }),
+    },
+    {
+      sig: 'street-serves-nothing',
+      where: 'a 3-wide street carved in open field with a course down it and nothing at either end',
+      apply: (t, W) => {
+        const [x, y] = findMeadow(base, 5, 16, 300);
+        for (let dy = 0; dy <= 13; dy++) {
+          for (let dx = 1; dx <= 3; dx++) t[(y + dy) * W + x + dx] = T_ROAD;
+        }
+        stubEnds = [x + 2.5, y + 0.5, x + 2.5, y + 12.5];
+        return [x + 2, y];
+      },
+      courses: (cs) => [
+        ...cs,
+        {
+          points: [
+            [stubEnds[0] as number, stubEnds[1] as number],
+            [stubEnds[2] as number, stubEnds[3] as number],
+          ],
+          width: 3,
+          kind: 'street',
+        },
+      ],
+    },
+    {
+      sig: 'lanes-serving-nothing',
+      where: 'a lattice of lanes laid over empty ground outside every district polygon',
+      apply: (t, W, _at, plan, base) => {
+        // The emptiest un-districted region there is — no lanes on it and
+        // nothing built on it — so the plant supplies only the lanes.
+        let best: Fringe | null = null;
+        for (const f of fringeRegions(base, plan)) {
+          if (f.road > 0 || f.built > 0 || f.land < GATES.fringeLand) continue;
+          if (best === null || f.land > best.land) best = f;
+        }
+        if (best === null) throw new Error('no empty un-districted region to lay lanes on');
+        const inPoly = polyMask(plan, W, base.H);
+        for (let y = best.y0; y <= best.y1; y++) {
+          for (let x = best.x0; x <= best.x1; x++) {
+            const i = y * W + x;
+            if (inPoly[i] === 1 || base.tiles[i] === T_WATER) continue;
+            if (x % 12 < 3 || y % 12 < 3) t[i] = T_ROAD;
+          }
+        }
+        return [best.x0, best.y0];
+      },
+    },
   ];
 
   console.log('# selftest: plant a known defect, then look for it');
@@ -1922,13 +2433,17 @@ function selftest(city: BakedCity, plan: CityPlan): void {
       x < 0 || y < 0 || x >= W || y >= H ? T_WATER : (city.tiles[y * W + x] as number);
     let planted: [number, number];
     try {
-      planted = p.apply(tiles, W, at);
+      planted = p.apply(tiles, W, at, plan, base);
     } catch (e) {
       console.log(`# ${pad(p.sig, 18)}  ERROR   could not plant: ${(e as Error).message}`);
       broken++;
       continue;
     }
-    const dirty: BakedCity = { ...city, tiles };
+    const dirty: BakedCity = {
+      ...city,
+      tiles,
+      courses: p.courses ? p.courses(city.courses) : city.courses,
+    };
     const before = run(city, plan, new Set([p.sig])).filter((f) => f.sig === p.sig).length;
     const after = run(dirty, plan, new Set([p.sig])).filter((f) => f.sig === p.sig).length;
     const fired = after > before;
@@ -1952,9 +2467,31 @@ interface Gates {
   fabric: number;
   minSpan: number;
   minLen: number;
+  /** Fraction of the MEDIAN borough's course coverage below which one fires. */
+  coverage: number;
+  /** Longest course, in tiles, that can count as a street serving nothing. */
+  serves: number;
+  /** Tarmac allowed past a street's end before the end is not an end. */
+  cap: number;
+  /** Smallest un-districted land region, in tiles, worth a finding. */
+  fringeLand: number;
+  /** Road share a fringe region needs before its emptiness is a defect. */
+  fringeRoad: number;
 }
 
-let GATES: Gates = { minRun: 5, minExcess: 2, maxGap: 12, fabric: 2.5, minSpan: 16, minLen: 24 };
+let GATES: Gates = {
+  minRun: 5,
+  minExcess: 2,
+  maxGap: 12,
+  fabric: 2.5,
+  minSpan: 16,
+  minLen: 24,
+  coverage: 0.5,
+  serves: 20,
+  cap: 4,
+  fringeLand: 1000,
+  fringeRoad: 0.1,
+};
 
 function run(city: BakedCity, plan: CityPlan, only: Set<string> | null): Finding[] {
   const a = buildAudit(city);
@@ -1980,6 +2517,13 @@ function run(city: BakedCity, plan: CityPlan, only: Set<string> | null): Finding
   if (want('patch-square')) findings.push(...squarePatches(a));
   if (want('edge-notch')) findings.push(...edgeNotches(a));
   if (want('fabric-coarse')) findings.push(...coarseFabric(city, plan, GATES.fabric));
+  if (want('course-coverage-outlier')) findings.push(...coverageOutliers(city, plan, GATES.coverage));
+  if (want('street-serves-nothing')) {
+    findings.push(...streetsServingNothing(a, city, GATES.serves, GATES.cap));
+  }
+  if (want('lanes-serving-nothing')) {
+    findings.push(...lanesServingNothing(a, plan, GATES.fringeLand, GATES.fringeRoad));
+  }
   return findings;
 }
 
@@ -2040,6 +2584,11 @@ function main(): void {
     if (key === 'fabric' && val) GATES.fabric = Number.parseFloat(val);
     if (key === 'minspan' && val) GATES.minSpan = Number.parseInt(val, 10);
     if (key === 'minlen' && val) GATES.minLen = Number.parseInt(val, 10);
+    if (key === 'coverage' && val) GATES.coverage = Number.parseFloat(val);
+    if (key === 'serves' && val) GATES.serves = Number.parseFloat(val);
+    if (key === 'cap' && val) GATES.cap = Number.parseInt(val, 10);
+    if (key === 'fringeland' && val) GATES.fringeLand = Number.parseInt(val, 10);
+    if (key === 'fringeroad' && val) GATES.fringeRoad = Number.parseFloat(val);
   }
   const dataUrl = dataPath || new URL('../../../shared/src/world/city.data.ts', import.meta.url);
   const planUrl = planPath || new URL(import.meta.resolve('shared/data/city-plan.json'));
