@@ -93,3 +93,111 @@ describe('the trig rule holds in sim code', () => {
     expect(offences, `unpinned Math in sim code:\n${offences.join('\n')}`).toEqual([]);
   });
 });
+
+/**
+ * The same rule, for worldgen — but measured, not scanned.
+ *
+ * `shared/src/world` cannot take the source gate above. Ninety-seven Math trig
+ * calls live there and only EIGHT of them run when somebody plays: the rest
+ * belong to `citybake` and `plangen`, which run once on one machine and ship
+ * their answer as bytes (`city.data.ts`), and to the 3D renderer, which is not
+ * in the lockstep contract. Banning them all would mean re-baking the city to
+ * satisfy a rule that cannot reach it.
+ *
+ * What matters is narrower and sharper: `generateCity` runs on BOTH hosts at
+ * runtime. The server calls it (`session.ts:243`) and so does every browser —
+ * "the whole city regenerates locally from the seed" (`main.ts:650`,
+ * `three/live.ts:127`). Only the GROUND is shipped bytes; the FURNITURE —
+ * parked cars, ped spawns, props, moorings, gang turf — is derived per session
+ * on each host, and `parkingSpot.heading` becomes `vehicle.heading`, which
+ * `snapshot.ts` ships and `hashState` hashes.
+ *
+ * So the check runs the function and counts, rather than reading the files.
+ * A roster of "the files that matter" goes stale the first time somebody moves
+ * a pass; an import-graph walk over-approximates (`buildings.ts` is imported
+ * and its trig never executes). Counting cannot do either.
+ *
+ * What this caught: `placeParking` decided which way a car faces with
+ * `Math.sin(a) > 0` at `a === PI`, where `Math.sin` returns 1.2246e-16 — the
+ * residue of PI's own float representation, whose sign ECMA-262 does not pin.
+ * One parked car per city faced the opposite way depending on the engine.
+ */
+describe('the trig rule holds on the path both hosts run', () => {
+  const PINNED = [
+    'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'atan2', 'hypot', 'pow',
+    'exp', 'log', 'log2', 'log10', 'cbrt', 'sinh', 'cosh', 'tanh', 'expm1',
+    'log1p', 'fround', 'random',
+  ] as const;
+
+  it('generateCity calls no unpinned Math function', async () => {
+    const { generateCity } = await import('../src/world/generate.js');
+    const { parseWorldgenParams } = await import('../src/world/params.js');
+    const worldgen = parseWorldgenParams(
+      JSON.parse(
+        readFileSync(fileURLToPath(new URL('../data/worldgen.json', import.meta.url)), 'utf8'),
+      ),
+    );
+    // Two seeds and both `provingGround` settings: the furniture passes are
+    // the same code at every seed, and the census that found these eight
+    // sites reported the identical set at all eight seeds it sampled. More
+    // seeds bought nothing and cost a second of the suite each.
+    const seeds = [1, 6006];
+
+    // Warm the decode cache first: the one-time `decodeBakedCity` is not the
+    // subject, and counting it would make the first seed differ from the rest.
+    generateCity(1, worldgen);
+
+    const M = Math as unknown as Record<string, (...a: number[]) => number>;
+    function withCounters(record: (name: string) => void, body: () => void): void {
+      const saved = new Map<string, (...a: number[]) => number>();
+      for (const name of PINNED) {
+        const orig = M[name] as (...a: number[]) => number;
+        saved.set(name, orig);
+        M[name] = (...args: number[]): number => {
+          record(name);
+          return orig(...args);
+        };
+      }
+      try {
+        body();
+      } finally {
+        for (const [name, fn] of saved) M[name] = fn;
+      }
+    }
+
+    const run = (): void => {
+      for (const seed of seeds) {
+        generateCity(seed, worldgen);
+        generateCity(seed, { ...worldgen, provingGround: true });
+      }
+    };
+
+    // Pass one is a bare tally — no stack walk, so the green path costs
+    // nothing. Only a failing run pays for the second pass, which is the one
+    // that says WHERE: a report of "cos, 44028 times" is not actionable, and
+    // capturing a stack on every call made the passing test three times
+    // slower for a string nobody reads.
+    let fired = false;
+    withCounters(() => {
+      fired = true;
+    }, run);
+
+    const seen = new Map<string, number>();
+    if (fired) {
+      withCounters(
+        (name) => {
+          const frame = (new Error().stack ?? '').split('\n')[3]?.trim() ?? 'unknown';
+          const key = `Math.${name} @ ${frame}`;
+          seen.set(key, (seen.get(key) ?? 0) + 1);
+        },
+        run,
+      );
+    }
+
+    const offences = [...seen.entries()].map(([k, n]) => `${n}x ${k}`).sort();
+    expect(
+      offences,
+      `unpinned Math on the runtime worldgen path:\n${offences.join('\n')}`,
+    ).toEqual([]);
+  });
+});
