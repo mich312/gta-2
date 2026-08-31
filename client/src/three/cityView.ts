@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { type CityMap } from 'shared';
 import palette from 'shared/data/palette.json';
 import { GRADE_DAY, GRADE_NIGHT } from '../render/config.js';
+import { clearHudGroundCamera, setHudGroundCamera } from '../render/project.js';
 import { buildCity, disposeCity } from './cityGeometry.js';
 import { collectFacadeNight, setFacadeNight } from './facade.js';
 import { PostChain } from './post.js';
@@ -25,7 +26,7 @@ import { PostChain } from './post.js';
  * enough to show the sides of buildings a block away, tight enough that what
  * is under you still reads as directly under you.
  */
-const FOV_Y = 34;
+export const FOV_Y = 34;
 
 export interface CityViewOptions {
   canvas: HTMLCanvasElement;
@@ -221,6 +222,14 @@ export class CityView {
   constructor(opts: CityViewOptions) {
     this.pitch = opts.pitch;
     this.viewHeight = opts.viewHeight;
+    // Tell the HUD layer what it is drawing over. The name tags and the
+    // tracers are drawn in HUD units by `main.ts`, and they used to assume
+    // this camera hung straight down; it does not, and only this class knows
+    // by how much. Registered from here, rather than passed down from
+    // `main.ts`, so the pitch and the field of view the HUD projects with are
+    // the same two numbers the camera is actually built from — the previous
+    // arrangement let a comment and `GAME_PITCH` disagree for two rounds.
+    setHudGroundCamera(this.pitch, FOV_Y);
 
     this.renderer = new THREE.WebGLRenderer({ canvas: opts.canvas, antialias: true });
     // One backing pixel per pixel asked for, deliberately.
@@ -565,6 +574,9 @@ export class CityView {
    * before it starts taking the oldest ones away.
    */
   dispose(): void {
+    // 3D is being abandoned — the HUD is back over a 2D frame, where the
+    // projection is the plain `world - cam` subtraction again.
+    clearHudGroundCamera();
     this.post?.dispose();
     this.post = null;
     if (this.city) disposeCity(this.city);
