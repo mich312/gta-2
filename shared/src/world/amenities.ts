@@ -1092,11 +1092,67 @@ export function placePickups(map: CityMap): void {
 
 
 /**
+ * Water a boat could actually leave in: every tile of the water-or-bridge
+ * medium that the open sea reaches.
+ *
+ * The medium is water OR bridge because that is exactly what a boat may
+ * occupy (`collide.ts`, `plainSolid` in the 'water' medium) — a deck passes
+ * overhead, and
+ * BUGS.md §9.2's guarantee that no mooring is shut in by a bridge holds
+ * because a bridge never divides a body of water here either.
+ *
+ * The sea is seeded from the map edge rather than found by size: the city is
+ * an island and the ocean runs off all four sides, so "connected to the
+ * border" is the same question as "can this boat get out to sea", asked
+ * without labelling every puddle. One flood over the whole plane, once per
+ * bake, and then a lookup per mooring candidate — a flood PER candidate is
+ * thirteen thousand floods (R5-A03).
+ */
+function seagoing(map: CityMap): Uint8Array {
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const open = (i: number): boolean => map.tiles[i] === T_WATER || map.tiles[i] === T_BRIDGE;
+  const reach = new Uint8Array(W * H);
+  const stack: number[] = [];
+  const push = (i: number): void => {
+    if (reach[i] === 1 || !open(i)) return;
+    reach[i] = 1;
+    stack.push(i);
+  };
+  for (let x = 0; x < W; x++) {
+    push(x);
+    push((H - 1) * W + x);
+  }
+  for (let y = 0; y < H; y++) {
+    push(y * W);
+    push(y * W + W - 1);
+  }
+  while (stack.length > 0) {
+    const i = stack.pop() as number;
+    const x = i % W;
+    const y = (i - x) / W;
+    if (x > 0) push(i - 1);
+    if (x < W - 1) push(i + 1);
+    if (y > 0) push(i - W);
+    if (y < H - 1) push(i + W);
+  }
+  return reach;
+}
+
+/**
  * Moorings: water tiles with a bank close by, so a boat is reachable on
  * foot rather than stranded mid-river. Deterministic row-major sampling.
  */
 export function placeBoatSpawns(map: CityMap): void {
   const spawns: VehicleSpawn[] = [];
+  // ...and water that goes somewhere. The 3x3-of-open-water and bank-within-
+  // three tests are both local, and an ornamental park pond satisfies both:
+  // five of the shipped city's moorings were motorboats sitting in Ravenhill
+  // Park's and Sunridge Park's ponds, ringed by sand and grass, boardable
+  // from the path and unable to go anywhere at all (R5-A03). WORLDGEN.md §29
+  // gave those ponds their beaches deliberately, so the pond is right and
+  // the boat is wrong.
+  const sea = seagoing(map);
   let n = 0;
   for (let ty = 1; ty < map.heightTiles - 1; ty++) {
     for (let tx = 1; tx < map.widthTiles - 1; tx++) {
@@ -1138,6 +1194,7 @@ export function placeBoatSpawns(map: CityMap): void {
         }
       }
       if (!bank) continue;
+      if (sea[ty * map.widthTiles + tx] !== 1) continue;
       n++;
       if (n % 24 !== 0) continue;
       // Point along the river: whichever axis has more open water.

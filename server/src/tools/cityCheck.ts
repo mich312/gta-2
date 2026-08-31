@@ -10,6 +10,7 @@ import {
   T_TREES,
   T_WATER,
   LANDMARK_KINDS,
+  landmarkParts,
   type BakedCity,
 } from 'shared';
 
@@ -279,6 +280,45 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
     }
     if (at(l.x, l.y) === T_WATER) {
       problems.push({ severity: 'error', message: `${l.name} (${l.kind}) is in the water` });
+    }
+  }
+
+  // 2b. And every landmark's stamped mass still standing at the end of it.
+  //
+  //     The bake draws each landmark's walls from `RECIPES[kind].parts` and
+  //     then keeps going: later passes paint ground over the map, and
+  //     `ground()` guards only on `paintable()`, which explicitly permits
+  //     `T_BUILDING`. Chapel Green's reclaim apron reaches four tiles past
+  //     its own rect, found Marsh Post standing three columns inside that
+  //     reach, and painted six rows of the police station to park — a named
+  //     station drawn four tiles wide inside a seven-tile record, with the
+  //     `Building` entry intact and claiming all forty-nine (R5-A04).
+  //
+  //     Nothing downstream noticed because nothing downstream reads the
+  //     record for solidity; collision, volume and the extruder all follow
+  //     the tile plane. That is exactly why it needs asserting here: the
+  //     damage is invisible everywhere except in the picture, and the next
+  //     landmark to stand within four tiles of a later one gets the same
+  //     treatment. The recipe is the source of truth for what should be
+  //     there, so the check re-derives it rather than trusting the records.
+  for (const l of city.landmarks) {
+    const missing: string[] = [];
+    for (const [dx, dy, pw, ph] of landmarkParts(l.kind, l.w, l.h)) {
+      for (let ty = l.y + dy; ty < l.y + dy + ph; ty++) {
+        for (let tx = l.x + dx; tx < l.x + dx + pw; tx++) {
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+          if (at(tx, ty) !== T_BUILDING) missing.push(`${tx},${ty}`);
+        }
+      }
+    }
+    if (missing.length > 0) {
+      problems.push({
+        severity: 'error',
+        message:
+          `${l.name} (${l.kind}) has ${missing.length} tiles of its stamped mass painted ` +
+          `away by a later pass, at ${missing.slice(0, 8).join(' ')}` +
+          (missing.length > 8 ? ' ...' : ''),
+      });
     }
   }
 

@@ -3,7 +3,7 @@ import cityPlanJson from '../data/city-plan.json';
 import worldgenJson from '../data/worldgen.json';
 import { parseCityPlan, pointInPoly, roadCourses, segmentDistance } from '../src/world/plan.js';
 import { buildLayout, riverCourses } from '../src/world/layout.js';
-import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js';
+import { bakeCity, decodeBakedCity, encodeBakedCity, landmarkParts } from '../src/world/bake.js';
 import { bevelOther } from '../src/world/bevel.js';
 import { generateCity } from '../src/world/generate.js';
 import { parseWorldgenParams } from '../src/world/params.js';
@@ -1103,6 +1103,89 @@ describe('the city, as an asset', () => {
         `${s.kind} shop at ${s.doorX},${s.doorY} is carved into ${lm?.name} (${lm?.kind})`,
       ).toBeUndefined();
     }
+  });
+
+  it('keeps every landmark standing: the mass it stamped is still there', () => {
+    // R5-A04. The bake stamps a landmark's walls from `RECIPES[kind].parts`
+    // and then keeps painting: later passes lay ground over the map and
+    // `ground()` guards only on `paintable()`, which explicitly permits
+    // `T_BUILDING`. Chapel Green [544,539,12,12] claims its block twelve
+    // landmarks after Marsh Post [536,549,7,7] and paints a four-tile reclaim
+    // apron round itself; that apron reaches x540..559 y535..554, which
+    // clipped to the police station is three columns by six rows. Eighteen
+    // tiles of a named police station were repainted `T_PARK` while its
+    // `Building` record went on claiming all forty-nine — a station drawn
+    // four tiles wide inside a seven-tile rect.
+    //
+    // Nothing downstream caught it because nothing downstream reads the
+    // record for solidity: collision, volume, the geometry builder and the
+    // extruder all follow the tile plane, so there was no wall to walk
+    // through and no test to go red. Which is exactly why the assertion has
+    // to be made here, against the recipe rather than against the records —
+    // the recipe is what the landmark was supposed to be.
+    for (const l of map.landmarks) {
+      const missing: string[] = [];
+      for (const [dx, dy, pw, ph] of landmarkParts(l.kind, l.w, l.h)) {
+        for (let ty = l.y + dy; ty < l.y + dy + ph; ty++) {
+          for (let tx = l.x + dx; tx < l.x + dx + pw; tx++) {
+            if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) continue;
+            if (map.tiles[ty * map.widthTiles + tx] !== T_BUILDING) missing.push(`${tx},${ty}`);
+          }
+        }
+      }
+      expect(
+        missing,
+        `${l.name} (${l.kind}) has ${missing.length} tiles of its stamped mass painted away`,
+      ).toEqual([]);
+    }
+  });
+
+  it('moors no boat in water it cannot leave', () => {
+    // R5-A03. `placeBoatSpawns` asked two local questions — a 3x3 of open
+    // water, a bank within three tiles — and never asked whether the water
+    // went anywhere. An ornamental park pond answers both: five of the
+    // shipped city's moorings were motorboats in Ravenhill Park's pond (86
+    // tiles) and Sunridge Park's (107), each ringed by a wholly dry
+    // perimeter of sand and grass, each boat a live entity the session
+    // spawns and a player can board from the path and then not drive.
+    //
+    // The medium is water OR bridge, which is exactly what `collide.ts`
+    // lets a boat occupy — so this also keeps BUGS.md §9.2's older
+    // guarantee, that no mooring is shut in by a BRIDGE, in the same
+    // assertion instead of a second one that could drift from it.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const open = (i: number): boolean => map.tiles[i] === T_WATER || map.tiles[i] === T_BRIDGE;
+    const sea = new Uint8Array(W * H);
+    const stack: number[] = [];
+    const push = (i: number): void => {
+      if (sea[i] === 1 || !open(i)) return;
+      sea[i] = 1;
+      stack.push(i);
+    };
+    for (let x = 0; x < W; x++) {
+      push(x);
+      push((H - 1) * W + x);
+    }
+    for (let y = 0; y < H; y++) {
+      push(y * W);
+      push(y * W + W - 1);
+    }
+    while (stack.length > 0) {
+      const i = stack.pop() as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      if (x > 0) push(i - 1);
+      if (x < W - 1) push(i + 1);
+      if (y > 0) push(i - W);
+      if (y < H - 1) push(i + W);
+    }
+    expect(map.boatSpawns.length).toBeGreaterThan(0);
+    const landlocked = map.boatSpawns
+      .map((b) => [Math.floor(b.x / TILE_SIZE), Math.floor(b.y / TILE_SIZE)] as const)
+      .filter(([tx, ty]) => sea[ty * W + tx] !== 1)
+      .map(([tx, ty]) => `${tx},${ty}`);
+    expect(landlocked, 'moorings in water with no way out to sea').toEqual([]);
   });
 
   it('only bevels materials the painters know by name', () => {
