@@ -119,13 +119,22 @@ A finding is not work until it is CONFIRMED.
 #### Lens D — the seams
 
 ### R1-D01 — a page reload reconnects the player to a body they cannot move
-- status: [ ] open        verdict: **CONFIRMED**, and understated
+- status: [x] fixed       verdict: **CONFIRMED**, and understated
+- fixed by: `745e7f7`, merged. **Chose**: `welcome` carries `inputSeq` (the slot's `lastQueuedSeq`, 0 on a fresh join); the client takes `max(seq, inputSeq + 1)`. `PROTOCOL_VERSION` 8 -> 9.
+- **rejected**: resetting `lastQueuedSeq` on resume — it pays for a client counter bug with the slot's whole replay guard, and the zombie socket makes that concrete: `handleJoin` closes the old conn, but a close is a handshake, so frames already on the wire still arrive with `playerId` set. With the watermark intact they die on the guard. The same numbering also drives prediction (`reconcile` filters `pending` on `seq > ackSeq`), so a client at seq 1 against ack 900 discards its whole buffer every message.
+- `max` not assignment: an in-session reconnect is already ahead of the server, and rewinding renumbers inputs the predictor still holds.
+- after: `welcome.inputSeq=300 lastQueuedSeq=300 accepted=150 moved 389.25 px`; control (old numbering) `accepted=0 moved 0.00 px`. Suite 88 files / 945 tests, +2 mine. Negative control run: forcing `inputSeq` to 0 fails the new test twice.
 - round: 1   severity: significant   lens: D
 - where: `server/src/session.ts:422`, `:475` against `client/src/main.ts:303` (`let seq = 1`)
 - repro: `node evidence/round1/D-repro-resume-input.mjs`
 - verified: the reviewer's script bypasses `GameHost.handleJoin`, so the verifier re-ran it end-to-end through the real host with binary-codec wire frames, plus a control. Reloaded numbering moves the character **0 px**; a control that continues at seq 901 moves it **114 px**. Same server, same resumed body, same 150 inputs.
 - understated: the dead window is the *prior play duration*, not 120s — `RESUME_GRACE_MS` bounds only how late a resume is accepted. An hour of play then a reload = ~an hour of ignored input.
 - prior art: BUGS.md §11.1 and §11.4 cover other halves of resume, not the sequence watermark
+- fix: `welcome` now carries `inputSeq` (the slot's `lastQueuedSeq`, 0 on a fresh join) and the client resumes its counter from it — `seq = Math.max(seq, msg.inputSeq + 1)` in the welcome handler, so a reconnect that never reloaded is never renumbered backwards under inputs its predictor still holds. `PROTOCOL_VERSION` 8 -> 9 (the welcome payload changed shape). Files: `shared/src/net/messages.ts`, `shared/src/constants.ts`, `server/src/host.ts:542`, `client/src/main.ts:623`.
+- not taken: resetting `lastQueuedSeq` on resume. It buys a client-side counter bug with the slot's whole replay guard, and the same numbering drives prediction reconciliation through `ackSeq`, which only lines up if it stays monotonic. The guard at `session.ts:475` is untouched and just as strict — §11.1 (a still-connected slot refusing a reconnect) and §11.4 (tokens never rotated) are both unchanged.
+- before/after: `node evidence/round1/D-repro-resume-input.mjs` — the script now runs the Session-level mechanism AND the same reload end to end through `GameHost` with binary-codec frames. Reloaded client resuming from welcome: `accepted=150 moved 389.25 px`. Control that restarts at seq 1: `accepted=0 moved 0.00 px` (the guard, still doing its job). Part 1 still prints `0 of 150` at the `Session` level, because that is the guard, not the bug.
+- test: `server/test/resumeInput.test.ts`, two tests end to end through the real host. With `inputSeq` forced to 0 (pre-fix) they fail on both the wire field and `expected 0 to be greater than 50` px of movement.
+- verification: `pnpm build` clean; `pnpm test` 88 files / 945 tests / 0 failures (4 ignored onTaskUpdate runner-noise errors); `citybake --check` exit 0, 1156 blocks / 4066 buildings / 29 landmarks / 66 shops, unchanged from the round's ground truth.
 
 ### R1-D02 — the published evidence no longer reproduces from its own retake commands
 - status: [ ] open        verdict: **CONFIRMED**, count intact at 13
@@ -342,3 +351,21 @@ This is the second time the round has taught the same lesson — the first was
 that partitioning by directory is not enough when every agent builds into a
 shared `dist`. Both are the same shape: **isolation has to cover everything
 two agents can both write, not just their source files.**
+
+### The D01 -> D05 coupling, and why it promoted a nit mid-round
+
+`R1-D01`'s fix bumps `PROTOCOL_VERSION` 8 -> 9. `R1-D05` — confirmed, filed a
+nit, slated for round 3 — is that a client rejected for `code:'protocol'`
+reconnects every 2 s for ever with no ceiling.
+
+D05's own "why it matters" named this exact trigger: *"the state of every tab
+left open across a deploy that bumps it."* So shipping D01 alone would convert
+a theoretical nit into a certainty, on the next deploy, from every stale tab at
+once. D05 was promoted into round 2 and dispatched.
+
+**Neither agent could have caught this.** The D01 fixer was scoped to D01 and
+was right not to wander; the D05 verifier had no way to know a protocol bump
+was coming. It is visible only from above, holding both. That is an argument
+for the orchestrator re-reading the whole queue after each fix lands, not just
+the entry that changed — and for `FIXER.md` to ask what a fix *enables* as
+well as what it repairs.
