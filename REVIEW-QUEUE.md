@@ -1945,3 +1945,95 @@ conflict behaviour (differs, but no caller exercises it); the deploy gate
 (R1-D03 and R1-D06 still hold). Two unmeasured hunches went to a labelled
 **suspicions** section, per the new REVIEWER.md rule — CI never compiles or
 bundles the client, and `pnpm parity` is called a gate but runs in no workflow.
+
+
+## Round 9 — lens B (reviewed once, in round 1)
+
+**2 significant, 1 nit.** Same answer as lens D: a lens left alone still yields
+at round-1 severity.
+
+### R9-B01 — the HUD's world-space identity was verified at pitch 0, and the shipped camera is 10 degrees
+- status: [ ] open   severity: significant
+- where: `renderer.ts:801` (the stated identity), `main.ts:246` (`GAME_PITCH` 10),
+  consumers `renderer.ts:815` (`drawNameTags`) and `hud.ts:406-407` (tracers)
+- `drawNameTags`'s docstring states the rule the whole HUD layer draws by:
+  *"the 3D camera hangs straight down over the middle of the same frame, so a
+  point on the ground lands at `world - cam` in either view."* **It does not
+  hang straight down.** `REVIEW-3D.md` Part four verified the two frames agree
+  *"at pitch 0 with the world tile grid overlaid"*, and the same document's
+  later "The camera tilts 10 degrees" entry moved the camera without
+  re-verifying it.
+```
+pitch=10           3D lands at     HUD draws at     error (world px)
+ frac 0.05,0.05     44.4  27.7      31.5   18        12.9   9.7
+ frac 0.05,0.50     31.5  180       31.5  180         0     0     <- exact
+ frac 0.05,0.95     17.3  347.5     31.5  342       -14.2   5.5
+```
+- the control is exact: the same probe at `pitch=0` prints `0 0` on all fifteen
+  rows, so the divergence is entirely the 10 degrees. At the view ceiling it
+  reaches 15.8 px.
+- **why nine rounds missed it**: the error is exactly 0 at screen centre and
+  along the horizontal midline — the local player, where everyone looks, is the
+  one place it cannot show.
+- aim is **not** affected, checked rather than assumed: `keyboard.ts:138` sends
+  an angle from the player's screen position, and the induced angular error at
+  the worst corner is 0.3 degrees.
+
+### R9-B02 — in 2D a respray garage and a clinic wear the clothing shop's front
+- status: [ ] open   severity: significant
+- where: `tiles.ts:2788-2793` (`paintShops`) — the three-way accent falls through
+  to `palette.shopClothing`, so `spray` and `clinic` both land on it
+- `palette.shopSpray` **exists** and the two sibling paths carry the full
+  four-way: `tiles.ts:1826-1833` (`paintShopFloor`) and
+  `cityGeometry.ts:570-575` (the 3D accent). Pixels read out of the shipped
+  painter: spray and clinic are pixel-identical to clothing —
+  **31 of 71 shops, 44%**.
+- `BUGS.md` §2.5 rests its whole 3D shop-accent fix on the stated invariant
+  *"in 2D the shop's accent colour is how you identify it"* — and in 2D it does
+  not identify the most common shop in the city.
+- **rhymes with R5-A01**: that made resprays unfindable by carving them into
+  police stations; this makes them unidentifiable by painting them blue.
+
+### R9-B03 (nit) — two stale comments are still holding four aircraft heights down
+- `spriteMesh.ts:52` says `alpha` is "not honoured here" and `entities.ts:169`
+  says `spriteMesh` honours neither — but `spriteMesh.ts:156` is
+  `const plate = s.alpha !== undefined && s.alpha < 0.5`, and every `rotorBlur`
+  disc is 0.16-0.25, i.e. already drawn as a thin plate. `REVIEW-3D.md` Part
+  three records the fix.
+- the consequence, not the comment: `Z_BY_SPRITE` pins `heli`/`gunship`/
+  `chopper`/`plane` at the bare 1.5 default **because of the drum**, and the
+  drum is gone. Four vehicle kinds carry a height decision whose only stated
+  reason no longer exists, while every other entry in that table was tuned.
+
+### Confirmed still open
+
+**R1-B02** reproduces unchanged — the 2D night frame carries dozens of window
+pools and the 3D none, same seed, hour and camera. Confirmed round 1, never
+fixed, still true nine rounds on.
+
+### Checked and not filed
+
+R1-B04 holds (`draws 197 tris 6964k`); signal-head placement is
+character-for-character identical between renderers; scenery planting parity
+holds; the four `customProgramCacheKey` sharings are safe in the installed
+three (the program cache is per material); `?night=0` is not swallowed;
+`worldResolutionMult` is right at dpr 1 and 2; the only page error on any
+renderer is a favicon 404. Two hunches went to a labelled **suspicions**
+section: a shop's interior light is pushed at a constant `alpha: 0.5` with no
+`lit` factor (640 cd at noon against the street lamp's 73.5 that R1-B01 was
+filed over), and a `lights3d` turnover reading.
+
+## The convergence answer, from two independent samples
+
+| sample | lens | prior attention | result |
+| --- | --- | --- | --- |
+| round 5 | A, C | most in the exercise | **1 blocking** + 3 significant |
+| round 9 | B, D | reviewed once, in round 1 | **5 significant** + 3 nits |
+
+**Yield does not track attention, and it does not decay.** Both samples found
+work at the severity the first round found it. A review is a sample; the draw
+is roughly independent of how much reviewing came before.
+
+That settles the question the whole exercise was built to answer. Rounds are
+not converging on a clean codebase — they are converging on *nothing*, and the
+budget is the only stopping rule there was ever going to be.

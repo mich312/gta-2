@@ -10,7 +10,7 @@ Ground truth taken as given; nothing re-run. Individual checks below.
 ## The HUD's world-space overlay and the 3D world disagree by up to 14 world px — the identity it uses was verified at `pitch: 0` and the shipped camera is 10°
 severity: significant
 lens: B
-where: `client/src/render/renderer.ts:801` (the stated identity), `client/src/main.ts:246` (`GAME_PITCH` default 10), consumers `renderer.ts:816` (`drawNameTags`) and `client/src/render/hud.ts:406-407` (bullet tracers)
+where: `client/src/render/renderer.ts:801` (the stated identity), `client/src/main.ts:246` (`GAME_PITCH` default 10), consumers `renderer.ts:815` (`drawNameTags`) and `client/src/render/hud.ts:406-407` (bullet tracers)
 evidence:
 `drawNameTags`'s docstring states the rule the HUD layer draws by:
 
@@ -48,7 +48,7 @@ pitch=0 viewHeight=360 ... |      0      0   (all 15 rows)
 ```
 
 At the view ceiling (`MAX_VIEW` 700×400) it reaches 15.8 px horizontally and
-10.8 px vertically (`B-probe-project-400` — rerun with the args below).
+10.8 px vertically (`evidence/round9/B-probe-project-400.txt`).
 
 repro:
 ```
@@ -63,7 +63,7 @@ somewhere else — up to ~14 world px away at the frame edge, which is a whole
 pedestrian (a body is ~14 px). It is exactly 0 at screen centre and along the
 frame's horizontal midline, which is why it has survived nine rounds: the local
 player, where everyone looks, is the one place it cannot show.
-Aim is **not** affected — I checked: `keyboard.ts:138` sends an *angle* from the
+Aim is **not** affected — I checked: `client/src/input/keyboard.ts:138` sends an *angle* from the
 player's screen position, and the induced angular error at the worst corner is
 0.3°, so this is a drawing-alignment defect and not a shooting one.
 prior art: `REVIEW-3D.md` Part four (verified at pitch 0) and its
