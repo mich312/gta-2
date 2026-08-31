@@ -1257,6 +1257,117 @@ describe('the city, as an asset', () => {
     expect(uncut.slice(0, 8), `${uncut.length} mouths short of a road over untouched ground`).toEqual([]);
   });
 
+  it('plants the country the block grid does not cover', () => {
+    // R2 iteration 3. The rural fill runs over BLOCKS, and the blocks are cut
+    // round the lattice inside the district's own polygon — so country that
+    // no block covers is never asked what it is and keeps the bare meadow the
+    // ground pass wrote. Two things leave country outside a block: a removal
+    // pass deleting road after the blocks are cut (the corridor scar), and a
+    // coastline the polygon does not reach. Gannet Rock's polygon begins at
+    // y=598 and the island runs up to y=566, so its northern third shipped as
+    // one unbroken meadow with the canopy starting on a dead straight line at
+    // y=600; and Marsh End shipped 3,881 tiles of country outside its blocks
+    // with NOT ONE TREE in them, against 41.5% wood in the country inside.
+    //
+    // The property is that both are the same country. It is thinner outside a
+    // block — woodland is held a tile off every lane, off the waterline and
+    // out of the mouth of any street — so the bar is half, not parity, and it
+    // is asked only of a district with real ground outside its blocks.
+    const layout = buildLayout(plan);
+    const W = layout.widthTiles;
+    const H = layout.heightTiles;
+    const covered = new Uint8Array(W * H);
+    for (const b of layout.blocks) {
+      for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
+        for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
+          if (b.mask[(ty - b.y) * b.w + (tx - b.x)] === 1) covered[ty * W + tx] = 1;
+        }
+      }
+    }
+    const tally = new Map<string, { inAll: number; inWood: number; outAll: number; outWood: number }>();
+    for (let i = 0; i < W * H; i++) {
+      const own = layout.owner[i] as number;
+      if (own < 0) continue;
+      const d = plan.districts[own] as { name: string; rural?: boolean };
+      if (d.rural !== true) continue;
+      const t = map.tiles[i] as number;
+      if (t !== T_FIELD && t !== T_TREES) continue;
+      let row = tally.get(d.name);
+      if (row === undefined) {
+        row = { inAll: 0, inWood: 0, outAll: 0, outWood: 0 };
+        tally.set(d.name, row);
+      }
+      if (covered[i] === 1) {
+        row.inAll++;
+        if (t === T_TREES) row.inWood++;
+      } else {
+        row.outAll++;
+        if (t === T_TREES) row.outWood++;
+      }
+    }
+    const bald: string[] = [];
+    for (const [name, r] of tally) {
+      if (r.outAll < 500 || r.inAll < 500) continue;
+      const inside = r.inWood / r.inAll;
+      const outside = r.outWood / r.outAll;
+      if (outside < inside / 2) {
+        bald.push(`${name}: ${(inside * 100).toFixed(1)}% wood in blocks, ${(outside * 100).toFixed(1)}% outside`);
+      }
+    }
+    expect(bald).toEqual([]);
+  });
+
+  it('never plants a wood across the mouth of a street', () => {
+    // R2 iteration 3, and it is the thing the fix above nearly broke. The
+    // rural fill's rule for woodland beside a lane is one tile of verge,
+    // which is a rule about the SIDE of a carriageway and says nothing about
+    // the gap between the end of one and the start of the next. The ring's
+    // held-short mouths (§14.3 D6) are three and four tiles deep, so the tile
+    // in the middle of one stands clear of both carriageways and the first
+    // draft of the country fill planted it: one tree at 502,642, and a street
+    // that `mapaudit` rates `high` — "a street that cannot be driven at all"
+    // — because a wood is solid to a car exactly like a wall.
+    //
+    // Asked of the ground OUTSIDE the blocks, which is the ground that pass
+    // owns. A hedgerow standing between two lanes of a block is the rural
+    // fill's own trick (§14.3 D5) and answers to its own rule.
+    const layout = buildLayout(plan);
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const covered = new Uint8Array(W * H);
+    for (const b of layout.blocks) {
+      for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
+        for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
+          if (b.mask[(ty - b.y) * b.w + (tx - b.x)] === 1) covered[ty * W + tx] = 1;
+        }
+      }
+    }
+    const isRoad = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      const t = map.tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    const walled: string[] = [];
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (map.tiles[y * W + x] !== T_TREES || covered[y * W + x] === 1) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [0, 1],
+        ] as const) {
+          let ahead = false;
+          let behind = false;
+          for (let k = 1; k <= 3; k++) {
+            if (isRoad(x + dx * k, y + dy * k)) ahead = true;
+            if (isRoad(x - dx * k, y - dy * k)) behind = true;
+          }
+          if (ahead && behind) walled.push(`${x},${y}`);
+        }
+      }
+    }
+    expect(walled.slice(0, 8), `${walled.length} trees standing in the gap between two carriageways`).toEqual([]);
+  });
+
   it('moors no boat in water it cannot leave', () => {
     // R5-A03. `placeBoatSpawns` asked two local questions — a 3x3 of open
     // water, a bank within three tiles — and never asked whether the water
