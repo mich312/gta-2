@@ -744,6 +744,45 @@ is written down here rather than remembered.
 readout they came off could not see the post chain. Fresh numbers run about a
 dozen draws higher.
 
+### R1-A05, A06, A08 fixed
+
+**A05 — the botched prior-art check changed the answer.** Round 1's verifier
+searched `.claude/review/` instead of the repo root, so "prior art: none found"
+was never established. Re-checked properly: `GAPS.md` has nothing, but
+`WORLDGEN.md:1007-1009` and `PROGRESS.md:515` **both** state the bake validates
+"every landmark with a road within six tiles" — the exact property the error
+message claimed. That decided the fix. Had the checker's message merely been
+sloppy, correcting the wording would have been right; because it is documented
+doctrine, and `checkCity` is the only gate a *generated* city passes
+(`city.test.ts` kept the promise for the drawn city alone), the check itself
+had to be added. Two accurate messages now: the flood keeps its meaning under
+an honest title, and a new `T_ROAD`/`T_BRIDGE` frontage scan over the same
+13x13 neighbourhood the suite uses. Shipped city and 12 generated seeds clean.
+
+**A06 — the bounds rule is deliberately weak, and measured before choosing.**
+`width < 1` fails, citing `decodeBakedCity`'s own words. But a shape is refused
+only when drawn **entirely** off the map, because generated boroughs overhang
+the edge by up to 40 tiles on purpose and `The Approaches` sits at -20,-20 on
+every seed. An "inside the map" rule — the obvious reading of the finding —
+would have broken `plangen` outright. 119 generated plans (40 seeds x 3 sizes)
+still parse.
+
+**A08 — the rule is not the naive one.** "Carriageway touching two sides = a
+crossing" cries wolf: on plangen seeds 512 and 520 the airfield door is on the
+far side, so the bake's own driveway crosses the whole rect and touches street
+at both ends. The line that holds: lift the strip's own carriageway out of the
+map, flood the rest, and count an opening onto the **largest remaining piece**
+as a way in — an opening onto a 12-tile stub is the far end of the same
+driveway. Marsh End's taxiway silent, a loop of street across a runway an
+error, 12/12 generated cities clean. One documented blind spot: a strip that is
+a city's only link reads as a spur.
+
+The huts move by widening each rect over three columns of apron rather than by
+moving the strips; both keep a 30-tile run. The centreline jog the round-1
+finding predicted is gone and pinned: Marsh End columns 504-506 read 603
+against 602 elsewhere, now all 602; Gannet 76-78 read 644 against 643, now all
+643.
+
 ### R1-C06 fixed — and it uncovered the round's biggest defect
 
 Gated on round 2's `copFleet` register rather than on `isAiDriver`, at two
