@@ -10,7 +10,9 @@ import worldgenJson from '../data/worldgen.json';
 import { initTuning, getWeaponTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
-import { createGameState, type GameState } from '../src/sim/state.js';
+import { createCop, createGameState, type GameState } from '../src/sim/state.js';
+import { insertEntity } from '../src/sim/entities.js';
+import type { Vec2 } from '../src/math/vec.js';
 import { step } from '../src/sim/step.js';
 import { NULL_INPUT } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
@@ -207,6 +209,39 @@ describe('projectiles (F3a)', () => {
       const back = (round as { snapshot: typeof snap }).snapshot;
       expect(back.projectiles).toEqual(snap.projectiles);
     }
+  });
+
+  it('a rocket flies through a body and bursts on the officer behind it', () => {
+    // A downed officer stays in `state.cops` for 40 s so the body can be
+    // drawn, and `damageCop` returns on one. A rocket that fused on a corpse
+    // therefore detonated 60 px short of the officer it was aimed at and the
+    // target took splash instead of the hit. R5-C02.
+    const dmg = (blocker: 'none' | 'corpse' | 'liveCop'): number => {
+      const { state, angle } = armed('rocket');
+      const me = state.players.byId[1]!;
+      const at = (d: number): Vec2 => ({
+        x: me.pos.x + Math.cos(angle) * d,
+        y: me.pos.y + Math.sin(angle) * d,
+      });
+      const mark = createCop(50001, at(120), 999999, 'patrol');
+      insertEntity(state.cops, mark);
+      if (blocker !== 'none') {
+        const b = createCop(50002, at(60), blocker === 'corpse' ? 0 : 500, 'patrol');
+        insertEntity(state.cops, b);
+      }
+      let s = fireOnce(state, angle, []);
+      const before = s.cops.byId[50001]!.health;
+      for (let i = 0; i < 20; i++) {
+        s = step(s, { 1: { ...NULL_INPUT, seq: 2 + i, tick: s.tick, aimAngle: angle } }, [], map);
+      }
+      return before - s.cops.byId[50001]!.health;
+    };
+    const clear = dmg('none');
+    expect(clear).toBeGreaterThan(0);
+    // The corpse is scenery: identical to having nothing in the way at all.
+    expect(dmg('corpse')).toBe(clear);
+    // A live officer still fuses it, and the target behind only gets splash.
+    expect(dmg('liveCop')).toBeLessThan(clear);
   });
 
   it('the flamethrower stays hitscan — a cone, not an object', () => {

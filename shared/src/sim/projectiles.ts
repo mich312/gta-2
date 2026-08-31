@@ -6,7 +6,7 @@ import { removeEntity } from './entities.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { blast, vehicleHitRadius } from './vehicleDamage.js';
-import { rayCircleDistance, rayWallDistance } from './weapons.js';
+import { copCanBeShot, rayCircleDistance, rayWallDistance } from './weapons.js';
 import { slickVehicle } from './fittings.js';
 import { onTheGround } from './bodies.js';
 
@@ -187,7 +187,10 @@ function nearestHitAlong(
   }
   for (const cid of state.cops.ids) {
     const c = state.cops.byId[cid];
-    if (!c) continue;
+    // A body does not fuse a rocket. Same rule as the hitscan path, now the
+    // same predicate — this loop's "same iteration order as every other hit
+    // test" was true of the order and false of the filter.
+    if (!copCanBeShot(c)) continue;
     consider(rayCircleDistance(pr.pos.x, pr.pos.y, dirX, dirY, c.pos.x, c.pos.y, PLAYER_RADIUS));
   }
   for (const vid of state.vehicles.ids) {
