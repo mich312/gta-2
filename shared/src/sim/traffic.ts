@@ -116,6 +116,34 @@ export function isAiDriver(driverId: number | null): boolean {
   return driverId !== null && driverId < -1;
 }
 
+/**
+ * Whether this vehicle belongs to the police rather than to the streets.
+ *
+ * `isAiDriver` cannot answer that. A cruiser with an officer at the wheel is
+ * AI-driven too — `copDriverId` in police.ts is negative, in its own band —
+ * so ambient traffic read the whole motorised force as its own cars:
+ * `stepTraffic` minted a `trafficDrivers` record for a cruiser and steered it
+ * while `drivePursuit` steered it in the same tick, and the population cull
+ * took its `driverId` away the moment the chase drew far enough from a player
+ * — handing a car mid-pursuit to `retireAbandoned` to delete. Four cruisers
+ * were adopted this way by tick 17 of a four-star chase.
+ *
+ * `copFleet` (state.ts) is the register of what the police put on the street
+ * and is exactly the provenance this needs: `motorise` and `remount` are its
+ * only producers, so it holds every vehicle an officer can be driving, plus
+ * the parked roadblock pairs. It deliberately does NOT hold the cruiser
+ * outside the police station, which is a vehicle home — but that one has no
+ * driver at all, so it was never ambient traffic's either.
+ *
+ * Nothing is left unowned by excluding these. A police vehicle with an
+ * officer in it is `drivePursuit`'s; one with nobody in it is driverless, so
+ * it failed `isAiDriver` before this and still does, and belongs to `remount`
+ * and then to `retireAbandoned`.
+ */
+function isPoliceVehicle(state: GameState, vehicleId: number): boolean {
+  return state.copFleet[vehicleId] !== undefined;
+}
+
 /** A calm ambient driver about to set off in a direction. */
 function freshDriver(dir: number): TrafficDriver {
   return { dir, stuck: 0, panic: 0, mission: 'cruise', route: null, routeIdx: 0, trip: 0 };
@@ -893,7 +921,7 @@ export function stepTraffic(state: GameState, map: CityMap, events: SimEvent[]):
   const t = getTrafficTuning();
   for (const id of state.vehicles.ids) {
     const v = state.vehicles.byId[id];
-    if (!v || !isAiDriver(v.driverId)) continue;
+    if (!v || !isAiDriver(v.driverId) || isPoliceVehicle(state, id)) continue;
 
     // A burning or wrecked car has no driver left worth simulating.
     if (v.condition !== 'ok') {
@@ -1131,6 +1159,15 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     const v = state.vehicles.byId[id];
     if (!v || !isAiDriver(v.driverId)) continue;
     aiCount++;
+    // Counted, because it is a car being driven around the city and the
+    // budget below is on how many of those the sim runs — but not despawnable
+    // here. The cull's despawn is `driverId = null`, which on a cruiser is
+    // not "this car goes back to being scenery", it is taking the wheel off
+    // an officer in the middle of a chase, at exactly the moment the chase
+    // has drawn away from the player. The force's own vehicles leave through
+    // `retireAbandoned` in police.ts, which knows to keep the one an officer
+    // is walking back to.
+    if (isPoliceVehicle(state, id)) continue;
     let nearest = Infinity;
     for (const pid of state.players.ids) {
       const p = state.players.byId[pid];

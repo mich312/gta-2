@@ -915,7 +915,23 @@ function maybeRoadblock(state: GameState, map: CityMap, p: PlayerState): void {
   for (const id of state.vehicles.ids) {
     if (state.vehicles.byId[id]?.kind === kind) cars++;
   }
-  if (cars + 2 > (t.vehicleCaps[kind] ?? t.maxCopCars) + 2) return;
+  // A roadblock may START from a full budget. It is a PAIR thrown across a
+  // road together, so it cannot be admitted a car at a time the way
+  // `motorise` is, and the two units are useless singly — half a roadblock is
+  // a parked car. The kind's real ceiling is therefore the cap plus one
+  // roadblock: three tanks from `motorise` plus a pair across the street is
+  // five, which is the "cannot end up with six tanks in it" S3 asks for, and
+  // `police.test.ts` pins at `cap + 2`.
+  //
+  // Written as `cars > cap` and not as the fit-check `cars + 2 > cap` on
+  // purpose. A fit-check would spend the pair out of the same budget
+  // `motorise` spends, and at `vehicleCaps.tank = 3` against a five-star wave
+  // that turns out two tanks, the budget is never clear enough for a pair
+  // again — the armoured roadblock S3 exists for would simply stop appearing
+  // once the wave landed. (It was previously spelled `cars + 2 > cap + 2`,
+  // which is this same test with the pair added to both sides, and no
+  // fit-check in it at all.)
+  if (cars > (t.vehicleCaps[kind] ?? t.maxCopCars)) return;
 
   // Ahead means ahead of travel if moving, otherwise ahead of aim.
   const speed = lenVec(p.vel); // pinned; see `copFire`

@@ -747,6 +747,21 @@ export function stepVehicleImpacts(state: GameState, events: SimEvent[]): void {
     for (const copId of [...state.cops.ids]) {
       const cop = state.cops.byId[copId];
       if (!cop || cop.carHitCooldown > 0 || copIsDown(cop)) continue;
+      // You cannot be run over by the car you are driving. The players' loop
+      // above says this as `p.mode !== 'foot'`; the officers' loop had no
+      // equivalent, and `drivePursuit`'s `ride()` parks the officer on the
+      // car's own centre — so every motorised officer was struck by their own
+      // cruiser once per `RUNOVER_IMMUNITY_TICKS`, for damage that scales
+      // with speed. Fifty health is four hits at pursuit speed.
+      //
+      // It was invisible until R1-C06, because ambient traffic was steering
+      // every cruiser as well as the pursuit AI — two sets of pedals on one
+      // car, and officers survived whatever came of that. With traffic's
+      // hands off the wheel a cruiser winds up to `copCarSpeed` in a straight
+      // line and its own driver is dead inside forty ticks, which is what
+      // `C-repro-copcars-driving.mjs` was really showing when it reported a
+      // force of five where the tuning allows twenty-four.
+      if (cop.vehicleId === vid) continue;
       if (circleHitsBox(cop.pos.x, cop.pos.y, PLAYER_RADIUS, body)) {
         cop.carHitCooldown = RUNOVER_IMMUNITY_TICKS;
         pushRunOver(events, state.tick, cop.pos.x, cop.pos.y, v);

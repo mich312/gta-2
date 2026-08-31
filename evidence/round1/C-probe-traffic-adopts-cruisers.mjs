@@ -17,6 +17,7 @@ for (let i = 0; i < 1200; i++) {
   }
   if (adopted.length) {
     console.log('tick', i, 'cop cruisers with an ambient-traffic driver record:', adopted.join(','));
-    break;
+    process.exit(0);
   }
 }
+console.log('1200 ticks, no cop cruiser ever held an ambient-traffic driver record');
