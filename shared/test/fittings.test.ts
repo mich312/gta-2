@@ -17,6 +17,7 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { turretAngle } from '../src/sim/fittings.js';
+import { vehicleWear } from '../src/sim/vehicle.js';
 import { roadLane } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
@@ -255,6 +256,46 @@ describe('car fittings (G2)', () => {
       s = step(s, { 1: { ...NULL_INPUT, seq: 2 + i, tick: s.tick } }, [], map, later);
     }
     expect(later.some((e) => e.type === 'explosion')).toBe(true);
+  });
+
+  it('arming a bomb names the arsonist and charges him for it', () => {
+    // The bomb is the purpose-built arson tool, so it cannot be the one
+    // ignition path that is anonymous and free. Shooting the same car names
+    // you and costs you `heatPerVehicleKill`; so does arming this.
+    const { state } = fitted('bomb', 1);
+    const armed = press(state);
+    const v = armed.vehicles.byId[20]!;
+    expect(v.igniterId).toBe(1);
+    expect(armed.players.byId[1]!.heat).toBe(getTuning().police.heatPerVehicleKill);
+    // Burning, and written off with it: health drives `vehicleWear`.
+    expect(v.health).toBe(0);
+    expect(vehicleWear(v)).toBe(1);
+  });
+
+  it('the bodies at the end of the fuse are billed to whoever planted it', () => {
+    // The whole design of the fitting is that you are gone when it goes off,
+    // so the driver's seat is empty at detonation. If the blast were credited
+    // to the seat rather than to the igniter it would be credited to nobody.
+    const { state, lane } = fitted('bomb', 1);
+    let s = step(state, {}, [{ type: 'spawnPlayer', playerId: 2, name: 'victim' }], map);
+    s.players.byId[2]!.pos = { x: lane.x + 4, y: lane.y };
+    s = press(s);
+    // Out of the car and a long way off, which is what leaves the seat empty.
+    s = step(s, { 1: { ...NULL_INPUT, seq: 2, tick: s.tick, action: true } }, [], map);
+    s.players.byId[1]!.pos = { x: lane.x + 900, y: lane.y };
+    expect(s.vehicles.byId[20]!.driverId).toBe(null);
+
+    const before = s.players.byId[1]!.heat;
+    expect(s.players.byId[2]!.health).toBe(100);
+    const events: SimEvent[] = [];
+    for (let i = 0; i < 140 && !events.some((e) => e.type === 'explosion'); i++) {
+      s = step(s, { 1: { ...NULL_INPUT, seq: 3 + i, tick: s.tick } }, [], map, events);
+    }
+    expect(events.some((e) => e.type === 'explosion')).toBe(true);
+    expect(s.players.byId[2]!.health).toBeLessThan(100); // the blast landed
+    // Heat decays over the fuse, so the credit shows as a jump across the
+    // detonation and not as an absolute. Unattributed it only ever decays.
+    expect(s.players.byId[1]!.heat).toBeGreaterThan(before);
   });
 
   it('an empty fitting does nothing at all', () => {

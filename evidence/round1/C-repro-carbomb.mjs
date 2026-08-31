@@ -66,7 +66,8 @@ ignite('gun');
   const me = state.players.byId[1];
   console.log(
     `\nafter the fuse: car condition=${v.condition}; the blast's attackerId was ` +
-    `igniterId(null) ?? driverId(null) ?? -1 = -1 — nobody.` +
+    `igniterId(${v.igniterId}) ?? driverId(${v.driverId}) ?? -1 = ${v.igniterId ?? v.driverId ?? -1}` +
+    `${(v.igniterId ?? v.driverId ?? -1) < 0 ? ' — nobody.' : ' — the planter.'}` +
     `\nplanter's heat = ${me.heat.toFixed(2)}, wanted level = ${me.wantedLevel}`,
   );
 }

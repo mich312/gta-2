@@ -10,7 +10,7 @@ import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { applyDamage, damageCop, rayCircleDistance, rayWallDistance } from './weapons.js';
 import { damagePed } from './peds.js';
-import { damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
+import { chargeForArson, damageVehicle, vehicleHitRadius } from './vehicleDamage.js';
 
 /**
  * What the garage bolts to a car: a bomb, an oil slick, mines, or a pair of
@@ -51,8 +51,28 @@ export function stepFittings(
         // Armed, not detonated: you set it and you get out. Reuses the
         // burning path, so the blast, the chain reaction and the wreck are
         // the ones every other exploding car already goes through.
+        //
+        // Set alight by hand rather than through `damageVehicle`, for the
+        // same reason fire spreading between parked cars is: arming a bomb
+        // is not damage. Routing it through the damage path would shed the
+        // bonnet, the glass and both headlights off an intact car at the
+        // moment the key is pressed, and would set the fuse to the kind's
+        // burn time rather than the bomb's. What DOES have to happen is the
+        // rest of an ignition: `igniterId`, so the blast at the end of the
+        // fuse is credited to whoever planted it and not to `-1`, and the
+        // arson charge, so the purpose-built arson tool is not the one
+        // violent act in the game that is free. Health goes to zero like
+        // every other burning car's, so `vehicleWear` reads a write-off.
         v.condition = 'burning';
+        v.health = 0;
+        v.igniterId = p.id;
         v.fuseAtTick = state.tick + Math.round(t.bombFuseSec * TICK_RATE);
+        // Charged at arming, not at detonation, exactly as every other
+        // ignition path is: this is the tick the culprit is known and stood
+        // over the car. By the fuse's end he is meant to be a street away,
+        // which is the whole design of the fitting. The bodies are still
+        // charged at detonation — `blast` bills them to `igniterId`.
+        chargeForArson(state, v, p.id);
         v.fittingAmmo = 0;
         v.fitting = '';
         events.push({ type: 'vehicleBurning', tick: state.tick, vehicleId: v.id, x: Math.round(v.pos.x), y: Math.round(v.pos.y) });
