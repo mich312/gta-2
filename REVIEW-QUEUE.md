@@ -138,13 +138,16 @@ A finding is not work until it is CONFIRMED.
 - sharpest row: `airstrip.png` — the committed 480x480 is the pre-Anywhere-City generator. The same command now emits the archipelago at 1536x1536. Not drift; a different city.
 
 ### R1-D03 — `ci/deploy.sh` ships whatever `origin/main` is, not the commit the suite passed
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED** — round 2        verdict: CONFIRMED
 - round: 1   severity: significant   lens: D
 - where: `ci/deploy.sh:30-32` against the `test` job in `.github/workflows/deploy.yml`
 - repro: read the two files together (no execution possible — the deploy host is unreachable)
 - verified from the files: zero hits for `GITHUB_SHA|github.sha|SendEnv|bash -s --|if:` across all of `.github/workflows/` and `ci/` — no commit crosses the SSH boundary. `concurrency: deploy-gta` is a static literal with `cancel-in-progress: false`. `workflow_dispatch` carries no branch filter while `on.push` does, so the dispatch hole needs no runtime assumption.
 - inference, stated: the push-during-test race rests on Actions' documented queuing semantics, unobservable from the repo.
-- fix: `git reset --hard "$GITHUB_SHA"`, with the sha passed over the SSH invocation.
+- **fixed**: the sha crosses as `DEPLOY_SHA: ${{ github.sha }}` (an env value, never interpolated into script text), shape-checked `^[0-9a-f]{40}$` on both sides, and arrives as a required `$1`. `deploy.sh` no longer resolves its own target. Resolution precedes any reset — fetch, `cat-file -e`, a direct sha fetch for what the default refspec missed, re-check — and a sha the server cannot obtain exits 1 with the old checkout and the running container untouched. `PREV`/`NEW` and the rollback are unchanged.
+- **the dispatch hole is closed, not moved**: pinning alone would have made a dispatch from branch `foo` deploy `foo` — unreviewed branch code in production. The deploy job now carries `if: github.ref == 'refs/heads/main'`, at job level so the step holding `DEPLOY_SSH_KEY` is never scheduled off main.
+- verified live: all four refusal paths exit 2 before any side effect (no arg, `origin/main`, `abc; rm -rf /`, short `abc`); `bash -n` and `shellcheck 0.10.0` clean; both workflows parse. Reasoned-only, no deploy host reachable: the SSH stdin+argv mechanics end to end, `allowReachableSHA1InWant`, the force-push refusal, concurrency ordering.
+- no test written, deliberately: `shared/test`, `server/test` and `client/test` are all in-process game-logic suites and none imports `node:child_process`; a text-grep test would sit below the altitude of everything around it. The check that would catch this class is shellcheck wired into `test.yml` — noted, not done, as it widens scope.
 - prior art: PLAN-WORLDGEN.md wave 0.4 closed the workflow gate, not the checkout
 
 ### R1-D04 — a Node build that gains `node:sqlite` silently abandons the JSON fallback's accounts
@@ -163,10 +166,11 @@ A finding is not work until it is CONFIRMED.
 - prior art: none. BUGS.md §11 covers the server's side, not the client's retry policy.
 
 ### R1-D06 — `deploy.sh`'s health check accepts any 1xx-4xx, so a 404 counts as healthy
-- status: [ ] open        verdict: **CONFIRMED** (surfaced by the D03 verifier, not by a lens)
+- status: [x] **FIXED** — round 2        verdict: CONFIRMED (surfaced by the D03 verifier, not by a lens)
 - round: 1   severity: significant   lens: D
 - where: `ci/deploy.sh:23` — `healthy()` matches `[1-4][0-9][0-9]`
 - why it matters: the rollback at `deploy.sh:38-46` lives entirely in this check's fall-through. A deploy that comes up serving 404 rolls back nothing. Compounds R1-D03.
+- **fixed**: `[1-4][0-9][0-9]` -> `2[0-9][0-9]`, after establishing what answers the port: `docker-compose.yml` publishes `127.0.0.1:8080` straight at the game's Node process, so the check talks to `createStaticServer` with no proxy between. That handler answers 200, or 500 when the client bundle is missing, and 403 only on path traversal; it never redirects. So 3xx buys nothing and 4xx/5xx is precisely what disarmed the rollback — 2xx-only is right, not merely stricter. Predicate exercised over 16 codes (100/199/200/204/299/300/301/302/399/400/403/404/499/500/502/000).
 - prior art: none found.
 
 ### R1-D07 — the store's `.json` -> `.db` direction is silent for host operators
@@ -310,7 +314,7 @@ worktree per group.
 | worldgen | A01 then A03 | both edit `layout.ts`; both force a rebake of `city.data.ts`, which must happen once, at the end |
 | sim | C01 then C03 | both edit `police.ts` |
 | netcode | D01 | `server/src/session.ts` + `client/src/main.ts` |
-| ci | D03 | `ci/deploy.sh` + `.github/workflows/`, no build |
+| ci | D03 | `ci/deploy.sh` + `.github/workflows/`, no build — **merged** |
 
 ### Not in round 2, and why
 
@@ -321,3 +325,20 @@ worktree per group.
 - **B01** — its verifier had not returned when round 1 closed. Unverified
   findings do not go to fixers.
 - the nits (A05, A06, A08, B04, B05, C05, D05, D07) and D06 — round 3.
+
+### A correction to the loop, found by running it
+
+**Fixers must not write to `REVIEW-QUEUE.md`.** Worktree isolation refused the
+D03 fixer's edit, and it was right to refuse: the queue is shared mutable
+state, four fixers hold four copies of it, and the last one to copy its
+version back would silently revert the other three. `FIXER.md` step 5 asks for
+exactly that race.
+
+The fix is to invert it: a fixer **reports** its status, evidence paths and
+escalations, and the orchestrator writes them into the queue. The fixer's own
+worktree copy is scratch. Round 3's `FIXER.md` should say so.
+
+This is the second time the round has taught the same lesson — the first was
+that partitioning by directory is not enough when every agent builds into a
+shared `dist`. Both are the same shape: **isolation has to cover everything
+two agents can both write, not just their source files.**
