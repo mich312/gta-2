@@ -1213,13 +1213,23 @@ and whose value is legal for parks. That is the prior-art rule working.
 - repro: `node evidence/round5/C-repro-ped-boards-cruiser.mjs 1500 500 natural`
 
 ### R5-C02 — a body on the tarmac stops a car gun's rounds and bursts a rocket
-- status: [ ] open        verdict: pending verification
+- status: [ ] open        verdict: **CONFIRMED round 6** — both halves; the physics defence refuted by measurement
 - round: 5   severity: significant   lens: C
 - where: `fittings.ts:163-165`, `projectiles.ts:188-190`
 - `fireOnce` skips downed officers on purpose (`weapons.ts:165`, "shoot through a body, not into it"). `fireCarGuns` and `nearestHitAlong` do not: they select the corpse as the hit, and `damageCop` then returns immediately on `copIsDown` — the round is absorbed, for the 40 s the body lies there.
 - measured: car guns 9 damage clear line -> **0** with a corpse at 60px; rocket 107.5 -> **32.5**. SMG unaffected (control).
 - these are the five- and six-star weapons, used exactly when the street is full of officers you just killed. Your own kills become cover for the wave behind them.
 - prior art: R1-C02 fixed the same "a body is not a live officer" mistake in `noticedBy` and **did not sweep the hit tests**. Third instance of that class.
+- **verified round 6.** The "a rocket is contact-fused, a corpse is a physical object" defence predicts a standing *living* person fuses it too. It does not:
+  ```
+  blocker=none      cargun 9  reach 100   rocket 107.5
+  blocker=livePed   cargun 0  reach  40   rocket 107.5   <- transparent
+  blocker=deadCop   cargun 0  reach  40   rocket  32.5
+  blocker=liveCop   cargun 0  reach  40   rocket  32.5
+  ```
+  So the implemented rule is not "physical bodies fuse rockets" but "anything still in `state.cops`, alive or dead" — the missing `copIsDown`, not physics. No split verdict.
+- **the detail that settles intent**: `fireCarGuns` applies the rule to *pedestrian* corpses eight lines below where it misses it for officers — `if (!ped || ped.mode === 'dead') continue; // a body does not stop a bullet`. One function, one screenful, one oversight. `nearestHitAlong`'s doc comment claims a parity it does not have.
+- `damageCop` absorbs the round at `weapons.ts:345`, the first statement in the function; `git log -L` shows the `fittings.ts` cop loop unchanged since the file was introduced, so nothing made corpses collidable on purpose.
 
 ### R5-C03 — the ambient cull leaks a permanent driverless car every time it fires
 - status: [ ] open        verdict: pending verification
