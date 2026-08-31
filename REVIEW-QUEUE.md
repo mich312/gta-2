@@ -1192,6 +1192,7 @@ warnings verbatim.
   the block mask with no `landmarkBuilt` guard; a landmark only gets its plot
   back if it claimed a block, and Marsh Post did not.
 - **R5-A03** — five motorboats moored in two ornamental park ponds.
+  **FIXED round 7** — `9a4eaab`; landlocked moorings 5 of 460 -> 0 of 460.
   **CONFIRMED round 6.** Every refutation failed: `collide.ts:45` makes
   water-or-bridge exactly what a boat may occupy, so the flood is the right
   medium test and if anything over-connects; re-run 8-connected the ponds stay
@@ -1342,7 +1343,7 @@ pre-fix bake before being trusted.
 
 ### R5-A04 — filed by the fixer, not fixed: a park's paint overruns Marsh Post
 
-- status: [ ] open        severity: nit   round: 5
+- status: [x] **FIXED round 7** — `9a4eaab`; landmarks affected 1 of 29 -> 0 of 29. Closes R5-A02's symptom too.
 - 11 `floor -> park` tiles in the fix's plane diff turned out to be
   **pre-existing and merely unmasked**: a park's ground paint overruns three
   columns of Marsh Post's stamped footprint, and the illegal shop carve had
@@ -1510,3 +1511,46 @@ can both write, and every input either one can read.**
   blast radius measured at zero), Marsh Causeway's reroute, Coast Road's own
   finding.
 - **Then promote the bridging gate from `warning` to `error`.**
+
+
+## Round 7 — worldgen
+
+**A04: guard the paint, not re-stamp.** `solid()` marks a landmark-mass plane;
+`ground()` skips a marked tile. The re-stamp alternative was rejected with a
+reason worth keeping: `stamp()` also pushes the `Building` and `Landmark`
+records and runs `findDoorway`, so re-running it duplicates records or needs
+splitting — and a mass re-laid at the end goes down **over** the kerb ring, the
+driveway cut and the tree clearing that every later pass drew around where the
+walls stood. Refusing the paint leaves every pass byte-identical except the 18
+tiles in dispute.
+
+It also sits one line from the existing `landmarkBuilt` guard, which already
+refuses to *demolish* another landmark's records. The two halves of that
+promise now agree — the bake would not delete a landmark's record, but would
+happily paint over its walls.
+
+**The check**: `checkCity` rule 2b re-derives each landmark's solid parts from
+the recipe (`landmarkParts`, newly exported) and errors on any tile the plane
+no longer backs; mirrored in `city.test.ts` on the round-5 shop rule's
+precedent. Verified against `plangen` so it does not fire on generated cities.
+
+**A03: one flood, not 460.** A border-seeded flood over the water-or-bridge
+medium labels the sea once per `placeBoatSpawns`, then each candidate is a
+lookup. Border-seeded rather than largest-component because the city is an
+island in an ocean running off all four sides, so "connected to the border" *is*
+"can get out to sea". **6 ms** against a 16 s bake; a flood per candidate would
+have been 13,391. The medium is water-or-bridge because that is exactly what
+`plainSolid` permits a boat, so BUGS.md §9.2's bridge guarantee is preserved by
+the same test.
+
+The guard sits with `roomy`/`bank` rather than at push time because the scan
+yields 557 candidates against a cap of 460 — any change to the list reshuffles
+which moorings ship, so there was no minimality to buy by filtering late.
+
+**Both controls confirmed by reverting**: `affected=1` and `5 of 460` reproduce
+on the reverted files.
+
+**The census script was intact.** I swept it into a commit while it was being
+written (lesson 5, again) and flagged it for checking. It was complete at 58
+lines. The risk was real; the outcome was luck, which is the argument for
+fixing the process rather than trusting the outcome.
