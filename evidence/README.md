@@ -308,3 +308,21 @@ a `before` command today reproduces the `after` picture. That is the point.
 | `round2/A01-gate-before.txt` | The gate's own reproduction: `checkCity`'s new bridging-road rule run against the shipped city BEFORE any plan edit, naming Kelvin Bridge and Marsh Causeway — and finding the Ring's east crossing and three stretches of the Coast Road nobody had filed. Retake: `npx vitest run server/test/shippedCity.test.ts` on a checkout with the plan reverted. |
 | `round2/A03-docks-before.png` | R1-A03. The Docks: five long north-south strips of block, no cross street anywhere in the borough, biggest block 27x158 in a borough pitched at 28x24. The contour fabric's cross streets were carved parallel to the bands they exist to cross, because the frame's shore sample found nothing and fell back to the authored `angle: 0`. Retake: `node server/dist/tools/mapgen.js --crop=28,248,166,176 --scale=6 --out=evidence/round2/A03-docks-before.png`. |
 | `round2/A03-docks-after.png` | The same crop with the sample taken relative to the borough's own innermost band: 51 blocks against 14, median 330 against 1691, biggest 30x22 against a 28x24 cell. Same command, `-after` for the name. |
+
+## Review round 3 — R1-B01, the lamp that burned at noon
+
+The `before` shots are `ae643ba`; the `after` shots the commit that made the
+bloom threshold a ratio to the key light. Every plate is the shipped camera at
+1280x720, taken with `evidence/round3/F-R1-B01-shot.mjs` — `ci/shot.mjs` waits
+for `networkidle`, which the live client never reaches. Start the dev server
+first (`pnpm --filter client dev`) and read a plate back with
+`node evidence/round3/V-R1-B01-read.mjs <png> 40,450` or profile a scanline with
+`node evidence/round3/V-R1-B01-profile.mjs 450 24 72 <png>...`.
+
+| file | what it shows |
+|---|---|
+| `round3/F-R1-B01-3d-noon-before.png` | R1-B01. A street lamp reading as switched on at midday: the fixture blown out and a warm halo thrown across tarmac the sun does not reach. At (40,450) the shaded roof reads luma 129 where `?lights=off` reads 4 — thirty-fold, from a lamp whose *direct* light there measures +0. The halo is bloom: `lights3d`'s `lit` floor keeps a lamp 15% on by day, its bulb sits ~3 world px from the resulting 74 cd point source, and `UnrealBloomPass` emits the whole texel it admits rather than the excess. Retake: `node evidence/round3/F-R1-B01-shot.mjs "http://localhost:5173/?local=1&seed=7&night=0" evidence/round3/F-R1-B01-3d-noon-before.png`. |
+| `round3/F-R1-B01-3d-noon-after.png` | The same frame with the bloom threshold scaled by the key light. (40,450) reads 3 against the control's 4: the halo is gone and the fixture reads as a switched-off lamp. Same command, `-after` for the name. |
+| `round3/F-R1-B01-3d-noon-lightsoff.png` | The control the two above are measured against — midday with `?lights=off`, so no street lighting exists at all. The `after` plate matches it across the lamp to within a luma. Retake: same command with `&lights=off`. |
+| `round3/F-R1-B01-crop-noon-before.png` / `-after.png` | The lamp itself, 140x100 px of the frame at 5x. Before: a blown bulb and a halo up the wall. After: the grey head and cream bulb of the art, unlit. |
+| `round3/F-R1-B01-3d-night-before.png` / `-after.png` | The gate on the fix. At midnight the key light sums to 1.00, so the threshold is still exactly its old 1.05 and the night is untouched: (40,450) reads 148 either side, and a whole-frame diff finds fewer differing pixels between the two than between two runs of the *same* build (the lamp flicker rides on wall-clock). Retake: same command with `&night=1`. |
