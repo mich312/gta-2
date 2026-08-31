@@ -997,3 +997,42 @@ this finding; reverting is its own measured decision.
 
 The three A01 escalations: the Ring's `maxBridgeSpan` (one number, blast radius
 measured at zero), Marsh Causeway's reroute, and Coast Road's own finding.
+
+
+---
+
+## Round 3 closed — verified on the merged tree
+
+```
+pnpm build                       clean
+npx tsc -p client --noEmit       clean   (pnpm build is tsc -b server only)
+pnpm test                        91 files, 966 tests, 0 failures
+                                 5 ignored 'onTaskUpdate' runner-noise errors
+citybake --check                 exit 0 — 1182 blocks, 4014 buildings
+                                 the 6 pinned bridging warnings, unchanged
+pnpm parity                      host parity OK — hash 164516877
+```
+
+Ground truth across the exercise: **87 files / 943 tests -> 90 / 953 -> 91 / 966.**
+
+Nine findings fixed this round (A05, A06, A08, B01, B04, B05, C05, C06, D07),
+one suspicion refuted (renderBench), and one defect found and fixed that was
+never in the queue at all — officers being run over by their own cruisers.
+
+### Round 4 — the findings that were crowded out
+
+Not leftovers: three confirmed `significant` findings with round-1
+verification already banked, which no round ever dispatched.
+
+| id | what |
+| --- | --- |
+| R1-C02 | `noticedBy` skips both its filters — a corpse witnesses crimes, and invisibility cannot stop the cool-down clock |
+| R1-C04 | the car bomb is free arson; every casualty is credited to `attackerId = -1` |
+| R1-A02 | Hollis Creek is crossed nowhere; both southern arterials dead-end at its banks |
+
+**R1-D02 goes last, in round 5.** Three rebakes have happened since it was
+filed, so more than the original thirteen plates are stale. Retaking before the
+city stops moving would only have to be redone.
+
+Every round-4 dispatch pins its base sha explicitly and the agent reports the
+commit it lands on — established as systematic, not incidental.
