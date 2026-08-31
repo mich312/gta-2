@@ -225,7 +225,7 @@ separate piece of work, filed below as R1-C07.
 - prior art: GAPS.md K1 built arson attribution; the bomb branch was never threaded into it
 
 ### R1-C05 — `maybeRoadblock`'s per-kind budget is algebraically a no-op
-- status: [ ] open        verdict: **CONFIRMED in mechanism, DOWNGRADED**
+- status: [x] **FIXED round 3** — option (b), written honestly as `cars > cap`, no behaviour change        verdict: CONFIRMED in mechanism, DOWNGRADED
 - round: 1   severity: ~~significant~~ **nit**   lens: C
 - where: `shared/src/sim/police.ts:775` — the `+ 2` appears on both sides and cancels
 - repro: `node evidence/round1/C-repro-roadblock-cap.mjs`
@@ -236,7 +236,7 @@ separate piece of work, filed below as R1-C07.
 #### Found while fixing round 1 (lens C's ground), filed for round 2
 
 ### R1-C06 — ambient traffic adopts police cruisers as its own cars
-- status: [ ] open        verdict: **CONFIRMED** (found by the R1-C01 fixer, not by a lens)
+- status: [x] **FIXED round 3** — gated on `copFleet`; unmasked and fixed officers being run over by their own cruisers        verdict: CONFIRMED
 - round: 1   severity: significant   lens: C
 - where: `shared/src/sim/traffic.ts:115` (`isAiDriver(d) => d < -1`) against `police.ts:564` (`copDriverId = -100000 - copId`)
 - repro: `node evidence/round1/C-probe-traffic-adopts-cruisers.mjs` — prints `tick 17 cop cruisers with an ambient-traffic driver record: 4`
@@ -305,7 +305,7 @@ separate piece of work, filed below as R1-C07.
 - per VERIFIER.md, a finding that needs rewriting to survive is refuted as filed. The residual is real and is filed separately as R1-D07.
 
 ### R1-D05 — a client rejected for protocol mismatch reconnects every two seconds for ever
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 2** — promoted mid-round because D01's protocol bump made it certain        verdict: CONFIRMED
 - round: 1   severity: nit   lens: D
 - where: `client/src/net/connection.ts:75-81` against `client/src/main.ts:682-687`
 - verified live: a throwaway `ws` server on an ephemeral port answering any join with `{code:'protocol'}` then closing, against the real unmodified `Connection`. Five sockets in nine seconds, gaps 2016/2006/2007/2005 ms, still going at harness exit. `attempts` reads 1 every cycle — the socket does open before the rejection and `onopen` zeroes it — so nothing accumulates toward a ceiling even if one were added.
@@ -320,7 +320,7 @@ separate piece of work, filed below as R1-C07.
 - prior art: none found.
 
 ### R1-D07 — the store's `.json` -> `.db` direction is silent for host operators
-- status: [ ] open        verdict: **CONFIRMED** (the surviving residual of R1-D04)
+- status: [x] **FIXED round 3** — the sqlite branch names the sibling it will not read        verdict: CONFIRMED
 - round: 1   severity: nit   lens: D
 - where: `server/src/economy/createStore.ts:25-36`
 - why it matters: README.md:82-87 tells host operators on pre-22.5, flagged 22.5-22.12, or `--without-sqlite` builds that they land on the sibling `.json`. The fallback warns in the `.db` -> `.json` direction; the reverse is silent. Not reachable through Docker, which is why R1-D04 was refuted — but reachable for a documented class of operator.
@@ -510,7 +510,7 @@ zero by construction — `floor` comes from a tile the sample filter accepts.
 - the census confirms the note's diagnosis rather than disproving it. Residuals refiled as R1-A08.
 
 ### R1-A05 — `checkCity`'s "has no road to it" does not look for a road
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 3** — frontage check ADDED (prior-art re-check made this the right half)        verdict: CONFIRMED
 - round: 1   severity: nit   lens: A
 - verified: `drivable()` is genuinely the sim's own rule (`plainSolid`, `collide.ts:44`, blocks the same three tiles), so the *predicate* is defensible — a landmark reachable across a car park really is vehicle-reachable. What it does not defend is the *message*, or `city.test.ts:170`, which scans for real `T_ROAD`/`T_BRIDGE` frontage. The suite is strictly stronger than the checker whose error string claims the same property.
 - repro reproduced: 285 carriageway tiles erased around Mercy General, `checkCity` returns `[]`.
@@ -518,7 +518,7 @@ zero by construction — `floor` comes from a tile the sample filter accepts.
 - **prior art UNVERIFIED**: the verifier searched for `GAPS.md` inside `.claude/review/` instead of the repo root. Cheap to re-check in round 2.
 
 ### R1-A06 — `parseCityPlan` bounds-checks landmarks but not roads, rivers or districts
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 3** — `width < 1` refused; bounds refuse only wholly-off-map, because boroughs overhang by design        verdict: CONFIRMED
 - round: 1   severity: nit   lens: A
 - **sharper than filed**: the width-0 road becomes a course that `decodeBakedCity` explicitly rejects — `bake.ts:1137`, `'a course with no line or no width'`. The parser waves through a value its own asset decoder calls malformed, one pipeline stage and fifteen seconds later.
 - also accepted, unfiled by the reviewer: **negative** widths, identically.
@@ -526,7 +526,7 @@ zero by construction — `floor` comes from a tile the sample filter accepts.
 - **do not merge with A01**: A01's landfall gate would catch an off-map endpoint on a bridging road, but the zero-width road is entirely on land and passes it untouched, and off-map rivers and district polygons never reach a bridge gate. Two fixes.
 
 ### R1-A08 — wave 2.3 stands DELIVERED with two promises unkept
-- status: [ ] open        verdict: **CONFIRMED** (the surviving residual of A04)
+- status: [x] **FIXED round 3** — runway rule added (not the naive one); huts moved off both slabs        verdict: CONFIRMED
 - round: 1   severity: nit   lens: A
 - the promised `cityCheck` rule — no street tile inside a runway rect — does not exist; `city.test.ts:743` asserts only the converse (every `T_RUNWAY` tile is inside a rect). And the huts were never moved off the slabs: 9 `T_BUILDING` tiles at each strip's corner with runway on all sides beneath them.
 - side effect confirmed: `runwayCentreRow` (`tiles.ts:159`) walks per column, so the hut-shortened columns jog the centreline — at Marsh End x=507, and at **Gannet x=79**, which the reviewer missed.
@@ -565,14 +565,14 @@ zero by construction — `floor` comes from a tile the sample filter accepts.
 - correction: the vignette claim is wrong for (700,60) (r=305.9, outside the 230.4 inner radius) — immaterially, since the contamination shrinks the gap rather than creating it.
 
 ### R1-B04 — `city3d.html`'s draw/triangle readout has reported `draws 1  tris 0k` since the post chain landed
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 3** — draws 1 -> 238, tris 0k -> 7031k        verdict: CONFIRMED
 - round: 1   severity: nit   lens: B
 - verified in the installed three@0.185.1: `info.reset()` at `three.module.js:17696` with `autoReset` defaulting true, and zero `autoReset` hits anywhere in the repo. The composer's last pass is the grade quad, so its 1 draw / 2 triangles is all that survives.
 - **the refutation failed**: `3D.md:179`'s "9 draw calls, 57,767 instances, 762k triangles" is quoted verbatim from this HUD — the cited screenshot's overlay reads exactly those numbers. `ci/renderBench.mjs` is not an alternative source: it has no draw/triangle instrument at all.
 - **round-2 candidate, unverified**: `ci/renderBench.mjs:37-39` reportedly has *both arms pinned to `render=2d`*. REVIEW-3D.md records fixing this same instrument for "comparing 3D against 3D". Nobody tested whether the current state is deliberate.
 
 ### R1-B05 — scenery prop pools still zero-scale their tails
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 3** — prop instances per frame 768 -> 56        verdict: CONFIRMED
 - round: 1   severity: nit   lens: B
 - the "maybe it is static" refutation was tested empirically, not argued: the shipped city run through the real placement code gives 1600 props total, worst-case 67 on screen at the shipped AOI radius, fullest single pool 55 of 192. `updateProps` runs every frame from `requestAnimationFrame` with no dirty check, `used` varies per frame (props flip `bin` -> `bin_broken`), and `frustumCulled = false` on both mesh and twin removes the only escape.
 - tightened: the outline twin is `castShadow = false`, so the three payments are main-pass mesh + shadow-pass mesh + main-pass twin — the count of three is right, the attribution was not.
@@ -912,3 +912,41 @@ The second half of that rule already existed and is what makes this survivable
 This is the same lesson a third time: build artifacts, then shared queue
 state, now the base commit itself. **Isolation has to cover everything two
 agents can both write — and every input either one can read.**
+
+
+---
+
+## Queue reconciliation, after round 3
+
+The status lines had drifted: fixes were recorded in each round's prose section
+but nine entries still read `[ ] open`. Corrected above. **The loop's memory is
+only as good as the field you can count** — a narrative that says "fixed" and a
+status field that says "open" is worse than either alone, because the tally
+lies while reading correct.
+
+### Genuinely open, confirmed, never dispatched
+
+| id | severity | note |
+| --- | --- | --- |
+| R1-C02 | significant | `noticedBy` — a corpse witnesses crimes, an invisible player is seen. Confirmed round 1, never fixed. |
+| R1-C04 | significant | the car bomb is free arson, credited to nobody. Confirmed round 1, never fixed. |
+| R1-A02 | significant | Hollis Creek crossed nowhere. Confirmed round 1, never fixed. |
+| R1-D02 | significant | the stale evidence PNGs — now staler, three rebakes later. |
+| R1-C07 | nit | the trig gate stops at `shared/src/sim`; `shared/src/world` has ~90 unpinned calls. Needs a worldgen decision. |
+| *(new)* | — | carjacking an occupied cruiser makes one driver into two people. Filed by the C06 fixer. |
+
+### Closed without a fix
+
+- **R1-B03** — won't fix, working as designed (your decision).
+- **R1-A04**, **R1-D04** — refuted as filed; both residuals refiled and now fixed
+  (A08, D07).
+- **the renderBench suspicion** — refuted; the instrument is correct.
+
+### In flight
+
+- **R1-B01** — fixer running on a pinned base.
+
+### Waiting on the author
+
+The three A01 escalations: the Ring's `maxBridgeSpan` (one number, blast radius
+measured at zero), Marsh Causeway's reroute, and Coast Road's own finding.
