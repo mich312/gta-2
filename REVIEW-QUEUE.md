@@ -650,3 +650,72 @@ was coming. It is visible only from above, holding both. That is an argument
 for the orchestrator re-reading the whole queue after each fix lands, not just
 the entry that changed — and for `FIXER.md` to ask what a fix *enables* as
 well as what it repairs.
+
+
+---
+
+## Round 2 closed — verified on the merged tree
+
+All five fixer branches merged, then verified together on a quiet box. A fix
+green in its own worktree says nothing about the five together, which is why
+this run exists.
+
+```
+pnpm build          clean
+pnpm test           90 files, 953 tests, 0 failures
+                    3 ignored 'onTaskUpdate' worker errors (ci/test.mjs filter)
+citybake --check    exit 0 — 1182 blocks, 4014 buildings, 29 landmarks, 66 shops
+                    6 warnings, every one pinned by name in shippedCity.test.ts
+pnpm parity         host parity OK — seed=7 ticks=600 samples=20, hash 4007836798
+```
+
+Ground truth moved 87 files / 943 tests -> **90 / 953**; the ten added tests are
+the round's own. The city moved 1156 blocks / 4066 buildings -> 1182 / 4014,
+which is A03's restored cross streets.
+
+**On the parity hash.** The sim fixer's worktree reported `437625668`; the
+merged tree reports `4007836798`. Expected: the worldgen rebake changed the
+map, so the simulation runs over different ground. Parity asserts the two
+hosts agree with each other tick for tick, not that a hash is constant.
+
+**`pnpm parity` needs a vite dev server on 5173** and dies
+`ERR_CONNECTION_REFUSED` without one. A harness prerequisite, not a
+regression — but it cost a diagnosis here and is worth a line in the script.
+
+### Fixed this round
+
+| id | what |
+| --- | --- |
+| R1-A01 | Kelvin Bridge built, and a bridging gate that found four more broken crossings |
+| R1-A03 | the contour frame fallback, fixed at the cause rather than at The Docks |
+| R1-C01 | pursuit stays motorised; abandoned cruisers retired, with provenance |
+| R1-C03 | 13 unpinned trig calls across 5 files, plus a source gate |
+| R1-D01 | a reloaded client resumes its input numbering from the server |
+| R1-D03 | the deploy names the commit the suite passed |
+| R1-D05 | a protocol rejection stops retrying; `full` untouched |
+| R1-D06 | the health check accepts 2xx only |
+
+### Open, ranked for round 3
+
+1. **The three escalations** below — decisions, not code.
+2. **R1-D02**, and it grew: the rebake changed the city again, so more than
+   thirteen of the fifteen checkable PNGs are now stale. Retake *after* the
+   escalations land. Second time sequencing has mattered.
+3. **R1-C06** (significant) — ambient traffic mints a driver record for a
+   cruiser and steers it while `drivePursuit` drives it in the same tick.
+4. **R1-B01** — never verified; its verifier had not returned when round 1
+   closed. Verify before fixing.
+5. **Coast Road** — three uncrossed stretches the gate found and no lens filed.
+6. The nits: A05, A06, A08, B04, B05, C05, C07, D07.
+
+### The escalations, for the author
+
+| what | the change | measured consequence |
+| --- | --- | --- |
+| the Ring's east crossing | `maxBridgeSpan: 72 -> 76` | misses by 1-3 tiles; restores the deck (1496 -> 2078) and gives **nothing else in the city** a deck |
+| Marsh Causeway | reroute to the narrows at x=600 | 62 tiles against a 93-100 tile bay on the drawn line; works (deck -> 1742, 0 errors) but moves where a named causeway meets both banks |
+| Coast Road | its own finding first | the coastline warp moved the south shore inland of the drawn course; 169 + 79 + 22 tiles |
+
+Once these land, promote the gate from `warning` to `error`. A
+warning-not-error decision is the kind that quietly never gets promoted, so it
+is written down here rather than remembered.
