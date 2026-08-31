@@ -1068,6 +1068,43 @@ describe('the city, as an asset', () => {
     }
   });
 
+  it('puts no shop inside a landmark', () => {
+    // The inverse of the test above, and the one nobody wrote. Where a
+    // stadium and a power station must have an inside, every other landmark
+    // must NOT have one carved for it by somebody else: `placeShopsFixed`
+    // chooses its candidates out of `city.buildings`, which is the array the
+    // landmark stamps push their own masses into, and those records carry the
+    // inherited district of the block underneath. So the pass read eight
+    // landmarks as ordinary shopfronts and `carveInterior` hollowed each into
+    // a wall ring, a `T_FLOOR` room and a two-tile garage door — a respray in
+    // The Spire and the Halloran Building, one in each of three infirmaries
+    // whose ward the clinic code declares solid, and one in each of Kelvin
+    // Road Station, Sunridge Station and Marsh Post. That last is the reason
+    // this is a shipped-map test and not only a `checkCity` rule: a spray is
+    // a drive-through with twice the doorway reach, so the buy lands from the
+    // road tile outside the police station's front door and takes the wanted
+    // level to zero without the player leaving the car.
+    //
+    // `checkCity` gates what `pnpm citybake` is allowed to WRITE. This gates
+    // what the game LOADS — `map` is the shipped `city.data.ts` — which is
+    // the thing that was actually broken, and which a hand-edit or a stale
+    // commit can break again without the bake ever running.
+    for (const s of map.shops) {
+      // Clinics are registered onto the hospital doors by the session, not
+      // carved: a clinic ON a hospital is the feature (`registerClinics`).
+      if (s.kind === 'clinic') continue;
+      const b = map.buildings[s.buildingIndex];
+      if (!b) continue;
+      const lm = map.landmarks.find(
+        (l) => b.x < l.x + l.w && b.x + b.w > l.x && b.y < l.y + l.h && b.y + b.h > l.y,
+      );
+      expect(
+        lm,
+        `${s.kind} shop at ${s.doorX},${s.doorY} is carved into ${lm?.name} (${lm?.kind})`,
+      ).toBeUndefined();
+    }
+  });
+
   it('only bevels materials the painters know by name', () => {
     // The canary for the §31 class of bug: the deck pair was added to the
     // bevel yield tables without a case in the 2D painter's wedge switch,

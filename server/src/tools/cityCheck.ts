@@ -301,6 +301,31 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
         message: `${s.kind} shop doorway at ${s.entryX},${s.entryY} is walled up`,
       });
     }
+    // ...and no shop is hosted by a LANDMARK's own mass. `placeShopsFixed`
+    // picks candidates out of `city.buildings`, which is the same array the
+    // landmark stamps push into, and a stamped mass carries the inherited
+    // district of the block it stands on — so for eight of them the pass saw
+    // an ordinary shopfront and `carveInterior` hollowed the landmark out
+    // into a wall ring, a floor and a two-tile garage door. Three police
+    // stations got a respray, which the drive-through buy reaches from the
+    // road tile outside and which clears the player's wanted level; three
+    // infirmaries got one behind a door byte-identical to a clinic's, whose
+    // whole invariant is that the ward is SOLID. The bake now hands its
+    // `landmarkBuilt` set to the shop pass; this is the assertion that says
+    // so, checked on geometry because the set does not survive the encode.
+    const host = city.buildings[s.buildingIndex];
+    if (host) {
+      const lm = city.landmarks.find(
+        (l) =>
+          host.x < l.x + l.w && host.x + host.w > l.x && host.y < l.y + l.h && host.y + host.h > l.y,
+      );
+      if (lm) {
+        problems.push({
+          severity: 'error',
+          message: `${s.kind} shop at ${s.doorX},${s.doorY} is carved into ${lm.name} (${lm.kind})`,
+        });
+      }
+    }
   }
 
   // 4. No road that simply stops in the sea without a quay to stop at.

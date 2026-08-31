@@ -377,6 +377,11 @@ export function bakeCity(plan: CityPlan): BakedCity {
    * that happens to stand in one — and the apron then paints `T_LOT` over
    * tiles whose building record survived. Identity says exactly what was
    * meant: this building IS a landmark's own stamp.
+   *
+   * Read twice: by the block-clearing pass below, and by `placeShopsFixed`
+   * at the end of the bake, which is handed this set for the same reason —
+   * it too walks `city.buildings` and would otherwise carve a respray garage
+   * out of a hospital ward or a police station (§36.1).
    */
   const landmarkBuilt = new WeakSet<Building>();
   const solid = (
@@ -852,7 +857,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
       H,
     ),
   };
-  baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles);
+  baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles, landmarkBuilt);
   return baked;
 }
 
