@@ -725,3 +725,57 @@ regression — but it cost a diagnosis here and is worth a line in the script.
 Once these land, promote the gate from `warning` to `error`. A
 warning-not-error decision is the kind that quietly never gets promoted, so it
 is written down here rather than remembered.
+
+
+---
+
+## Round 3
+
+### Fixed
+
+| id | what | measured |
+| --- | --- | --- |
+| R1-B04 | `renderer.info.autoReset` off, reset at the top of `render()` so counts span shadow map, scene and every post pass | `draws 1 tris 0k` -> `draws 238 tris 7031k` |
+| R1-B05 | scenery shortens `mesh.count`/`outline.count` to `used`, matching its two neighbours; the placement guard moves to a stored `capacity` because the draw length is no longer safe to guard against | prop instances per frame **768 -> 56** |
+| R1-D07 | the sqlite branch names a sibling `.json` it will not read, and says which env var would read it | test fails without the fix |
+
+**`3D.md`'s figures were corrected as a knock-on**: the "9 draws / 762k" and
+"179 draws / 3.2M" quoted under the table were scene+shadow only, because the
+readout they came off could not see the post chain. Fresh numbers run about a
+dozen draws higher.
+
+### Refuted: the renderBench suspicion
+
+Round 2's B04 verifier flagged, unverified, that `ci/renderBench.mjs:37-39`
+pins **both arms** to `render=2d`. It does — **and that is correct.** The A/B
+variable is `&extrude=1`, and `extrude` only touches `TileLayer`
+(`main.ts:273`), which never runs under the 3D renderer. The bench answers
+SHIP.md U2, a 2D question. The comment at :28-35 is the record of the earlier
+fix: before it, both arms defaulted to 3D, were genuinely identical, and
+reported a permanently-zero `lastBuildingsDrawn`. Pinning `render=2d` is what
+made the two arms differ. Nothing to fix.
+
+That is the second unverified suspicion this loop has generated and then
+killed. Worth noting that both came from verifiers speculating past their
+brief — useful, but they belong in the queue as suspicions, never as findings.
+
+### A third correction to the loop: worktree bases are not guaranteed current
+
+The renderer worktree was cut from **`1469611`, the original `main` merge** —
+before round 1 — while the other two round-3 worktrees were correctly based on
+round 2's head. Its code merged cleanly (rounds 1-2 touched none of
+`scenery.ts`, `cityView.ts`, `createStore.ts`), but **its verification was
+void**: it ran the suite and `citybake --check` against a tree with none of
+this work in it, and reported the round-1 city (1156 blocks / 4066 buildings)
+as if current. Its triangle measurements were taken on the old map.
+
+Caught only because a bake statistic in its report did not match the branch.
+
+So, for round 4 onward: **every worktree agent states its base commit in its
+first report, and the orchestrator re-verifies on the merged tree regardless.**
+The second half of that rule already existed and is what makes this survivable
+— the combined run is authoritative, a fixer's own green never is.
+
+This is the same lesson a third time: build artifacts, then shared queue
+state, now the base commit itself. **Isolation has to cover everything two
+agents can both write — and every input either one can read.**
