@@ -702,6 +702,12 @@ export function tryEnterVehicle(
     creditGangKill(state, p.id, best.gangId, events ?? []);
   }
   best.driverId = p.id;
+  // A car stops being ambient traffic's the moment a PERSON takes the wheel.
+  // `reclaimAmbient` (traffic.ts) takes traffic's own cars back off the map
+  // once they are driverless and out of sight, and this is what keeps it from
+  // ever eating a car the player drove somewhere and parked. Cheap and
+  // unconditional: the id is simply not in the register on anything else.
+  delete state.ambientFleet[best.id];
   p.mode = 'driving';
   p.vehicleId = best.id;
   p.vel.x = 0;

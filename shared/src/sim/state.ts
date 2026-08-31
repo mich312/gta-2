@@ -535,6 +535,27 @@ export interface GameState {
    */
   copFleet: Record<number, number>;
   /**
+   * Which vehicles AMBIENT TRAFFIC put on the street, per vehicle id, holding
+   * the tick they were minted on.
+   *
+   * Server-only sim state, for the same reason as `copFleet`: no client runs
+   * the traffic spawner, so it has no business in the snapshot diff or the
+   * desync hash.
+   *
+   * It is `copFleet`'s twin and exists for the same reason. A parked car the
+   * SESSION laid down at a kerb (`session.ts` ranks the spots and pins the
+   * fleet size exactly) and a parked car left behind by ambient traffic are
+   * the same object otherwise — both are an intact, driverless `car` — and
+   * only one of them is litter. The session's belongs to the city's designed
+   * kerbside stock and must survive; traffic's surplus must not accumulate,
+   * because `putAiVehicle` mints a fresh entity for every replacement and
+   * nothing ELSE in the sim removes an intact driverless vehicle. A player's
+   * own parked car is never in here — `tryEnterVehicle` and `tryCarjack` take
+   * it out the moment a person takes the wheel — so `reclaimAmbient` can
+   * never eat one.
+   */
+  ambientFleet: Record<number, number>;
+  /**
    * Where every vehicle was on each of the last few ticks, newest first.
    *
    * Server-only sim state, for the same reason as `trafficDrivers` and
@@ -563,6 +584,7 @@ export function createGameState(seed: number): GameState {
     vehicleHitTick: {},
     ambulanceCalls: {},
     copFleet: {},
+    ambientFleet: {},
     vehicleTrail: [],
   };
 }
@@ -789,6 +811,7 @@ export function cloneState(s: GameState): GameState {
     vehicleHitTick: { ...s.vehicleHitTick },
     ambulanceCalls: cloneAmbulanceCalls(s.ambulanceCalls),
     copFleet: { ...s.copFleet },
+    ambientFleet: { ...s.ambientFleet },
     // Frames are written once and never mutated, so the array of references
     // is the whole clone.
     vehicleTrail: s.vehicleTrail.slice(),

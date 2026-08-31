@@ -1098,7 +1098,19 @@ export function stepBoarding(state: GameState, map: CityMap): void {
   }
 
   // --- who is getting in --------------------------------------------------
-  // Parked, empty, intact, and somebody civilian standing at the door.
+  // Parked, empty, intact, NOT the force's, and somebody civilian standing at
+  // the door.
+  //
+  // The `copFleet` gate is the third site of the same rule (`stepTraffic` and
+  // the population cull below are the other two), and the one this pass
+  // needed most: those two only ever DECLINE to touch a police vehicle,
+  // whereas without it this one hands one an ambient driver that `stepTraffic`
+  // then refuses to steer. The car freezes where it stands for the rest of the
+  // session — `driver.trip` only advances inside the gated `stepTraffic`, so
+  // it never alights; `remount` and `retireAbandoned` both want `driverId ===
+  // null` and it no longer is; and the cull counts it against the ambient
+  // budget while refusing to despawn it. A roadblock tank taken this way also
+  // permanently spends one of `vehicleCaps.tank`.
   const boarding: Array<{ pedId: number; vehicleId: number }> = [];
   if (aiCount - alighting.length < t.count) {
     const reach = t.boardRadius * t.boardRadius;
@@ -1109,6 +1121,7 @@ export function stepBoarding(state: GameState, map: CityMap): void {
       for (const vid of state.vehicles.ids) {
         const v = state.vehicles.byId[vid];
         if (!v || v.driverId !== null || v.condition !== 'ok') continue;
+        if (isPoliceVehicle(state, vid)) continue;
         const dx = v.pos.x - ped.pos.x;
         const dy = v.pos.y - ped.pos.y;
         if (dx * dx + dy * dy > reach) continue;
@@ -1148,6 +1161,85 @@ export function stepBoarding(state: GameState, map: CityMap): void {
   }
 }
 
+/**
+ * Take ambient traffic's own cars back off the map once nobody is driving
+ * them and nobody can see them.
+ *
+ * `putAiVehicle` mints a BRAND NEW entity for every car it puts on the road,
+ * and there are exactly three places in the whole sim that remove a vehicle —
+ * the wreck fuse (`vehicleDamage.ts`), `retireAbandoned` (`copFleet` only) and
+ * the player's crusher (`step.ts`). None of them takes an intact, driverless,
+ * civilian car, so every one traffic minted was immortal. Two paths stop
+ * driving one:
+ *
+ *  - the population cull, when the car drifts past `despawnDist`; and
+ *  - `stepBoarding`'s ALIGHTING, when a driver's trip runs out and they park
+ *    and walk off — which happens close to a player and stranded roughly five
+ *    times as many cars as the cull did.
+ *
+ * Neither had anywhere to put the car, so the fleet only ever grew: measured
+ * at a real session's scale (655 vehicles, `session.ts`), +11% in ten minutes,
+ * monotone, against a 33 ms tick budget that 655 vehicles already costs 27 ms
+ * of. The ALIGHTING path is the bigger half by five to one, so a fix aimed at
+ * the cull alone removes about a sixth of the growth and verifies clean while
+ * the leak keeps running. Both paths end in the same state — intact,
+ * `driverId === null` — so one sweep here answers both.
+ *
+ * What may go is decided by PROVENANCE, not by appearance: only ids in
+ * `state.ambientFleet`, which `putAiVehicle` is the sole writer of. The
+ * kerbside stock `session.ts` lays down is a designed budget (166 cars for
+ * this city, ranked and pinned exactly) and is not in the register, so a car
+ * a pedestrian borrowed from a kerb and parked elsewhere reverts to being
+ * street furniture exactly as before. A player's own parked car is not in the
+ * register either, and neither is a vehicle home or a gang car.
+ *
+ * The distance rule is the cull's own `despawnDist` (1100 px), which is well
+ * outside the server's interest radius (600 px), so no client has ever been
+ * told the car exists and nothing blinks out in view — the same argument
+ * `retireAbandoned` makes for the force's litter.
+ */
+function reclaimAmbient(state: GameState): void {
+  const t = getTrafficTuning();
+  const doomed: number[] = [];
+  for (const key of Object.keys(state.ambientFleet)) {
+    const id = Number(key);
+    const v = state.vehicles.byId[id];
+    // The register cannot outlive what it registers, or it grows for the
+    // lifetime of the process — the rule `stepTrafficPopulation` applies to
+    // `trafficDrivers` and `retireAbandoned` applies to `copFleet`. A car that
+    // left through the wreck fuse or the crusher leaves here too.
+    if (!v) {
+      delete state.ambientFleet[id];
+      continue;
+    }
+    // Somebody is driving it: an ambient driver, an officer who took it, or a
+    // player. Not litter, and taking it away underneath any of them is the
+    // mistake `isPoliceVehicle` exists to prevent.
+    if (v.driverId !== null) continue;
+    // A wreck is the fuse's to clear, and clearing it early would swallow the
+    // explosion the fuse is counting down to.
+    if (v.condition !== 'ok') continue;
+    if (state.copFleet[id] !== undefined) continue;
+    let seen = false;
+    for (const pid of state.players.ids) {
+      const p = state.players.byId[pid];
+      if (!p) continue;
+      if (distVec(p.pos, v.pos) <= t.despawnDist) {
+        seen = true;
+        break;
+      }
+    }
+    if (seen) continue;
+    doomed.push(id);
+  }
+  for (const id of doomed) {
+    removeEntity(state.vehicles, id);
+    delete state.ambientFleet[id];
+    delete state.trafficDrivers[id];
+    delete state.vehicleHitTick[id];
+  }
+}
+
 export function stepTrafficPopulation(state: GameState, map: CityMap): void {
   const t = getTrafficTuning();
   const spawns = map.vehicleSpawns;
@@ -1183,12 +1275,19 @@ export function stepTrafficPopulation(state: GameState, map: CityMap): void {
     }
   }
   // Cull first so the count below reflects the cull.
+  //
+  // Taking the driver away is all this does: whether the CAR then goes is
+  // `reclaimAmbient`'s question, and it turns on where the car came from. One
+  // the session parked at a kerb goes back to being parked, which is what it
+  // was; one ambient traffic minted is surplus and is taken off the map.
   for (const id of doomed) {
     const v = state.vehicles.byId[id];
     if (!v) continue;
-    v.driverId = null; // becomes an ordinary parked car, then is reused
+    v.driverId = null;
   }
   aiCount -= doomed.length;
+
+  reclaimAmbient(state);
 
   // Drop bookkeeping for anything that no longer has an ambient driver, so the
   // record cannot grow for the lifetime of the process.
@@ -1323,6 +1422,10 @@ export function putAiVehicle(
   v.speed = q8(t.cruiseSpeed * kindSpeedScale(kind, t) * 0.6);
   v.driverId = -1000 - id; // negative => AI, and never -1
   state.trafficDrivers[id] = freshDriver(place.dir);
+  // The provenance mark. This is the sole writer: a car is ambient traffic's
+  // to take away only if ambient traffic is what put it there. See
+  // `reclaimAmbient`.
+  state.ambientFleet[id] = state.tick;
   insertEntity(state.vehicles, v);
   return id;
 }
@@ -1486,6 +1589,19 @@ export function tryCarjack(
 
   best.driverId = playerId;
   delete state.trafficDrivers[best.id];
+  // Jacked is taken: the same rule `tryEnterVehicle` keeps. Whatever the
+  // player does with it afterwards — drive it into the river, park it outside
+  // their own front door — it is no longer traffic's to reclaim.
+  //
+  // Note what this does NOT do: gate the jack itself on `copFleet`. Round 3
+  // left dragging an officer out of a cruiser deliberately ungated, because
+  // that is the verb the genre is named after, and the awkward case R5-C01
+  // raised — being handed a FROZEN police vehicle with a civilian ambient
+  // driver in it, which is not the same thing at all — cannot arise any more:
+  // `stepBoarding` was its only producer and now keeps the `copFleet` gate
+  // too. Every `copFleet` vehicle this loop can still see has an officer in
+  // it, which is exactly the live path Round 3 kept.
+  delete state.ambientFleet[best.id];
   best.speed = q8(best.speed * 0.4); // the scramble in costs you momentum
 
   // The person you dragged from the wheel exists: they land on the ground
