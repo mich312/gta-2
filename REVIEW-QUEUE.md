@@ -807,7 +807,46 @@ That is the second unverified suspicion this loop has generated and then
 killed. Worth noting that both came from verifiers speculating past their
 brief — useful, but they belong in the queue as suspicions, never as findings.
 
-### A third correction to the loop: worktree bases are not guaranteed current
+### The stale base is systematic, not incidental — and it supersedes what this file said about it first
+
+**Every worktree in this project is cut from `1469611`, the original `main`
+merge.** Verified across all eight created in rounds 2 and 3:
+
+```
+a135733d a3252439 a666958f a6f80c5f
+a89c873f a8a6aa0e ab1f2dda ad21c1da   -> all base=1469611
+```
+
+Worktree isolation cuts from the merge-base, not the branch head. That is a
+property of the tool, not a mistake any agent made.
+
+**What it means for rounds 2 and 3.** Every fixer's own "green" was run
+against a tree missing all the others' work — including its own round's
+siblings. Their code merged cleanly only because the partitions really were
+disjoint. Two agents came close to the edge: the sim fixer needed C01's
+round-2 code, found it absent and fast-forwarded itself; the B01 fixer refused
+to start at all.
+
+**Why nothing was silently wrong.** The rule already written here —
+*the combined run is authoritative, a fixer's own green never is* — is the
+only reason. Round 2's real verification (90 files, 953 tests, parity OK) ran
+in the main checkout with everything merged. Had that backstop not existed,
+three rounds of void verification would have read exactly like three rounds of
+passing verification.
+
+**It also re-explains an earlier entry.** The note above about fixers racing
+on `REVIEW-QUEUE.md` is right as policy but wrong on mechanism: the round-2
+D03 fixer could not find the file in its worktree because `0172a8e` — the
+commit that added it — was not in its stale base. Keep the policy; correct the
+diagnosis.
+
+**The rule from here**: every worktree dispatch begins with an explicit
+`git fetch origin <branch> && git reset --hard <named sha>`, and the agent
+states the post-reset commit in its report. Pin a sha, never "latest" — the
+branch head moves while an agent works, as the B01 fixer observed it doing
+three times in one sitting.
+
+### The earlier, narrower version of this lesson (kept for the record)
 
 The renderer worktree was cut from **`1469611`, the original `main` merge** —
 before round 1 — while the other two round-3 worktrees were correctly based on
