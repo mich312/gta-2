@@ -228,6 +228,12 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
       }
       continue;
     }
+    // Two questions, and they are not the same one. This is the first: is the
+    // door on the piece of ground the rest of the city is on? `drivable` is
+    // deliberately generous — a car park counts, and a landmark you reach by
+    // mounting the kerb is still reached — so the answer is about the MAP
+    // being in one piece, and the message says so rather than claiming a
+    // street the flood never looked for (R1-A05).
     let near = false;
     for (let r = 0; r <= 6 && !near; r++) {
       for (let oy = -r; oy <= r && !near; oy++) {
@@ -241,7 +247,35 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
       }
     }
     if (!near) {
-      problems.push({ severity: 'error', message: `${l.name} (${l.kind}) has no road to it` });
+      problems.push({
+        severity: 'error',
+        message:
+          `${l.name} (${l.kind}) is cut off: no ground within six tiles of its door ` +
+          `is on the same piece as the rest of the city`,
+      });
+    }
+    // And the second: is there a STREET to arrive on? This is the promise
+    // WORLDGEN.md §12.4 makes for the bake — "every landmark with a road
+    // within six tiles" — and until now only `shared/test/city.test.ts` kept
+    // it, over the drawn city alone. `checkCity` is the only gate a GENERATED
+    // city passes through, so the checker has to ask it too, in the terms the
+    // driveway pass (`bake.ts`, "every landmark has a way in") answers: a
+    // frontage of real carriageway, not merely ground you could drive over.
+    let frontage = false;
+    for (let oy = -6; oy <= 6 && !frontage; oy++) {
+      for (let ox = -6; ox <= 6; ox++) {
+        const t = at(dx + ox, dy + oy);
+        if (t === T_ROAD || t === T_BRIDGE) {
+          frontage = true;
+          break;
+        }
+      }
+    }
+    if (!frontage) {
+      problems.push({
+        severity: 'error',
+        message: `${l.name} (${l.kind}) has no road within six tiles of its door`,
+      });
     }
     if (at(l.x, l.y) === T_WATER) {
       problems.push({ severity: 'error', message: `${l.name} (${l.kind}) is in the water` });
@@ -393,6 +427,154 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
           message:
             `${road.name} may bridge but ${g.len.toFixed(0)} tiles of its course carry no ` +
             `carriageway at all, from ${g.x0},${g.y0} to ${g.x1},${g.y1} — ${why}`,
+        });
+      }
+    }
+  }
+
+  // 6. No public street across a runway.
+  //
+  //    Wave 2.3 promised this rule and never wrote it: the suite pinned only
+  //    the converse — every `T_RUNWAY` tile is inside an airstrip rect
+  //    (`shared/test/city.test.ts`) — which says nothing about what else is
+  //    on the strip. A borough's grid laid over an airfield is a landing you
+  //    cannot use and traffic driving through a take-off run, and it is
+  //    invisible from the ground (R1-A08).
+  //
+  //    The line the rule has to draw is between a spur and a through route,
+  //    because the bake CUTS carriageway into these rects on purpose: every
+  //    non-`byAir` landmark gets a driveway from its door to the nearest
+  //    street (`bake.ts`, "every landmark has a way in"), and Marsh End's
+  //    runs fourteen tiles up the strip to the hangar. That is a taxiway with
+  //    a job (PROGRESS.md, wave 2.3) and must not be reported.
+  //
+  //    A street CROSSES: you can drive onto the strip from the city and off
+  //    it back into the city, so traffic has a reason to be there. A track
+  //    DEAD-ENDS: whatever is at its far end is served by the track itself
+  //    and by nothing else. Counting the openings alone does not say which —
+  //    a generated airfield (plangen seed 512) has its door on the far side,
+  //    so the bake's own driveway comes up from the south, crosses the strip
+  //    and joins the street network in the north, touching carriageway on
+  //    two sides while still being one track to one door.
+  //
+  //    What tells them apart is where each opening LEADS. Take the map's
+  //    carriageway with the strip's own carriageway lifted out of it: the
+  //    city's street network is the largest piece that remains, and the tail
+  //    of an access track is a stub of a dozen tiles that reaches nothing.
+  //    An opening onto the network is a way in; an opening onto the stub is
+  //    the other end of the same driveway. Two ways in is a crossing.
+  //
+  //    Known blind spot, and deliberate: a strip that is the ONLY link
+  //    between two halves of a city reads as a spur here, because lifting it
+  //    out leaves two pieces and only the larger is called the network. That
+  //    city has a worse problem than its runway, and rule 1's own
+  //    orphaned-ground and one-street-network reports are where it shows.
+  for (const l of plan.landmarks) {
+    if (l.kind !== 'airstrip') continue;
+    const [rx, ry, rw, rh] = l.rect;
+    const inRect = (x: number, y: number): boolean =>
+      x >= rx && x < rx + rw && y >= ry && y < ry + rh;
+    const carriageway = (x: number, y: number): boolean => {
+      const t = at(x, y);
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    // The street network as it would be without this strip: components of
+    // carriageway with everything inside the rect lifted out, biggest first.
+    const outside = new Int32Array(W * H).fill(-1);
+    const outSizes: number[] = [];
+    for (let s0 = 0; s0 < city.tiles.length; s0++) {
+      const sx = s0 % W;
+      const sy = (s0 - sx) / W;
+      if (!carriageway(sx, sy) || inRect(sx, sy) || (outside[s0] as number) >= 0) continue;
+      const id = outSizes.length;
+      let n = 0;
+      const q = [s0];
+      outside[s0] = id;
+      while (q.length > 0) {
+        const i = q.pop() as number;
+        n++;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [ox, oy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + ox;
+          const ny = y + oy;
+          if (!carriageway(nx, ny) || inRect(nx, ny)) continue;
+          const j = ny * W + nx;
+          if ((outside[j] as number) >= 0) continue;
+          outside[j] = id;
+          q.push(j);
+        }
+      }
+      outSizes.push(n);
+    }
+    let network = -1;
+    for (const [id, n] of outSizes.entries()) {
+      if (network < 0 || n > (outSizes[network] as number)) network = id;
+    }
+    const walked = new Set<number>();
+    for (let y0 = ry; y0 < ry + rh; y0++) {
+      for (let x0 = rx; x0 < rx + rw; x0++) {
+        if (!carriageway(x0, y0) || walked.has(y0 * W + x0)) continue;
+        const stack = [y0 * W + x0];
+        walked.add(y0 * W + x0);
+        let tiles = 0;
+        const mouths: Array<[number, number]> = [];
+        while (stack.length > 0) {
+          const i = stack.pop() as number;
+          tiles++;
+          const x = i % W;
+          const y = (i - x) / W;
+          for (const [dx2, dy2] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = x + dx2;
+            const ny = y + dy2;
+            if (!carriageway(nx, ny)) continue;
+            if (!inRect(nx, ny)) {
+              // Only where it leads back to the city. The far end of a
+              // driveway leads to the door it was cut for and nowhere else.
+              if ((outside[ny * W + nx] as number) === network) mouths.push([nx, ny]);
+              continue;
+            }
+            const j = ny * W + nx;
+            if (walked.has(j)) continue;
+            walked.add(j);
+            stack.push(j);
+          }
+        }
+        // One mouth per OPENING, not per tile: a track two tiles wide leaves
+        // two neighbouring tiles of street behind it and is still one way in,
+        // and a four-lane one leaves four. Touching tiles are the same
+        // opening, transitively — take the run, not the pair.
+        const openings: Array<Array<[number, number]>> = [];
+        for (const m of mouths) {
+          const touching = openings.filter((o) =>
+            o.some(([wx, wy]) => Math.abs(wx - m[0]) <= 1 && Math.abs(wy - m[1]) <= 1),
+          );
+          if (touching.length === 0) {
+            openings.push([m]);
+            continue;
+          }
+          const merged = touching.flat();
+          merged.push(m);
+          for (const o of touching) openings.splice(openings.indexOf(o), 1);
+          openings.push(merged);
+        }
+        if (openings.length < 2) continue;
+        const ways = openings.map((o) => o[0] as [number, number]);
+        problems.push({
+          severity: 'error',
+          message:
+            `a street runs through ${l.name}: ${tiles} carriageway tiles inside the strip, ` +
+            `open to the network at ${ways.map(([mx, my]) => `${mx},${my}`).join(' and ')}`,
         });
       }
     }

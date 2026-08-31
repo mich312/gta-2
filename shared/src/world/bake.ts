@@ -97,6 +97,18 @@ export interface BakedCity {
 interface Recipe {
   ground: number;
   apron: number;
+  /**
+   * Columns at the WEST end of the rect that get `apron` rather than
+   * `ground` — the hut bay (R1-A08).
+   *
+   * Wave 2.3 promised the huts would come off the slabs and never moved
+   * them: a 3x3 hangar stamped at the rect's corner notched nine tiles out
+   * of the runway, and `runwayCentreRow` — which walks each column to the
+   * strip's own edges — put those columns' centreline a row lower than the
+   * rest, so the marked line jogged at x=507 and x=79. A landmark's ground
+   * is what it is FOR; the shed beside it stands on hardstanding.
+   */
+  bay?: number;
   /** Solid footprints as [dx, dy, w, h, storeys?] — storeys authored where a
    * hash cannot know a chimney from a hall (wave 3.1). */
   parts: (w: number, h: number) => Array<[number, number, number, number, number?]>;
@@ -163,7 +175,12 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   // the runway and the "runway" was three times the slab anybody drew
   // (REVIEW-WORLDGEN.md §2.1). A lot apron reads as what it is, and the
   // centreline rule now spans only the true strip.
-  airstrip: { ground: T_RUNWAY, apron: T_LOT, parts: () => [[0, 0, 3, 3]] },
+  // ...and the hangar stands on a bay of that hardstanding at the west end,
+  // not on the strip: the three columns it occupies are apron, so the runway
+  // itself is an unbroken rectangle and its centreline runs true (R1-A08).
+  // The drawn rects grew by those three columns when the bay was cut, so no
+  // strip lost any of the run it was drawn with.
+  airstrip: { ground: T_RUNWAY, apron: T_LOT, bay: 3, parts: () => [[0, 0, 3, 3]] },
   // The deliberate plazas (§13.6 step 7): open ground with streets flowing
   // through it. No parts — the space IS the landmark — except the circus,
   // whose monument stands in the ring's median for traffic to swing round.
@@ -386,7 +403,9 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // source of truth would have silently relabelled every stamped building
     // with no type error and no red test.
     const district = DISTRICT_TYPES[layout.district[y * W + x] as number] as DistrictType;
-    ground(x, y, w, h, recipe.ground);
+    const bay = recipe.bay ?? 0;
+    if (bay > 0) ground(x, y, bay, h, recipe.apron);
+    ground(x + bay, y, w - bay, h, recipe.ground);
     for (const [dx, dy, pw, ph, storeys] of recipe.parts(w, h)) {
       if (pw < 1 || ph < 1) continue;
       solid(x + dx, y + dy, pw, ph, district, storeys);

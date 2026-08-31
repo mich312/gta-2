@@ -533,6 +533,49 @@ describe('the city, as an asset', () => {
     expect(() => parseCityPlan(fat)).toThrow(/use median/);
   });
 
+  it('refuses a carriageway with no width at all', () => {
+    // R1-A06, and the other end of the same domain. The parser checked only
+    // the top of the range, so a width of 0 (or -3) was read, laid as nothing,
+    // and became a course `decodeBakedCity` refuses outright — "a course with
+    // no line or no width" — one pipeline stage and fifteen seconds later.
+    // The drawing is where a malformed number should be caught.
+    const thin = {
+      ...cityPlanJson,
+      roads: [{ name: 'No Width', points: [[10, 10], [20, 20]], width: 0 }],
+    };
+    expect(() => parseCityPlan(thin)).toThrow(/at least one tile/);
+    const backwards = {
+      ...cityPlanJson,
+      roads: [{ name: 'Inside Out', points: [[10, 10], [20, 20]], width: -3 }],
+    };
+    expect(() => parseCityPlan(backwards)).toThrow(/at least one tile/);
+  });
+
+  it('refuses geometry drawn entirely off the map, and keeps the overhang legal', () => {
+    // R1-A06. Only the landmark rect was bounds-checked; a river, a borough
+    // or a road could be drawn at -900 and every stage downstream would clip
+    // it to nothing without a word. The refusal is deliberately weak — off
+    // the map ALTOGETHER, not merely over the edge — because running off the
+    // frame is how both the drawn coast and every generated borough are made.
+    const nowhere = {
+      ...cityPlanJson,
+      geography: {
+        ...cityPlanJson.geography,
+        rivers: [{ name: 'The Nowhere', points: [[-900, -900], [-800, -800]], w0: 8, w1: 8 }],
+      },
+    };
+    expect(() => parseCityPlan(nowhere)).toThrow(/entirely off the map/);
+
+    const first = cityPlanJson.districts[0] as { area: number[][] };
+    const overhanging = {
+      ...cityPlanJson,
+      districts: cityPlanJson.districts.map((d, i) =>
+        i === 0 ? { ...d, area: first.area.map(([x, y]) => [(x as number) - 200, y as number]) } : d,
+      ),
+    };
+    expect(() => parseCityPlan(overhanging)).not.toThrow();
+  });
+
   // Two whole layouts, which is 45 seconds of work on its own against a
   // 60-second budget — and it loses that race whenever the rest of the suite
   // is running beside it. The others here build one layout and finish in 25.
@@ -793,6 +836,37 @@ describe('the city, as an asset', () => {
         const inside = strips.some(([rx, ry, rw, rh]) => x >= rx && x < rx + rw && y >= ry && y < ry + rh);
         expect(inside, `runway tile at ${x},${y} outside every airstrip rect`).toBe(true);
       }
+    }
+  });
+
+  it('keeps the huts off the slabs, so every strip is marked down one line', () => {
+    // Wave 2.3's other promise, unkept until R1-A08: the hangar was stamped
+    // at the rect's corner, notching nine tiles out of the runway. The
+    // centreline rule (`client/render/tiles.ts`, `runwayCentreRow`) walks
+    // each COLUMN to that column's own runway edges and marks the middle
+    // row, so the three shortened columns put their dash a row south of the
+    // rest and both strips were marked with a kink — at Marsh End x=507, at
+    // Gannet x=79. The hut stands on a bay of apron now, and this is the
+    // property that was actually wanted: one strip, one line.
+    const W = map.widthTiles;
+    for (const l of plan.landmarks.filter((m) => m.kind === 'airstrip')) {
+      const [rx, ry, rw, rh] = l.rect;
+      const rows = new Map<number, number>();
+      for (let x = rx; x < rx + rw; x++) {
+        for (let y = ry; y < ry + rh; y++) {
+          if (map.tiles[y * W + x] !== T_RUNWAY) continue;
+          let y0 = y;
+          while (map.tiles[(y0 - 1) * W + x] === T_RUNWAY) y0--;
+          let y1 = y;
+          while (map.tiles[(y1 + 1) * W + x] === T_RUNWAY) y1++;
+          if (y1 - y0 >= 2) rows.set(x, y0 + ((y1 - y0) >> 1));
+          break;
+        }
+      }
+      // Every column that carries runway carries it whole, and every one of
+      // them agrees where the middle is.
+      expect(rows.size, `${l.name} has no marked runway columns`).toBeGreaterThan(20);
+      expect(new Set(rows.values()).size, `${l.name} centreline jogs: ${JSON.stringify([...rows])}`).toBe(1);
     }
   });
 

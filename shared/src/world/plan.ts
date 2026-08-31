@@ -377,6 +377,15 @@ export function parseCityPlan(raw: unknown): CityPlan {
     if (width > MAX_CARRIAGEWAY) {
       fail(`roads[${i}] (${String(o['name'])}) is ${width} wide; use median for anything over ${MAX_CARRIAGEWAY}`);
     }
+    // And the other end of the same domain, which was open (R1-A06). A road
+    // zero or fewer tiles wide is not a narrow road, it is not a road: it
+    // becomes a course that `decodeBakedCity` refuses outright — `bake.ts`,
+    // "a course with no line or no width" — so the plan was waving through a
+    // number its own asset decoder calls malformed, one pipeline stage and
+    // fifteen seconds later. Refuse it where the drawing is read.
+    if (width < 1) {
+      fail(`roads[${i}] (${String(o['name'])}) is ${width} wide; a road is at least one tile`);
+    }
     return {
       name: str(o['name'], `roads[${i}].name`),
       points: (pts as unknown[]).map((p, k) => point(p, `roads[${i}].points[${k}]`)),
@@ -431,6 +440,43 @@ export function parseCityPlan(raw: unknown): CityPlan {
       fail(`landmark ${l.name} is outside the map`);
     }
   }
+  // Every other drawn shape is on the map too (R1-A06).
+  //
+  // Not INSIDE it, the way a landmark must be: a coast outline runs off the
+  // frame on purpose, and a generated borough's polygon overhangs the edge by
+  // forty tiles so its fabric reaches the shore instead of stopping short of
+  // it. Everything downstream clips — `lay()`, `onGround`, `pointInPoly` —
+  // and that clipping is the design, not an accident to be legislated away.
+  //
+  // What is never a drawing is a shape with NOTHING on the map at all: a
+  // river out at -900, a borough nobody will ever stand in, a road that meets
+  // no ground. Those clip to nothing and bake in silence, which is exactly
+  // the "hoped about at runtime" this file's opening refuses. Only the
+  // landmark rect had a bounds check before; now the rivers, the outlines,
+  // the boroughs and the roads have one in the terms that suit them.
+  const onMap = (points: readonly PlanPoint[], what: string): void => {
+    let x0 = Infinity;
+    let y0 = Infinity;
+    let x1 = -Infinity;
+    let y1 = -Infinity;
+    for (const [x, y] of points) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+    if (x1 < 0 || y1 < 0 || x0 > plan.widthTiles || y0 > plan.heightTiles) {
+      fail(`${what} is drawn entirely off the map (x ${x0}..${x1}, y ${y0}..${y1})`);
+    }
+  };
+  const g = plan.geography;
+  g.islands.forEach((p, i) => onMap(p, `geography.islands[${i}]`));
+  g.bays.forEach((p, i) => onMap(p, `geography.bays[${i}]`));
+  g.lagoons.forEach((p, i) => onMap(p, `geography.lagoons[${i}]`));
+  for (const s of g.spits) onMap(s.points, `spit ${s.name}`);
+  for (const s of g.rivers) onMap(s.points, `river ${s.name}`);
+  for (const d of plan.districts) onMap(d.area, `district ${d.name}`);
+  for (const rd of plan.roads) onMap(rd.points, `road ${rd.name}`);
   for (const d of plan.districts) {
     if (d.street.fabric === 'spine' && !plan.roads.some((r) => r.name === d.street.spine)) {
       fail(`district ${d.name}: spine road "${d.street.spine}" is not in the plan`);
