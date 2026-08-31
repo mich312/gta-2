@@ -33,6 +33,34 @@ Fix exactly the confirmed finding you were given. Nothing else.
 5. **Update `REVIEW-QUEUE.md`**: status `[x]`, the commit sha, and the
    before/after evidence paths.
 
-Never skip, disable, or loosen a test to get green. If a test now fails and
+Never skip, disable, or loosen a test to get green.
+
+## Never `git stash`
+
+`refs/stash` lives in the **common** git dir, so every worktree in this project
+shares ONE stash stack. `stash@{0}` is whoever pushed last, from any agent.
+Two fixers in round 4 each popped the other's changes into their own tree.
+
+To take a before/after baseline reading, copy the file aside:
+
+```bash
+cp shared/src/sim/police.ts /tmp/mine.ts
+git checkout -- shared/src/sim/police.ts   # measure the baseline
+cp /tmp/mine.ts shared/src/sim/police.ts   # put it back
+```
+
+Before you commit, run `git diff --stat` and confirm it lists only the files
+you meant to change.
+
+## A repro that does not reproduce is not evidence
+
+Repro scripts decay. The world moves under them — a rebake puts a wall where
+there was open ground, a spawn moves onto a kerb. Round 4 found the round-1
+corpse-witness script printing `false` on every row **including its own
+control**, which would have read as "already fixed".
+
+So: **always confirm the control first.** If the script's known-positive case
+does not fire, the script is broken, not the code. Repair the staging (the
+house helper is `shared/test/helpers.ts`) before you conclude anything. If a test now fails and
 you believe the test is wrong, that is an `ESCALATED` finding of its own, not
 a line to delete.

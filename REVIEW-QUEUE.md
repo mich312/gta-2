@@ -163,10 +163,10 @@ wedges eventually, at t≈105s; the moving stretch is the measurement.)
 - round-1 repro, for the record: `node evidence/round1/C-repro-copcars.mjs 4 240 mortal` goes from `copcars=6 (driven 0, abandoned 6) motorised=0` at every sample from t=45s, `ever had a car: 6`, to `ever had a car: 9` with occasional motorised officers — the small change is the wedge, not the fix. Its "308 officers dispatched" is a stationary suspect being arrested and re-heated in place.
 
 ### R1-C02 — `noticedBy` skips both its filters: a corpse witnesses crimes, an invisible player is seen
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 4** — `0c9c534`, the structural route        verdict: CONFIRMED
 - round: 1   severity: significant   lens: C
 - where: `shared/src/sim/police.ts:172-188` (no `copIsDown`, no `POWER_INVISIBLE`, and it calls `hasLineOfSight` directly rather than `copSees`)
-- repro: `node evidence/round1/C-repro-corpse-witness.mjs`
+- repro: `node evidence/round3/F-R1-C02-corpse-witness.mjs` — **the round-1 script no longer demonstrates anything**, see below
 - verified: independent probe brackets it at 20px (noise), 80px (sight), 5000px (neither). Single caller `weapons.ts:271` does not filter. `node ci/test.mjs noise` passes 9/9 with the bug present — the suite is blind to it. `peds.json` `corpseSec: 40` makes the window 40s.
 - prior art: none. `police.ts:55` records the identical bug fixed in `anyCopSees` fifteen lines above.
 
@@ -1036,3 +1036,42 @@ city stops moving would only have to be redone.
 
 Every round-4 dispatch pins its base sha explicitly and the agent reports the
 commit it lands on — established as systematic, not incidental.
+
+
+## Round 4 — two more corrections to the loop, both found by running it
+
+### The shared stash stack (my instruction caused this)
+
+`refs/stash` lives in the **common** git dir, so every worktree agent shares
+one stack. The C02 fixer pushed a stash, popped the **C04 fixer's**
+`fittings.ts` + `vehicleDamage.ts` into its own tree, and dropped it; the C04
+fixer concurrently popped C02's `police.ts`. Both recovered, both re-stashed
+the other's work with a naming message, and the C02 fixer verified its commit
+with `git diff --stat` before committing. Nothing was lost.
+
+The cause was **my prompt**: every round-3 and round-4 brief said "if you
+suspect your change, stash it and run the baseline". That technique came from
+round 2's D05 fixer, where it was correct — one agent, no contention. It does
+not survive four concurrent worktrees. `FIXER.md` now forbids `git stash` and
+gives the copy-aside recipe instead.
+
+Fourth instance of one class: build artifacts, the queue file, the base
+commit, now the stash stack. **"Isolated" worktrees share every ref that lives
+in the common git dir.**
+
+### A repro that does not reproduce is not evidence
+
+The round-1 corpse-witness script posts its officer at a hard-coded `+80px`,
+which was open ground when written and is **inside a wall** after rounds 2-3
+moved the city. It printed `false` on every row — including its own
+live-and-visible control.
+
+A fixer trusting it would have concluded the bug was already fixed and closed
+R1-C02 without changing a line. The C02 fixer noticed the control was dead,
+restaged on a genuinely clear line using the house rule from
+`shared/test/helpers.ts`, and reproduced the round-1 numbers exactly.
+
+**Always confirm the control first**; a dead control means the instrument is
+broken, not the code. `FIXER.md` now says so. This also means every repro
+script banked in earlier rounds is suspect after a rebake — they are evidence
+of what was true when written, not standing tests.
