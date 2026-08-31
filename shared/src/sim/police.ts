@@ -168,6 +168,17 @@ function liveCopCount(state: GameState): number {
  * makes a silenced weapon worth carrying — the same kill at a fraction of the
  * attention. A loud weapon in an empty street is still a crime; a quiet one
  * with a patrol car round the corner still is too.
+ *
+ * Both branches ask a live officer. A body neither hears nor sees — the same
+ * rule `anyCopSees` had to learn above, and the reason a street you had
+ * cleared went on reporting you for the forty seconds a corpse lingers. And
+ * the sight branch asks `copSees` rather than the geometry directly: sight is
+ * one question with one answer (invisibility, and what a unit in the air can
+ * see over), and asking `hasLineOfSight` here was how this call came to give
+ * a different one — an invisible fugitive was noticed by every shot, so the
+ * cool-down clock the power-up is bought to start never started. Invisibility
+ * stops an officer seeing you, not hearing you — the noise branch stands, or
+ * the power-up would silence a shotgun.
  */
 export function noticedBy(
   state: GameState,
@@ -179,11 +190,11 @@ export function noticedBy(
   const n2 = noiseRadius * noiseRadius;
   for (const cid of state.cops.ids) {
     const cop = state.cops.byId[cid];
-    if (!cop) continue;
+    if (!cop || copIsDown(cop)) continue;
     const dx = cop.pos.x - p.pos.x;
     const dy = cop.pos.y - p.pos.y;
     if (dx * dx + dy * dy <= n2) return true;
-    if (hasLineOfSight(map, cop, p, range)) return true;
+    if (copSees(map, cop, p, range)) return true;
   }
   return false;
 }
