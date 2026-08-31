@@ -1,4 +1,5 @@
 import { getTuning } from '../tuning.js';
+import { dCos, dSin } from '../math/trig.js';
 import { TILE_SIZE, type CityMap } from './types.js';
 import type { WorldgenParams } from './params.js';
 
@@ -43,13 +44,15 @@ export function assignTurf(map: CityMap, params: WorldgenParams): void {
   const span = Math.min(map.widthTiles, map.heightTiles);
   for (let i = 0; i < count; i++) {
     // Fixed irregular offsets: a pure function of the index, so the map is
-    // still identical for the same seed on every host.
+    // still identical for the same seed on every host. `dCos`/`dSin` for the
+    // same reason — `Math.cos` is not pinned by ECMA-262, so "every host" was
+    // only true of hosts that happen to share an engine.
     const angle =
       (i / count) * Math.PI * 2 + (ANGLE_STAGGER[i % ANGLE_STAGGER.length] as number);
     const radius = span * (RADIUS_STAGGER[i % RADIUS_STAGGER.length] as number);
     homes.push({
-      x: cx + Math.cos(angle) * radius,
-      y: cy + Math.sin(angle) * radius,
+      x: cx + dCos(angle) * radius,
+      y: cy + dSin(angle) * radius,
       // Gang ids are 1..N by construction, matching gangs.json.
       gang: i + 1,
     });

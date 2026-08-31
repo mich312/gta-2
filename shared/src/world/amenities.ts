@@ -1,5 +1,5 @@
 import { deriveSeed, nextFloat01, nextIntRange, seedRng } from '../rng/prng.js';
-import { HALF_PI, PI } from '../math/trig.js';
+import { HALF_PI, PI, dCos, dSin } from '../math/trig.js';
 import type { Vec2 } from '../math/vec.js';
 import { latticeHash } from './fields.js';
 import type { WorldgenParams } from './params.js';
@@ -380,8 +380,8 @@ function bearingCarriageway(map: CityMap, tx: number, ty: number, angle: number)
     const tile = t(map, Math.round(x), Math.round(y));
     return tile === T_ROAD || tile === T_BRIDGE;
   };
-  const dx = Math.cos(angle);
-  const dy = Math.sin(angle);
+  const dx = dCos(angle);
+  const dy = dSin(angle);
   // One tile of sideways tolerance on the walk: a rotated band's edge lane
   // rasterises with a half-tile wobble, and a spot ON the wobble is still on
   // a street that genuinely continues. What the car needs is the street,
@@ -530,7 +530,16 @@ export function placeParking(map: CityMap, params: WorldgenParams): void {
       // Kerb on the right of travel: for a west kerb that means heading
       // south; here it means whichever of the two ways along the bearing
       // puts the kerb tile on the right-hand side.
-      const rightDot = kerbWest ? Math.sin(a) : -Math.cos(a);
+      //
+      // `dSin`, not `Math.sin`, and this is the site that made the rule worth
+      // extending here: on an east-west street `a` is exactly PI, and
+      // `Math.sin(PI)` is 1.2246e-16 — the residue of PI's own float
+      // representation, not a number the language pins the SIGN of. The test
+      // below is `> 0`, so an engine returning zero or a hair negative parks
+      // that car facing the other way down the street, and `heading` is a
+      // snapshot field (`snapshot.ts`) that `hashState` hashes. `dSin(PI)` is
+      // exactly 0 on every host, so the branch is the same everywhere.
+      const rightDot = kerbWest ? dSin(a) : -dCos(a);
       const heading = rightDot > 0 ? a : a + PI;
       const trusted = along !== null;
       spots.push({
@@ -945,7 +954,12 @@ function drivableNear(map: CityMap, at: Vec2, taken: Vec2[], clearPx: number, re
       const y = (ty + dy + 0.5) * TILE_SIZE;
       let clash = false;
       for (const o of taken) {
-        if (Math.hypot(o.x - x, o.y - y) < clearPx) {
+        // Squared, not `Math.hypot`: `*` and `+` are exactly rounded under
+        // IEEE-754 and `hypot` is not, and this comparison decides where a
+        // vehicle stands in a city both hosts generate for themselves.
+        const ox = o.x - x;
+        const oy = o.y - y;
+        if (ox * ox + oy * oy < clearPx * clearPx) {
           clash = true;
           break;
         }

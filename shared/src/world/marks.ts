@@ -21,6 +21,8 @@
  * so it can be tested without generating a city.
  */
 
+import { dAtan2 } from '../math/trig.js';
+
 export type IsRoad = (tx: number, ty: number) => boolean;
 
 /**
@@ -96,7 +98,7 @@ export function diagonalRoadDir(
   const cxy = sxy - (sx * sy) / n;
   // Principal axis of the scatter. `0.5 * atan2(2σxy, σxx − σyy)` is the
   // textbook orientation of the major axis; quantise it to 45° steps.
-  const theta = 0.5 * Math.atan2(2 * cxy, cxx - cyy);
+  const theta = 0.5 * dAtan2(2 * cxy, cxx - cyy);
   const step = Math.round(theta / (Math.PI / 4));
   // Steps: 0 horizontal, ±2 vertical, 1 is (+1,+1), -1 is (+1,-1).
   if (step === 1) return 'se';
