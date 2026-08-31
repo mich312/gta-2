@@ -958,10 +958,23 @@ south-east; barrier islands off the south shore and a rock stack off the west.
 | **Marsh End** (south-east) | Flats and coast road, the airfield, the country destinations | Marsh End Airfield, Hollis Farm, Pinewatch Camp, Old Point Light |
 | **Port Vasco** (west island) | Docks and foundry across the sound, with the housing that serves them | Kessler Power, Greyhill Quarry, Harbour Precinct, Riverside Infirmary |
 
-Crossings, and there are eight of them, because on an archipelago the question
-"which bridge" is the interesting one: three over the strait (Kelvin Bridge,
-Old Bridge, Marsh Causeway), two over the sound to Port Vasco, and the ring
-road's own two crossings.
+Crossings, because on an archipelago the question "which bridge" is the
+interesting one. **Drawn**: three over the strait (Kelvin Bridge, Old Bridge,
+Marsh Causeway), two over the sound to Port Vasco, and the ring road's own two
+— west over the Kelvin and east over the bay.
+
+**Built, as of the R1-A01 rebake: five of the seven** — it was four, and the
+paragraph said eight. It claimed them all for four waves while three were
+missing from the bake and nothing in the pipeline said so. `checkCity` now has
+a rule that names any `bridges: true` road it did not build end to end, and
+`server/test/shippedCity.test.ts` pins what the shipped city is still wrong
+about. The two outstanding, and why, are in REVIEW-QUEUE.md R1-A01:
+
+- **Marsh Causeway** — drawn from 17 tiles out in open water across a bay
+  93-100 tiles wide, against a `maxBridgeSpan` of 72. Needs a route, not a
+  nudge.
+- **the ring road's east crossing** — the bay is 73-75 tiles on the line the
+  ring takes. It misses by one to three tiles.
 
 ### 12.4 The pipeline
 

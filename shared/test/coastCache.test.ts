@@ -89,13 +89,6 @@ describe('the water tiles are a rasterisation of the coast rings', () => {
         // A bridge deck is laid over water AFTER the coast exists, and a deck
         // is not land. Expected, and not a disagreement about the coastline.
         decks++;
-      } else if (wet && sea[i] === 0) {
-        // Was 486 tiles of park pond with no ring at all (§27.2), which is
-        // what this test was written to pin. §29 gave ponds rings, so this
-        // should now be nothing — kept as a named case so that if some future
-        // pass starts carving water behind the curve's back, the failure says
-        // which kind of water it is.
-        ponds++;
       } else if (onTheLine(i)) {
         // A tile whose centre lies EXACTLY on the waterline. The even-odd
         // rule has to answer in or out, and the coordinates are shipped
@@ -104,6 +97,25 @@ describe('the water tiles are a rasterisation of the coast rings', () => {
         // disagreement about where the coast is — the coast is precisely
         // there — but about which side of itself a point on it falls.
         ties++;
+      } else if (wet && sea[i] === 0) {
+        // Was 486 tiles of park pond with no ring at all (§27.2), which is
+        // what this test was written to pin. §29 gave ponds rings, so this
+        // should now be nothing — kept as a named case so that if some future
+        // pass starts carving water behind the curve's back, the failure says
+        // which kind of water it is.
+        //
+        // Asked AFTER the tie, and the order is the whole point. "Enclosed"
+        // was standing in for "no ring describes it", and the two came apart
+        // the moment R1-A01 restored Kelvin Bridge: a deck spans its channel
+        // wall to wall, so the reach of the strait between Kelvin Bridge and
+        // Old Bridge stopped being reachable from the map border (enclosed
+        // water 20,249 -> 29,286 tiles). Three of the seven ties fell inside
+        // it and were reported as ponds — water carved behind the curve's
+        // back, at distance 0.0000 from the curve. The discriminator for a
+        // pond is that NO ring accounts for the tile, and that is what
+        // `onTheLine` answers first; a genuinely unringed pond is nowhere
+        // near a ring and still lands here.
+        ponds++;
       } else {
         unexplained++;
       }

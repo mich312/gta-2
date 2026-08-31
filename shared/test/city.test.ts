@@ -353,6 +353,45 @@ describe('the city, as an asset', () => {
     expect(tips).toBeLessThanOrEqual(80);
   });
 
+  it(
+    'cuts every contour borough across its bands, at whatever angle its shore runs',
+    { timeout: 60_000 },
+    () => {
+      // R1-A03. The `contour` fabric takes the frame for its straight cross
+      // streets from the principal axis of the borough's own waterline. That
+      // sample used to be "tiles within two band units of water" — an
+      // absolute threshold, which finds NOTHING in a borough whose banding
+      // shore is a quay it does not own. The Docks' nearest owned dry tile is
+      // nine units out, so the sample was empty, and the miss was silent: the
+      // frame fell back to the authored `angle: 0` and the cross streets were
+      // carved parallel to the bands they exist to cross. Twelve blocks in a
+      // borough pitched at 28x24, the biggest of them 27x158.
+      //
+      // Asserted for EVERY contour borough and not for The Docks, because The
+      // Terraces took the same empty sample and got away with it — its shore
+      // happens to run at the authored 0 degrees. A borough that is right by
+      // luck is the bug still being there.
+      const layout = buildLayout(plan);
+      const contours = plan.districts.filter((d) => d.street.fabric === 'contour');
+      expect(contours.length).toBeGreaterThan(0);
+      for (const d of contours) {
+        const cell = d.street.pitchX * d.street.pitchY;
+        const mine = layout.blocks.filter((b) => pointInPoly(d.area, b.x + b.w / 2, b.y + b.h / 2));
+        expect(mine.length, `${d.name} is barely subdivided at all`).toBeGreaterThan(20);
+        const areas = mine.map((b) => b.w * b.h).sort((a, z) => a - z);
+        const median = areas[areas.length >> 1] as number;
+        // A block is roughly the cell the borough was pitched at. Loose —
+        // shore, arterials and landmarks all cut blocks smaller — but a
+        // fabric carved along its own bands instead of across them lands
+        // nowhere near it: The Docks' median was 1691 against a 672 cell.
+        expect(
+          median / cell,
+          `${d.name}: median block ${median} tiles against a ${cell}-tile cell`,
+        ).toBeLessThan(1.5);
+      }
+    },
+  );
+
   it('has an island you can only reach by air', () => {
     // Gannet Rock. The claim is exact and worth pinning tile by tile, because
     // every way of getting somewhere in this game is a different question:

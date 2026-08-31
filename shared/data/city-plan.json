@@ -1298,7 +1298,7 @@
     },
     {
       "name": "Kelvin Bridge",
-      "note": "The signature span. Six lanes from the Spine to the seafront, and the shortest way between the two halves of the city.",
+      "note": "The signature span. Six lanes from the Spine to the seafront, and the shortest way between the two halves of the city. The south end is y=418 and not the y=400 it was drawn at: the warped south bank of the strait is at y=415, so the deck used to stop fifteen tiles out in the water, land on one side only, and the no-piers pass reverted the whole span to sea (R1-A01).",
       "width": 4,
       "curve": false,
       "bridges": true,
@@ -1309,7 +1309,7 @@
         ],
         [
           452,
-          400
+          418
         ]
       ]
     },
@@ -1631,9 +1631,10 @@
     {
       "kind": "police",
       "name": "Harbour Precinct",
+      "note": "Moved from [87, 317] to the block `citybake --fit` named, four west and eleven down the quay: R1-A03 gave The Docks the cross streets its contour fabric was always meant to have, and one of them runs where the old rect stood.",
       "rect": [
-        87,
-        317,
+        83,
+        328,
         7,
         7
       ]

@@ -220,7 +220,15 @@ describe('power-ups (F3b)', () => {
     const p = s.players.byId[1]!;
     p.heat = 250;
     p.powerFlags = POWER_JAIL_CARD;
-    insertEntity(s.cops, createCop(500, { x: p.pos.x + 8, y: p.pos.y }, 50));
+    // `clearSpot` and not eight px east, for the reason the fixtures in
+    // police.test.ts give: an arresting officer needs to SEE the player, and
+    // a fixed offset from a spawn is a wall as often as it is a pavement.
+    // This one held only while the spawn list put this seed's player in the
+    // middle of a street; the R1-A01/A03 rebake moved it to a kerb with the
+    // block behind it, and the officer was placed inside the building. The
+    // sibling test above already asks the map instead of guessing.
+    const beat = clearSpot(map, p.pos, 8);
+    insertEntity(s.cops, createCop(500, { x: beat.x, y: beat.y }, 50));
     const events: SimEvent[] = [];
     s = step(s, { 1: NULL_INPUT }, [], map, events);
     expect(events.some((e) => e.type === 'jailCardUsed')).toBe(true);

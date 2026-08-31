@@ -491,6 +491,40 @@ export function segmentDistance(
 }
 
 /**
+ * Offset a course sideways by `d` tiles: the two carriageways of a road with
+ * a median are this course displaced either way (see `PlanRoad.median`).
+ *
+ * Here rather than private to `layout.ts` because the checker has to be able
+ * to reconstruct the courses the layout actually carved. A dual carriageway's
+ * authored centreline runs down the middle of the reservation, which is not
+ * road and — over water — is not deck either, so asking "is the ring built
+ * here" of the authored line answers about the wrong tiles.
+ */
+export function offsetCourse(points: PlanPoint[], d: number): PlanPoint[] {
+  return points.map((p, i) => {
+    const a = points[Math.max(0, i - 1)] as PlanPoint;
+    const b = points[Math.min(points.length - 1, i + 1)] as PlanPoint;
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+    return [p[0] - ((b[1] - a[1]) / len) * d, p[1] + ((b[0] - a[0]) / len) * d] as PlanPoint;
+  });
+}
+
+/**
+ * The courses a road is actually carved along: one for an ordinary avenue,
+ * two for a dual carriageway, smoothed first if the road is a curve.
+ *
+ * `layout.ts` carves from this and `cityCheck.ts` inspects from it, so the
+ * two cannot drift apart — the checker asking about a course the bake never
+ * laid is how a rule ends up green on a road that is not there.
+ */
+export function roadCourses(road: PlanRoad): PlanPoint[][] {
+  const pts = road.curve ? smoothPolyline(road.points, 3) : road.points;
+  if (road.median <= 0) return [pts];
+  const off = (road.median + road.width) / 2;
+  return [offsetCourse(pts, off), offsetCourse(pts, -off)];
+}
+
+/**
  * Recursive midpoint displacement of a polyline, perpendicular to each run.
  *
  * Hashed off the midpoint's own coordinates, so the wander is the same every

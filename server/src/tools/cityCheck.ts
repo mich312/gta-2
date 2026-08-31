@@ -1,5 +1,6 @@
 import {
   parseCityPlan,
+  roadCourses,
   T_BRIDGE,
   T_BUILDING,
   T_FLOOR,
@@ -284,6 +285,117 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
     // failure mode — a deck you can drive off into the sea — must not be a
     // log line.
     problems.push({ severity: 'error', message: `${drowned} road tiles run straight into water` });
+  }
+
+  // 5. A road that may bridge has to actually be there, end to end.
+  //
+  //    `bridges: true` is a promise: this road crosses that water. Nothing
+  //    checked that the bake kept it. Kelvin Bridge's course stopped fifteen
+  //    tiles short of the far bank, so the no-piers pass (`layout.ts`, "no
+  //    causeways and no piers") correctly reverted the whole deck to sea —
+  //    and the plan still said there was a bridge there, the parser still
+  //    accepted it, and this checker still returned zero problems. Three
+  //    named crossings of the Kelvin were missing from the shipped city with
+  //    nothing anywhere reporting it (R1-A01).
+  //
+  //    It is here and not in `parseCityPlan` for the reason that file already
+  //    gives about `bandShore`: the geography has not been rasterised at
+  //    parse time, so "is there land at the end of this line" is not a
+  //    question the schema can ask. It is a question about a finished map,
+  //    which is what this function is for — and asking it here holds a
+  //    generated plan to it as well as a drawn one.
+  //
+  //    A warning, not an error, and deliberately: the rule reports a
+  //    DISAGREEMENT between the plan and the map, and which of the two is
+  //    wrong is a design decision each time. A crossing wider than
+  //    `maxBridgeSpan` means the bake was right and the plan is asking for a
+  //    ferry; a course that stops in the water usually means the polyline is
+  //    short. The shipped city's surviving disagreements are pinned by name
+  //    in `server/test/shippedCity.test.ts`, so a NEW one is a red test.
+  for (const road of plan.roads) {
+    if (!road.bridges) continue;
+    const half = road.width / 2;
+    for (const course of roadCourses(road)) {
+      // Is any tile of the carriageway's cross-section built here? The
+      // centreline alone is not the question: a road laid within half a
+      // width of a shore keeps the landward half of its tiles, and that is a
+      // narrow road, not a missing one.
+      const built = (x: number, y: number, nx: number, ny: number): boolean => {
+        for (let s = -half; s <= half; s += 0.5) {
+          const tx = Math.round(x + nx * s);
+          const ty = Math.round(y + ny * s);
+          const t = at(tx, ty);
+          if (t === T_ROAD || t === T_BRIDGE) return true;
+        }
+        return false;
+      };
+      interface Gap {
+        x0: number;
+        y0: number;
+        x1: number;
+        y1: number;
+        len: number;
+        fromStart: boolean;
+      }
+      let gap: Gap | null = null;
+      const gaps: Gap[] = [];
+      let sampled = 0;
+      for (let k = 0; k + 1 < course.length; k++) {
+        const [ax, ay] = course[k] as [number, number];
+        const [bx, by] = course[k + 1] as [number, number];
+        const len = Math.hypot(bx - ax, by - ay);
+        if (len === 0) continue;
+        const nx = -(by - ay) / len;
+        const ny = (bx - ax) / len;
+        const steps = Math.max(1, Math.ceil(len * 2));
+        for (let s = 0; s <= steps; s++) {
+          const t = s / steps;
+          const x = ax + (bx - ax) * t;
+          const y = ay + (by - ay) * t;
+          sampled++;
+          if (built(x, y, nx, ny)) {
+            gap = null;
+            continue;
+          }
+          if (gap === null) {
+            gap = {
+              x0: Math.round(x),
+              y0: Math.round(y),
+              x1: 0,
+              y1: 0,
+              len: 0,
+              fromStart: sampled === 1,
+            };
+            gaps.push(gap);
+          }
+          gap.x1 = Math.round(x);
+          gap.y1 = Math.round(y);
+          gap.len += len / steps;
+        }
+      }
+      const openEnd = gap;
+      for (const g of gaps) {
+        // Shorter than the road is wide is the rasteriser rounding, not a
+        // hole: a four-tile carriageway on a bend can miss its own centreline
+        // by a tile without anything being absent.
+        if (g.len <= road.width) continue;
+        // Why the road is missing, in the terms the bake decided it: a course
+        // that runs off its own end never had a far bank to land on, and a
+        // crossing longer than the plan allows was refused on purpose.
+        const why =
+          g.fromStart || g === openEnd
+            ? 'the course begins or ends out in the water, so the deck has land on one side only'
+            : g.len > plan.maxBridgeSpan
+              ? `a crossing longer than the plan's maxBridgeSpan of ${plan.maxBridgeSpan}`
+              : 'no bridge was laid over it';
+        problems.push({
+          severity: 'warning',
+          message:
+            `${road.name} may bridge but ${g.len.toFixed(0)} tiles of its course carry no ` +
+            `carriageway at all, from ${g.x0},${g.y0} to ${g.x1},${g.y1} — ${why}`,
+        });
+      }
+    }
   }
 
   return problems;

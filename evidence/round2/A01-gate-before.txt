@@ -1,0 +1,43 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a666958f7e415fc23
+
+ ❯ |server| test/shippedCity.test.ts (2 tests | 1 failed) 12ms
+   ✓ the shipped city > passes the checker with zero errors, byte-for-byte as committed 2ms
+   × the shipped city > carries no warnings at all 9ms
+     → expected [ …(7) ] to deeply equal []
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |server| test/shippedCity.test.ts > the shipped city > carries no warnings at all
+AssertionError: expected [ …(7) ] to deeply equal []
+
+- Expected
++ Received
+
+- []
++ [
++   "The Ring may bridge but 77 tiles of its course carry no carriageway at all, from 641,309 to 644,381 — a crossing longer than the plan's maxBridgeSpan of 72",
++   "The Ring may bridge but 80 tiles of its course carry no carriageway at all, from 649,306 to 652,380 — a crossing longer than the plan's maxBridgeSpan of 72",
++   "Kelvin Bridge may bridge but 36 tiles of its course carry no carriageway at all, from 452,365 to 452,400 — the course begins or ends out in the water, so the deck has land on one side only",
++   "Marsh Causeway may bridge but 81 tiles of its course carry no carriageway at all, from 566,292 to 571,373 — the course begins or ends out in the water, so the deck has land on one side only",
++   "Coast Road may bridge but 169 tiles of its course carry no carriageway at all, from 360,685 to 520,681 — a crossing longer than the plan's maxBridgeSpan of 72",
++   "Coast Road may bridge but 79 tiles of its course carry no carriageway at all, from 542,675 to 612,648 — a crossing longer than the plan's maxBridgeSpan of 72",
++   "Coast Road may bridge but 22 tiles of its course carry no carriageway at all, from 679,606 to 694,596 — the course begins or ends out in the water, so the deck has land on one side only",
++ ]
+
+ ❯ test/shippedCity.test.ts:33:84
+     31|     // warning on the shipped city is now a red test, and whoever adds…
+     32|     // warning kind to the checker decides here whether the city may c…
+     33|     expect(problems.filter((p) => p.severity === 'warning').map((p) =>…
+       |                                                                                    ^
+     34|   });
+     35| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 1 passed (2)
+   Start at  04:49:21
+   Duration  2.79s (transform 1.36s, setup 0ms, collect 1.98s, tests 12ms, environment 0ms, prepare 121ms)
+
