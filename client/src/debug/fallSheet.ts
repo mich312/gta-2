@@ -65,15 +65,19 @@ function aloft(map: CityMap): GameState {
   const v = createVehicle(CHOPPER_ID, 'chopper', { x: me.pos.x, y: me.pos.y }, 0);
   insertEntity(state.vehicles, v);
   state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
-  // Held: the take-off latch is edge-triggered, so this is one press of it,
-  // and the throttle alongside is what a pilot would actually be doing.
+  // Held: the take-off latch is edge-triggered, so this is one press of it.
+  //
+  // Lift only, no throttle. The sheet used to hold `up` alongside it, which
+  // flew the chopper 150 ticks downrange from the spawn — and where it ended
+  // up is a property of the city, not of the flight model. After the round-2
+  // to round-4 rebakes it ended over solid ground, `exitVehicle` could find
+  // no clear spot beside the hull to put the player down on, the door never
+  // opened, and the sheet drew two cells of `z0 hp100` instead of the arc:
+  // a dead instrument that reads as "the fall no longer happens". Climbing
+  // straight up over the spawn — which is a street by construction — keeps
+  // the staging out of the worldgen's way.
   for (let i = 0; i < 150; i++) {
-    state = step(
-      state,
-      { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true, lift: true } },
-      [],
-      map,
-    );
+    state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, lift: true } }, [], map);
   }
   return state;
 }
