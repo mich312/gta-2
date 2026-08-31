@@ -799,6 +799,51 @@ describe('escalation by kind', () => {
     expect(copCars(state), 'litter survived the chase').toBe(0);
   });
 
+  it('ambient traffic does not adopt a cruiser with an officer in it', () => {
+    // `copDriverId` is negative and `isAiDriver` is "negative, and not -1", so
+    // every ambient-traffic sweep read a cruiser with an officer at the wheel
+    // as one of its own cars. `stepTraffic` minted a `trafficDrivers` record
+    // for it and steered it while `drivePursuit` steered it in the same tick;
+    // the alighting pass could park it out from under the officer; and the
+    // population cull nulled its `driverId` as soon as the chase drew away
+    // from the player, handing a car mid-pursuit to `retireAbandoned` to
+    // delete. Four cruisers were adopted by tick 17 of a four-star chase.
+    //
+    // The record is the artifact to measure: nothing else in traffic runs
+    // without one, so a police vehicle that never holds one is a police
+    // vehicle ambient traffic never drove.
+    let state = createGameState(3);
+    state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'crook' }], map);
+    let motorisedTicks = 0;
+    for (let i = 0; i < 600; i++) {
+      const p = state.players.byId[1]!;
+      p.heat = 410; // hold four stars: cruisers turn out, and keep turning out
+      // A fugitive is a moving, living target — see `chaseAt`.
+      p.vel = { x: getTuning().player.walkSpeed, y: 0 };
+      if (p.mode === 'dead') {
+        p.health = 100;
+        p.mode = 'foot';
+        p.respawnAtTick = null;
+      }
+      state = step(state, {}, [], map);
+      const adopted: number[] = [];
+      for (const cid of state.cops.ids) {
+        const cop = state.cops.byId[cid]!;
+        if (cop.vehicleId === null) continue;
+        motorisedTicks++;
+        if (state.trafficDrivers[cop.vehicleId]) adopted.push(cop.vehicleId);
+      }
+      expect(adopted, `tick ${i}: ambient traffic adopted cruisers`).toEqual([]);
+      // And the rest of the force's stock — the roadblock pairs, the cruisers
+      // an officer walked away from — is nobody's to drive off either.
+      const fleet = Object.keys(state.copFleet).filter((k) => state.trafficDrivers[Number(k)]);
+      expect(fleet, `tick ${i}: ambient traffic adopted police vehicles`).toEqual([]);
+    }
+    expect(motorisedTicks, 'no officer was ever in a car, so nothing was measured').toBeGreaterThan(
+      0,
+    );
+  });
+
   it('an officer who cannot find the suspect gives up, rather than hunting for ever (P1a)', () => {
     // Target inside a building: never visible, never reachable. The old force
     // would drive at the wall until the stuck counter took the car away and
@@ -938,12 +983,16 @@ describe('escalation by kind', () => {
     let state = wedged(start, targetAt);
     state.vehicles.byId[501]!.heading = Math.PI; // facing directly away
     const before = Math.hypot(start.x - targetAt.x, start.y - targetAt.y);
-    // 55 ticks: enough to turn and start closing, NOT enough to arrive —
+    // 40 ticks: enough to turn and start closing, NOT enough to arrive —
     // a cruiser that reaches dismountDist finishes the chase on foot
     // (correctly), and this assertion would misread that as ditching. It was
-    // 40 while the clearing was 26 tiles wide; a wider one gives the U-turn a
-    // wider arc, so the first strides of it now cost a few more ticks.
-    for (let i = 0; i < 55; i++) {
+    // 40, then 55 when the clearing grew from 26 tiles to a wider one and the
+    // U-turn arc with it, and it is 40 again since R1-C06 took ambient
+    // traffic's hands off the cruiser's wheel. With only the pursuit AI
+    // steering, the same U-turn is finished and inside `dismountDist` by tick
+    // 46 rather than 55 — so the sample has to come back before the arrival
+    // it must not see.
+    for (let i = 0; i < 40; i++) {
       state.players.byId[1]!.heat = 410;
       state = step(state, {}, [], map);
     }
@@ -951,6 +1000,38 @@ describe('escalation by kind', () => {
     expect(cop.vehicleId).toBe(501); // still driving
     const after = Math.hypot(cop.pos.x - targetAt.x, cop.pos.y - targetAt.y);
     expect(after).toBeLessThan(before);
+  });
+
+  it('an officer is not run over by the cruiser they are driving', () => {
+    // `ride()` parks the officer on their own car's centre, and the run-over
+    // sweep's officer loop had no equivalent of the players' loop's
+    // `mode !== 'foot'` — so a motorised officer was struck by their own
+    // cruiser once per immunity window, for damage that scales with speed.
+    // Ambient traffic hid it by steering every cruiser as well as the
+    // pursuit AI did — two sets of pedals on one car, and officers came
+    // through it. With traffic's hands off the wheel (R1-C06) a cruiser winds
+    // up to `copCarSpeed` in a straight line and kills its own driver inside
+    // forty ticks, which is what left the force at five officers where
+    // `maxCopsTotal` allows twenty-four.
+    const t = getTuning().police;
+    const at = openSquare(map, 14);
+    // A target far enough away that the officer drives flat out at it rather
+    // than pulling up: pursuit speed is the whole point of the measurement.
+    let state = wedged(at, { x: at.x + t.dismountDist * 6, y: at.y });
+    let fastest = 0;
+    for (let i = 0; i < 60; i++) {
+      state.players.byId[1]!.heat = 410;
+      state = step(state, {}, [], map);
+      const car = state.vehicles.byId[501];
+      if (car && state.cops.byId[500]?.vehicleId === 501) {
+        fastest = Math.max(fastest, Math.abs(car.speed));
+      }
+    }
+    // The cruiser really did get up to speed, or this proves nothing.
+    expect(fastest, 'the cruiser never got going').toBeGreaterThan(t.copCarSpeed * 0.5);
+    expect(state.cops.byId[500]!.health, 'the officer was hurt by their own car').toBe(
+      t.copHealth,
+    );
   });
 
   it('the whole motorised chase is deterministic', () => {
