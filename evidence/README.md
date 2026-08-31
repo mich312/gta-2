@@ -355,3 +355,27 @@ the asset under it — so re-running a `before` command today reproduces the
 | `round4/A02-esplanade-after.png` | The same crop with the road's `bridges` flag flipped to true: 31 tiles of deck at x394-401, y423-427, the Esplanade running through the frame unbroken, and the bank-to-bank drive down from 458 tiles to 20. Same command, `-after` for the name. |
 | `round4/A02-longacre-before.png` | The creek's other arterial, Longacre Road, four tiles from bank to bank and stopped in the same pair of turning heads. 124 road tiles between them. Retake: `node server/dist/tools/mapgen.js --crop=310,505,60 --scale=12 --out=evidence/round4/A02-longacre-before.png`. |
 | `round4/A02-longacre-after.png` | The same crop crossed: 10 tiles of deck at x332-334, y530-533, and 6 tiles between the banks. Same command, `-after` for the name. |
+
+## Review round 5 — R5-A01, the resprays carved through eight landmarks
+
+The `before` plates are `ec98bf9`; the `after` plates the rebake in the same
+commit as the fix. Both retake commands are identical lines — what changed is
+the asset under them — so re-running a `before` command today reproduces the
+`after` picture. The crop is Kelvin Road Station; the same before/after holds
+at The Spire, the Halloran Building, St. Brannoch, Riverside and Seaview
+Infirmaries, Sunridge Station and Marsh Post.
+
+| file | what it shows |
+|---|---|
+| `round5/A-repro-shops-in-landmarks.mjs` | R5-A01's repro, read straight off the shipped `city.data.ts`. Prints every shop whose host building overlaps a landmark's rect, then draws Kelvin Road Station, The Spire and Marsh Post as tiles. At `ec98bf9` it printed `8 of 66 shops are carved into a landmark` — all eight resprays — and the three drawings showed a `T_FLOOR` room inside a one-tile wall ring. After the fix it prints `0 of 66` and all three landmarks draw as solid `B`. Rerun: `node evidence/round5/A-repro-shops-in-landmarks.mjs`. |
+| `round5/A-check-shop-quota.mjs` | The claim the fix rests on: bakes the plan fresh and prints the quota, its per-kind split, and the landmark-hosted count. `66 shops {"gun":20,"clothing":20,"spray":26}` both before and after, `landmark-hosted: 8` before and `0` after — excluding the landmark masses costs no shops, it only moves eight of them onto ordinary houses. Rerun: `node evidence/round5/A-check-shop-quota.mjs`. |
+| `round5/A-before-kelvin-carved.png` | Kelvin Road Station at `ec98bf9`, 16 tiles at 36x. The police station is not a mass: it is a one-tile wall ring around a floor room, with a two-tile garage gap punched through the north wall and the shop-door marker on the pavement outside it. That door sells a respray, `economy.ts` makes a respray a drive-through with `DOORWAY_RADIUS_PX * 2` of reach, and a respray clears the wanted level — so the buy landed from the road tile outside the station's own front door, heat 450 to 0 and wanted 4 to 0 without leaving the car. Retake: `node server/dist/tools/mapgen.js --tiles --crop=466,437,16 --scale=36` and rename the `mapgen-crop-466-437.png` it drops in the repo root. |
+| `round5/A-after-kelvin-solid.png` | The same crop after the bake stops offering its landmark masses to `placeShopsFixed`: one solid seven-by-seven police station, no ring, no room, no garage door, no shop marker. Same command, `-after` for the name. A whole-plane diff of the two bakes finds 280 differing tiles and nothing else — 217 floor back to building (the eight rooms filled in), 52 building to floor (the eight replacement shops, now on ordinary houses), 11 floor to park (see below); the building, landmark, block and district planes are byte-identical. |
+
+Those 11 `floor -> park` tiles are a **pre-existing** defect this fix merely
+unmasked, filed for the next round rather than fixed here: a park's ground
+paint overruns three columns of Marsh Post's stamped footprint, and until now
+the illegal shop carve was painting `T_FLOOR` back over two of them. Marsh
+Post therefore draws as a four-tile-wide building inside a seven-tile
+landmark rect. Nothing in `checkCity` looks at whether a landmark's own mass
+survived the ground passes.

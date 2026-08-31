@@ -247,11 +247,28 @@ function fillSolid(map: TileGrid, b: Building): void {
  * put two within `spacing` tiles of each other, and no random draw anywhere
  * in it. The same buildings become shops every time because they are the same
  * buildings.
+ *
+ * `landmarkBuilt` is the bake's own WeakSet of the masses a LANDMARK stamped
+ * (`bake.ts`, "The buildings a LANDMARK stamped, by identity"), and it is a
+ * required argument rather than an optional one so that no future caller can
+ * forget to answer the question. Those records live in the same
+ * `city.buildings` array as the houses and carry an inherited district, so
+ * without it this pass could not tell a terrace from a hospital: it picked
+ * eight of them and `carveInterior` hollowed each one out into a wall ring, a
+ * `T_FLOOR` room and a two-tile garage door. That put a respray inside The
+ * Spire and the Halloran Building, a respray inside three infirmaries whose
+ * ward the clinic code states is solid, and a respray inside Kelvin Road
+ * Station, Sunridge Station and Marsh Post — where the drive-through buy
+ * clears the player's wanted level from the road tile outside the police
+ * station's own front door. Skipping them costs nothing: the quota fills
+ * identically from ordinary houses (66 shops, gun 20 / clothing 20 /
+ * spray 26, before and after).
  */
 export function placeShopsFixed(
   city: { widthTiles: number; heightTiles: number; tiles: Uint8Array; buildings: Building[]; shops: Shop[] },
   quota: { gun: number; clothing: number; spray: number },
   spacing: number,
+  landmarkBuilt: WeakSet<Building>,
 ): Shop[] {
   const shops: Shop[] = [];
   const used = new Set<number>();
@@ -270,6 +287,9 @@ export function placeShopsFixed(
           for (const [bi, b] of city.buildings.entries()) {
             if (placed >= quota[kind]) break;
             if (used.has(bi) || b.district !== district) continue;
+            // A landmark's own mass is not a shopfront. It is the one thing
+            // in this array the plan asked to stay solid.
+            if (landmarkBuilt.has(b)) continue;
             if (Math.min(b.w, b.h) < minSize) continue;
             if (!far(b, minDist)) continue;
             const door = findDoorway(city, b);
