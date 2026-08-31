@@ -480,7 +480,12 @@ export class CityView {
     // Windows light up as it gets dark — the one cue that turns a block of
     // flats at night from a silhouette into somewhere people live.
     setFacadeNight(this.facadeNight, t);
-    this.post?.setNight(t);
+    // The bloom threshold is a ratio to the key light, not an absolute, so the
+    // post chain needs to know how much light the rig is putting in — the three
+    // intensities just written, added up. 4.75 at midday against 1.00 at
+    // midnight: a threshold that ignored that could only be right at one hour,
+    // and by day it let ordinary lit surfaces glow. See `post.ts`.
+    this.post?.setNight(t, this.sun.intensity + this.ambient.intensity + this.hemi.intensity);
     this.night = t;
   }
 

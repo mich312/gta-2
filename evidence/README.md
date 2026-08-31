@@ -312,3 +312,21 @@ a `before` command today reproduces the `after` picture. That is the point.
 | `round3/A08-marsh-end-after.png` | The same view with the hangar on a three-column bay of hardstanding at the west end — the rect grew by exactly those three columns, so the strip keeps the 30-tile run it was drawn with — and the runway an unbroken rectangle beneath one centreline that runs the whole length. Same command, `-after` for the name. |
 | `round3/A08-gannet-before.png` | The same fault at Gannet Rock Strip, the island you can only reach by air: hangar in the slab, centreline jogging at x=79. Retake as above with `at=89,643`. |
 | `round3/A08-gannet-after.png` | Gannet Rock with its hut on the apron and its line running true. Same command, `-after` for the name. |
+
+## Review round 3 — R1-B01, the lamp that burned at noon
+
+The `before` shots are `ae643ba`; the `after` shots the commit that made the
+bloom threshold a ratio to the key light. Every plate is the shipped camera at
+1280x720, taken with `evidence/round3/F-R1-B01-shot.mjs` — `ci/shot.mjs` waits
+for `networkidle`, which the live client never reaches. Start the dev server
+first (`pnpm --filter client dev`) and read a plate back with
+`node evidence/round3/V-R1-B01-read.mjs <png> 40,450` or profile a scanline with
+`node evidence/round3/V-R1-B01-profile.mjs 450 24 72 <png>...`.
+
+| file | what it shows |
+|---|---|
+| `round3/F-R1-B01-3d-noon-before.png` | R1-B01. A street lamp reading as switched on at midday: the fixture blown out and a warm halo thrown across tarmac the sun does not reach. At (40,450) the shaded roof reads luma 129 where `?lights=off` reads 4 — thirty-fold, from a lamp whose *direct* light there measures +0. The halo is bloom: `lights3d`'s `lit` floor keeps a lamp 15% on by day, its bulb sits ~3 world px from the resulting 74 cd point source, and `UnrealBloomPass` emits the whole texel it admits rather than the excess. Retake: `node evidence/round3/F-R1-B01-shot.mjs "http://localhost:5173/?local=1&seed=7&night=0" evidence/round3/F-R1-B01-3d-noon-before.png`. |
+| `round3/F-R1-B01-3d-noon-after.png` | The same frame with the bloom threshold scaled by the key light. (40,450) reads 3 against the control's 4: the halo is gone and the fixture reads as a switched-off lamp. Same command, `-after` for the name. |
+| `round3/F-R1-B01-3d-noon-lightsoff.png` | The control the two above are measured against — midday with `?lights=off`, so no street lighting exists at all. The `after` plate matches it across the lamp to within a luma. Retake: same command with `&lights=off`. |
+| `round3/F-R1-B01-crop-noon-before.png` / `-after.png` | The lamp itself, 140x100 px of the frame at 5x. Before: a blown bulb and a halo up the wall. After: the grey head and cream bulb of the art, unlit. |
+| `round3/F-R1-B01-3d-night-before.png` / `-after.png` | The gate on the fix. At midnight the key light sums to 1.00, so the threshold is still exactly its old 1.05 and the night is untouched: (40,450) reads 148 either side, and a whole-frame diff finds fewer differing pixels between the two than between two runs of the *same* build (the lamp flicker rides on wall-clock). Retake: same command with `&night=1`. |

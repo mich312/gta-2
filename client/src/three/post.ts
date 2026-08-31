@@ -82,12 +82,42 @@ const GradeShader = {
 const BLOOM_STRENGTH = 0.38;
 const BLOOM_RADIUS = 0.5;
 /**
- * Above this, in linear HDR, a pixel blooms.
+ * Above this, in linear HDR, a pixel blooms — **per unit of key light**.
  *
  * Set above 1 on purpose: a lit surface should not glow, only a source should.
  * Lamps, headlights, sirens and lit windows are the things that exceed it.
+ *
+ * **Why it is a ratio and not an absolute.** "A lit surface" is not a fixed
+ * number of nits. A white surface in full sun returns roughly the key light
+ * that falls on it, and this rig swings that key by 4.75× between midday and
+ * midnight (`cityView`'s `DAYLIGHT` 2.95+1.18+0.62 against `MOONLIGHT`
+ * 0.21+0.40+0.39). A single absolute threshold can therefore only be right at
+ * one hour. It was tuned at midnight, where the key sums to 1.00 and the
+ * number is its own value — and by day it sat at a fifth of a sunlit white
+ * surface, so ordinary lit surfaces crossed it and glowed.
+ *
+ * The street lamp is what that cost. `lights3d`'s `lit` floor keeps a lamp
+ * 15% on at noon, which is +1 to +3 out of 255 of direct light — measured
+ * with `?post=off`, and invisible. In 2D it stays invisible, because there a
+ * light is an additive smear with a fixed radius and no near field at all.
+ * Here the lamp's own bulb sits ~3 world px from a 74 cd point source, where
+ * three.js's inverse square is 5× what the light was calibrated to deliver to
+ * the road it is for, so the fixture came out at 1.9 linear against art alone
+ * at 1.07, and `UnrealBloomPass`'s high pass emits the
+ * *whole* texel it admits rather than the excess over the threshold. A
+ * fixture 80% over a threshold set for midnight dumped its full brightness
+ * into the bloom and painted a halo on the tarmac at noon: measured luma 129
+ * where `?lights=off` reads 4. Raising the absolute number does not fix it —
+ * at 3.0 the halo was still 66, because the fragments nearest the bulb are
+ * brighter still — but scaling with the key light does, and the knee measured
+ * by sweep (between 3.0 and 5.0, clear at 5.0) is the 4.99 this ratio
+ * predicts for midday.
+ *
+ * So the fix is not to move the lamp: `lights3d.ts` and `renderer.ts` keep the
+ * one `lit` table they share, and midnight is untouched because the key light
+ * there is 1.00 and the threshold is still exactly 1.05.
  */
-const BLOOM_THRESHOLD = 1.05;
+const BLOOM_THRESHOLD_PER_KEY = 1.05;
 
 export class PostChain {
   private readonly composer: EffectComposer;
@@ -127,7 +157,10 @@ export class PostChain {
       new THREE.Vector2(Math.ceil(width / 2), Math.ceil(height / 2)),
       BLOOM_STRENGTH,
       BLOOM_RADIUS,
-      BLOOM_THRESHOLD,
+      // Overwritten by the first `setNight`, which is what actually decides
+      // it. Built at the midnight value so a chain that somehow renders
+      // before its first hour behaves as it always did.
+      BLOOM_THRESHOLD_PER_KEY,
     );
     this.composer.addPass(this.bloom);
     // Tone mapping and the sRGB transform. Everything before this is linear.
@@ -137,13 +170,26 @@ export class PostChain {
     this.setSize(width, height);
   }
 
-  /** 0 at midday, 1 at midnight — the same number the rest of the rig takes. */
-  setNight(t: number): void {
+  /**
+   * 0 at midday, 1 at midnight — the same number the rest of the rig takes.
+   *
+   * `keyLight` is how much light the rig is putting into the scene at this
+   * hour, in the same units as the lights themselves: the sum of the sun, the
+   * ambient and the hemisphere `cityView` has just set. It is what the bloom
+   * threshold is a ratio *of* — see `BLOOM_THRESHOLD_PER_KEY`. Handed in
+   * rather than recomputed here so there is exactly one place the day and
+   * night light levels are written down, and retuning the rig cannot leave
+   * the threshold behind.
+   */
+  setNight(t: number, keyLight: number): void {
     const u = this.grade.uniforms;
     (u.uTint as { value: number }).value =
       GRADE_DAY.tint + (GRADE_NIGHT.tint - GRADE_DAY.tint) * t;
     (u.uVignette as { value: number }).value =
       GRADE_DAY.vignette + (GRADE_NIGHT.vignette - GRADE_DAY.vignette) * t;
+    // `UnrealBloomPass.render` reads this every frame, so writing the field is
+    // enough — there is no uniform to poke.
+    this.bloom.threshold = BLOOM_THRESHOLD_PER_KEY * keyLight;
   }
 
   setSize(width: number, height: number): void {
