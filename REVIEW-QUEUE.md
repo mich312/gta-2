@@ -1557,7 +1557,7 @@ fixing the process rather than trusting the outcome.
 
 
 ### R7-C05 — `scanAhead` brakes ambient traffic for a corpse in the road
-- status: [ ] open        verdict: **filed by the C02 fixer**, not verified
+- status: [ ] open        verdict: **CONFIRMED round 8** — nit-to-minor; the refutation died on the file's own adjacent lines
 - round: 7   severity: nit   lens: C
 - where: `shared/src/sim/traffic.ts:426`
 - **the fourth instance of "a body is not a live officer"**, after `anyCopSees`
@@ -1567,6 +1567,32 @@ fixing the process rather than trusting the outcome.
   fixing.
 - the C02 fixer read it and correctly left it alone: it is another agent's file
   this round.
+- **verified round 8, and the "braking for a body is what a driver does"
+  defence failed on the file's own lines.** `scanAhead` folds four obstacle
+  sources into one gap; three exclude bodies and one does not:
+  ```
+  :414  if (!ped || ped.mode === 'dead') continue; // traffic does not queue behind a body
+  :422  if (!p || p.mode !== 'foot') continue;     // a dead player is skipped
+  :426  for (const id of state.cops.ids) { if (!cop || cop.vehicleId !== null) continue; ...
+  ```
+  So it was never the "is it a ray?" question. **A dead civilian is driven over;
+  a dead officer stops the street.**
+- **the contact model already agrees with the pedestrian rule**: `weapons.ts:774`
+  means a car cannot strike a downed officer, so `scanAhead` brakes to a full
+  stop for something it can no longer collide with — against its own doc comment
+  at `traffic.ts:341`: *"The obstacle model has to agree with the contact model
+  or the IDM is solving the wrong problem."*
+- measured on `e2ae1d6`: `deadCop passTick=1239` against a body removed at 1199,
+  so the lane is blocked for the **whole 40 s `corpseSec` window** — nothing
+  moves the body — with 3 horns and 3 stuck-recovery reversals. `deadPed` is
+  byte-identical to no obstacle at all; `liveCop` is byte-identical to
+  `deadCop`, i.e. the driver cannot tell a corpse from a live officer.
+- reachable in ordinary play: `ride()` parks a motorised officer on the
+  cruiser's centre and `damageCop` clears `vehicleId` on death, so shooting an
+  officer in a cruiser leaves the corpse dead-centre in the lane.
+- **defect, not an aesthetic call** — not because driving through a corpse is
+  self-evidently right, but because the file states that rule for pedestrians
+  and players, the run-over code states it for cops, and only this loop does not.
 
 ### On the helper, and why four instances justify it
 
