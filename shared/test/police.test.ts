@@ -214,9 +214,16 @@ describe('wanted + police', () => {
       map,
     );
     // A witness, standing right next to the car so line of sight is certain.
+    // Certain because `clearSpot` verified the line, not because twelve px
+    // east of a spawn is usually clear — which is what this used to say. The
+    // R1-A01/A03 rebake moved the spawn list, this seed's player landed on a
+    // kerb, and twelve px east of it is the building behind the pavement: an
+    // officer inside a wall, witnessing nothing, and a green test reporting a
+    // heat bug that was not there. `faceOff` below records the same hour.
+    const witness = clearSpot(map, p.pos, 12);
     insertEntity(
       state.cops,
-      createCop(90, { x: p.pos.x + 12, y: p.pos.y }, getTuning().police.copHealth),
+      createCop(90, { x: witness.x, y: witness.y }, getTuning().police.copHealth),
     );
     state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
     expect(state.players.byId[1]!.mode).toBe('driving');

@@ -11,6 +11,7 @@ import {
   meanderPolyline,
   pointInPoly,
   polyBounds,
+  roadCourses,
   segmentDistance,
   simplifyPolyline,
   smoothPolyline,
@@ -687,15 +688,6 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
   };
 
-  /** Offset a course sideways by `d` tiles, for a dual carriageway. */
-  const offsetCourse = (points: PlanPoint[], d: number): PlanPoint[] =>
-    points.map((p, i) => {
-      const a = points[Math.max(0, i - 1)] as PlanPoint;
-      const b = points[Math.min(points.length - 1, i + 1)] as PlanPoint;
-      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
-      return [p[0] - ((b[1] - a[1]) / len) * d, p[1] + ((b[0] - a[0]) / len) * d] as PlanPoint;
-    });
-
   // Which tiles belong to a dual carriageway (the ring) and which to an
   // ordinary authored avenue — recorded while carving, for §14.3 D6: the
   // ring becomes limited-access, and its authored crossings are the only
@@ -831,19 +823,13 @@ export function buildLayout(plan: CityPlan): CityLayout {
   /** The plan's own roads: a ring as twin carriageways off the median, any other avenue as drawn. */
   const carveAuthoredRoads = (): void => {
     for (const road of plan.roads) {
-      const pts = road.curve ? smoothPolyline(road.points, 3) : road.points;
-      carveMark = road.median > 0 ? ringMask : avenueMask;
-      if (road.median > 0) {
-        const off = (road.median + road.width) / 2;
-        const a = offsetCourse(pts, off);
-        const b = offsetCourse(pts, -off);
-        carveCourse(a, road.width, road.bridges, markingLay);
-        carveCourse(b, road.width, road.bridges, markingLay);
-        courses.push({ points: a, width: road.width, kind: 'ring' });
-        courses.push({ points: b, width: road.width, kind: 'ring' });
-      } else {
-        carveCourse(pts, road.width, road.bridges, markingLay);
-        courses.push({ points: pts, width: road.width, kind: 'avenue' });
+      // `roadCourses` is the shared definition of where a road is carved
+      // (plan.ts); `cityCheck` asks the same function where to LOOK for it.
+      const dual = road.median > 0;
+      carveMark = dual ? ringMask : avenueMask;
+      for (const course of roadCourses(road)) {
+        carveCourse(course, road.width, road.bridges, markingLay);
+        courses.push({ points: course, width: road.width, kind: dual ? 'ring' : 'avenue' });
       }
       carveMark = null;
     }
@@ -1271,6 +1257,47 @@ export function buildLayout(plan: CityPlan): CityLayout {
        */
       let frameDeg = angle;
       if (contour) {
+        // WHICH tiles are "the borough's own waterline". Not "within two of
+        // water": a borough's `bandShore` box can sit clear of its ground —
+        // The Docks fronts the harbour across a quay it does not own, and its
+        // nearest dry tile is NINE band units out — and an absolute threshold
+        // then matches nothing at all. That is not a borough with no shore,
+        // it is a borough whose shore is further away than the constant
+        // guessed, and the old code answered it by silently falling back to
+        // the authored `angle`. The Docks' true mean tangent is 90 degrees;
+        // the fallback handed it 0, and the "cross" streets below were carved
+        // PARALLEL to the bands they exist to cross — one 27x158 block where
+        // the plan asked for 28x24 (R1-A03).
+        //
+        // So the band is taken RELATIVE to the borough: the innermost band it
+        // actually owns, plus the same two units of thickness. On a borough
+        // that does meet its water the floor is 0 or 1 and the sample is very
+        // nearly the one it always was — the Beachfront's floor is 1, and its
+        // frame moves from the authored 0 to a measured 1 degree.
+        //
+        // The Terraces was the OTHER silent fallback and nobody had noticed:
+        // floor 8, so its sample was empty too, and it read as correct only
+        // because its shore happens to run at the authored 0. It now measures
+        // 178 — two degrees, from a thin ten-tile sliver of band, which is a
+        // real measurement of a real shore rather than a constant that
+        // happened to be close.
+        let floor = Infinity;
+        for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+          for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+            if (!inThis(tx, ty) || water[ty * W + tx] === 1) continue;
+            floor = Math.min(floor, bandField[ty * W + tx] as number);
+          }
+        }
+        // And no silent guess left. A contour borough with no dry ground at
+        // all has no shore to take a frame from, and carving it on the
+        // authored angle is the failure this whole comment is about. Refuse
+        // it the way the bandShore box refuses an empty box, above.
+        if (!Number.isFinite(floor)) {
+          throw new Error(
+            `city plan: district ${d.name} is contour but owns no dry ground to take a shore frame from`,
+          );
+        }
+        const near = floor + 2;
         let sxx = 0;
         let syy = 0;
         let sxy = 0;
@@ -1280,27 +1307,28 @@ export function buildLayout(plan: CityPlan): CityLayout {
         for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
           for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
             if (!inThis(tx, ty)) continue;
-            if ((bandField[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
+            if ((bandField[ty * W + tx] as number) > near || water[ty * W + tx] === 1) continue;
             mx += tx;
             my += ty;
             n++;
           }
         }
-        if (n > 0) {
-          mx /= n;
-          my /= n;
-          for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
-            for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
-              if (!inThis(tx, ty)) continue;
-              if ((bandField[ty * W + tx] as number) > 2 || water[ty * W + tx] === 1) continue;
-              sxx += (tx - mx) * (tx - mx);
-              syy += (ty - my) * (ty - my);
-              sxy += (tx - mx) * (ty - my);
-            }
+        // `n` is at least one: `floor` came from a tile this very filter
+        // accepts, so the sample is never empty and there is nothing left to
+        // fall back FROM.
+        mx /= n;
+        my /= n;
+        for (let ty = Math.max(0, ry); ty <= Math.min(H - 1, ry1); ty++) {
+          for (let tx = Math.max(0, rx); tx <= Math.min(W - 1, rx1); tx++) {
+            if (!inThis(tx, ty)) continue;
+            if ((bandField[ty * W + tx] as number) > near || water[ty * W + tx] === 1) continue;
+            sxx += (tx - mx) * (tx - mx);
+            syy += (ty - my) * (ty - my);
+            sxy += (tx - mx) * (ty - my);
           }
-          const rad = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-          frameDeg = ((Math.round((rad * 180) / Math.PI) % 180) + 180) % 180;
         }
+        const rad = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+        frameDeg = ((Math.round((rad * 180) / Math.PI) % 180) + 180) % 180;
         // The bearing plane gets the LOCAL tangent, tile by tile, not the
         // mean: a contour street curves, and a parked car on its bend wants
         // the direction of the bend, which the shore-distance gradient knows
