@@ -2153,3 +2153,95 @@ server's graceful shutdown writing something, this is where it will bite."*
 That is FIXER.md's "ask what your change enables" applied by a fixer to its own
 work. Three fixes in this exercise revealed something underneath them; this is
 the first that predicted where its own would.
+
+
+---
+
+# Round 10 closed — and the exercise, at ten iterations
+
+```
+pnpm build                     clean
+npx tsc -p client --noEmit     clean
+pnpm test                      92 files, 986 tests, 0 failures
+citybake --check               exit 0 — 1182 blocks, 4014 buildings, 66 shops
+pnpm parity                    host parity OK — hash 1180701091 (confirmed own server)
+persistCheck                   5 of 5 PASS, 0 orphaned servers
+ci/test.mjs <bad filter>       exit 1 (was exit 0, "green")
+```
+
+**Tests: 87 files / 943 -> 92 / 986.** 96 commits. Source +3904/-211 over 54
+files; docs and evidence +10326 over 299.
+
+## The ledger
+
+| | count |
+| --- | --- |
+| **fixed** | **32** |
+| refuted as filed | 4 |
+| escalated to the author | 3 |
+| open, none blocking | 4 |
+| unverifiable here | 1 |
+
+## The question this was built to answer
+
+**Does a review-and-fix loop converge?** No. Measured twice, deliberately:
+
+| sample | lenses | prior attention | found |
+| --- | --- | --- | --- |
+| round 5 | A, C | the **most** in the exercise | 1 blocking + 3 significant |
+| round 9 | B, D | reviewed **once**, in round 1 | 5 significant + 3 nits |
+
+Yield tracks neither attention nor round number. Round 10 was still fixing
+`significant` defects, and round 11 would find more. **A review is a sample, not
+a proof** — so the budget is the only stopping rule there was ever going to be,
+and the severity floor is what makes stopping safe rather than arbitrary.
+
+## What the loop learned about itself
+
+Seven corrections, every one found by running it, none by designing it — and
+**three were caused by my own instructions**:
+
+1. Partition by **build artifact**, not directory.
+2. Fixers must not write the queue — four copies, last write wins.
+3. Worktrees are cut from the **merge-base**, not the head. All eight of them.
+4. Never `git stash` — `refs/stash` is shared; two fixers popped each other's work. *(mine)*
+5. `git add -A` in the shared checkout sweeps non-isolated agents' files. *(mine)*
+6. Close a finding **against its own filing, item by item** — R1-C06 named three cases, two were fixed, and the third survived two rounds with a tick beside it. *(mine)*
+7. Suspicions are not findings — both unmeasured hunches filed here were investigated and both were wrong.
+
+One shape underlies all seven: **isolation must cover everything two agents can
+both write, and every input either one can read.**
+
+## The finding that outlived the codebase
+
+**Five instruments were caught reporting confidently wrong things**, four of
+them the project's own and one mine:
+
+| instrument | what it claimed | truth |
+| --- | --- | --- |
+| the corpse-witness repro | "already fixed" (`false` on every row) | a wall had grown where it staged its officer |
+| `fallSheet` | "the fall no longer happens" | the chopper drifted off its own landing site |
+| `pnpm parity` (twice) | "hosts agree" | pointed at another agent's server |
+| `persistCheck` | "the save did not come back" | 15 failures in 40 runs, all false |
+| my own exit-code check | "the fix does not work" | I piped through `tail` before reading `$?` |
+
+And `ci/test.mjs` answered **"green"** to a question about a test that does not
+exist — the instrument `REVIEWER.md` tells every reviewer here to use.
+
+The rule that falls out is the most portable thing in this file:
+**confirm the control fires before believing the measurement.**
+
+## Still with the author
+
+- The Ring's `maxBridgeSpan` — one number, blast radius measured at zero.
+- Marsh Causeway's reroute — moves where a named causeway meets both banks.
+- Coast Road — needs its own finding first.
+- **Then promote the bridging gate from `warning` to `error`.**
+
+## Open, none blocking
+
+R1-B02 (3D has no camera-visible window light — confirmed round 1, still true),
+R7-C05 (`scanAhead` brakes for a corpse), R9-D03 (the README describes a city
+half the size), R9-D05 (`city-anywhere.png`, 72 px). Plus two filed in round 10
+and never verified: the debug overlay shares B01's broken identity, and
+`mapRender.ts` marks clinics as clothing shops through a fourth colour scheme.
