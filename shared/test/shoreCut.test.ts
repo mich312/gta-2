@@ -7,7 +7,7 @@ import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { boxInSolid, isSolidAtWorld, moveWithCollision } from '../src/world/collide.js';
 import { buildShoreCut } from '../src/world/shoreCut.js';
-import { T_WATER, TILE_SIZE, type CityMap } from '../src/world/types.js';
+import { T_BRIDGE, T_BUILDING, T_TREES, T_WATER, TILE_SIZE, type CityMap } from '../src/world/types.js';
 
 /**
  * Collision on the coastline (WORLDGEN.md §43).
@@ -84,6 +84,18 @@ describe('collision on the coastline', () => {
     let agree = 0;
     let total = 0;
     for (const [tile, slot] of cut.slot) {
+      // Asked of the tiles the SOLVER asks it of. `shoreCutAt` declines a
+      // wall, a wood and a deck in as many words — "the curve says where the
+      // WATER stops; it has no opinion on a building standing at the
+      // quayside" — so a deck laid over a channel is not a disagreement about
+      // the coastline, it is a bridge, and counting it measured a property
+      // nothing reads. It was 96% of what this ratio was made of: over the
+      // shipped city 64 of the 133 mismatches were bridge decks and 31 more
+      // were ramps, which left three tiles of headroom over the 0.98 bar and
+      // made the sixth crossing anybody adds to the map fail this test. Over
+      // the population the solver actually uses, the same bar reads 0.9897.
+      const t = map.tiles[tile] as number;
+      if (t === T_BUILDING || t === T_TREES || t === T_BRIDGE) continue;
       total++;
       const wet =
         (cut.nx[slot] as number) * (TILE_SIZE / 2) + (cut.ny[slot] as number) * (TILE_SIZE / 2) >

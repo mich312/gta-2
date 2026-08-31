@@ -128,6 +128,23 @@ export interface CityLayout {
    * visible rather than less.
    */
   banks: CoastRing[];
+  /**
+   * 1 where a removal pass took carriageway out and left bare ground behind.
+   *
+   * The blocks are cut BEFORE the ring shave, the bridge trim and the orphan
+   * prune run (see the pass list at the foot of this file), so a block's mask
+   * stops at the edge of a road that those passes then delete. The tiles in
+   * between belong to no block, which means no filler ever visits them: the
+   * removal restores the GROUND but not the woodland, the meadow or anything
+   * else the carve cleared to make room for the road. On Gannet Rock — an
+   * island the plan calls trackless, whose entire lattice the orphan prune
+   * takes out — that left a road-shaped hole through the wood, thirty tiles
+   * long with the tree line razor-straight on both flanks.
+   *
+   * So the removals say what they removed, and the bake puts the country
+   * back over it (bake.ts, "the clearance a removal left behind").
+   */
+  cleared: Uint8Array;
 }
 
 const DISTRICT_IDX: Record<DistrictType, number> = Object.fromEntries(
@@ -562,6 +579,23 @@ export function buildLayout(plan: CityPlan): CityLayout {
   const district = new Uint8Array(W * H).fill(DISTRICT_IDX.park);
   const owner = new Int16Array(W * H).fill(-1);
   for (let i = 0; i < tiles.length; i++) tiles[i] = water[i] === 1 ? T_WATER : T_FIELD;
+
+  // Where a removal pass has taken carriageway out. See `CityLayout.cleared`:
+  // the blocks are already cut by the time those passes run, so these tiles
+  // are in no block and no filler will ever visit them. `unlay` is the one
+  // place a road becomes bare ground, so it is the one place that has to
+  // remember; `relay` is its inverse, for the pothole fills that put a shaved
+  // tile straight back.
+  const cleared = new Uint8Array(W * H);
+  const unlay = (i: number, to: number): void => {
+    const was = tiles[i] as number;
+    tiles[i] = to;
+    if ((was === T_ROAD || was === T_BRIDGE) && to === T_FIELD) cleared[i] = 1;
+  };
+  const relay = (i: number, to: number): void => {
+    tiles[i] = to;
+    cleared[i] = 0;
+  };
 
   // Boroughs, in plan order: later polygons win, so an overlap is an edit
   // rather than an error. The bearing plane is written here too: every tile
@@ -2246,7 +2280,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           if (t !== T_ROAD && t !== T_BRIDGE) continue;
           if (ringMask[i] === 1 || avenueMask[i] === 1 || junction[i] === 1) continue;
           if (nearRing(tx, ty)) {
-            tiles[i] = T_FIELD;
+            unlay(i, T_FIELD);
             shaved.push(i);
           }
         }
@@ -2276,9 +2310,141 @@ export function buildLayout(plan: CityPlan): CityLayout {
             if (t === T_ROAD || t === T_BRIDGE) around++;
           }
           if (around >= 3) {
-            tiles[i] = T_ROAD;
+            relay(i, T_ROAD);
             changed = true;
           }
+        }
+      }
+    }
+  };
+
+  /* ---- junctions that were never cut ------------------------------ */
+
+  /**
+   * A street that stops two or three tiles short of the street it runs at.
+   *
+   * Nine passes carve carriageway and each is clipped to something — a
+   * borough polygon, a seam between two URBAN owners, a lattice rect — and
+   * where two of those clips end near each other the tarmac stops with a
+   * strip of grass across its mouth and the road it plainly wants to join on
+   * the other side. `checkCity` never sees it: its connectivity rule counts
+   * field and pavement as drivable, which is the right call for a courtyard
+   * you reach over a kerb and is exactly why these survive. A driver meets a
+   * wall of grass.
+   *
+   * The one thing this pass must not do is undo a removal. The ring is
+   * limited-access by design (§14.3 D6, benched and shipped): a lattice line
+   * that would T into its carriageways IS held a couple of tiles short, and
+   * fourteen of the seventeen mouths in the city are that rule working. So
+   * the test is not "is there a gap" but "was this gap ever a road" — a gap
+   * over ground `cleared` marks is a decision some pass took and it stands;
+   * a gap over ground nothing ever carved is a junction nobody cut, and it
+   * gets cut here.
+   *
+   * Runs last, after the removals, so `cleared` is final. The tiles it lays
+   * are taken out of any block's mask, because the blocks were cut before
+   * this and the fill must not build a house on the new tarmac.
+   */
+  const cutMissedJunctions = (): void => {
+    const REACH = 4; // as far as a mouth may be from the road it runs at
+    const isRoadAt = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      const t = tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    // Ground a junction may be cut through: what a street would have been
+    // carved over anyway. Never water, a bank, a beach, a wall, a wood, a
+    // yard or an apron — and never ground a removal pass chose to clear.
+    const cuttable = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      const i = y * W + x;
+      if (cleared[i] !== 0 || water[i] === 1) return false;
+      // At this point in the pipeline bare ground is bare ground: pavement,
+      // park grass and lot are the bake's paint, laid long after this.
+      return tiles[i] === T_FIELD;
+    };
+    const laid: number[] = [];
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const px = dy;
+      const py = dx; // the cap runs across the heading
+      const seen = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (seen[y * W + x] === 1) continue;
+          if (!isRoadAt(x, y) || isRoadAt(x + dx, y + dy)) continue;
+          // The whole mouth: the run of cap tiles across the heading.
+          let a0 = 0;
+          while (isRoadAt(x + px * (a0 - 1), y + py * (a0 - 1)) && !isRoadAt(x + px * (a0 - 1) + dx, y + py * (a0 - 1) + dy)) a0--;
+          let a1 = 0;
+          while (isRoadAt(x + px * (a1 + 1), y + py * (a1 + 1)) && !isRoadAt(x + px * (a1 + 1) + dx, y + py * (a1 + 1) + dy)) a1++;
+          for (let k = a0; k <= a1; k++) {
+            const kx = x + px * k;
+            const ky = y + py * k;
+            if (kx >= 0 && ky >= 0 && kx < W && ky < H) seen[ky * W + kx] = 1;
+          }
+          const len = a1 - a0 + 1;
+          // A carriageway is 2..6 across. Wider is a plaza or an apron, and
+          // "the plaza stops here" is not a junction anybody failed to cut.
+          if (len < 2 || len > 6) continue;
+          // A square end, not a corner and not a junction mouth: no road off
+          // either side of the cap, and the same width three tiles back.
+          if (isRoadAt(x + px * (a0 - 1), y + py * (a0 - 1))) continue;
+          if (isRoadAt(x + px * (a1 + 1), y + py * (a1 + 1))) continue;
+          let straight = true;
+          for (let d = 1; d <= 3 && straight; d++) {
+            for (let k = a0 - 1; k <= a1 + 1 && straight; k++) {
+              const want = k >= a0 && k <= a1;
+              if (isRoadAt(x + px * k - dx * d, y + py * k - dy * d) !== want) straight = false;
+            }
+          }
+          if (!straight) continue;
+          // The carriageway it runs at, straight on. It has to be squarely
+          // across the mouth — half the width at least — or this is a road
+          // passing by rather than a junction waiting to be cut.
+          let gap = 0;
+          for (let d = 2; d <= REACH; d++) {
+            let across = 0;
+            for (let k = a0; k <= a1; k++) if (isRoadAt(x + px * k + dx * d, y + py * k + dy * d)) across++;
+            if (across * 2 >= len) {
+              gap = d;
+              break;
+            }
+            if (across > 0) break; // clipped by something; not a mouth
+          }
+          if (gap === 0) continue;
+          let clear = true;
+          for (let d = 1; d < gap && clear; d++) {
+            for (let k = a0; k <= a1 && clear; k++) {
+              if (!cuttable(x + px * k + dx * d, y + py * k + dy * d)) clear = false;
+            }
+          }
+          if (!clear) continue;
+          for (let d = 1; d < gap; d++) {
+            for (let k = a0; k <= a1; k++) {
+              const jx = x + px * k + dx * d;
+              const jy = y + py * k + dy * d;
+              tiles[jy * W + jx] = T_ROAD;
+              laid.push(jy * W + jx);
+            }
+          }
+        }
+      }
+    }
+    if (laid.length === 0) return;
+    // The blocks were cut around the tarmac as it stood before this pass, so
+    // the new junction is inside somebody's mask. Take it out, or the fill
+    // stands a house in the middle of the road it just opened.
+    const lay1 = new Set(laid);
+    for (const b of blocks) {
+      for (let ty = b.y; ty < b.y + b.h; ty++) {
+        for (let tx = b.x; tx < b.x + b.w; tx++) {
+          if (!lay1.has(ty * W + tx)) continue;
+          b.mask[(ty - b.y) * b.w + (tx - b.x)] = 0;
         }
       }
     }
@@ -2324,7 +2490,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         // reaches a tile or two onto its abutment, and drowning those put sea
         // where the rings keep land (§29). The rings are the definition; this
         // pass may remove a deck and may not move a shoreline.
-        if (shortest > plan.maxBridgeSpan) tiles[i] = water[i] === 1 ? T_WATER : T_FIELD;
+        if (shortest > plan.maxBridgeSpan) unlay(i, water[i] === 1 ? T_WATER : T_FIELD);
       }
     }
 
@@ -2396,7 +2562,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             }
           }
         }
-        if (landfalls < 2) for (const i of deck) tiles[i] = water[i] === 1 ? T_WATER : T_FIELD;
+        if (landfalls < 2) for (const i of deck) unlay(i, water[i] === 1 ? T_WATER : T_FIELD);
       }
     }
   };
@@ -2670,10 +2836,10 @@ export function buildLayout(plan: CityPlan): CityLayout {
       }
       if (hit < 0 || from === null) continue; // walled in: the prune below takes it
       for (let i = from[hit] as number; (label[i] as number) !== id; i = from[i] as number) {
-        tiles[i] = T_ROAD;
+        relay(i, T_ROAD);
         const tn = i + 1 < W * H ? (tiles[i + 1] as number) : T_WATER;
         if (water[i + 1] !== 1 && !wetBeside(i + 1) && (tn === T_FIELD || tn === T_SAND || tn === T_BANK)) {
-          tiles[i + 1] = T_ROAD;
+          relay(i + 1, T_ROAD);
         }
         label[i] = biggest;
       }
@@ -2684,7 +2850,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       if (id === biggest) continue;
       for (const i of bag) {
         if ((label[i] as number) === biggest) continue;
-        tiles[i] = T_FIELD;
+        unlay(i, T_FIELD);
       }
     }
 
@@ -2712,7 +2878,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             if (t === T_ROAD || t === T_BRIDGE) around++;
           }
           if (around >= 3) {
-            tiles[i] = T_ROAD;
+            relay(i, T_ROAD);
             changed = true;
           }
         }
@@ -2756,6 +2922,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
     trimBridges,
     mapCliffIslands,
     finishShores,
+    cutMissedJunctions,
   ];
   for (const pass of passes) pass();
 
@@ -2772,5 +2939,6 @@ export function buildLayout(plan: CityPlan): CityLayout {
     courses,
     shores,
     banks: bandInner,
+    cleared,
   };
 }

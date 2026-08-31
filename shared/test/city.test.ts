@@ -1140,6 +1140,123 @@ describe('the city, as an asset', () => {
     }
   });
 
+  it('leaves no landmark wall standing on the carriageway', () => {
+    // R2 iteration 2, `kerb-missing`. Three landmarks shipped with a building
+    // face flush against tarmac and pavement on their block's other sides —
+    // Sunridge Station and Seaview Infirmary because the author's rect abuts
+    // a lattice street and the kerb ring drawn round a landmark can only
+    // paint ground, so a ring tile that is already road stays road; Vantage
+    // Tower because the bake's own driveway pass cut its access track along
+    // the tower's flank, which happens AFTER that ring is drawn and so could
+    // never be caught by it.
+    //
+    // Stated over the whole city rather than over those three: the property
+    // is that road meets wall through pavement, which is what the other 100%
+    // of the city's road-to-wall contact does.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const solid = new Set([T_ROAD, T_BRIDGE]);
+    // ...except the plazas. A square, a green and a circus WANT carriageway
+    // through their footprint (`OPEN_TO_ROAD`) — King's Circus is a monument
+    // standing in the ring's median, and a kerb round it would be a traffic
+    // island where the design asks for a roundabout.
+    const OPEN = new Set(['square', 'green', 'circus']);
+    const flush: string[] = [];
+    for (const l of map.landmarks) {
+      if (OPEN.has(l.kind)) continue;
+      for (let ty = l.y; ty < l.y + l.h; ty++) {
+        for (let tx = l.x; tx < l.x + l.w; tx++) {
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+          if (map.tiles[ty * W + tx] !== T_BUILDING) continue;
+          for (const [dx, dy] of [
+            [1, 0],
+            [-1, 0],
+            [0, 1],
+            [0, -1],
+          ] as const) {
+            const nx = tx + dx;
+            const ny = ty + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            if (solid.has(map.tiles[ny * W + nx] as number)) flush.push(`${l.name} ${tx},${ty}`);
+          }
+        }
+      }
+    }
+    expect(flush.slice(0, 8), `${flush.length} landmark wall tiles abut carriageway`).toEqual([]);
+  });
+
+  it('cuts the junction where a street stops short of the street it runs at', { timeout: 60_000 }, () => {
+    // R2 iteration 2, `road-stops-short`. Seventeen mouths in the shipped
+    // city stopped two to four tiles short of the carriageway they ran at,
+    // with grass or a tree across the gap. Fourteen are the ring being
+    // limited-access (WORLDGEN.md §14.3 D6: a lattice line that would T into
+    // its carriageways IS held a block short) and they belong here as much as
+    // the crossings do — so the rule is not "no gaps" but "no gap over ground
+    // nothing ever carved". `layout.cleared` is what tells the two apart: a
+    // removal pass marks what it took out, and what it took out stays out.
+    const layout = buildLayout(plan);
+    const W = layout.widthTiles;
+    const H = layout.heightTiles;
+    const isRoad = (x: number, y: number): boolean => {
+      if (x < 0 || y < 0 || x >= W || y >= H) return false;
+      const t = layout.tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    const uncut: string[] = [];
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const px = dy;
+      const py = dx;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          // The square end of a mouth: road here, none ahead, none beside.
+          if (!isRoad(x, y) || isRoad(x + dx, y + dy)) continue;
+          if (isRoad(x - px, y - py)) continue;
+          let len = 1;
+          while (len < 7 && isRoad(x + px * len, y + py * len) && !isRoad(x + px * len + dx, y + py * len + dy)) {
+            len++;
+          }
+          if (len < 2 || len > 6 || isRoad(x + px * len, y + py * len)) continue;
+          // Square, and the same width three tiles back: a corner or a
+          // junction mouth tapering out is not a street that stopped.
+          let straight = true;
+          for (let e = 1; e <= 3 && straight; e++) {
+            for (let k = -1; k <= len && straight; k++) {
+              const want = k >= 0 && k < len;
+              if (isRoad(x + px * k - dx * e, y + py * k - dy * e) !== want) straight = false;
+            }
+          }
+          if (!straight) continue;
+          for (let d = 2; d <= 4; d++) {
+            let across = 0;
+            for (let k = 0; k < len; k++) {
+              if (isRoad(x + px * k + dx * d, y + py * k + dy * d)) across++;
+            }
+            if (across === 0) continue;
+            if (across * 2 < len) break;
+            let virgin = true;
+            for (let e = 1; e < d && virgin; e++) {
+              for (let k = 0; k < len && virgin; k++) {
+                const gx = x + px * k + dx * e;
+                const gy = y + py * k + dy * e;
+                const i = gy * W + gx;
+                if (layout.cleared[i] !== 0 || layout.water[i] === 1) virgin = false;
+                else if (layout.tiles[i] !== T_FIELD) virgin = false;
+              }
+            }
+            if (virgin) uncut.push(`${x},${y} heading ${dx},${dy} ${d} short`);
+            break;
+          }
+        }
+      }
+    }
+    expect(uncut.slice(0, 8), `${uncut.length} mouths short of a road over untouched ground`).toEqual([]);
+  });
+
   it('moors no boat in water it cannot leave', () => {
     // R5-A03. `placeBoatSpawns` asked two local questions — a 3x3 of open
     // water, a bank within three tiles — and never asked whether the water
