@@ -30,6 +30,14 @@ export type ServerMessage =
       tick: number;
       tickRate: number;
       resumeToken: string;
+      /**
+       * The last input `seq` this slot has had taken from it — 0 for a fresh
+       * join, the live watermark for a resume. A client numbers its own
+       * intents and `Session.queueInput` drops anything at or below this, so
+       * a client that starts counting from 1 again (a reloaded tab) must
+       * resume its counter from here or every intent it sends is a replay.
+       */
+      inputSeq: number;
       snapshot: FullSnapshot;
       /** Server-authoritative tunables: clients must init from these, not
        * their bundled JSON, so a server-side tune can't desync generation. */

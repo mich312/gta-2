@@ -620,6 +620,16 @@ function handleServerMessage(msg: ServerMessage): void {
       case 'welcome':
         playerId = msg.playerId;
         localTick = msg.tick;
+        // Resume the input numbering where the server left it. `seq` is
+        // module state, so a reloaded tab starts it at 1 again while the
+        // server still holds the watermark from before the reload and drops
+        // everything at or below it — the player got their old body back and
+        // could not move it for as long as they had previously played. Never
+        // goes backwards: a reconnect with no reload is already ahead of the
+        // server, and rewinding it would renumber inputs the predictor is
+        // still holding. Guarded because a server too old to send the field
+        // would otherwise make every seq NaN.
+        if (Number.isFinite(msg.inputSeq)) seq = Math.max(seq, msg.inputSeq + 1);
         sessionStorage.setItem('resumeToken', msg.resumeToken);
         // Tunables + worldgen come from the server (single source of truth);
         // the whole city regenerates locally from the seed.
