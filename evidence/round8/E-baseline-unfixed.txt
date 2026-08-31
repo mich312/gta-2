@@ -1,0 +1,15 @@
+play-dusk: {"mode":"foot","wanted":0,"cops":0,"health":100,"weapon":"fists","ammo":0,"nearest":{"id":3713,"kind":"hatch","dx":16.25,"dy":31.25,"dist":35.22250700901343},"vehicles":35,"peds":27,"pos":{"x":6486,"y":3305}}
+play-drift: {"mode":"foot","wanted":0,"cops":0,"health":100,"weapon":"fists","ammo":0,"nearest":{"id":3699,"kind":"bus","dx":-5.875,"dy":13.75,"dist":14.952529050297812},"vehicles":29,"peds":20,"pos":{"x":7034,"y":3457}}
+node:internal/modules/run_main:123
+    triggerUncaughtException(
+    ^
+
+page.evaluate: Target page, context or browser has been closed
+    at dbg (/home/user/gta-2/.claude/worktrees/agent-aa29ed47e919b4c5a/ci/playLocal.mjs:43:8)
+    at scene (/home/user/gta-2/.claude/worktrees/agent-aa29ed47e919b4c5a/ci/playLocal.mjs:105:48)
+    at async file:///home/user/gta-2/.claude/worktrees/agent-aa29ed47e919b4c5a/ci/playLocal.mjs:127:1 {
+  log: []
+}
+
+Node.js v22.22.2
+exit=124

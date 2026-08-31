@@ -32,31 +32,52 @@ Captured by driving the real game in a browser against the offline host — one
 process, fixed seed, ordinary keys and mouse. `node ci/playLocal.mjs` retakes
 all three.
 
-**These three could not be retaken on the CI box, and are the only plates in
-this file that were left unchecked.** Two attempts, on a quiet machine:
+**Retaken in round 8, on this box, in 35 seconds.** Rounds 1 and 5 recorded
+these three as un-retakeable here across three attempts — a hang past 420 s
+twice, a run that took eight minutes to write a `play-dusk.png` of a player
+standing on the pavement holding `fists`, and a run that died with
+`page.screenshot: Timeout 30000ms exceeded`. Round 5's reading was that this
+was a software renderer losing to wall-clock budgets, and box-specific. Half of
+that was right and it was the wrong half:
 
-- run 1 wrote `play-dusk.png` after eight minutes and never finished the
-  second scene. The frame it wrote does not show the scene the caption
-  describes — the player is still on foot with `fists`, so `getInCar` never
-  got him into a car and the shot was taken anyway.
-- run 2 died in the first scene with `page.screenshot: Timeout 30000ms
-  exceeded`.
+- `main.ts` reads `render !== '2d'`, so **the 3D renderer is the default and a
+  URL that says nothing gets it**. `playLocal.mjs` said nothing, so every
+  attempt anyone has made at these plates was photographing three.js through
+  SwiftShader — while passing `extrude=1`, a flag only the 2D tile layer reads.
+- Measured here, same session, same seed, same 1440x810 viewport
+  (`evidence/round8/D-probe-renderer.mjs`): **0.37 fps through 3D and 57-60 fps
+  through 2D**, with a screenshot costing 43 s against 0.2 s. An empty page and
+  a full-viewport canvas fill both hold 60 fps on this box
+  (`evidence/round8/C-probe-scale.mjs`), and the 3D frame rate does not change
+  when the viewport is cut to a sixteenth of the pixels — so it is not the
+  box's raster, it is the geometry going through a software GL.
+- So the wait was never `networkidle` (it arrives in 828 ms) and never
+  playwright's screenshot default alone. It was `getInCar`: at 0.37 fps a
+  240 ms key hold can fall entirely between two input samples, and every CDP
+  keystroke waits on a main thread that is busy for three seconds at a time.
 
-Both are wall-clock budgets losing to a software renderer: there is no GPU
-here, a frame costs three to four seconds, and neither `getInCar`'s
-thirty-iteration approach loop nor playwright's 30 s screenshot default
-allows for that. On a machine with a GPU — frames in milliseconds — both
-budgets are ample, so this is very likely box-specific rather than a broken
-script; that is a reading of the code and the two failures, not something
-this box can prove. Round 1 recorded the same script hanging past 420 s
-twice. **Until somebody retakes them on a machine with a GPU, treat these
-three as undated.**
+`ci/playLocal.mjs` now asks for `render=2d`, waits on the sim's own clock
+(`__debug.tick`) rather than on the network going quiet, bounds its walk-up by
+wall clock rather than by an iteration count, and — the round-5 trap —
+**declares what must be true of `__debug` at the moment each shutter opens and
+throws rather than photographing a scene it failed to stage.** These plates are
+of the 2D renderer, which is the one they have always been of; the 3D client
+has its own plate, `render-3d-client.png`.
+
+The frame is a live session, so what is in it moves between runs: the captions
+below name what the harness stages and gates, not the traffic that happened to
+be passing.
 
 | file | what it shows |
 |---|---|
-| `play-dusk.png` | The lighting and the extrusion doing their jobs at once: a headlight cone thrown down the street, lamp pools on the pavement, a taxi crossing under signals that are red one way and green the other, and buildings leaning away from the camera. |
-| `play-drift.png` | Cornering hard enough to lay rubber down — the skid marks behind the car are where the tyres actually slipped — with a `tyre gone` notice from the damage sim rather than a caption. |
-| `play-foot.png` | On foot with the pistol every player spawns with, muzzle flash, street name, respect bar and export list. |
+| `play-dusk.png` | The lighting and the extrusion doing their jobs at once: the player's headlight cone thrown down the street, lamp pools on the pavement, traffic ahead under the night grade, and buildings leaning away from the camera. Gated on the player being in a car and driving. |
+| `play-drift.png` | Cornering hard enough to lay rubber down — the skid marks trailing back up the street behind the car are where the tyres actually slipped, with the speedo still in three figures. Gated on the decal pool having grown across the corner and the car still moving through it, so this is the slide and not the wreck afterwards. |
+| `play-foot.png` | On foot with the pistol every player spawns with, firing: the muzzle flash lighting the pavement, the round's tracer out to its impact, the player's name tag, the respect bar and the export list. Gated on `foot` + `pistol` + muzzle particles in the air. |
+
+There is no street name in this HUD, whatever an older caption here said:
+`hud.place` is the landmark you are standing inside and `hud.district` the
+borough under it, and the two lines top right are the kill feed — the gang
+names in them (`Kessler Row`, `The Quay`) are gangs, not streets.
 
 **No chase shot, deliberately.** Scripted sprays into a crowd do not reliably
 produce a wanted level — the same unreliability recorded for `ci/play.mjs`

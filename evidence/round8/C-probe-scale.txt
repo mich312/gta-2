@@ -1,0 +1,7 @@
+cpus=4 loadavg=3.47 4.53 3.51
+empty page 1440x810: 59.79 fps
+bare canvas 1440x810 fill: 59.81 fps
+game 1440x810: 0.32 fps (3167 ms/frame), renderMs p50=16.7 buildings=0
+game 720x405: 0.36 fps (2745 ms/frame), renderMs p50=16.7 buildings=0
+game 360x203: 0.35 fps (2858 ms/frame), renderMs p50=16.7 buildings=0
+game 1440x810, no extrude, day: 0.32 fps

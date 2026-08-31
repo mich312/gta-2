@@ -1,0 +1,4 @@
+play-dusk: {"mode":"driving","wanted":0,"cops":0,"health":100,"weapon":"fists","ammo":0,"nearest":{"id":69,"kind":"truck","dx":114.125,"dy":8,"dist":114.40505069707369},"vehicles":19,"peds":11,"fps":49,"decals":52,"carKind":"gangcar","pos":{"x":6550,"y":3536}}
+play-drift: {"mode":"driving","wanted":0,"cops":0,"health":100,"weapon":"fists","ammo":0,"nearest":{"id":69,"kind":"truck","dx":86.875,"dy":-357,"dist":367.41837954163367},"vehicles":17,"peds":10,"fps":60,"decals":61,"carKind":"gangcar","pos":{"x":6577,"y":3901}}
+play-foot: {"mode":"foot","wanted":0,"cops":0,"health":100,"weapon":"pistol","ammo":89,"nearest":{"id":63,"kind":"gangcar","dx":176,"dy":-86.75,"dist":196.21815028177187},"vehicles":19,"peds":11,"fps":60,"decals":1,"carKind":null,"pos":{"x":6344,"y":3455}}
+exit=0
