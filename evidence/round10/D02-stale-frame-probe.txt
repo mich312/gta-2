@@ -1,0 +1,55 @@
+The trap in the R9-D02 fix, and the probe that caught it.
+
+Buffering the frames that arrive before anyone asks for them is the fix for
+R9-D02 — but a buffer that hands back the WRONG frame turns a false red into a
+false green, which is worse. The server sends a wallet on join as well
+(`host.ts:548`, `handleJoin`), and a guest's session wallet already holds
+`startingCash` (`economy.ts:136-141`), so it reads 500 just like the account's.
+If `next('wallet')` after `register` returns that pre-register guest wallet, the
+check compares two guest wallets and passes no matter what the account actually
+stored.
+
+This is not hypothetical: it is what the first version of the fix did. Round 9's
+own frame log shows why clearing the buffer when a request is SENT is not
+enough — the join wallet is processed after the register was sent:
+
+    L1   1013ms welcome       delivered=true
+    L1 --- sent register                       <- buffer cleared here
+    L1   1013ms wallet        delivered=false  <- join wallet lands AFTER the clear
+    L1   1318ms account       delivered=true
+    L1   1319ms wallet        delivered=true   <- the one the check actually wants
+
+PROBE — mark the join-time wallet so the two are told apart
+-----------------------------------------------------------
+`server/dist` copied to a scratch dir with `handleJoin`'s wallet send marked:
+
+    conn.send({ type: 'wallet', ...this.economy.walletOf(slot.playerId), cash: 1234 });
+
+fix v1 (buffer cleared on send only):
+    life1: registered, cash=1234              <- reading the guest wallet
+    life2: logged in after restart, cash=1234
+    PASS                                       <- a vacuous pass
+
+fix v2 (buffer also cleared when a reply is accepted — the shipped version):
+    life1: registered, cash=500               <- the account wallet
+    life2: logged in after restart, cash=500
+    PASS
+12 further runs: 12/12 read cash=500,500. The marked 1234 never appears.
+
+TEETH — the check still fails on a real loss
+--------------------------------------------
+Same scratch dist, with `bindAccount`'s wallet send dropping 100 cash on the
+login path only (a persistence loss the check exists to catch):
+
+    life1: registered, cash=500
+    life2: logged in after restart, cash=400
+    Error: FAIL: cash changed across restart (500 -> 400); starting-cash seeding
+    is not idempotent or the store did not reload
+    EXIT=1
+
+So the fixed check reads the account wallet, not the guest one, and still fails
+when the wallet genuinely changes across the restart.
+
+The invariant the code now keeps: `arrived` holds only what came in since the
+last request sent or the last reply accepted. Both clear points are in
+`connect()`; the cap (64) keeps the 30 Hz snapshot stream from growing it.

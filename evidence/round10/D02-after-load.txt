@@ -1,0 +1,28 @@
+# persistCheck rate: AFTER load5.6, 25 runs, load at start 5.56
+run   1: PASS  orphans=0  load=5.59
+run   2: PASS  orphans=0  load=5.79
+run   3: PASS  orphans=0  load=5.72
+run   4: PASS  orphans=0  load=5.72
+run   5: PASS  orphans=0  load=5.83
+run   6: PASS  orphans=0  load=6.08
+run   7: PASS  orphans=0  load=6.15
+run   8: PASS  orphans=0  load=6.22
+run   9: PASS  orphans=0  load=6.12
+run  10: PASS  orphans=0  load=6.27
+run  11: PASS  orphans=0  load=6.49
+run  12: PASS  orphans=0  load=6.53
+run  13: PASS  orphans=0  load=6.65
+run  14: PASS  orphans=0  load=6.65
+run  15: PASS  orphans=0  load=6.60
+run  16: PASS  orphans=0  load=6.55
+run  17: PASS  orphans=0  load=6.83
+run  18: PASS  orphans=0  load=6.68
+run  19: PASS  orphans=0  load=6.63
+run  20: PASS  orphans=0  load=6.82
+run  21: PASS  orphans=0  load=6.67
+run  22: PASS  orphans=0  load=6.67
+run  23: PASS  orphans=0  load=6.70
+run  24: PASS  orphans=0  load=6.72
+run  25: PASS  orphans=0  load=6.74
+
+# AFTER load5.6: 0/25 failed, 0 orphaned server(s), load at end 6.74

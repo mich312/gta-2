@@ -1,0 +1,43 @@
+$ node evidence/round10/D02-load.mjs 5 420 &     # 5 CPU spinners on a 4-core box
+$ node evidence/round10/D02-rate.mjs 20 "BEFORE load5.6"   # tree at 9d8ff2c, unfixed
+
+# persistCheck rate: BEFORE load5.6, 20 runs, load at start 5.60
+run   1: (PASS)                     load=7.0x
+run   2: PASS  orphans=0  load=7.31
+run   3: FAIL  orphans=1  load=7.41
+run   4: PASS  orphans=0  load=7.62
+run   5: PASS  orphans=0  load=7.97
+run   6: FAIL  orphans=1  load=9.03
+run   7: FAIL  orphans=1  load=9.33
+run   8: FAIL  orphans=1  load=9.27
+run   9: PASS  orphans=0  load=9.01
+run  10: FAIL  orphans=1  load=9.25
+run  11: FAIL  orphans=1  load=9.75
+run  12: FAIL  orphans=1  load=10.01
+run  13: PASS  orphans=0  load=10.17
+run  14: PASS  orphans=0  load=10.22
+run  15: FAIL  orphans=1  load=10.12
+run  16: PASS  orphans=0  load=10.35
+run  17: FAIL  orphans=1  load=10.38
+run  18: FAIL  orphans=1  load=10.10
+run  19: FAIL  orphans=1  load=9.85
+run  20: PASS  orphans=0  load=10.02
+
+# BEFORE load5.6: 11/20 failed, 11 orphaned server(s), load at end 10.02
+  run 3: Error: timeout waiting for wallet
+  run 6: Error: timeout waiting for wallet
+  run 7: Error: timeout waiting for wallet
+  run 8: Error: timeout waiting for wallet
+  run 10: Error: timeout waiting for wallet
+  run 11: Error: timeout waiting for wallet
+  run 12: Error: timeout waiting for wallet
+  run 15: Error: timeout waiting for wallet
+  run 17: Error: timeout waiting for wallet
+  run 18: Error: timeout waiting for wallet
+  run 19: Error: timeout waiting for wallet
+
+11/20 = 55%, and every single failure is the same one: the wallet frame the
+server did send, dropped by the client's own `next()` because no waiter was
+registered yet. Every failure orphans exactly one server; no pass orphans any.
+(The harness kills the orphans between runs — with them left alive, as R9-D04
+describes, the load climbs further and the rate goes to 10-in-10.)

@@ -1,0 +1,57 @@
+R9-D04 — a failed persistCheck left its 30 Hz server running.
+
+A fixed persistCheck stops failing by itself (see D02-after-*.txt), so the
+cleanup path has to be exercised deliberately. Both runs below are the compiled
+check copied to a scratch directory with one line forced to throw at the point
+where life 1's server is up:
+
+    if (true) throw new Error('FORCED FAILURE (control): life-1 server is still alive at this point');
+
+BASELINE — the same copy with killAll() neutered (i.e. cleanup as at 9d8ff2c)
+----------------------------------------------------------------------------
+$ node .../distfail-unfixed/tools/persistCheck.js
+(the shell pipeline never returned — the orphan holds the inherited stderr pipe
+ open, which is its own demonstration)
+$ pgrep -af distfail-unfixed/index.js
+30324 /opt/node22/bin/node .../distfail-unfixed/index.js     <- still alive
+(killed by hand)
+
+AFTER — same forced failure, cleanup in place
+---------------------------------------------
+$ node .../distfail/tools/persistCheck.js
+Error: FORCED FAILURE (control): life-1 server is still alive at this point
+EXIT=1
+$ pgrep -af distfail/index.js
+(no match)
+
+INTERRUPT PATH — persistCheck killed mid-run
+--------------------------------------------
+$ node scratch/sigterm.mjs            # spawns persistCheck, SIGTERMs it at 1.5s
+servers alive mid-run: 1
+servers alive after SIGTERM to persistCheck: 0
+
+MEASURED RATE, both defects together — first pass, superseded below
+-------------------------------------------------------------------
+(the fix was corrected after this reading; see D02-stale-frame-probe.txt)
+                          failed      orphans left
+before, load 1.4-2.9      4 / 20      4  (one per failure)
+before, load 5.6-10.0    11 / 20     11  (one per failure)
+after,  load 1.5-2.9      0 / 20      0
+after,  load 6.2-9.8      0 / 25      0
+
+RE-RUN against the final build (after the stale-frame correction)
+-----------------------------------------------------------------
+$ node .../distfail/tools/persistCheck.js
+Error: FORCED FAILURE (control): life-1 server is still alive at this point
+EXIT=1
+$ ps -eo pid,args | grep distfail/index.js | grep -v grep
+(no match)
+
+FINAL RATES (final build)
+-------------------------
+                          failed      orphans left
+before, load 1.4-2.9      4 / 20      4  (one per failure)
+before, load 5.6-10.0    11 / 20     11  (one per failure)
+after,  load 0.6-1.3      0 / 20      0
+after,  load 5.6-6.7      0 / 25      0
+after,  load 9.1-11.5     0 / 20      0
