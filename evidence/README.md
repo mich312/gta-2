@@ -330,3 +330,15 @@ first (`pnpm --filter client dev`) and read a plate back with
 | `round3/F-R1-B01-3d-noon-lightsoff.png` | The control the two above are measured against — midday with `?lights=off`, so no street lighting exists at all. The `after` plate matches it across the lamp to within a luma. Retake: same command with `&lights=off`. |
 | `round3/F-R1-B01-crop-noon-before.png` / `-after.png` | The lamp itself, 140x100 px of the frame at 5x. Before: a blown bulb and a halo up the wall. After: the grey head and cream bulb of the art, unlit. |
 | `round3/F-R1-B01-3d-night-before.png` / `-after.png` | The gate on the fix. At midnight the key light sums to 1.00, so the threshold is still exactly its old 1.05 and the night is untouched: (40,450) reads 148 either side, and a whole-frame diff finds fewer differing pixels between the two than between two runs of the *same* build (the lamp flicker rides on wall-clock). Retake: same command with `&night=1`. |
+
+## Review round 3 — R1-C02, the officer who witnessed from the pavement
+
+Text, not pictures: the finding is a boolean the sim computes, so the plate is
+the verdict itself. `node evidence/round3/F-R1-C02-corpse-witness.mjs` prints
+all five rows in about a second and needs no server.
+
+| file | what it shows |
+|---|---|
+| `round3/F-R1-C02-corpse-witness.mjs` | R1-C02's repro. An officer 80 px away on a clear line, and 60 rounds of the silenced pistol fired the OTHER way — outside the 34 px the gun carries, so the only thing that can notice is `noticedBy`'s sight branch. Rerun it with `node evidence/round3/F-R1-C02-corpse-witness.mjs`. It replaces `round1/C-repro-corpse-witness.mjs`, which posts its officer at a hard-coded +80 px in x: open ground at round 1, inside a wall after the round-2/3 worldgen work, so that script now prints `false` on every row including its own control and shows nothing either way. |
+| `round3/F-R1-C02-before.txt` | The bug at `3bd853e`. All four officer rows read `true` / heat 18.0: a corpse and an invisible fugitive are witnesses on exactly the same terms as a live officer watching a visible one — `noticedBy` looped the cop table with `if (!cop) continue` as its only filter and called `hasLineOfSight` directly, so it had neither the down check `anyCopSees` carries nor the invisibility gate inside `copSees`. Every noticed shot resets `unseenTicks` (`state.ts` `addHeat`), and `peds.json` `corpseSec: 40` keeps the body in `state.cops`, so a cleared street reported you for forty seconds and the invisibility power-up could not stop it. |
+| `round3/F-R1-C02-after.txt` | The same run with the sight branch going through `copSees` and bodies skipped. Only the live-and-visible control still notices — heat 18.0, `unseenTicks` 0 — and the corpse and the invisible player now read `false` / heat 0.0, level with the no-officer control. The control row is the proof the fix did not go too far; `shared/test/noise.test.ts` holds all three cases. |

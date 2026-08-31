@@ -11,6 +11,7 @@ import { getWeaponTuning, initTuning } from '../src/tuning.js';
 import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import {
+  POWER_INVISIBLE,
   POWER_STUNNED,
   createCop,
   createGameState,
@@ -133,6 +134,43 @@ describe('weapon noise (M2)', () => {
     const quiet = cost('silenced');
     expect(loud).toBeGreaterThan(0);
     expect(quiet).toBe(0);
+  });
+
+  it('a corpse witnesses nothing, and an invisible fugitive is not seen', () => {
+    // R1-C02. `noticedBy` used to ask the geometry directly, so it applied
+    // neither filter the rest of the sight code applies: a downed officer and
+    // an invisible player each registered as a witness identically to a live
+    // officer watching a visible one, and since every noticed shot resets
+    // `unseenTicks`, a street you had cleared kept the cool-down clock at zero
+    // for the forty seconds a corpse lingers.
+    //
+    // The officer stands on open ground with a clear view, far outside the
+    // silencer's noise radius, so SIGHT is the only thing that can notice —
+    // and the shot is fired the other way, so this measures being seen rather
+    // than being shot at.
+    const cost = (opts: { dead?: boolean; invisible?: boolean } = {}): number => {
+      const { state } = armed('silenced');
+      const p = state.players.byId[1]!;
+      const view = clearSpot(map, p.pos, 80);
+      expect(Math.hypot(view.x - p.pos.x, view.y - p.pos.y)).toBeGreaterThan(
+        getWeaponTuning('silenced')!.noiseRadius,
+      );
+      const cop = createCop(701, { x: view.x, y: view.y }, 50);
+      if (opts.dead) cop.health = 0;
+      insertEntity(state.cops, cop);
+      if (opts.invisible) {
+        p.powerFlags |= POWER_INVISIBLE;
+        p.powerUntilTick = state.tick + 10_000;
+      }
+      const before = p.heat;
+      const after = fire(state, view.angle + Math.PI, 1);
+      return after.players.byId[1]!.heat - before;
+    };
+    // The control, and the case the test above depends on: a live officer
+    // with a clear view IS noticed by a silenced shot.
+    expect(cost()).toBeGreaterThan(0);
+    expect(cost({ dead: true })).toBe(0);
+    expect(cost({ invisible: true })).toBe(0);
   });
 
   it('...but a killing in an empty alley is still a crime', () => {

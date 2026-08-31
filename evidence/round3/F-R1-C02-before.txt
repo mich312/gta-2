@@ -1,0 +1,5 @@
+no officer at all (control)        noticedBy(noise 34) = false  heat after 60 silenced shots = 0.0  unseenTicks = 0
+one LIVE officer, 80 px away       noticedBy(noise 34) = true   heat after 60 silenced shots = 18.0  unseenTicks = 0
+one DEAD officer (a corpse)        noticedBy(noise 34) = true   heat after 60 silenced shots = 18.0  unseenTicks = 10
+LIVE officer, player INVISIBLE     noticedBy(noise 34) = true   heat after 60 silenced shots = 18.0  unseenTicks = 10
+DEAD officer, player INVISIBLE     noticedBy(noise 34) = true   heat after 60 silenced shots = 18.0  unseenTicks = 10
