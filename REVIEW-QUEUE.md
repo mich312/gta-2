@@ -217,7 +217,7 @@ separate piece of work, filed below as R1-C07.
 - no test expectation was changed. The suite is green as it stood; the numerics moved by less than any assertion's tolerance (`dSin` is within 6e-8 of `Math.sin`, and the sqrt/hypot swap moves values by at most one ulp).
 
 ### R1-C04 — the car bomb is free arson, and its casualties are credited to nobody
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 4** — `a253655`, charged at arming        verdict: CONFIRMED
 - round: 1   severity: significant   lens: C
 - where: `shared/src/sim/fittings.ts:54-58` (bypasses `damageVehicle`, so `igniterId` never set)
 - repro: `node evidence/round1/C-repro-carbomb.mjs`
@@ -441,7 +441,7 @@ sea. Nobody had filed this. Left alone (out of scope), pinned in
 `shippedCity.test.ts`, **file it as its own round-3 finding.**
 
 ### R1-A02 — Hollis Creek is crossed nowhere along its length
-- status: [ ] open        verdict: **CONFIRMED**
+- status: [x] **FIXED round 4** — `ac4894f`, detours 458->20 and 124->6        verdict: CONFIRMED
 - round: 1   severity: significant   lens: A
 - where: `city-plan.json` — The Esplanade and Longacre Road, both `bridges: false`
 - verified by counterfactual, which is what settles "deliberate or not": flipping **every** road to `bridges:true` adds 41 bridge tiles in exactly 2 clusters, both on this creek. Seven of the nine `false` roads are inert — they never touch bridgeable water. `bridgeable()` already refuses open water on its own, so the flag does no anti-causeway duty anywhere. And the field's documented rationale (`plan.ts:191`, "which roads are big enough") cannot be why, since every road in the plan is `width: 4`. The split tracks names, not what each course crosses.
@@ -1075,3 +1075,53 @@ restaged on a genuinely clear line using the house rule from
 broken, not the code. `FIXER.md` now says so. This also means every repro
 script banked in earlier rounds is suspect after a rebake — they are evidence
 of what was true when written, not standing tests.
+
+
+---
+
+## Round 4 closed — verified on the merged tree
+
+```
+pnpm build                       clean
+npx tsc -p client --noEmit       clean
+pnpm test                        91 files, 970 tests, 0 failures
+citybake --check                 exit 0 — 1182 blocks, 4014 buildings, 6 pinned warnings
+pnpm parity                      host parity OK — hash 3118957723
+```
+
+Ground truth: **87/943 -> 90/953 -> 91/966 -> 91/970.**
+
+All three crowded-out `significant` findings fixed: C02, C04, A02.
+
+**A parity result was nearly accepted on the wrong evidence.** The first run
+reported OK, but vite had landed on 5176 because finished agents' dev servers
+still held 5173-5175, and `hostParity.mjs` defaults to 5173 — so it had
+measured someone else's tree. Re-run against a confirmed-clean 5173
+(`host-probe -> 200`) it gives the same hash, so the answer was right; the
+evidence for it was not. Same shape as the dead-control lesson: **check what
+your instrument is pointed at before believing what it says.**
+
+### What round 4 taught about the round-2 gate
+
+A02's fixer established two limits on the bridging gate round 2 built:
+
+1. **It reads the artifact, not the plan.** With the new plan but the old
+   `city.data.ts`, a seventh warning appeared; the rebake removed it.
+2. **It could not have found this finding.** Longacre's gap is 4 tiles against
+   a road `width: 4`, and the gate only reports a stretch *longer than the road
+   is wide*. Narrow gaps are invisible to it.
+
+Recorded because round 3's notes credit that gate with "finding four more
+broken crossings" — true, and bounded.
+
+## Round 5 — the evidence refresh, and the convergence test
+
+The city has finally stopped moving, so **R1-D02** can be retaken. Four
+rebakes have happened since it was filed (A01, A03, A08, A02), so the original
+count of thirteen stale plates is a floor, not a total.
+
+Round 5 also runs the **convergence test** the stopping rules turn on: two
+fresh review lenses over the areas this exercise changed most. The question is
+not whether they find something — a review always finds something — but
+whether they find anything *confirmed and significant*. If they do not, the
+loop has converged and the budget should stop.
