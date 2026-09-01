@@ -1,0 +1,8 @@
+The Ring           77 tiles  641,309 -> 644,381  bridges=true width=4  furthest point from any carriageway: 38 tiles
+The Ring           80 tiles  649,306 -> 652,380  bridges=true width=4  furthest point from any carriageway: 39 tiles
+Marsh Causeway     81 tiles  566,292 -> 571,373  bridges=true width=4  furthest point from any carriageway: 33 tiles
+Vasco Avenue        6 tiles  86,208 -> 87,212  bridges=false width=4  furthest point from any carriageway: 7 tiles
+Coast Road        169 tiles  360,685 -> 520,681  bridges=true width=4  furthest point from any carriageway: 29 tiles
+Coast Road         79 tiles  542,675 -> 612,648  bridges=true width=4  furthest point from any carriageway: 20 tiles
+Coast Road         22 tiles  679,606 -> 694,596  bridges=true width=4  furthest point from any carriageway: 26 tiles
+total 514 tiles of authored course with no carriageway

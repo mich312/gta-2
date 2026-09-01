@@ -1,0 +1,43 @@
+# iteration 11 red controls — each break must make --selftest exit 1
+
+=== 1. the signature returns nothing — 508 tiles of missing road disappear
+# course-unbuilt      SILENT   0 -> 0  m 0 -> 0 at 419,116 — the carriageway lifted out from under a built stretch of an authored bridging road
+# course-unbuilt      SILENT   a 32-tile pier at 451,36 heading north with carriageway under all of it: 0 -> 0 findings, m 0 -> 0 — a road that ends at open water with a cap is a quay, not a missing crossing
+# course-unbuilt      BLIND    the same course with the seaward 16 tiles of tarmac lifted off: 0 -> 0 findings, m 0 -> 0 — the carriageway is the only thing that changed
+  --selftest exit = 1   (must be 1)
+
+=== 2. the gap gate is 100x too wide — a real hole reads as rasteriser rounding
+# course-unbuilt      SILENT   0 -> 0  m 0 -> 0 at 419,116 — the carriageway lifted out from under a built stretch of an authored bridging road
+# course-unbuilt      SILENT   a 32-tile pier at 451,36 heading north with carriageway under all of it: 0 -> 0 findings, m 0 -> 0 — a road that ends at open water with a cap is a quay, not a missing crossing
+# course-unbuilt      BLIND    the same course with the seaward 16 tiles of tarmac lifted off: 0 -> 0 findings, m 0 -> 0 — the carriageway is the only thing that changed
+  --selftest exit = 1   (must be 1)
+
+=== 3. a deck is not carriageway — every bridge in the city becomes a hole
+# course-unbuilt      FIRED    18 -> 19  m 883 -> 899 at 419,116 — the carriageway lifted out from under a built stretch of an authored bridging road
+# course-unbuilt      FALSE+   a 32-tile pier at 451,36 heading north with carriageway under all of it: 18 -> 19 findings, m 883 -> 916 — a road that ends at open water with a cap is a quay, not a missing crossing
+# course-unbuilt      BLIND    the same course with the seaward 16 tiles of tarmac lifted off: 19 -> 19 findings, m 916 -> 916 — the carriageway is the only thing that changed
+  --selftest exit = 1   (must be 1)
+
+=== 4. the curve-layer gate is gone — the signature re-reports the coastline
+# landuse-staircase   FALSE+   the same walk over the WATER/land boundary: 7 findings — every one of its boundary faces is on a shore chain, so none of its steps is drawn
+# landuse-staircase   UNCOVER  with the curve layer taken away, that identical coastline gives 7 findings and 5303 tiles against woodland's 31 and 2708 — the TILE PLANE says the coast is the worse staircase, which is why a tile-plane measure of this defect is wrong
+# landuse-staircase   BROKEN   with a curve layer over every tile, the woodland gives 31 findings — the absence of a painter is what fires this, not the material
+  --selftest exit = 1   (must be 1)
+
+=== 5. every tile claims a painter — a fully drawn defect reads as invisible
+# landuse-staircase   SILENT   0 -> 0  m 0 -> 0 at 493,28 — a wood stamped into a meadow with a 5-tile-tread staircase down one side
+# landuse-staircase   COAST    the same walk over the WATER/land boundary: 0 findings — every one of its boundary faces is on a shore chain, so none of its steps is drawn
+# landuse-staircase   UNCOVER  with the curve layer taken away, that identical coastline gives 7 findings and 5303 tiles against woodland's 0 and 0 — the TILE PLANE says the coast is the worse staircase, which is why a tile-plane measure of this defect is wrong
+# landuse-staircase   PAINTED  with a curve layer over every tile, the woodland gives 0 findings — the absence of a painter is what fires this, not the material
+  --selftest exit = 1   (must be 1)
+
+=== 6. the plant stamps no trees — a control that stages nothing must not pass
+# landuse-staircase   SILENT   31 -> 31  m 2708 -> 2708 at 493,28 — a wood stamped into a meadow with a 5-tile-tread staircase down one side
+  --selftest exit = 1   (must be 1)
+
+=== 7. the census skips one face per run — the WHOLE leg is the only witness
+# landuse-staircase   PARTIAL  1649 of 2833 boundary faces put to the smoothing layer across 29 woods, 29 asked about less than their whole boundary — A CENSUS THAT ASKS ABOUT A SUBSET AND DEFAULTS THE REST IS NOT A CENSUS
+  --selftest exit = 1   (must be 1)
+
+# every break above must show exit 1. A break that exits 0 is a control
+# that is not watching, which is the tenth instrument's failure exactly.

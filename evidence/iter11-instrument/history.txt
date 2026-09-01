@@ -1,0 +1,54 @@
+# mapaudit re-scored: the same eight bakes, the instrument before and after iteration 11
+#
+# BEFORE = mapAudit.ts at d7b4256 — 20 signatures. This is the code that published
+#          TOTAL 48 / SCORE 2653.8 / DRAWN 2522.5 for the head bake, and the BEFORE
+#          column below has to reproduce that or nothing beside it is worth reading.
+# AFTER  = this tree — 22 signatures. course-unbuilt reports the 508 tiles of authored
+#          road citybake --check has warned about on every run of this loop, and
+#          landuse-staircase reports the land-use fill that no painter repaints.
+#
+# Neither new signature moves with the map on this series: the six unbuilt spans are
+# the same six on every bake, so the DELTAS between iterations are unchanged by the
+# restatement, exactly as they were for iteration 9's correction.
+#
+bake                                  TOTAL      SCORE      DRAWN    TOTAL      SCORE      DRAWN
+                                   (before)   (before)   (before)  (after)    (after)    (after)
+e3306c8~2  pre-iteration-3 (calib)       60    16470.5    16339.3       95    19618.5    19139.3
+7769a2c    pre-iteration-5               54     2871.5     2740.3       91     6060.5     5653.3
+ffb2e89    post-iteration-5              54     2668.5     2537.3       91     5857.5     5450.3
+b5c7805    post-iteration-5 (instr)       54     2668.5     2537.3       91     5857.5     5450.3
+ce3189b    post-iteration-6              48     2653.8     2522.5       85     5842.8     5435.5
+cda745a    post-iteration-7 (no map)       48     2653.8     2522.5       85     5842.8     5435.5
+bb0aaae    post-iteration-8              48     2653.8     2522.5       85     5869.8     5462.5
+d7b4256    post-iteration-10 (head)       48     2653.8     2522.5       85     5869.8     5462.5
+
+# the two new signatures alone, over the same eight bakes:
+bake                                unbuilt n  unbuilt m    landuse n  landuse m
+e3306c8~2  pre-iteration-3 (calib)          6        508           29       2640
+7769a2c    pre-iteration-5                  6        508           31       2681
+ffb2e89    post-iteration-5                 6        508           31       2681
+b5c7805    post-iteration-5 (instr)          6        508           31       2681
+ce3189b    post-iteration-6                 6        508           31       2681
+cda745a    post-iteration-7 (no map)          6        508           31       2681
+bb0aaae    post-iteration-8                 6        508           31       2708
+d7b4256    post-iteration-10 (head)          6        508           31       2708
+
+# per-signature on the head bake, both instruments:
+                             BEFORE  count  score   AFTER   count  score  drawn
+built-staircase                    24       135.0           24  135.0    3.8
+landuse-staircase                                           31 2708.0 2432.0
+course-unbuilt                                               6  508.0  508.0
+lanes-serving-nothing               2      2338.0            2 2338.0 2338.0
+TOTAL                              48      2653.8           85 5869.8 5462.5
+
+# AND ONE THING THE OLD INSTRUMENT COULD NOT SEE AT ALL.
+# cda745a and bb0aaae read IDENTICALLY on the 20-signature instrument — 48 / 2653.8 /
+# 2522.5 in every column — and iteration 10 confirmed "not one road tile moved".
+# landuse-staircase reads 2681 on one and 2708 on the other. Both are true; the bakes
+# are different blobs and what moved was land use, which nothing was measuring:
+#   /tmp/iter11-bake-cda745a.ts
+#   /tmp/iter11-bake-bb0aaae.ts
+#   192 tiles differ, bbox 246,596..677,689
+#        191  field -> trees
+#          1  trees -> field
+#   courses 381 -> 381, blocks 1184 -> 1184

@@ -1,0 +1,34 @@
+# Attribution for a flaky test, kept because a failing chain needs an owner.
+#
+# `node ci/test.mjs` on the full suite failed twice on this box, both times on
+# server/test/session.test.ts > 'the input buffer drains back down after a
+# jitter storm', both times with:
+#
+#     Error: Test timed out in 60000ms.
+#
+# It is not an assertion failure and it is not this iteration's change:
+# mapAudit.ts is imported by no test in the suite (`grep -rln mapAudit
+# server/test client/test shared/test ci` finds one comment in ci/citytiles.mjs
+# and nothing else). The test is CPU-bound — 1200 ticks of a full session — and
+# the box is 4 cores running 7 vitest workers at load average 7.8.
+#
+# Measured, four ways:
+#
+#   14.0s   the file run alone (`node ci/test.mjs server/test/session.test.ts`),
+#           9 of 9 passing, exit 0
+#   37.2s   PASSING, inside a full-suite run on the PRISTINE tree with this
+#           iteration's change reverted — 62% of the 60s budget
+#   35.9s   PASSING, inside a full-suite run WITH the change — the same reading,
+#           which is the control: the change moves this test by nothing
+#   65.0s   FAILING, inside a full-suite run, over the 60s budget
+#
+# 37.2s on unmodified code and 35.9s with the change, against a 60s timeout, is
+# the finding. The margin is the flake; the change is not. Both full-suite runs
+# that failed did so while other work (map renders, audit runs) was competing
+# for the same four cores.
+#
+# `server/vitest.config.ts` sets testTimeout to 60_000 with a comment saying
+# these tests are 'legitimately seconds of work, not a hang'. On a 4-core box
+# under 7 workers that budget is not enough for this one, which is the same
+# class of problem `ci/test.mjs` was written to filter for onTaskUpdate.
+# Reported, not fixed: it is in `server/test`, which this agent does not own.
