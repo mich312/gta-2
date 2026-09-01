@@ -1,0 +1,44 @@
+# selftest: plant a known defect, then look for it
+# road-speck          FIRED    0 -> 1  m 0 -> 1 at 470,40 — a lone tile of tarmac in open field
+# road-notch          FIRED    0 -> 1  m 0 -> 1 at 540,10 — a wall punched through the middle of a carriageway
+# road-deadend        FIRED    4 -> 5  m 11 -> 14 at 444,326 — a 3-wide street ending in open ground
+# road-stops-short    FIRED    13 -> 16  m 113 -> 143 at 468,313 — a street stopping two tiles short of the avenue it runs at
+# road-width-jump     FIRED    0 -> 1  m 0 -> 2 at 481,325 — a straight street stepping 3 -> 5 tiles wide
+# junction-stub       FIRED    0 -> 1  m 0 -> 49 at 455,313 — a crossroads-shaped patch with one street leaving it
+# walk-orphan         FIRED    0 -> 1  m 0 -> 16 at 426,313 — a ring of pavement with no street anywhere near it
+# patch-square        FIRED    0 -> 1  m 0 -> 36 at 431,313 — a perfect 6x6 stamp of woodland in a meadow
+# edge-notch          FIRED    0 -> 1  m 0 -> 1 at 444,293 — a single tile of open water in the middle of a meadow
+# bare-corridor       FIRED    0 -> 1  m 0 -> 162 at 663,391 — a 6-wide ruler-straight lane cut 30 tiles through a wood
+# built-staircase     FIRED    24 -> 25  m 540 -> 572 at 493,28 — a 5-tile-tread staircase on the edge of a yard
+# kerb-missing        FIRED    0 -> 1  m 0 -> 10 at 406,40 — a building wall laid straight onto the carriageway
+# shore-staircase     FIRED    0 -> 2  m 0 -> 11 at 607,630 — a 14-tile horizontal tread cut into a diagonal waterline
+# course-coverage-outlier  FIRED    0 -> 1  m 0 -> 15261 at 286,184 — every centreline of the best-covered borough deleted, its tarmac untouched
+# course-unbuilt      FIRED    6 -> 7  m 508 -> 524 at 419,116 — the carriageway lifted out from under a built stretch of an authored bridging road
+# landuse-staircase   FIRED    31 -> 32  m 2708 -> 2800 at 493,28 — a wood stamped into a meadow with a 5-tile-tread staircase down one side
+# street-serves-nothing  FIRED    5 -> 6  m 227 -> 263 at 441,313 — a 3-wide street carved in open field with a course down it and nothing at either end
+# lanes-serving-nothing  FIRED    2 -> 3  m 2338 -> 3767 at 64,566 — a lattice of lanes laid over empty ground outside every district polygon
+# country-outside-blocks  FIRED    0 -> 1  m 0 -> 3522 at 65,566 — a wooded rural block beside country outside the blocks that is stripped bare
+# carve-is-a-ruler    FIRED    0 -> 1  m 0 -> 24 at 84,612 — a one-tile slot cut dead straight down a standing wood
+# every planted control fired, and every one moved its magnitude
+# crossing-missing and fabric-coarse are calibrated against the 1469611 bake (--data), not planted
+# half-fix control: shrink a real finding without curing it
+# lanes-serving-nothing  SHRANK   2 -> 2  m 2338 -> 1739 after lifting 599 of 1198 carriageway tiles out of 393,312-549,365
+# a partial fix scores: the count held and the magnitude fell
+# wildness-field control: the audit's copy of bake.ts:609 is bake.ts:609
+# wildAt              AGREES   88.3% of 16699 country tiles inside rural blocks; field says wood on 46.5%, ground is wood on 45.5% (gate 75%)
+# unasked-country control: refuse what the field answered, keep what it did not
+# country-outside-blocks  REFUSED  322,740-355,756: 507 tiles, 0 wood, 0 bare where the field says wood — every other gate passes it, so the field is what silenced it
+# country-outside-blocks  FIRED    65,566-164,678: wooded -> silent (wildBare 0), then stripped of 1232 wood -> fires with 900 tiles bare where the field says wood — the gate lets genuinely unasked ground through
+# drawn control: the curve layer is what dissolves a staircase
+# built-staircase     SPLIT    24 findings, 540 tiles, 15 drawn — 1 fully drawn, 23 fully dissolved
+# built-staircase     WHOLE    741 of 741 profile positions put to the curve layer across 24 edges, 0 edge(s) asked about less than their whole outline — every step face was asked, whatever lies beyond it
+# built-staircase     UNCOVER  with every chain removed: 24 findings, 540 tiles, 540 drawn (was 15) — nothing is painted over, so all of it is drawn
+# built-staircase     DECKS    with only the deck chain removed: the 4 bridge decks go 0 -> 117 drawn of 123 tiles (6 still on the coast chain, where a deck meets its own shore), the quays hold at 15 — iteration 8's curve is what covers the decks and touches nothing else
+# quay control: a pier is a road that ends at water, and is not this defect
+# course-unbuilt      SILENT   a 32-tile pier at 451,36 heading north with carriageway under all of it: 6 -> 6 findings, m 508 -> 508 — a road that ends at open water with a cap is a quay, not a missing crossing
+# course-unbuilt      FIRED    the same course with the seaward 16 tiles of tarmac lifted off: 6 -> 7 findings, m 508 -> 524 — the carriageway is the only thing that changed
+# land-use control: the curve layer is the discriminator, not the tile plane
+# landuse-staircase   COAST    the same walk over the WATER/land boundary: 0 findings — every one of its boundary faces is on a shore chain, so none of its steps is drawn
+# landuse-staircase   UNCOVER  with the curve layer taken away, that identical coastline gives 7 findings and 5303 tiles against woodland's 31 and 2708 — the TILE PLANE says the coast is the worse staircase, which is why a tile-plane measure of this defect is wrong
+# landuse-staircase   PAINTED  with a curve layer over every tile, the woodland gives 0 findings — the absence of a painter is what fires this, not the material
+# landuse-staircase   WHOLE    3669 of 3669 boundary faces put to the smoothing layer across 31 woods, 0 asked about less than their whole boundary — every face was asked, whatever lies beyond it
