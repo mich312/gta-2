@@ -3112,3 +3112,116 @@ output on every single run and read as "held at six".
 **A metric you optimise becomes the edge of what you can see.** The cheapest
 correction available to this loop, all along, was to render the city and look
 at it.
+
+---
+
+# Visual loop — iteration 11 close
+
+**TOTAL 85 → 81. SCORE 5869.8 → 5528.8. DRAWN 5462.5 → 5119.5.**
+**SCORE −341.0 — the largest single-iteration improvement of the exercise**
+(previous best: iteration 5's −203).
+
+The instrument for it was built by a *different agent, against the broken tree,
+before the fix existed*. That is the cleanest proof this loop can produce.
+
+```
+course-unbuilt   6 findings / 508 tiles  ->  1 finding / 169 tiles
+citybake         6 warnings              ->  1 warning
+reachability     100,833 tiles / 491.6   ->  102,059 tiles / 473.9
+```
+
+Mean landmark-to-landmark travel is **3.6% shorter across the whole city**,
+one component both sides, 0 unreachable — verified independently.
+
+## The six warnings were three bugs failing three gates
+
+Not one span limit, which is what the whole loop had assumed. `bridgeable()`
+needs land within `maxBridgeSpan` **along the direction of travel**;
+`trimBridges()` then deletes any deck whose narrowest axis run exceeds it; a
+third pass deletes any deck landing in fewer than two places.
+
+| road | span | tiles | status |
+| --- | --- | --- | --- |
+| The Ring | 641,309→644,381 | 77 | **BUILT** — 73 tiles of water on its line, against a limit of 72 |
+| The Ring | 649,306→652,380 | 80 | **BUILT** — 75 tiles of water |
+| Marsh Causeway | 566,292→571,373 | 81 | **BUILT** — north end 8 tiles out in the estuary *and* the line 96 wide |
+| Coast Road | 360,685→520,681 | **169** | **escalated**, still warns |
+| Coast Road | 542,675→612,648 | 79 | **BUILT** — rerouted onto the shore |
+| Coast Road | 679,606→694,596 | 22 | **SETTLED** — course now ends on the headland; those 22 tiles are sea and stay sea |
+
+317 tiles now carry carriageway, 22 were honestly removed from the course, 169
+remain.
+
+**The prior escalation's number was wrong.** It proposed `maxBridgeSpan`
+72 → 76. That is not enough: Marsh Causeway needs **96** because its water is 96
+tiles long *along travel*, and 90 fails. Shipped at 96 — plangen's own default,
+not an invented number — with blast radius measured rather than trusted: **596
+tiles, every one inside the two Ring crossings**. The limit only reaches
+`bridges: true` courses, so it is structurally bounded.
+
+## Coast Road's 169 tiles: rejected with the measurement, three ways
+
+- **Raising the span for it — rejected.** The nearest land to all five of its
+  wet control points is *the same landmass it starts from*. **It is not crossing
+  anything; it is drawn seaward of its own beach.** A span of 88 or 106 would
+  have built a 169-tile causeway out to open sea — precisely what `trimBridges`
+  exists to prevent.
+- **Island-hopping — rejected.** The islets are 40+ tiles further south, off the
+  course.
+- **Rerouting the whole road — built twice, measured, rejected.** Between x=348
+  and x=415 there is **1–4 tiles of land** between the ring road and the
+  waterline: the ring *is* the coast road there. Both reroutes fused the tarmac
+  into one sheet, scoring **231 and 238 against the suite's ceiling of 230** on a
+  baseline of 215. That is `keeps merged tarmac sheets rare` doing its job, and
+  the ceiling was not raised to fit. The shipped east-only reroute scores 216.
+
+**Escalated:** the island is not wide enough for two coastal roads over that
+stretch. Either accept that the ring carries the coast there and split Coast
+Road into two named roads, or move the ring inland. Both costed in
+`evidence/iter11/README.md`.
+
+## Two test pins moved, from measurement rather than to fit
+
+- `keeps the ring limited-access` pinned 7 joins; there are now 6. The one that
+  went is `641,307`, pinned as "the ring's own authored plumbing" — **actually
+  the tile where the ring stopped dead at the water.** A probe reproduces all
+  seven on the pre-fix asset before the pin was edited.
+- `still refuses an abutment` bounded loose parapet ends at 60, described as
+  "generous room on a map with four spans". It was **exact, not generous**:
+  13 decks, 4×13+8 = 60. Three decks were added, so the bound now counts runs
+  and reproduces 60 on the old map. Asserted properties untouched.
+
+## Two new signatures, and my metric refuted as a control
+
+`course-unbuilt` reads `plan.roads` — the authored polylines, which **no other
+signature consults** — and reproduced citybake's six warnings to the tile,
+endpoint and reason, with a third method computing the same 508. Its reason text
+names why ten iterations missed it: the caps *"read to `road-deadend` as a quay;
+the plan is what says it is not one."*
+
+`landuse-staircase`: 31 woods, 2,703 tiles, DRAWN 2,427. Several read
+`228 of 228` boundary faces on **no smoothing layer at all**.
+
+**My woodland metric was refuted harder than I conceded, and kept as a control.**
+In the tile plane the coastline is the *worse* staircase — 5,303 flat-run tiles
+against woodland's 2,708 — but 100% of its faces lie on a shore chain against
+**8.6%** of woodland's. `bevel.ts` states the blind spot outright: *"Woodland
+edges inland are left square too, for now."* The `UNCOVER` control now embeds my
+broken metric as a live test of why a tile-plane measure of this defect is wrong,
+and `PAINTED` — a curve layer over every tile giving **0 findings** — proves it
+is the absence of a painter that fires it, not the material.
+
+**Decision recorded: `landuse-staircase` is NOT marked `noisy`,** though it is
+46% of SCORE. `noisy` has meant "most hits are not real defects"; every one of
+these is a measured face count and a human confirmed one by eye. Discounting a
+defect because it is large is how a signature stops being looked at. Its DRAWN is
+90% of its SCORE, so a curve-layer fix will drop DRAWN while SCORE holds — the
+signal would be muted by a discount.
+
+## Process
+
+Eight `pgrep -f 'ci/test.mjs'` watcher shells deadlocked **on each other** — each
+matched the others' command lines, which contain that string, so every one waited
+on the next while no suite ran at all. Same trap that killed the coordinator's
+own shell three times earlier with `pkill -f "vite"`. Killed by PID, since a
+pattern kill would have matched the killer.
