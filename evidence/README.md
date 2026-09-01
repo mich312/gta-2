@@ -563,3 +563,44 @@ either side, every signature unmoved, and the same six known-broken crossings.
 | `iter3/marsh-end-after.png` | 32.3% wood outside the blocks, and the stands either side of a block seam now agree about where the wood is. Same command, `-after` for the name. |
 | `iter3/ring-mouth-before.png` / `-after.png` | `road-stops-short` at 264,385: three lattice streets held one block short of the ring (§14.3 D6, working as specified) ending in grass rather than at anything. **These two plates are identical — 0 differing pixels — because the fix was withdrawn.** See below. Retake: `node server/dist/tools/mapgen.js --crop=252,378,24 --scale=22 --out=evidence/iter3/ring-mouth-before.png`. |
 | `iter3/ring-mouth-withdrawn-kerb.png` | What the withdrawn fix looked like: `laySidewalk`'s own rule — every tile of bare ground touching a road becomes kerb — asked of the mouth the block grid does not cover. 81 mouths, 403 tiles, and nine of the thirteen audit hits drop from `med` to `low` ("a kerb a car can mount"). It is not in the shipped asset: pavement is where the crowd, the props and the kerbside cars live, so 403 tiles of it along the ring adds 11-15 kerbside parking spots on a motorway verge, which moved `police.test.ts` "a wave arrives together, then the street goes quiet" and `secrets.test.ts` "the same player is paid exactly once" off their staging. §14.3 D6 says changes to ring access ship behind `pnpm chase`; this is an escalation, not a fix. |
+
+## Visual loop, iteration 4 — the two boroughs the vector work skipped
+
+`before` plates are the shipped asset at `e3306c8`; `after` plates the one
+rebake at the end of the round. Both retake commands are the same line — what
+changed is `city.data.ts` under it — so re-running a `before` command today
+reproduces the `after` picture. `mapaudit-{before,after}.txt` and
+`citybake-check-{before,after}.txt` are the round's two scores: 55 candidates
+before and 54 after, `course-coverage-outlier` 2 to 0, and the same six
+known-broken crossings.
+
+The finding was `course-coverage-outlier`: The Spine at 20.4% of its
+carriageway under a course and Old Suburbs at 28.7%, against an 82.8% median
+borough. The cause is in `layout.ts`' `weaveFabrics`: every fabric branch
+records its lattice's centrelines as it carves — `carveLine` for a rotated or
+contour lattice, `carveWavy` for a crescent, `traceBands` for a band — except
+the plain axis-aligned grid, which carved and recorded nothing. Instrumented,
+The Spine carved 18 lattice lines and pushed 0 courses; Old Suburbs carved 14
+and pushed 0. Those two are the only non-rural boroughs the plan leaves at
+`angle: 0` with no `fabric`, which is why only those two show up.
+
+**The tile plane does not move.** All 589,824 tiles, the district plane, the
+bearing plane, and the block, building and shop lists are byte-identical to
+the `e3306c8` bake; the only difference in `city.data.ts` is 347 courses
+becoming 380. The recorded course is clipped to the extent `line` actually
+carved rather than run out to the borough's bounding box — the bounding-box
+form was measured first and moved 75 tiles of tarmac out in Sunridge Shore,
+because a centreline filed over another borough's country is a road as far as
+`doubledAgainstCourses` is concerned.
+
+| file | what it shows |
+|---|---|
+| `iter4/spine-before.png` | The Spine at 430,150. The vertical avenue on the right and the diagonal one across the bottom carry kerb casing and a centre dash, because they are authored roads with courses. Every street of the downtown lattice around them is bare dark tarmac: no kerb line, no dash, no junction punch-out, no bevel — the pre-§16 treatment, on a quarter of Kelvin's downtown. Retake: `node server/dist/tools/mapgen.js --crop=430,150,48 --scale=16 --out=evidence/iter4/spine-before.png`. |
+| `iter4/spine-after.png` | The same tiles — not one has changed — with the lattice's 18 centrelines recorded. Every street now has its kerb casing and centre dash, and the blocks read as blocks with roads around them instead of as gaps in a sheet. Same command, `-after` for the name. |
+| `iter4/oldsuburbs-before.png` | Old Suburbs at 250,520. The two curved avenues and the diagonal have their casing; the two horizontal cross streets left and right of centre are flat slabs with a dash painted on the tile grid. Retake: `node server/dist/tools/mapgen.js --crop=250,520,48 --scale=16 --out=evidence/iter4/oldsuburbs-before.png`. |
+| `iter4/oldsuburbs-after.png` | The same crop with the cross streets given their lines: rounded kerb ends where the street stops, casing down both sides. Same command, `-after` for the name. |
+| `iter4/coverage-{before,after}.txt` | Per-borough course coverage for all fourteen rated boroughs, by the renderer's own `courseCover` rule. The Spine 20.4% to 91.6%, Old Suburbs 28.7% to 78.6%, no borough down, city-wide 75.5% to 85.4%. |
+| `iter4/cause-probe.txt` | The instrumented `weaveFabrics` run behind the claim above: lattice lines carved and courses pushed, per axis-grid borough. |
+| `iter4/plane-diff.txt` | The bounding-box variant's 75 moved tiles, kept as the reason the shipped form clips to the carve. The shipped bake's own diff against `e3306c8` is 0 tiles. |
+| `iter4/mapaudit-{before,after}-detail.txt` | The two signatures that moved, listed in full. `road-stops-short` is unchanged at 13 — the same thirteen, the ring shave working as specified. `street-serves-nothing` goes 4 to 5: the new hit is an Old Suburbs cross street at 244,552 (254,568 to 266,568), and it is a **consequence of the fix, not a new defect in the map** — that street's tarmac was always there and always terminal at both ends, but the signature is course-based, so with no centreline under it the detector could not see the street to judge it. Giving the borough its curves also gave the audit something to look at. Low, and in a family the audit itself marks `noisy`. |
+| `iter4/plane-diff-shipped.txt` | The shipped bake against `e3306c8`: 0 of 589,824 tiles differ, district and bearing planes unmoved, blocks, buildings and shops byte-identical, courses 347 to 380. This is what "the fix adds centrelines and nothing else" means, measured. |

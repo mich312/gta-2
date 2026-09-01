@@ -1,0 +1,8 @@
+tile-plane differences vs baseline bake: 0 of 589824
+clusters: 0
+district-plane diffs 0  bearing-plane diffs 0
+blocks 1182 -> 1182  buildings 4012 -> 4012  shops 66 -> 66
+buildings identical: true
+blocks identical: true
+shops identical: true
+courses 347 -> 380

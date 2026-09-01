@@ -1,0 +1,32 @@
+AXISGRID The Spine: cuts 9+16, carved 18, suppressed 7, courses.push calls in this branch 0
+AXISGRID Ravenhill Park: cuts 1+1, carved 0, suppressed 2, courses.push calls in this branch 0
+AXISGRID Old Suburbs: cuts 12+9, carved 14, suppressed 7, courses.push calls in this branch 0
+AXISGRID Sunridge Park: cuts 1+1, carved 1, suppressed 1, courses.push calls in this branch 0
+AXISGRID-RURAL Sunridge Shore: cuts 3+4, courses.push calls in this branch 0
+AXISGRID-RURAL Marsh End: cuts 10+5, courses.push calls in this branch 0
+AXISGRID-RURAL Gannet Rock: cuts 2+2, courses.push calls in this branch 0
+--- layout.courses by district|kind (pre-trim, raw polygon test) ---
+(outside)|street                   102
+Beachfront|avenue                  3
+Beachfront|street                  23
+Marsh End|avenue                   2
+Marsh End|ring                     2
+Marsh End|street                   1
+New Suburbs|avenue                 1
+New Suburbs|street                 33
+North Point|street                 2
+Old Quarter|avenue                 1
+Old Quarter|street                 17
+Old Suburbs|street                 6
+Ravenhill|avenue                   1
+Ravenhill|street                   23
+Sunridge Park|street               1
+The Docks|avenue                   2
+The Docks|street                   23
+The Foundry|street                 6
+The Spine|avenue                   3
+The Spine|street                   7
+The Terraces|avenue                3
+The Terraces|street                32
+Vasco Heights|street               2
+total layout.courses 296

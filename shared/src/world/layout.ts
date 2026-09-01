@@ -1240,14 +1240,34 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const inThis = (tx: number, ty: number): boolean =>
         tx >= 0 && ty >= 0 && tx < W && ty < H && owner[ty * W + tx] === di;
 
-      /** Carve a lattice line, but only over ground this borough owns. */
-      const line = (x: number, y: number, w: number, h: number): void => {
+      /**
+       * Carve a lattice line, but only over ground this borough owns.
+       *
+       * Returns `[from, to)` along the line's own axis — the extent that was
+       * actually laid — or null if the borough owned none of it. That extent
+       * is what the axis-grid branch records as the line's course: a lattice
+       * line's ends are wherever its borough's outline stopped it, and that
+       * is the only honest thing to file a centreline over.
+       *
+       * The long side is the line's axis, which every caller satisfies: a
+       * lattice line is `width` across and the borough's bbox long, an alley
+       * two across and its block long. A square rect has no axis to return a
+       * span along, and no caller passes one.
+       */
+      const line = (x: number, y: number, w: number, h: number): [number, number] | null => {
+        let lo = Infinity;
+        let hi = -Infinity;
+        const vertical = w < h;
         for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
           for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) {
             if (!inThis(tx, ty)) continue;
             lay(tx, ty, null);
+            const a = vertical ? ty : tx;
+            if (a < lo) lo = a;
+            if (a > hi) hi = a;
           }
         }
+        return hi < lo ? null : [lo, hi + 1];
       };
       /* ---- the lattice, on the borough's own axes (§13.4 `grid` fabric) --- */
 
@@ -1817,15 +1837,61 @@ export function buildLayout(plan: CityPlan): CityLayout {
           );
         }
       } else if (axisGrid) {
+        // The line's own geometry, kept (§16).
+        //
+        // Every OTHER fabric branch records its centreline as it carves:
+        // `carveLine` for a rotated or contour lattice, `carveWavy` for a
+        // crescent, `traceBands` for a contour or spine band. This branch —
+        // the plain axis-aligned grid, the oldest one — never did, and so
+        // the only two non-rural boroughs the plan leaves at `angle: 0` with
+        // no `fabric` came out with no street courses at all: The Spine
+        // carved 18 lattice lines and recorded none of them, Old Suburbs 14.
+        // Everything from §16 on is keyed on `courses`, so both were drawn
+        // to the pre-§16 recipe — bare tile staircases with no kerb casing,
+        // no junction punch-out, no ribbon markings and no bevel — while the
+        // rest of the city got curves. Recorded here, they get what the
+        // esplanade got in §33, for the reason §33 gave: it is a road, so it
+        // gets a line, and `doubledAgainstCourses` can finally see it.
+        //
+        // Clipped to the stretch `line` ACTUALLY CARVED, not run out to the
+        // borough's bounding box the way `carveLine`'s two points are. The
+        // box is the wrong statement for an axis lattice: a borough whose
+        // polygon is much smaller than its box — Old Suburbs is — would file
+        // a centreline over dozens of tiles of somebody else's country, and
+        // `doubledAgainstCourses` reads this list untrimmed. Measured: the
+        // bounding-box form moved 75 tiles of tarmac out in Sunridge Shore,
+        // where a lane it wrongly suppressed let a different one survive to
+        // leave a 5-tile gap; clipped to the carve, the tile plane comes out
+        // byte-identical and the only thing that changes is that the streets
+        // now have centrelines. `trimCourses` still splits each at any gap
+        // the clip spans.
         for (const x of xs) {
           if (doubledUp(x, ry, ry + rh, width, true)) continue;
           if (doubledAgainstCourses(x + width / 2, ry, x + width / 2, ry + rh, width)) continue;
-          line(x, ry, width, rh);
+          const span = line(x, ry, width, rh);
+          if (span === null) continue;
+          courses.push({
+            points: [
+              [x + width / 2, span[0]],
+              [x + width / 2, span[1]],
+            ],
+            width,
+            kind: 'street',
+          });
         }
         for (const y of ys) {
           if (doubledUp(y, rx, rx + rw, width, false)) continue;
           if (doubledAgainstCourses(rx, y + width / 2, rx + rw, y + width / 2, width)) continue;
-          line(rx, y, rw, width);
+          const span = line(rx, y, rw, width);
+          if (span === null) continue;
+          courses.push({
+            points: [
+              [span[0], y + width / 2],
+              [span[1], y + width / 2],
+            ],
+            width,
+            kind: 'street',
+          });
         }
       } else {
         if (pitchX >= width + 3) {
