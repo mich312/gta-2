@@ -1,0 +1,69 @@
+district built share over its own land (buildings/floor):
+   Ravenhill        urban  land  44700  built   8821  19.7%
+   The Spine        urban  land  23349  built   4028  17.3%
+   North Point      urban  land  11320  built   2114  18.7%
+   Old Quarter      urban  land  21209  built   2674  12.6%
+   Ravenhill Park   urban  land  10109  built     82  0.8%
+   The Terraces     urban  land  24035  built   4109  17.1%
+   Beachfront       urban  land  21230  built   4683  22.1%
+   Old Suburbs      urban  land  17842  built   4022  22.5%
+   New Suburbs      urban  land  29885  built   5802  19.4%
+   Sunridge Park    urban  land   9230  built     27  0.3%
+   Sunridge Shore   rural  land   1173  built      0  0.0%
+   Marsh End        rural  land  18021  built    135  0.7%
+   Vasco Heights    urban  land   4798  built    682  14.2%
+   The Docks        urban  land  18078  built   4658  25.8%
+   The Foundry      urban  land   9261  built   1732  18.7%
+   Gannet Rock      rural  land   5903  built     13  0.2%
+   rural districts as a whole: 0.6% built
+   city buildings 4012; mean building footprint 11.2 tiles
+
+baseline carriageway: 1 comp, 100742 tiles
+
+##### 267,312-365,375 land=3237 road=1343: arterial 705, lattice 638
+   remove ALL its lanes:     1 comp, sizes 99399
+   remove only the LATTICE:  3 comp, sizes 100090, 7, 7
+   on this ground: 0 shops, 0 landmarks, 2 buildings, 0 block rects, 12 pavement tiles (kerbside spawning and the crowd live on pavement)
+   travel from Marsh End Airfield to 26 other landmarks, mean carriageway distance:
+      baseline 485.2  |  lattice removed 485.2 (0 unreachable)  |  all removed 491.3 (0 unreachable)
+   open ground 1527 tiles, 1527 within 8 of a lane
+   at the rural districts' 0.6% built share that is ~9 built tiles, ~1 buildings
+
+##### 393,312-549,365 land=5749 road=1197: arterial 241, lattice 956
+   remove ALL its lanes:     2 comp, sizes 99465, 80
+   remove only the LATTICE:  3 comp, sizes 99702, 80, 4
+   on this ground: 0 shops, 0 landmarks, 0 buildings, 0 block rects, 8 pavement tiles (kerbside spawning and the crowd live on pavement)
+   travel from Marsh End Airfield to 26 other landmarks, mean carriageway distance:
+      baseline 485.2  |  lattice removed 485.2 (0 unreachable)  |  all removed 519.6 (0 unreachable)
+   open ground 4229 tiles, 3510 within 8 of a lane
+   at the rural districts' 0.6% built share that is ~25 built tiles, ~2 buildings
+built share INSIDE blocks:  rural blocks 531/24053 = 2.2%   urban blocks 45352/218548 = 20.8%
+mean building footprint 11.2 tiles
+pavement+lot INSIDE blocks: rural 1.7%   urban 33.7%
+
+267,312-365,375 land=3237 borders:
+      90 tiles of seam with Ravenhill (urban, pitch 17x14)
+      12 tiles of seam with The Terraces (urban, pitch 17x13)
+   non-road, non-built ground: 1884 tiles
+     smallholding treatment (rural-block density 2.2%): ~42 built tiles, ~4 buildings
+     urban fringe treatment  (urban-block density 20.8%): ~391 built tiles, ~35 buildings, plus ~635 tiles of pavement/lot
+
+393,312-549,365 land=5749 borders:
+     124 tiles of seam with The Spine (urban, pitch 15x12)
+      40 tiles of seam with Beachfront (urban, pitch 16x13)
+      31 tiles of seam with Ravenhill (urban, pitch 17x14)
+       2 tiles of seam with Old Quarter (urban, pitch 11x9)
+   non-road, non-built ground: 4552 tiles
+     smallholding treatment (rural-block density 2.2%): ~100 built tiles, ~9 buildings
+     urban fringe treatment  (urban-block density 20.8%): ~945 built tiles, ~85 buildings, plus ~1534 tiles of pavement/lot
+
+##### 267,312-365,375  land=3237 road=1343 built=10
+  carriageway by nearest authored road (<=6 tiles):
+       429  The Ring
+       276  Old Bridge
+       638  (no authored road within 6 tiles — lattice/fringe lanes)
+
+##### 393,312-549,365  land=5749 road=1197 built=0
+  carriageway by nearest authored road (<=6 tiles):
+       241  Kelvin Bridge
+       956  (no authored road within 6 tiles — lattice/fringe lanes)

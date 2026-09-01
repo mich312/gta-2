@@ -1,0 +1,35 @@
+# 316,736,44   . field  R road  S sidewalk  B building  P park  L lot
+#                 w water  b bridge  r ramp  f floor  q quay/bank  T trees  s sand  Y runway
+         |         |         |         |         
+ 736 wwwwwwq........................TTTTTTTTqqwww
+ 737 wwwwwqq.........................TTTTTTTTqwww
+ 738 wwwwwqq..........................TTTTTTTqwww
+ 739 wwwwwq..............................TT..qwww
+ 740 wwwwwq..................................qwww
+ 741 wwwwqq..................................qwww
+ 742 wwwwqq.................................qqwww
+ 743 wwwwqq.................................qqwww
+ 744 wwwwqq.................................qqwww
+ 745 wwwwwq.................................qqwww
+ 746 wwwwwq.................................qqwww
+ 747 wwwwwq.................................qwwww
+ 748 wwwwwqq................................qwwww
+ 749 wwwwwwq................................qwwww
+ 750 wwwwwwqq..............................qqwwww
+ 751 wwwwwwqq..............................qqwwww
+ 752 wwwwwwwqq.............................qwwwww
+ 753 wwwwwwwwqq...........................qqwwwww
+ 754 wwwwwwwwwqqq.........................qwwwwww
+ 755 wwwwwwwwwwwqqqq.....................qqwwwwww
+ 756 wwwwwwwwwwwwwqqqqqq...............qqqwwwwwww
+ 757 wwwwwwwwwwwwwwwwqqqqqqqqqqqqqqqqqqqqwwwwwwww
+ 758 wwwwwwwwwwwwwwwwwwwwwwwqqqqqqqqqqwwwwwwwwwww
+ 759 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 760 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 761 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 762 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 763 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 764 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 765 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 766 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww
+ 767 wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww

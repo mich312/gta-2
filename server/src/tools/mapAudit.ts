@@ -2068,6 +2068,374 @@ function lanesServingNothing(
 }
 
 /* ------------------------------------------------------------------ */
+/* 15. country-outside-blocks — ground nobody asked what it was        */
+/* ------------------------------------------------------------------ */
+
+/** Country: the two materials the rural fill chooses between. */
+function isCountry(t: number): boolean {
+  return t === T_FIELD || t === T_TREES;
+}
+
+/** How near a block has to come to count as this region's neighbour. */
+const NEIGHBOUR_REACH = 3;
+/** Country inside the neighbouring blocks below which the comparison is noise. */
+const NEIGHBOUR_MIN_COUNTRY = 200;
+/** Wood inside them below which there is no wood to be missing. */
+const NEIGHBOUR_MIN_WOOD = 0.2;
+
+interface Orphan {
+  land: number;
+  wood: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  /** Country tiles inside the rural blocks that touch this region, and their wood. */
+  nbLand: number;
+  nbWood: number;
+  nbBlocks: number;
+  district: number;
+  /**
+   * The region's own tile indices. Carried because the selftest plant edits
+   * the two sides of the ratio in opposite directions and has to hit EXACTLY
+   * this region on one of them: a region's bounding box overlaps the blocks it
+   * is measured against, so working from the box would move the comparator
+   * with it and the control would stay silent for the wrong reason.
+   */
+  bag: number[];
+  /** Indices into `city.blocks` of the rural blocks the ratio compares against. */
+  nb: number[];
+}
+
+/**
+ * Country outside every block, and the wood in the blocks beside it.
+ *
+ * The rural fill runs over BLOCKS — `fillBlock` visits `layout.blocks` and
+ * nothing else — and the blocks are cut round the street lattice inside the
+ * borough's own polygon. So ground that no block covers was never asked what
+ * it is, and it keeps the bare meadow the ground pass wrote. Two things put
+ * country outside a block: a removal deleting road after the blocks are cut,
+ * and a coastline the district polygon does not reach.
+ *
+ * Both are read here the same way, because from above they are the same
+ * thing: a patch of open country that is bald where the country next to it is
+ * wooded.
+ */
+function orphanCountry(a: Audit, plan: CityPlan): Orphan[] {
+  const { W, H, tiles } = a;
+  const owner = ownerPlane(plan, tiles, W, H);
+  // Rural boroughs only, on both sides of the comparison. The fill's own rule
+  // is a rural rule (`fillBlock` takes the wildness field only for a rural
+  // block), and a park is AUTHORED planting — comparing the grass verge north
+  // of the coast road against Ravenhill Park's 82% canopy says nothing about
+  // a defect, it says one of them is a park.
+  const ruralTile = (i: number): boolean => {
+    const d = owner[i] as number;
+    return d >= 0 && (plan.districts[d] as { rural?: boolean }).rural === true;
+  };
+  const covered = new Uint8Array(W * H);
+  const ruralBlock = new Int16Array(W * H).fill(-1);
+  for (const [bi, b] of a.city.blocks.entries()) {
+    for (let y = Math.max(0, b.y); y < Math.min(H, b.y + b.h); y++) {
+      for (let x = Math.max(0, b.x); x < Math.min(W, b.x + b.w); x++) {
+        covered[y * W + x] = 1;
+        if (b.rural === true) ruralBlock[y * W + x] = bi;
+      }
+    }
+  }
+  const open = (i: number): boolean =>
+    covered[i] === 0 && isCountry(tiles[i] as number) && ruralTile(i);
+  const seen = new Uint8Array(W * H);
+  const bag = new Int32Array(W * H);
+  const out: Orphan[] = [];
+  for (let s = 0; s < W * H; s++) {
+    if (seen[s] === 1 || !open(s)) continue;
+    let tail = 0;
+    bag[tail++] = s;
+    seen[s] = 1;
+    const f: Orphan = {
+      land: 0,
+      wood: 0,
+      x0: W,
+      y0: H,
+      x1: -1,
+      y1: -1,
+      nbLand: 0,
+      nbWood: 0,
+      nbBlocks: 0,
+      district: owner[s] as number,
+      bag: [],
+      nb: [],
+    };
+    for (let q = 0; q < tail; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      f.land++;
+      f.bag.push(i);
+      if (tiles[i] === T_TREES) f.wood++;
+      if (x < f.x0) f.x0 = x;
+      if (y < f.y0) f.y0 = y;
+      if (x > f.x1) f.x1 = x;
+      if (y > f.y1) f.y1 = y;
+      for (const [dx, dy] of DIRS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (seen[j] === 1 || !open(j)) continue;
+        seen[j] = 1;
+        bag[tail++] = j;
+      }
+    }
+    // The blocks NEXT DOOR, not the blocks nearby: a rural block with a tile
+    // within three of a tile of this region. A bounding-box radius instead
+    // reaches across the strait and hands an islet the mainland's canopy for
+    // a comparator, which is the wrong question asked of the right region.
+    const near = new Set<number>();
+    for (let q = 0; q < tail; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (let dy = -NEIGHBOUR_REACH; dy <= NEIGHBOUR_REACH; dy++) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= H) continue;
+        for (let dx = -NEIGHBOUR_REACH; dx <= NEIGHBOUR_REACH; dx++) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= W) continue;
+          const bi = ruralBlock[ny * W + nx] as number;
+          if (bi >= 0) near.add(bi);
+        }
+      }
+    }
+    for (const bi of near) {
+      const b = a.city.blocks[bi] as (typeof a.city.blocks)[number];
+      for (let y = Math.max(0, b.y); y < Math.min(H, b.y + b.h); y++) {
+        for (let x = Math.max(0, b.x); x < Math.min(W, b.x + b.w); x++) {
+          const t = tiles[y * W + x] as number;
+          if (!isCountry(t)) continue;
+          f.nbLand++;
+          if (t === T_TREES) f.nbWood++;
+        }
+      }
+    }
+    f.nbBlocks = near.size;
+    f.nb = [...near];
+    out.push(f);
+  }
+  return out;
+}
+
+/**
+ * A stretch of open country that no block covers and that is bald, against
+ * wooded country in the blocks beside it.
+ *
+ * This is the signature the iteration-3 fix had no instrument for, and the
+ * reason that round scored 47 before and 47 after while moving two thousand
+ * tiles of map. Before it, Gannet Rock's northern third — 3,019 tiles the
+ * district polygon never reached — shipped as unbroken meadow with the canopy
+ * starting on a dead straight line at y=600, where the block grid begins; and
+ * Marsh End shipped 3,881 tiles of country outside its blocks with NOT ONE
+ * TREE in them against 41.5% wood in the country inside. Neither is a mark on
+ * the raster that any of the fourteen raster signatures can see: the ground is
+ * perfectly good meadow, and what is wrong with it is only visible against
+ * the ground next door.
+ *
+ * **RATIO, not a percentage.** How much wood this city has is a tuning
+ * decision — the wildness field's threshold is one number in `bake.ts` — and a
+ * signature that named an absolute canopy share would fire across the whole
+ * countryside the first time somebody moved it. What cannot be retuned away
+ * is the DISAGREEMENT: the fill answers one question, so ground it visited and
+ * ground it did not must answer the same. The gate is a fraction of the wood
+ * inside the neighbouring blocks, and it goes quiet by itself when the two
+ * sides agree, whatever they agree on.
+ *
+ * Rural boroughs on both sides of the comparison, and the neighbours have to
+ * carry real country and real wood — otherwise the comparator is a park, a
+ * yard, or forty tiles of verge, and the ratio is arithmetic on noise. That
+ * last gate is not fastidiousness: without it the coast strip at 431,13 fires
+ * on BOTH the fixed and the unfixed asset, because its comparator is
+ * Ravenhill Park's 82% authored canopy and a grass verge between a coast road
+ * and a park is not a defect.
+ *
+ * **Its one hit on the shipped bake is a false positive, and a measured one.**
+ * The 507-tile marsh islet at 322,740 is meadow throughout against a rural
+ * block next to it that is 50.8% wood — but `bake.ts`'s own wildness field
+ * (`fbm(WILD_SEED, x/22, y/22) >= 0.52`) says meadow on ALL 507 of those
+ * tiles, so the fill declined on purpose rather than never being asked.
+ * Nothing a raster audit can see distinguishes those two, which is the honest
+ * limit of this signature: it finds ground the fill never visited and ground
+ * the fill visited and left alone, and only the field can tell them apart.
+ * `evidence/iter4-detect/measure-wildness-field.mjs` asks it. Four hits on the
+ * pre-fix asset at `e3306c8~2`, one here, and that one accounted for.
+ *
+ * The gate has room. Gannet Rock's north reads 0.35 before the fix and 0.67
+ * after, so anything from 0.36 to 0.66 gives the same two answers — swept with
+ * `--orphanwood=`: 0.3 gives 3 before / 1 after, 0.4 gives 4 / 1, 0.7 gives
+ * 4 / 3. 0.4 is the middle of the flat part rather than an edge of it.
+ */
+function baldCountry(a: Audit, plan: CityPlan, minLand: number, ratioGate: number): Finding[] {
+  const out: Finding[] = [];
+  for (const f of orphanCountry(a, plan)) {
+    if (f.land < minLand) continue;
+    if (f.nbLand < NEIGHBOUR_MIN_COUNTRY) continue;
+    const inside = f.nbWood / f.nbLand;
+    if (inside < NEIGHBOUR_MIN_WOOD) continue;
+    const outside = f.wood / f.land;
+    const ratio = outside / inside;
+    if (ratio >= ratioGate) continue;
+    const span = Math.max(f.x1 - f.x0 + 1, f.y1 - f.y0 + 1);
+    const [cx, cy, cw] = crop((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2, span, a.W, a.H);
+    const name = (plan.districts[f.district] as { name?: string } | undefined)?.name ?? '?';
+    out.push({
+      sig: 'country-outside-blocks',
+      x: cx,
+      y: cy,
+      w: cw,
+      severity: ratio <= ratioGate / 2 ? 'high' : 'med',
+      rank: f.land * (1 - ratio),
+      reason: `${name} ${f.x0},${f.y0}-${f.x1},${f.y1}: ${f.land} tiles of country no block covers are ${(100 * outside).toFixed(1)}% wood, against ${(100 * inside).toFixed(1)}% in the ${f.nbLand} tiles of country inside the ${f.nbBlocks} rural block(s) next to them (${ratio.toFixed(2)}x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote`,
+    });
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* 16. carve-is-a-ruler — a straight line drawn through a wood         */
+/* ------------------------------------------------------------------ */
+
+/** What a ruler can be cut IN: open ground, never a carriageway or a runway. */
+const CUTTABLE = new Set<number>([T_FIELD, T_PARK, T_SAND]);
+/**
+ * Widest cut that still reads as a slot rather than a clearing. The defect is
+ * a route, and a route is as narrow as whatever drew it could get away with.
+ */
+const RULER_MAX_WIDE = 3;
+
+/**
+ * A long, perfectly straight, narrow cut through the canopy.
+ *
+ * Nothing in this city is straight over forty tiles. The coastline is a
+ * curve, the wildness field's contour is a curve, a block is at most sixty
+ * tiles on a side and the woodland inside one is a patch of noise. The two
+ * exceptions are AUTHORED and are excluded by material rather than by
+ * geometry: the ring road and the lattice are carriageway, the airstrips are
+ * runway, and neither is a natural material. So a straight edge in open
+ * country is a machine's route, drawn once and never softened — and the
+ * narrower it is, the more certain that is.
+ *
+ * Iteration 3 is the case this generalises. The ride the corridor carve-back
+ * cut on Gannet Rock was a SHORTEST PATH, and it could only take back tiles
+ * it had itself just planted — over a removed street that is a corridor with
+ * a block wall of trees down each side, so the only route it could find was
+ * the vanished street, end to end: a dead straight one-tile slot forty-six
+ * tiles long at 111,606. `bare-corridor` walks straight past it, twice over —
+ * it wants a span at least two tiles wide, and it allows the flanks to wander
+ * two tiles a line, which is the tolerance a natural glade needs and exactly
+ * the tolerance that stops it being a test of straightness.
+ *
+ * This one is the opposite instrument, and deliberately narrow rather than
+ * tolerant: the run has to be the SAME span on every line, to the tile, for
+ * its whole length. That one condition is what makes the false-positive rate
+ * on the shipped bake zero — a glade does not hold its edges for sixteen
+ * lines, and a hedgerow, an orchard row or the ecotone's smallholding rows
+ * (§14.3 D5) are wood laid across meadow rather than meadow cut through wood,
+ * which is why the flank is canopy and only canopy. Cutting the other way
+ * round — a straight band of TREES flanked by field — is authored planting
+ * and fires on both the fixed and the unfixed asset at 420,658, so it is not
+ * this signature's business.
+ *
+ * **How much headroom the length gate has, measured rather than asserted.**
+ * Swept over the two assets: at 24 the pre-fix bake shows only the ride and
+ * the shipped bake nothing; at 16 the pre-fix bake shows the ride and a
+ * 17-tile cut at 509,656 that the new fill has since closed, and the shipped
+ * bake still nothing; at 12 the shipped bake shows one, a 14-tile one-tile gap
+ * between two stands at 306,687. So 16 is two tiles clear of the nearest thing
+ * on the shipped map — thin, and chosen anyway, because the 17-tile hit it
+ * buys is a real instance of the defect and the 14-tile near-miss reads like
+ * the same shape rather than like noise. Raise it with `--ruler=` before
+ * concluding a hit near the gate is a false positive.
+ */
+function rulerCuts(a: Audit, minLen: number, maxWide: number): Finding[] {
+  const { W, H, at } = a;
+  const out: Finding[] = [];
+  const scan = (vertical: boolean): void => {
+    const outer = vertical ? W : H;
+    const inner = vertical ? H : W;
+    const tileAt = (u: number, v: number): number => (vertical ? at(v, u) : at(u, v));
+    /** Cut spans per line, as [start, end, material). */
+    const spans: Array<Array<[number, number, number]>> = [];
+    for (let v = 0; v < inner; v++) {
+      const row: Array<[number, number, number]> = [];
+      let u = 0;
+      while (u < outer) {
+        const t = tileAt(u, v);
+        if (!CUTTABLE.has(t)) {
+          u++;
+          continue;
+        }
+        let e = u;
+        while (e < outer && tileAt(e, v) === t) e++;
+        const wide = e - u;
+        if (wide <= maxWide && tileAt(u - 1, v) === T_TREES && tileAt(e, v) === T_TREES) {
+          row.push([u, e, t]);
+        }
+        u = e;
+      }
+      spans.push(row);
+    }
+    const used = spans.map((r) => new Uint8Array(r.length));
+    for (let v = 0; v < inner; v++) {
+      const row = spans[v] as Array<[number, number, number]>;
+      for (const [si, s] of row.entries()) {
+        if ((used[v] as Uint8Array)[si] === 1) continue;
+        let end = v;
+        for (let vv = v + 1; vv < inner; vv++) {
+          const next = spans[vv] as Array<[number, number, number]>;
+          let found = -1;
+          for (const [ni, n] of next.entries()) {
+            // To the tile, on every line. Not "overlapping and not wandering
+            // far" — that is `bare-corridor`, and it is why `bare-corridor`
+            // cannot answer this question.
+            if (n[0] === s[0] && n[1] === s[1] && n[2] === s[2]) {
+              found = ni;
+              break;
+            }
+          }
+          if (found < 0) break;
+          (used[vv] as Uint8Array)[found] = 1;
+          end = vv;
+        }
+        const len = end - v + 1;
+        if (len < minLen) continue;
+        const wide = s[1] - s[0];
+        const x0 = vertical ? v : s[0];
+        const y0 = vertical ? s[0] : v;
+        const [cx, cy, cw] = crop(
+          vertical ? v + len / 2 : (s[0] + s[1]) / 2,
+          vertical ? (s[0] + s[1]) / 2 : v + len / 2,
+          len,
+          W,
+          H,
+        );
+        out.push({
+          sig: 'carve-is-a-ruler',
+          x: cx,
+          y: cy,
+          w: cw,
+          severity: len >= minLen * 2 ? 'high' : 'med',
+          rank: len / wide,
+          reason: `${wide}-tile-wide cut of ${tileName(s[2] as number)} at ${x0},${y0} running ${len} tiles ${vertical ? 'east-west' : 'north-south'} through woodland, the same span on every one of those lines — nothing in open country is straight over that distance except a carriageway or a runway, and this is neither, so it is a route some pass drew with a ruler and never softened`,
+        });
+      }
+    }
+  };
+  scan(false);
+  scan(true);
+  return out;
+}
+
+/* ------------------------------------------------------------------ */
 /* Loading                                                             */
 /* ------------------------------------------------------------------ */
 
@@ -2109,6 +2477,8 @@ const ALL_SIGS = [
   'course-coverage-outlier',
   'street-serves-nothing',
   'lanes-serving-nothing',
+  'country-outside-blocks',
+  'carve-is-a-ruler',
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -2421,6 +2791,61 @@ function selftest(city: BakedCity, plan: CityPlan): void {
         return [best.x0, best.y0];
       },
     },
+    {
+      sig: 'country-outside-blocks',
+      where: 'a wooded rural block beside country outside the blocks that is stripped bare',
+      apply: (t, W, _at, plan, base) => {
+        // A region the signature is currently SILENT about, made into the
+        // defect from both sides: its own country stripped to bare meadow,
+        // and the country inside the rural blocks next to it planted solid.
+        // That is the disagreement this signature exists to see, and building
+        // it rather than deepening an existing one is what keeps the control
+        // honest against the pre-fix asset too — there, every region that has
+        // a comparator at all is ALREADY a finding, so a plant that only
+        // stripped wood would read SILENT on the very bake where the defect
+        // is known to be present.
+        let best: Orphan | null = null;
+        for (const f of orphanCountry(base, plan)) {
+          if (f.land < GATES.orphanLand || f.nbLand < NEIGHBOUR_MIN_COUNTRY) continue;
+          const inside = f.nbWood / f.nbLand;
+          const fires = inside >= NEIGHBOUR_MIN_WOOD && f.wood / f.land < GATES.orphanWood * inside;
+          if (fires) continue;
+          if (best === null || f.land > best.land) best = f;
+        }
+        if (best === null) throw new Error('no quiet stretch of orphan country to spoil');
+        for (const i of best.bag) if (t[i] === T_TREES) t[i] = T_FIELD;
+        for (const bi of best.nb) {
+          const b = base.city.blocks[bi] as (typeof base.city.blocks)[number];
+          for (let y = Math.max(0, b.y); y < Math.min(base.H, b.y + b.h); y++) {
+            for (let x = Math.max(0, b.x); x < Math.min(W, b.x + b.w); x++) {
+              const i = y * W + x;
+              if (isCountry(base.tiles[i] as number)) t[i] = T_TREES;
+            }
+          }
+        }
+        return [best.x0, best.y0];
+      },
+    },
+    {
+      sig: 'carve-is-a-ruler',
+      where: 'a one-tile slot cut dead straight down a standing wood',
+      apply: (t, W, at, _plan, base) => {
+        const len = GATES.ruler + 8;
+        for (let x = 1; x + 1 < W; x++) {
+          for (let y = 0; y + len <= base.H; y++) {
+            let ok = true;
+            for (let k = 0; k < len && ok; k++) {
+              if (at(x, y + k) !== T_TREES) ok = false;
+              else if (at(x - 1, y + k) !== T_TREES || at(x + 1, y + k) !== T_TREES) ok = false;
+            }
+            if (!ok) continue;
+            for (let k = 0; k < len; k++) t[(y + k) * W + x] = T_FIELD;
+            return [x, y];
+          }
+        }
+        throw new Error('no wood deep enough to cut a ruler through');
+      },
+    },
   ];
 
   console.log('# selftest: plant a known defect, then look for it');
@@ -2477,6 +2902,12 @@ interface Gates {
   fringeLand: number;
   /** Road share a fringe region needs before its emptiness is a defect. */
   fringeRoad: number;
+  /** Smallest stretch of country outside every block worth a finding. */
+  orphanLand: number;
+  /** Fraction of the NEIGHBOURING blocks' wood below which bald country fires. */
+  orphanWood: number;
+  /** Shortest perfectly straight cut through woodland that counts as a ruler. */
+  ruler: number;
 }
 
 let GATES: Gates = {
@@ -2491,6 +2922,9 @@ let GATES: Gates = {
   cap: 4,
   fringeLand: 1000,
   fringeRoad: 0.1,
+  orphanLand: 200,
+  orphanWood: 0.4,
+  ruler: 16,
 };
 
 function run(city: BakedCity, plan: CityPlan, only: Set<string> | null): Finding[] {
@@ -2524,6 +2958,10 @@ function run(city: BakedCity, plan: CityPlan, only: Set<string> | null): Finding
   if (want('lanes-serving-nothing')) {
     findings.push(...lanesServingNothing(a, plan, GATES.fringeLand, GATES.fringeRoad));
   }
+  if (want('country-outside-blocks')) {
+    findings.push(...baldCountry(a, plan, GATES.orphanLand, GATES.orphanWood));
+  }
+  if (want('carve-is-a-ruler')) findings.push(...rulerCuts(a, GATES.ruler, RULER_MAX_WIDE));
   return findings;
 }
 
@@ -2589,6 +3027,9 @@ function main(): void {
     if (key === 'cap' && val) GATES.cap = Number.parseInt(val, 10);
     if (key === 'fringeland' && val) GATES.fringeLand = Number.parseInt(val, 10);
     if (key === 'fringeroad' && val) GATES.fringeRoad = Number.parseFloat(val);
+    if (key === 'orphanland' && val) GATES.orphanLand = Number.parseInt(val, 10);
+    if (key === 'orphanwood' && val) GATES.orphanWood = Number.parseFloat(val);
+    if (key === 'ruler' && val) GATES.ruler = Number.parseInt(val, 10);
   }
   const dataUrl = dataPath || new URL('../../../shared/src/world/city.data.ts', import.meta.url);
   const planUrl = planPath || new URL(import.meta.resolve('shared/data/city-plan.json'));

@@ -1,0 +1,84 @@
+# Anywhere City 768x768 from /tmp/claude-0/-home-user-gta-2/297482db-7a0b-5d48-914d-987762c0d996/scratchpad/i4/prefix.city.data.ts
+road-deadend        403,660,24      med    3-wide carriageway stops dead at 415,672 facing east into open ground — no landmark, quay or map edge to stop at
+road-deadend        428,299,24      med    3-wide carriageway stops dead at 440,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        473,299,24      med    3-wide carriageway stops dead at 485,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        488,299,24      med    3-wide carriageway stops dead at 500,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        503,299,24      med    3-wide carriageway stops dead at 515,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        518,299,24      med    3-wide carriageway stops dead at 530,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        309,315,24      med    3-wide carriageway stops dead at 321,327 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        466,588,24      med    3-wide carriageway stops dead at 478,600 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        330,300,24      med    2-wide carriageway stops dead at 342,312 facing south into open ground — no landmark, quay or map edge to stop at
+road-stops-short    252,373,24      med    3-wide carriageway at 264,385 stops 3 tile(s) short of the carriageway it runs at, heading east, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    252,378,24      med    3-wide carriageway at 264,390 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    252,395,24      med    3-wide carriageway at 264,407 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    629,425,24      med    3-wide carriageway at 641,437 stops 3 tile(s) short of the carriageway it runs at, heading east, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    253,540,24      med    3-wide carriageway at 265,552 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    256,555,24      med    3-wide carriageway at 268,567 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    270,395,24      med    3-wide carriageway at 282,407 stops 3 tile(s) short of the carriageway it runs at, heading west, with field across the mouth — the junction was never cut
+road-stops-short    273,412,24      med    3-wide carriageway at 285,424 stops 3 tile(s) short of the carriageway it runs at, heading west, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    277,463,24      med    3-wide carriageway at 289,475 stops 3 tile(s) short of the carriageway it runs at, heading west, with field across the mouth — the junction was never cut
+road-stops-short    398,91,24       med    3-wide carriageway at 410,103 stops 3 tile(s) short of the carriageway it runs at, heading south, with sidewalk+field across the mouth — the junction was never cut
+road-stops-short    415,108,24      med    3-wide carriageway at 427,120 stops 3 tile(s) short of the carriageway it runs at, heading north, with field across the mouth — the junction was never cut
+road-stops-short    445,637,24      med    2-wide carriageway at 457,649 stops 3 tile(s) short of the carriageway it runs at, heading south, with field across the mouth — the junction was never cut
+road-stops-short    491,628,24      med    2-wide carriageway at 503,640 stops 4 tile(s) short of the carriageway it runs at, heading south, with field across the mouth — the junction was never cut
+road-width-jump     437,298,27      low    straight north-south carriageway steps 7->4 tiles wide at 450,311
+built-staircase     241,328,65      high   bridge deck edge at 274,361 climbs 8 treads averaging 5.6 tiles over 45 tiles — a half-tile bevel only reaches a 1-tile tread. 42 of its 44 step faces onto open water have no coast curve over them and are drawn square
+built-staircase     167,194,65      high   bridge deck edge at 200,226 climbs 9 treads averaging 5.0 tiles over 45 tiles — a half-tile bevel only reaches a 1-tile tread. 44 of its 45 step faces onto open water have no coast curve over them and are drawn square
+built-staircase     387,638,79      high   quay edge at 427,678 climbs 16 treads averaging 3.7 tiles over 59 tiles — a half-tile bevel only reaches a 1-tile tread. All 59 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     614,356,52      high   quay edge at 640,382 climbs 5 treads averaging 6.4 tiles over 32 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     176,434,57      high   quay edge at 205,463 climbs 8 treads averaging 4.6 tiles over 37 tiles — a half-tile bevel only reaches a 1-tile tread. All 36 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     620,578,46      high   quay edge at 643,601 climbs 4 treads averaging 6.5 tiles over 26 tiles — a half-tile bevel only reaches a 1-tile tread. All 26 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     146,446,64      high   bridge deck edge at 178,478 climbs 12 treads averaging 3.7 tiles over 44 tiles — a half-tile bevel only reaches a 1-tile tread. 43 of its 44 step faces onto open water have no coast curve over them and are drawn square
+built-staircase     37,244,60       high   quay edge at 67,274 climbs 12 treads averaging 3.3 tiles over 40 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     253,284,42      high   bridge deck edge at 274,305 climbs 4 treads averaging 5.5 tiles over 22 tiles — a half-tile bevel only reaches a 1-tile tread. 20 of its 22 step faces onto open water have no coast curve over them and are drawn square
+built-staircase     315,724,44      high   quay edge at 337,756 climbs 5 treads averaging 4.8 tiles over 24 tiles — a half-tile bevel only reaches a 1-tile tread. All 24 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     156,312,40      high   quay edge at 176,332 climbs 4 treads averaging 5.0 tiles over 20 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     368,651,39      high   quay edge at 388,671 climbs 4 treads averaging 4.8 tiles over 19 tiles — a half-tile bevel only reaches a 1-tile tread. All 19 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     62,442,39       high   yard edge at 82,462 climbs 4 treads averaging 4.8 tiles over 19 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     149,356,46      high   quay edge at 172,379 climbs 8 treads averaging 3.3 tiles over 26 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     445,720,37      high   quay edge at 464,739 climbs 4 treads averaging 4.3 tiles over 17 tiles — a half-tile bevel only reaches a 1-tile tread. All 17 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     710,395,40      high   quay edge at 730,415 climbs 6 treads averaging 3.3 tiles over 20 tiles — a half-tile bevel only reaches a 1-tile tread. All 20 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     188,417,38      high   quay edge at 207,436 climbs 6 treads averaging 3.0 tiles over 18 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     686,385,36      high   quay edge at 704,403 climbs 5 treads averaging 3.2 tiles over 16 tiles — a half-tile bevel only reaches a 1-tile tread. All 16 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     268,656,71      med    quay edge at 304,692 climbs 18 treads averaging 2.8 tiles over 51 tiles — a half-tile bevel only reaches a 1-tile tread. All 51 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     655,357,62      med    quay edge at 686,388 climbs 15 treads averaging 2.8 tiles over 42 tiles — a half-tile bevel only reaches a 1-tile tread. All 42 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     186,502,57      med    quay edge at 214,531 climbs 13 treads averaging 2.8 tiles over 37 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     36,370,57       med    quay edge at 65,399 climbs 14 treads averaging 2.6 tiles over 37 tiles — a half-tile bevel only reaches a 1-tile tread. All 37 of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn
+built-staircase     520,304,46      med    quay edge at 543,327 climbs 10 treads averaging 2.6 tiles over 26 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+built-staircase     641,435,39      med    quay edge at 660,455 climbs 7 treads averaging 2.7 tiles over 19 tiles — a half-tile bevel only reaches a 1-tile tread. This edge faces dry ground, which no coast curve describes, so it is drawn as it lies
+course-coverage-outlier  401,128,180     high   The Spine: 20.4% of 9601 carriageway tiles lie under a course (3 courses), against a 82.8% median borough — 7644 tiles that the kerb casing, the junction punch-out, the ribbon markings, the follower and the kerb bevel all skip, because every one of them is keyed on courses. Missing COURSES, not missing paint: bare tarmac still gets per-tile lane marks
+course-coverage-outlier  211,481,180     med    Old Suburbs: 28.7% of 6129 carriageway tiles lie under a course (4 courses), against a 82.8% median borough — 4372 tiles that the kerb casing, the junction punch-out, the ribbon markings, the follower and the kerb bevel all skip, because every one of them is keyed on courses. Missing COURSES, not missing paint: bare tarmac still gets per-tile lane marks
+street-serves-nothing  453,351,32      low    11.7-tile street from 469,361 to 469,373 meets no other centreline at either end, and its tarmac stops 3 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  70,490,32       low    11.9-tile street from 80,505 to 91,508 meets no other centreline at either end, and its tarmac stops 3 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  645,142,40      low    19.9-tile street from 669,153 to 660,171 meets no other centreline at either end, and its tarmac stops 2 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  687,271,40      low    19.9-tile street from 711,282 to 704,301 meets no other centreline at either end, and its tarmac stops 3 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+lanes-serving-nothing  383,250,177     high   393,312-549,365: 5749 tiles of land outside every district polygon carry 1197 carriageway tiles (20.8%) and 0 built tiles — lanes with nothing to drive to, because the fringe pass only places buildings within a district's own pitch of town (§14.6 D5) and this ground is in no district
+lanes-serving-nothing  257,284,119     med    267,312-365,375: 3237 tiles of land outside every district polygon carry 1343 carriageway tiles (41.5%) and 10 built tiles — lanes with nothing to drive to, because the fringe pass only places buildings within a district's own pitch of town (§14.6 D5) and this ground is in no district
+country-outside-blocks  312,714,54      high   Marsh End 322,740-355,756: 507 tiles of country no block covers are 0.0% wood, against 50.8% in the 307 tiles of country inside the 1 rural block(s) next to them (0.00x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote
+country-outside-blocks  453,716,52      high   Marsh End 463,740-494,757: 451 tiles of country no block covers are 0.0% wood, against 59.9% in the 272 tiles of country inside the 1 rural block(s) next to them (0.00x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote
+country-outside-blocks  492,626,66      high   Marsh End 502,644-547,673: 217 tiles of country no block covers are 0.0% wood, against 50.1% in the 1400 tiles of country inside the 4 rural block(s) next to them (0.00x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote
+country-outside-blocks  48,556,133      med    Gannet Rock 65,566-164,678: 3522 tiles of country no block covers are 17.3% wood, against 49.4% in the 5515 tiles of country inside the 4 rural block(s) next to them (0.35x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote
+carve-is-a-ruler    79,596,66       high   1-tile-wide cut of field at 111,606 running 46 tiles north-south through woodland, the same span on every one of those lines — nothing in open country is straight over that distance except a carriageway or a runway, and this is neither, so it is a route some pass drew with a ruler and never softened
+carve-is-a-ruler    499,639,37      med    2-tile-wide cut of field at 509,656 running 17 tiles east-west through woodland, the same span on every one of those lines — nothing in open country is straight over that distance except a carriageway or a runway, and this is neither, so it is a route some pass drew with a ruler and never softened
+# summary
+# road-deadend             9
+# road-stops-short        13
+# road-speck               0
+# road-notch               0
+# road-width-jump          1  noisy
+# junction-stub            0
+# walk-orphan              0
+# kerb-missing             0
+# crossing-missing         0
+# shore-staircase          0
+# built-staircase         24  noisy
+# bare-corridor            0
+# patch-square             0
+# edge-notch               0
+# fabric-coarse            0
+# course-coverage-outlier       2
+# street-serves-nothing       4  noisy
+# lanes-serving-nothing       2
+# country-outside-blocks       4
+# carve-is-a-ruler         2
+# TOTAL                   61
