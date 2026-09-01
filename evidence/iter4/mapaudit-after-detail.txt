@@ -1,0 +1,23 @@
+# Anywhere City 768x768 from shared/src/world/city.data.ts
+road-stops-short    252,373,24      med    3-wide carriageway at 264,385 stops 3 tile(s) short of the carriageway it runs at, heading east, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    252,378,24      med    3-wide carriageway at 264,390 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    252,395,24      med    3-wide carriageway at 264,407 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    629,425,24      med    3-wide carriageway at 641,437 stops 3 tile(s) short of the carriageway it runs at, heading east, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    253,540,24      med    3-wide carriageway at 265,552 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    256,555,24      med    3-wide carriageway at 268,567 stops 3 tile(s) short of the carriageway it runs at, heading east, with field across the mouth — the junction was never cut
+road-stops-short    270,395,24      med    3-wide carriageway at 282,407 stops 3 tile(s) short of the carriageway it runs at, heading west, with field across the mouth — the junction was never cut
+road-stops-short    273,412,24      med    3-wide carriageway at 285,424 stops 3 tile(s) short of the carriageway it runs at, heading west, with field+sidewalk across the mouth — the junction was never cut
+road-stops-short    277,463,24      med    3-wide carriageway at 289,475 stops 3 tile(s) short of the carriageway it runs at, heading west, with field across the mouth — the junction was never cut
+road-stops-short    398,91,24       med    3-wide carriageway at 410,103 stops 3 tile(s) short of the carriageway it runs at, heading south, with sidewalk+field across the mouth — the junction was never cut
+road-stops-short    415,108,24      med    3-wide carriageway at 427,120 stops 3 tile(s) short of the carriageway it runs at, heading north, with field across the mouth — the junction was never cut
+road-stops-short    445,637,24      med    2-wide carriageway at 457,649 stops 3 tile(s) short of the carriageway it runs at, heading south, with field across the mouth — the junction was never cut
+road-stops-short    491,628,24      med    2-wide carriageway at 503,640 stops 4 tile(s) short of the carriageway it runs at, heading south, with field across the mouth — the junction was never cut
+street-serves-nothing  453,351,32      low    11.7-tile street from 469,361 to 469,373 meets no other centreline at either end, and its tarmac stops 3 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  244,552,32      low    11.8-tile street from 254,568 to 266,568 meets no other centreline at either end, and its tarmac stops 2 and 3 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  70,490,32       low    11.9-tile street from 80,505 to 91,508 meets no other centreline at either end, and its tarmac stops 3 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  645,142,40      low    19.9-tile street from 669,153 to 660,171 meets no other centreline at either end, and its tarmac stops 2 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+street-serves-nothing  687,271,40      low    19.9-tile street from 711,282 to 704,301 meets no other centreline at either end, and its tarmac stops 3 and 1 tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable
+# summary
+# road-stops-short        13
+# street-serves-nothing       5  noisy
+# TOTAL                   18

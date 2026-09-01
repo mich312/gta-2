@@ -1,0 +1,22 @@
+tile-plane differences vs committed bake: 75 of 589824
+   0->11 23
+   1->0 19
+   1->11 17
+   0->1 7
+   11->0 6
+   11->1 3
+district-plane differences: 0
+bearing-plane differences: 0
+blocks 1182 -> 1182  buildings 4012 -> 4012  shops 66 -> 66  landmarks 29 -> 29
+courses 347 -> 380
+buildings identical: true
+shops identical: true
+blocks identical: true
+
+NOTE: this is the WITHDRAWN bounding-box variant, kept as evidence for why the
+shipped form clips the recorded course to the extent `line` actually carved.
+Recording the course out to the borough's bounding box files a centreline over
+ground the borough does not own, and `doubledAgainstCourses` reads the course
+list untrimmed — so a lane out in Sunridge Shore was wrongly suppressed, which
+let a different one survive and left a 5-tile gap (a new `road-stops-short` at
+249,609, high). The shipped bake's tile-plane diff against e3306c8 is 0 tiles.

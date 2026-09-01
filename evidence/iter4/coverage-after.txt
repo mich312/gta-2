@@ -1,0 +1,19 @@
+district                  road  covered    rate  courses  kinds
+Ravenhill Park            1806     1264   70.0%        2  {"street":2}
+Marsh End                 3468     2554   73.6%        3  {"avenue":2,"street":1}
+Old Suburbs               6129     4819   78.6%       19  {"ring":2,"street":17}
+Sunridge Park             1804     1422   78.8%        2  {"avenue":1,"street":1}
+Vasco Heights             2419     1933   79.9%       13  {"avenue":1,"street":12}
+The Docks                 4776     3862   80.9%       15  {"avenue":2,"street":13}
+Beachfront               11007     9119   82.8%       47  {"avenue":3,"street":44}
+The Terraces             10980     9394   85.6%       54  {"avenue":2,"street":52}
+The Foundry               3383     2896   85.6%       15  {"avenue":1,"street":14}
+Ravenhill                20025    17216   86.0%       55  {"street":55}
+North Point               5433     4683   86.2%       28  {"ring":2,"street":26}
+New Suburbs               8252     7448   90.3%       31  {"avenue":1,"street":30}
+Old Quarter              11438    10450   91.4%       58  {"avenue":1,"street":57}
+The Spine                 9601     8793   91.6%       21  {"avenue":3,"street":18}
+MEDIAN rate 85.6%   gate(0.5x) 42.8%
+rated districts 14   total courses 380  (road courses 363)
+city-wide rated coverage 85.4%
+course kinds overall {"ring":4,"avenue":17,"street":342,"path":17}
