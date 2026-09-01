@@ -2964,3 +2964,73 @@ road does not carve, and read `MISS` on a working probe. Its first disc model
 gave 350 for region B until it used `roadCourses()`, layout's own definition.
 Both repaired rather than trusted — which is the only reason the confirmations
 above are worth anything.
+
+## Iteration 10, second half — lost to a container restart, partly salvaged
+
+The fixer on the last two signatures (`street-serves-nothing` 5,
+`road-deadend` 4) was killed mid-run by a container restart. **No report was
+received and none of its conclusions exist.** Its worktree held 25 uncommitted
+probe scripts and renders, salvaged into `evidence/iter10/` and re-run here
+against a tree byte-identical in code and map to the one they were written on.
+The analysis below is mine, from its instruments.
+
+### `road-deadend` ×4 — attribution reproduces iteration 6
+
+| cap | owner | fabric | inPoly | inRect | claimDepth |
+| --- | --- | --- | --- | --- | --- |
+| 415,672 east | Sunridge Park | grid | 1 | 1 | 0 |
+| 321,327 south | Ravenhill | spine | 0 | 0 | 16 |
+| 478,600 south | New Suburbs | crescent | 1 | 1 | 0 |
+| 342,312 south | Ravenhill | spine | 0 | 1 | 1 |
+
+Matches iteration 6's filing exactly. `478,600` faces TREES and then carriageway
+9–12 tiles out; the other three face open FIELD for twelve tiles.
+
+**The `laid by` column came back blank on all four** — the same
+`__LAYOUT_PROBE__` blindness iteration 10's verification pass found in
+`evidence/iter6/probe-attribute.mjs`, present in this script too. Discarded, not
+reported. Two probes in this loop now read blind the same way for the same
+reason; **a probe that needs a source hook must assert the hook fired.**
+
+### `street-serves-nothing` ×5 — UNRESOLVED, and the control is why
+
+`population.mjs` reports: 364 baked road courses, 63 whole and 301 fragments
+from `trimCourses`; 44 fragments in the detector's own length window [4,20);
+42 join other carriageway at both ends, 2 at one end, **0 truly terminal** —
+concluding the detector flags **5 of 44 indistinguishable fragments (11.4%)**,
+the same sampling shape as `road-stops-short` (10.4% of 125).
+
+**That conclusion does not survive its own control.** `joins-control.mjs` says:
+
+```
+courses with ZERO joining tarmac anywhere:      0
+=> the measure NEVER reads zero — BROKEN, it cannot discriminate
+```
+
+Its second leg proves the measure does read its input (a course shifted off the
+network gives `own=0, joins 0/0/0`), so this is a definition problem, not a dead
+probe. The third leg separates loose from strict — tarmac belonging to *another
+baked course*:
+
+```
+  #273 469,361->469,373  loose a/m/b 7/11/2   strict a/m/b 0/0/0
+  #299 254,568->266,568  loose a/m/b 4/4/3   strict a/m/b 0/0/0
+  #363 80,505->91,508    loose a/m/b 6/11/4   strict a/m/b 0/3/0
+  #130 669,153->660,171  loose a/m/b 10/12/10 strict a/m/b 4/7/6
+  #164 711,282->704,301  loose a/m/b 8/16/3   strict a/m/b 8/10/2
+```
+
+**Under the strict measure at least 3 of the 5 flagged are terminal at both
+ends** — pointing the opposite way from the loose headline. The population
+figure was computed loosely and `population.mjs` has no strict mode, so the
+44-fragment denominator cannot be restated without writing that code. That is
+what the lost agent was most likely still doing.
+
+**Status: `street-serves-nothing` is the one signature this loop leaves
+genuinely open.** Not proven a sampling artifact and not proven real. The next
+round should recompute the population under the strict definition; if 3 of 5
+hold up, this is the loop's last live defect rather than its last false one.
+
+I am recording it this way rather than publishing 11.4%, because publishing a
+headline whose own control calls it broken is the precise failure iteration 10
+spent its first half correcting four instances of.
