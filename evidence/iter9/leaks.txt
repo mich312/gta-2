@@ -1,0 +1,70 @@
+
+=== 499,107  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=ring width=4 at 2.85 tiles
+  ??##???
+  ??##???
+  ..##...
+  ..##...   <- row of the site
+  RRRRR..
+  RRRRRRR
+  RRRRRRR
+
+=== 570,612  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=ring width=4 at 2.02 tiles
+  ..##...
+  ..##..R
+  ..##.RR
+  .?##RRR   <- row of the site
+  ..RRRRR
+  .RRRRRR
+  RRRRRR.
+
+=== 461,118  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=ring width=4 at 2.50 tiles
+  RRRRRRR
+  RRRRRRR
+  RRRRRRR
+  ..##...   <- row of the site
+  ..##...
+  .......
+  .......
+
+=== 510,122  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=ring width=4 at 2.32 tiles
+  RRRRRRR
+  RRRRRRR
+  RRRRRRR
+  ::###RR   <- row of the site
+  ::AAAA#
+  AAAAAAA
+  AAAAAAA
+
+=== 513,123  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=avenue width=4 at 2.01 tiles
+  RRRRRRR
+  RRRRRRR
+  ##RRRRR
+  AAA####   <- row of the site
+  AAAAAAA
+  AAAAAAA
+  AAAAAAA
+
+=== 641,307  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=ring width=4 at 2.44 tiles
+  .RRRR..
+  :RRRR..
+  :#RRR.?
+  :####??   <- row of the site
+  ?#?????
+  ???????
+  ???????
+
+=== 456,664  tile=ROAD  ringMask=0 avenueMask=0 streetMask=0
+  nearest course: kind=ring width=4 at 2.62 tiles
+  RRRRRRR
+  RRRRRRR
+  RRRRRRR
+  ..##...   <- row of the site
+  ..##.??
+  ?.##.??
+  ?.##.??

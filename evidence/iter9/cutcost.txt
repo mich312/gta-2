@@ -1,0 +1,58 @@
+# 1. how the ring is joined today
+ring carriageway: 12013 tiles
+non-ring carriageway tiles touching it: 362, in 50 separate places:
+   626,185  64 tiles of contact
+   559,129  58 tiles of contact
+   521,124  24 tiles of contact
+   280,219  20 tiles of contact
+   330,142  15 tiles of contact
+   531,640  15 tiles of contact
+   284,227  14 tiles of contact
+   280,454  11 tiles of contact
+   273,539  10 tiles of contact
+   544,642  8 tiles of contact
+   342,139  7 tiles of contact
+   318,144  7 tiles of contact
+   629,535  7 tiles of contact
+   521,637  7 tiles of contact
+   343,131  6 tiles of contact
+   544,634  6 tiles of contact
+   270,225  5 tiles of contact
+   274,231  4 tiles of contact
+   641,307  4 tiles of contact
+   287,452  4 tiles of contact
+   274,456  4 tiles of contact
+   624,533  4 tiles of contact
+   636,537  4 tiles of contact
+   279,539  4 tiles of contact
+   266,541  4 tiles of contact
+   555,122  3 tiles of contact
+   329,134  3 tiles of contact
+   331,149  3 tiles of contact
+   317,152  3 tiles of contact
+   273,217  3 tiles of contact
+   625,544  3 tiles of contact
+   633,544  3 tiles of contact
+   499,107  2 tiles of contact
+   461,118  2 tiles of contact
+   288,459  2 tiles of contact
+   620,542  2 tiles of contact
+   570,612  2 tiles of contact
+   501,657  2 tiles of contact
+   456,664  2 tiles of contact
+   562,139  1 tiles of contact
+   276,237  1 tiles of contact
+   648,304  1 tiles of contact
+   650,381  1 tiles of contact
+   642,382  1 tiles of contact
+   655,384  1 tiles of contact
+   651,444  1 tiles of contact
+   649,463  1 tiles of contact
+   629,518  1 tiles of contact
+   296,613  1 tiles of contact
+   294,618  1 tiles of contact
+
+# 2. the counterfactual: open every mouth that points at the ring
+mouths >=2 tiles wide reaching ring carriageway within 4: 150
+tarmac needed to open them all: 1143 tiles
+that would take the ring from 50 places you can join it to 200.

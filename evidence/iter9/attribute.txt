@@ -1,0 +1,22 @@
+caps walked: 17   with a carriageway within 6: 13   dead ends: 4
+ring: 12013 carriageway tiles from 4 courses;  nearRing band 25341 tiles;  junction dilation 5142 tiles
+
+# every cap that stops short of a carriageway, city-wide
+# at            len short mag dir    far-side   ring aven other  gap inBand inJunc  gap tiles
+264,385       3   3     9   east   RING       3    0    0      6    6      0       field+sidewalk
+264,390       3   3     9   east   RING       3    0    0      6    6      0       field
+264,407       3   3     9   east   RING       3    0    0      6    6      0       field
+265,552       3   3     9   east   RING       3    0    0      6    6      0       field
+268,567       3   3     9   east   RING       2    0    0      6    6      0       field
+282,407       3   3     9   west   RING       1    0    0      6    6      0       field
+285,424       3   3     9   west   RING       2    0    0      6    6      0       field+sidewalk
+289,475       3   3     9   west   RING       3    0    0      6    6      0       field
+410,103       3   3     9   south  RING       3    0    0      6    6      0       sidewalk+field
+427,120       3   3     9   north  RING       3    0    0      6    6      0       field
+641,437       3   3     9   east   RING       3    0    0      6    6      0       field+sidewalk
+503,640       2   4     8   south  RING       2    0    0      6    6      0       field
+457,649       2   3     6   south  RING       2    0    0      4    4      0       field
+
+far side: { RING: 13 }
+gap entirely inside the ring's Chebyshev-2 shave band: 13 of 13
+gap touching the junction dilation at all:              0 of 13

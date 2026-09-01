@@ -1,0 +1,140 @@
+# 1. the ring's frontage — every ring carriageway tile's outward neighbours
+ring carriageway tiles: 12013
+frontage faces: 7296   road on the far side: 543 (7.4%)   cleared: 6753 (92.6%)
+first tile out: sidewalk 3547, field 2237, park 588, road 543, water 268, bank 84, lot 16, building 13
+of the 543 road faces, inside the 9-tile junction dilation: 493
+
+# 2. every street mouth pointing at the ring, no cap-shape filters
+mouths reaching ring carriageway within 4: 286   (>=2 tiles wide: 150)
+  of those, with a gap of >=1 non-road tile: 150
+  of those, outside the 9-tile authored-junction dilation: 125
+  gap-0 (mouths that DO meet the ring): 0
+  gap depth histogram (outside junctions): { '2': 43, '3': 82 }
+
+# every gapped mouth outside a junction
+# at          w  gap dir
+444,121     14 3   north
+392,666     12 3   north
+637,468     10 3   east
+504,124     9  3   north
+263,254     8  3   east
+283,239     7  3   west
+288,483     7  3   west
+263,245     6  3   east
+401,667     6  3   north
+640,247     5  3   east
+637,299     5  3   east
+655,299     5  3   west
+287,489     5  3   west
+640,253     4  3   east
+639,386     4  3   east
+652,216     4  3   west
+585,135     4  3   south
+383,666     4  3   north
+632,214     3  3   east
+636,225     3  3   east
+637,228     3  3   east
+264,275     3  3   east
+640,275     3  3   east
+638,293     3  3   east
+268,492     3  3   east
+629,508     3  3   east
+268,567     3  3   east
+570,610     3  3   east
+654,222     3  3   west
+281,265     3  3   west
+284,282     3  3   west
+289,309     3  3   west
+290,321     3  3   west
+282,407     3  3   west
+285,424     3  3   west
+657,455     3  3   west
+652,487     3  3   west
+648,506     3  3   west
+283,552     3  3   west
+396,103     3  3   south
+398,121     3  3   north
+641,266     4  2   east
+265,510     4  2   east
+656,233     4  2   west
+657,243     4  2   west
+658,253     4  2   west
+291,175     2  3   east
+285,185     2  3   east
+280,195     2  3   east
+279,197     2  3   east
+278,199     2  3   east
+624,199     2  3   east
+630,210     2  3   east
+631,212     2  3   east
+266,233     3  2   east
+639,236     3  2   east
+641,256     3  2   east
+265,278     3  2   east
+639,285     2  3   east
+636,303     2  3   east
+264,385     3  2   east
+640,389     3  2   east
+264,390     3  2   east
+641,405     3  2   east
+264,407     3  2   east
+267,424     3  2   east
+641,437     3  2   east
+639,454     2  3   east
+633,491     2  3   east
+264,513     2  3   east
+616,544     2  3   east
+265,552     3  2   east
+610,557     2  3   east
+599,577     2  3   east
+272,582     2  3   east
+279,598     2  3   east
+331,152     2  3   west
+301,194     2  3   west
+646,201     2  3   west
+295,206     2  3   west
+294,208     2  3   west
+650,211     2  3   west
+651,213     2  3   west
+291,214     2  3   west
+284,235     2  3   west
+281,248     3  2   west
+658,262     3  2   west
+658,272     3  2   west
+657,281     3  2   west
+656,290     3  2   west
+657,383     2  3   west
+280,391     3  2   west
+658,431     3  2   west
+657,460     2  3   west
+289,475     3  2   west
+283,509     2  3   west
+282,511     3  2   west
+629,559     2  3   west
+292,583     2  3   west
+410,103     3  2   south
+427,103     3  2   south
+383,106     3  2   south
+356,113     2  3   south
+543,625     2  3   south
+503,640     2  3   south
+412,120     3  2   north
+427,120     3  2   north
+384,124     2  3   north
+371,127     2  3   north
+357,133     2  3   north
+556,139     2  3   north
+293,618     2  3   north
+405,668     2  3   north
+264,249     2  2   east
+642,421     2  2   east
+271,442     2  2   east
+272,475     2  2   east
+287,298     2  2   west
+288,441     2  2   west
+656,458     2  2   west
+286,493     2  2   west
+286,567     2  2   west
+422,103     2  2   south
+369,109     2  2   south
+457,649     2  2   south

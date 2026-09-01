@@ -1,0 +1,30 @@
+AssertionError: a street now joins the ring outside an authored junction: expected [ '266,407', '456,664', …(6) ] to deeply equal [ '456,664', '461,118', …(5) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[33m@@ -1,6 +1,7 @@[39m
+[2m  [[22m
+[31m+   "266,407",[39m
+[2m    "456,664",[22m
+[2m    "461,118",[22m
+[2m    "499,107",[22m
+[2m    "510,122",[22m
+[2m    "513,123",[22m
+
+ ❯ test/city.test.ts:1428:87
+    1426|     // entirely. Named so that an eighth has to be looked at rather th…
+    1427|     // absorbed. `evidence/iter9/leaks.txt` has the pictures.
+    1428|     expect(joined.sort(), 'a street now joins the ring outside an auth…
+       |                                                                                       ^
+    1429|       ['456,664', '461,118', '499,107', '510,122', '513,123', '570,612…
+    1430|     );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 38 skipped (39)
+   Start at  06:28:09
+   Duration  5.46s (transform 1.11s, setup 0ms, collect 4.64s, tests 387ms, environment 0ms, prepare 98ms)
+

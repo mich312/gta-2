@@ -1,0 +1,35 @@
+layout: 768x768   cleared mask: 2578 tiles of carriageway a removal pass took out
+(if this were the whole map the probe would be measuring nothing: it is 0.44% of it)
+
+# at          w gap  gap tiles: cleared? / field-at-layout-time? / cuttable?
+264,385     3 2    REMOVAL — cutMissedJunctions must not undo it
+             265,386:CLEARED  265,385:CLEARED  265,384:CLEARED  266,386:never-road  266,385:never-road  266,384:never-road
+264,390     3 2    REMOVAL — cutMissedJunctions must not undo it
+             265,391:CLEARED  265,390:CLEARED  265,389:CLEARED  266,391:CLEARED  266,390:CLEARED  266,389:CLEARED
+264,407     3 2    REMOVAL — cutMissedJunctions must not undo it
+             265,408:CLEARED  265,407:CLEARED  265,406:CLEARED  266,408:CLEARED  266,407:CLEARED  266,406:CLEARED
+641,437     3 2    REMOVAL — cutMissedJunctions must not undo it
+             642,438:CLEARED  642,437:CLEARED  642,436:CLEARED  643,438:never-road  643,437:never-road  643,436:never-road
+265,552     3 2    REMOVAL — cutMissedJunctions must not undo it
+             266,553:CLEARED  266,552:CLEARED  266,551:CLEARED  267,553:CLEARED  267,552:CLEARED  267,551:CLEARED
+268,567     3 2    REMOVAL — cutMissedJunctions must not undo it
+             269,568:CLEARED  269,567:CLEARED  269,566:CLEARED  270,568:CLEARED  270,567:CLEARED  270,566:CLEARED
+282,407     3 2    REMOVAL — cutMissedJunctions must not undo it
+             281,406:CLEARED  281,407:CLEARED  281,408:CLEARED  280,406:CLEARED  280,407:CLEARED  280,408:CLEARED
+285,424     3 2    REMOVAL — cutMissedJunctions must not undo it
+             284,423:CLEARED  284,424:CLEARED  284,425:CLEARED  283,423:CLEARED  283,424:never-road  283,425:never-road
+289,475     3 2    REMOVAL — cutMissedJunctions must not undo it
+             288,474:CLEARED  288,475:CLEARED  288,476:CLEARED  287,474:CLEARED  287,475:CLEARED  287,476:CLEARED
+410,103     3 2    REMOVAL — cutMissedJunctions must not undo it
+             409,104:never-road  410,104:CLEARED  411,104:CLEARED  409,105:never-road  410,105:CLEARED  411,105:CLEARED
+427,120     3 2    REMOVAL — cutMissedJunctions must not undo it
+             428,119:CLEARED  427,119:CLEARED  426,119:CLEARED  428,118:CLEARED  427,118:CLEARED  426,118:CLEARED
+457,649     2 2    REMOVAL — cutMissedJunctions must not undo it
+             457,650:CLEARED  458,650:never-road  457,651:CLEARED  458,651:never-road
+503,640     2 3    REMOVAL — cutMissedJunctions must not undo it
+             503,641:CLEARED  504,641:never-road  503,642:CLEARED  504,642:never-road  503,643:CLEARED  504,643:never-road/not-field
+
+13 of 13 mouths have a gap a removal pass cleared.
+
+CONTROL — bare ground beside a carriageway, sampled 4000 tiles: 98 CLEARED, 3902 never-road.
+The probe reads both values, so "CLEARED" above is a measurement and not a stuck bit.
