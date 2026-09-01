@@ -2263,7 +2263,7 @@ blind here — it is binary about a thing that is continuous.
 | region | before | after |
 | --- | --- | --- |
 | B, 267,312–365,375 (shoulder) | 1343 road, 41.5% | **1140 road, 35.2%** |
-| A, 393,312–549,365 (headland) | 1197 road, 20.8% | 1197 road, 20.8% |
+| A, 393,312–549,365 (headland) | 1197 road, 20.8% | **1198** road, 20.8% |
 
 ## The brief was wrong by a factor of twelve
 
@@ -2396,7 +2396,9 @@ Proven arithmetically, which retires four iterations of attempts:
 
 Region B's 767 authored tiles are The Ring's two carriageways and the Old
 Bridge — **23.7% of its land on their own, against a 10% gate.** Every other
-pass could stop laying there and it would still fire at 11.5%. Region A needs
+pass could stop laying there and it would still fire at **23.7%** — REFUTED
+iteration 10: 11.5% is the residue after dropping the *authored* pass, not the
+scenario this sentence names. Region A needs
 623 of 1,197 gone; the esplanade is 563 of them and is anchored in 618 built
 tiles round Old Quarter's real shore.
 
@@ -2493,7 +2495,11 @@ quarters of it and wrong about the part that matters.
 | C quay inland | 8 | 153 | pavement/road/field, **bank chain** covers every position | no |
 | D yard at 82,462 | 1 | 15 | a diagonal street's kerb | drawn, but out of scope |
 
-**19 findings, 402 tiles, are a tile staircase no renderer draws.** I checked
+**19 findings, 402 tiles, are a tile staircase no renderer draws** — and
+after iteration 8's deck fix this becomes **23 of 24, 525 tiles, 97%**, since
+that fix moved the four bridge decks from drawn to not-drawn. Only the yard at
+82,462 (m=15) is still drawn. Derivable from the audit's own line:
+`SCORE − DRAWN = 131.3`, ÷0.25 = 525. I checked
 the pictures rather than taking the verdict on report: `B-quay-427-678-eye.png`
 shows a smooth continuous waterline where the audit reports 43 tiles of
 staircase. The coast chain draws a curve over the tile steps.
@@ -2623,7 +2629,9 @@ all three are now understood rather than suspected:
 3. **258 weighted tiles of the score are a false positive** (below), and 402
    raw tiles more are a staircase nothing draws (iteration 7).
 
-**12.3% of SCORE is measuring nothing.** Both agents who could have fixed that
+**12.3% of SCORE is measuring nothing.** — REFUTED iteration 10: the correct
+figure on the tree this close describes is **13.4%**. This sentence uses
+iteration 7's 402, measured *before* iteration 8's own deck fix took it to 525. Both agents who could have fixed that
 declined, in their own lane, because changing what fires needs a two-way
 instrument control and would break comparability back through iteration 5. Both
 were right to. It is now iteration 9's work.
@@ -2775,6 +2783,18 @@ bb0aaae    post-iteration-8              49     2911.8       48     2653.8     2
 The BEFORE column reproduces every number this loop published, to the decimal —
 verified independently. That is what licenses the AFTER column.
 
+**REFUTED iteration 10 — and this paragraph is the reason it is the worst
+error in this file.** It re-examined that sentence, corrected its
+*interpretation*, and left its *arithmetic* untouched, so a stale number now
+carries an explicit audit stamp. The figure is **13.4%**, not 12.3%: the 402
+was measured before iteration 8's own deck fix took it to 525. This section
+elsewhere prints the right quantity ("SCORE carries 131 weighted invisible
+tiles"), so the file contradicted itself without saying so. The root cause is
+this loop's signature failure: **quoting a prior iteration's measurement for a
+state your own fix has already changed.**
+
+What the paragraph got right, and what still stands:
+
 **Iteration 8's close said "12.3% of SCORE is measuring nothing". That was true
 of the level and never of a comparison.** The false positive was constant across
 the whole series, so it inflated every reading equally and moved no delta:
@@ -2865,3 +2885,82 @@ on 6 planted tiles across the `264,407` mouth.
 - **`country-outside-blocks`'s `mag` is still the neighbours' rate** rather than
   `wildBare`, the truer magnitude — switching it would confound two changes
   inside one restatement, so `wildBare` prints in every reason instead.
+
+---
+
+# Visual loop — iteration 10, the closing audit
+
+The final iteration turned the loop on its own record. **Nine load-bearing
+claims CONFIRMED, four REFUTED, two live instruments found blind or stale.**
+Measured on `8e9c31f`, clean tree.
+
+## Confirmed
+
+Reachability (100,833 / 1 component / 491.6 over 702 pairs / 0 unreachable),
+with a control proving the script reads its input — on `7769a2c` it reads
+100,742. The six `citybake` warnings verbatim. Iteration 6's unclosability
+arithmetic, re-derived independently: **767 = The Ring 512 + Old Bridge 255**,
+region A 213, matching to the tile. Iteration 8's exhausted population
+(21 → 5 → 1; wild-but-bare 1379 → 18 → 0) on all three bakes. Iteration 9's
+history table, all seven rows, with a control proving the staged instrument
+really is `bb0aaae`'s. `road-stops-short`'s population byte-identical, with a
+control that moves it on an older bake. Both selftests exit 0, checked with
+`; echo $?` on its own line. `mapwatch`'s stale-dist guard on **both** legs.
+
+## Refuted — corrected in place above, not appended as errata
+
+| claim | published | truth |
+| --- | --- | --- |
+| "would still fire at **11.5%**" | iter 6 | **23.7%**. 11.5% is the residue after dropping the *authored* pass, which is not the scenario the sentence names. Right conclusion, wrong number attached |
+| region A road = **1197** after | iter 6 | **1198**. Iteration 6's own `mapaudit-after.txt` says 1198; the table published the before-value |
+| **19 of 24** invisible, 402 tiles, 74% | iter 7 | **23 of 24**, 525 tiles, **97%** — iteration 8's own deck fix moved the four decks from drawn to not-drawn. Only the yard at 82,462 (m=15) is still drawn |
+| **12.3%** of SCORE measures nothing | iter 8 | **13.4%**, for the same reason |
+
+The staircase refutation was derivable from the audit's own output the whole
+time: **`SCORE − DRAWN = 131.3`, ÷0.25 = 525**, and `540 − 525 = 15` is exactly
+the yard's magnitude. The line `built-staircase 24 540 135.0 3.8` prints it —
+3.8 is 15 × 0.25. I read that line in iteration 9 and did not do the arithmetic.
+
+**The worst error was not the wrong number but the audited wrong number.**
+Iteration 9 re-examined the "12.3%" sentence, corrected its *interpretation*,
+and left its *arithmetic* untouched — so a stale figure now carried an explicit
+audit stamp, while the same section elsewhere printed the right quantity. The
+file contradicted itself without saying so.
+
+Root cause, and this loop's signature failure in one line: **quoting a prior
+iteration's measurement for a state your own fix has already changed.** It is
+the same shape as `REVIEWER.md`'s "your finding will be read against a tree that
+has moved" — which this exercise wrote for reviewers and then failed to apply to
+itself.
+
+## Two live instruments that would mislead the next round
+
+- **`evidence/iter6/probe-attribute.mjs` reads blind.** It needs a
+  `globalThis.__LAYOUT_PROBE__` hook in `layout.ts` that no longer exists in
+  source. Without it `laidBy` is all `null`, every region collapses into one
+  bucket, and it prints `drop it and 0 road is left = 0.0% <10%, CLEARS` for
+  every flagged region — **the exact opposite of iteration 6's conclusion, with
+  no assertion that its hook fired.** `evidence/iter10-verify/authored-share.mjs`
+  is a hook-free replacement reproducing both published figures.
+- **`evidence/iter7/curve-cover.mjs` is stale.** Its numbers reproduce
+  byte-for-byte, but it asks only the coast and bank chains — it predates
+  iteration 8's deck chain — so it still reports the four decks as `bare`, which
+  its own header defines as "the drawn staircase". It disagrees with `mapAudit`
+  on 149 positions. Iteration 9 cites it approvingly as independently
+  reproduced: true of the position count (741), false of the coverage verdict.
+
+## One inconsistency, both sides true
+
+Iteration 9 says "**0 of those 125 reach it**" and, two paragraphs later,
+"**7 mouths do join the ring outside a junction**". Both reproduce — they count
+different populations (layout street mouths vs. road tiles laid below the
+layout) — but the same noun carries opposite verbs with nothing marking the
+switch.
+
+## The verifier's own controls failed first, twice
+
+`authored-share.mjs` initially sampled The Ring's *centreline*, which a median
+road does not carve, and read `MISS` on a working probe. Its first disc model
+gave 350 for region B until it used `roadCourses()`, layout's own definition.
+Both repaired rather than trusted — which is the only reason the confirmations
+above are worth anything.
