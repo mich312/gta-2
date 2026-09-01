@@ -1,0 +1,51 @@
+# iteration 9 red controls — each break must make --selftest exit 1
+
+=== 1. WILD_SEED off by one — the audit is asking a different field
+# wildAt              DRIFTED  50.1% of 16699 country tiles inside rural blocks; field says wood on 55.4%, ground is wood on 45.5% (gate 75%)
+# THE COPIED FIELD CONSTANTS NO LONGER MATCH THE BAKE — country-outside-blocks is refusing
+  --selftest exit = 1   (must be 1)
+
+=== 2. the gate refuses every region — a real defect suppressed
+# country-outside-blocks  REFUSED  322,740-355,756: 507 tiles, 0 wood, 0 bare where the field says wood — every other gate passes it, so the field is what silenced it
+# country-outside-blocks  BLIND    65,566-164,678: wooded -> silent (wildBare 0), then stripped of 1232 wood -> SILENT with 900 tiles bare where the field says wood — THE GATE SUPPRESSED A REAL DEFECT
+  --selftest exit = 1   (must be 1)
+
+=== 3. the gate is gone — the answered-meadow region leaks back in
+# country-outside-blocks  FIRED    1 -> 2  m 258 -> 3780 at 65,566 — a wooded rural block beside country outside the blocks that is stripped bare
+# country-outside-blocks  LEAKED   322,740-355,756: 507 tiles, 0 wood, 0 bare where the field says wood — every other gate passes it, so THE GATE DID NOTHING
+# country-outside-blocks  FIRED    65,566-164,678: wooded -> silent (wildBare 0), then stripped of 1232 wood -> fires with 900 tiles bare where the field says wood — the gate lets genuinely unasked ground through
+  --selftest exit = 1   (must be 1)
+
+=== 4. onCurve always true — every staircase claims to be invisible
+# built-staircase     STUCK    24 findings, 540 tiles, 0 drawn — 0 fully drawn, 24 fully dissolved — A CENSUS WITH ONE ANSWER IS NOT A CENSUS
+# built-staircase     WHOLE    741 of 741 profile positions put to the curve layer across 24 edges, 0 edge(s) asked about less than their whole outline — every step face was asked, whatever lies beyond it
+# built-staircase     BLIND    with every chain removed: 24 findings, 540 tiles, 0 drawn (was 0) — REMOVING THE CURVES DID NOT MOVE THE DRAWN COLUMN
+# built-staircase     BLIND    with only the deck chain removed: the 4 bridge decks go 0 -> 0 drawn of 123 tiles (123 still on the coast chain, where a deck meets its own shore), the quays hold at 0 — THE DECK CHAIN IS NOT WHAT IS BEING READ
+  --selftest exit = 1   (must be 1)
+
+=== 5. faces counted only onto open water — the inland quays go blind again
+# built-staircase     SPLIT    24 findings, 540 tiles, 168 drawn — 9 fully drawn, 15 fully dissolved
+# built-staircase     PARTIAL  502 of 741 profile positions put to the curve layer across 24 edges, 11 edge(s) asked about less than their whole outline — A CENSUS OF PART OF AN EDGE CANNOT SAY WHETHER IT IS DRAWN
+# built-staircase     UNCOVER  with every chain removed: 24 findings, 540 tiles, 540 drawn (was 168) — nothing is painted over, so all of it is drawn
+# built-staircase     DECKS    with only the deck chain removed: the 4 bridge decks go 0 -> 117 drawn of 123 tiles (6 still on the coast chain, where a deck meets its own shore), the quays hold at 168 — iteration 8's curve is what covers the decks and touches nothing else
+  --selftest exit = 1   (must be 1)
+
+=== 6. the road-deadend plant lands on ground a street crosses — the bug that shipped for three iterations
+# road-deadend        SILENT   4 -> 4  m 11 -> 11 at 439,326 — a 3-wide street ending in open ground
+# 1 SIGNATURE(S) DID NOT FIRE OR DID NOT MOVE THEIR MAGNITUDE — those numbers mean nothing
+  --selftest exit = 1   (must be 1)
+
+# restored; confirming the tool is green again
+  --selftest exit = 0   (must be 0)
+# lanes-serving-nothing  SHRANK   2 -> 2  m 2338 -> 1739 after lifting 599 of 1198 carriageway tiles out of 393,312-549,365
+# a partial fix scores: the count held and the magnitude fell
+# wildness-field control: the audit's copy of bake.ts:609 is bake.ts:609
+# wildAt              AGREES   88.3% of 16699 country tiles inside rural blocks; field says wood on 46.5%, ground is wood on 45.5% (gate 75%)
+# unasked-country control: refuse what the field answered, keep what it did not
+# country-outside-blocks  REFUSED  322,740-355,756: 507 tiles, 0 wood, 0 bare where the field says wood — every other gate passes it, so the field is what silenced it
+# country-outside-blocks  FIRED    65,566-164,678: wooded -> silent (wildBare 0), then stripped of 1232 wood -> fires with 900 tiles bare where the field says wood — the gate lets genuinely unasked ground through
+# drawn control: the curve layer is what dissolves a staircase
+# built-staircase     SPLIT    24 findings, 540 tiles, 15 drawn — 1 fully drawn, 23 fully dissolved
+# built-staircase     WHOLE    741 of 741 profile positions put to the curve layer across 24 edges, 0 edge(s) asked about less than their whole outline — every step face was asked, whatever lies beyond it
+# built-staircase     UNCOVER  with every chain removed: 24 findings, 540 tiles, 540 drawn (was 15) — nothing is painted over, so all of it is drawn
+# built-staircase     DECKS    with only the deck chain removed: the 4 bridge decks go 0 -> 117 drawn of 123 tiles (6 still on the coast chain, where a deck meets its own shore), the quays hold at 15 — iteration 8's curve is what covers the decks and touches nothing else
