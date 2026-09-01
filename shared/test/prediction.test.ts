@@ -224,6 +224,26 @@ describe('collision prediction', () => {
  * predictor with no world view and keep the first lane the car actually gets
  * going on. Slower, and immune to every future change in the map — which this
  * test has now been broken by twice.
+ *
+ * ...and by a third, iteration 6, because the probe was still not asking the
+ * question it says it asks. Two faults, both measured
+ * (`evidence/iter6/probe-lane-picker.txt`):
+ *
+ *  * The probe measured travel from `cand`, but `spawnVehicle` may refuse the
+ *    requested spot and put the car somewhere else entirely. On the iteration 6
+ *    bake the winning candidate's car spawned **1,561 px away**, so the probe
+ *    read 1,497 px of "driving" for a car that had not moved off `cand` — it
+ *    had never been on it. Every candidate the car really did drive read
+ *    d40 ≈ 140, under the 180 gate, so a lane could ONLY ever be selected by
+ *    this displacement: the helper had not once picked on its own criterion,
+ *    before the change or after. Now the car has to actually be where the
+ *    candidate says before its travel counts.
+ *  * The probe drove 40 ticks; both callers drive 60. A lane vetted over 40 is
+ *    not a lane vetted over 60 — the car is still accelerating at tick 40 and
+ *    has another 130 px to run into whatever is there. Probed over the same 60
+ *    the tests drive, against the same 180 px they assert.
+ *
+ * Both make the gate STRICTER. The assertions in the tests are untouched.
  */
 function drivableLane(map: ReturnType<typeof generateCity>): {
   x: number;
@@ -247,13 +267,16 @@ function drivableLane(map: ReturnType<typeof generateCity>): {
     );
     const veh = probeState.vehicles.byId[vid];
     if (!veh) continue;
+    // The car has to be ON the candidate for its travel to be about the
+    // candidate. A spawn the sim relocated is a lane this probe never drove.
+    if (Math.hypot(veh.pos.x - cand.x, veh.pos.y - cand.y) > 1) continue;
     const p = probeState.players.byId[1]!;
     p.pos = { x: cand.x, y: cand.y };
     p.mode = 'driving';
     p.vehicleId = vid;
     const probe = new Predictor();
     probe.reconcile(p, veh, 0, map);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       probe.applyLocalInput({ ...NULL_INPUT, seq: i + 1, tick: i, up: true }, map);
     }
     const v = probe.predictedVehicle;

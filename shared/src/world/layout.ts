@@ -622,6 +622,36 @@ export function buildLayout(plan: CityPlan): CityLayout {
    * which is clipped to the polygon's bounding box, never arrives. That gap is
    * `lanes-serving-nothing`: 5,749 tiles of headland carrying 1,197 tiles of
    * carriageway and not one building.
+   *
+   * BOUNDING THE FLOOD DOES NOT CLOSE EITHER FLAGGED REGION. Iteration 6 came
+   * here to do exactly that and measured its way back out; the numbers are
+   * `evidence/iter6/probe-attribute.mjs`, taken over mapAudit's own regions
+   * rather than a box round them.
+   *
+   *   region                     land   road   by the pass that laid it
+   *   393,312-549,365 headland   5749   1197   esplanade 563, seam 337,
+   *                                           authored 213, lattice 70
+   *   267,312-365,375 shoulder   3237   1140   authored 767, lattice 189,
+   *                                           esplanade 176
+   *
+   * The gate is road ≥ 10% of the region's land with under 1% of it built.
+   *  * The SHOULDER cannot be closed by taking road away at all: its 767
+   *    authored tiles are The Ring's two carriageways and the Old Bridge, and
+   *    they alone are 23.7% of its land. Every other pass could stop laying on
+   *    it entirely and it would still read 11.5%.
+   *  * The HEADLAND would need 623 of its 1,197 gone. The esplanade is 563 of
+   *    them and iteration 5 could not refuse it — its run is anchored in 618
+   *    built tiles round Old Quarter's real shore — and the seam is the whole
+   *    of the boundary The Spine shares with Beachfront, which `city.test.ts`
+   *    is right to require crossable.
+   *
+   * So both are closable only by putting TOWN on the ground, and that is the
+   * other direction: clip the block cut to owner-within-reach instead of to
+   * `polyBounds`. Costed and not taken — 12,782 tiles change hands across all
+   * sixteen boroughs, three rural parishes and two parks among them
+   * (`evidence/iter6/probe-town-reach-24.txt`). That is a plan decision, not a
+   * layout one: the author drew both these boroughs' southern edge as the
+   * ruler-straight y=312 with fifty tiles of dry land below it.
    */
   const claimDepth = new Int32Array(W * H).fill(-1);
   /** An offshore rock the wading wave claimed: no land reach at all. */
@@ -1299,10 +1329,45 @@ export function buildLayout(plan: CityPlan): CityLayout {
 
   /* ---- street lattices, clipped to each borough's outline ---------- */
 
-  const cuts = (start: number, extent: number, pitch: number, width: number): number[] => {
+  /**
+   * Where an axis grid's streets go along one axis.
+   *
+   * There is a street on the NEAR edge of the rect (`start`) and — until
+   * iteration 6 — none on the far one, so a grid borough was closed on its
+   * north and west and open on its south and east: every line of the other
+   * family ran past the last cross street, out to the edge of the rect, and
+   * stopped wherever the borough's ground ran out. That is not the edge of
+   * the built-up area fraying, it is an off-by-one in this family. On the
+   * shipped plan it is five of the nine `road-deadend` findings — The Spine's
+   * streets at x = 440, 485, 500, 515 and 530 all stopping on y=311, one row
+   * past the last building row, against a polygon whose southern edge is the
+   * ruler-straight y=312 (`evidence/iter6/probe-deadends.mjs`).
+   *
+   * So the far edge gets a street too, on two conditions:
+   *   * the pitch is wide enough to make interior cuts at all, which is what
+   *     keeps a borough with no lattice (`pitchX: 0`: Ravenhill Park,
+   *     Sunridge Park) from being handed a single lone edge street; and
+   *   * `close`, which the caller sets only for a borough whose blocks this
+   *     line would actually close. Country is excluded there: a rural lane
+   *     family is a lane family, and ringing four rural parishes in a
+   *     boundary road was costed and rejected in iteration 5.
+   *
+   * The far cut is dropped when it would land on top of the last interior
+   * one: `width + 4` clear is a block of at least four, which is the floor
+   * the block loop applies anyway.
+   */
+  const cuts = (
+    start: number,
+    extent: number,
+    pitch: number,
+    width: number,
+    close: boolean,
+  ): number[] => {
     const out = [start];
     if (pitch >= width + 3) {
       for (let p = start + pitch; p < start + extent - width; p += pitch) out.push(p);
+      const far = start + extent - width;
+      if (close && far - (out[out.length - 1] as number) >= width + 4) out.push(far);
     }
     return out;
   };
@@ -1663,8 +1728,8 @@ export function buildLayout(plan: CityPlan): CityLayout {
       };
 
       const axisGrid = angle === 0 && fabric === 'grid';
-      const xs = axisGrid ? cuts(rx, rw, pitchX, width) : [];
-      const ys = axisGrid ? cuts(ry, rh, pitchY, width) : [];
+      const xs = axisGrid ? cuts(rx, rw, pitchX, width, !d.rural) : [];
+      const ys = axisGrid ? cuts(ry, rh, pitchY, width, !d.rural) : [];
 
       // The borough bbox corners, projected into the working frame, bound
       // every straight family a fabric carves; each line is clipped to owned

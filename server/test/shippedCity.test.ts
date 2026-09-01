@@ -225,8 +225,56 @@ describe('the shipped city', () => {
     // fails `city.test.ts` "leaves no ground to nobody".
     expect(found).toEqual([
       '267,312-365,375: 3237 land, 1140 road, 10 built',
-      '393,312-549,365: 5749 land, 1197 road, 0 built',
+      // 1,197 until iteration 6, when The Spine's grid was closed at its
+      // southern edge (see the test below). The one tile is 543,312 — the
+      // junction where that closing street meets the coast road already
+      // running down the headland's east shore, and a junction is the road
+      // this finding is not about. Nothing else on either region moved.
+      '393,312-549,365: 5749 land, 1198 road, 0 built',
     ]);
+  });
+
+  it('closes an axis grid at the far edge of its rect, not only the near one', () => {
+    // Iteration 6's `road-deadend` x5: The Spine's streets at x = 440, 485,
+    // 500, 515 and 530, every one of them stopping on y=311 — one row past
+    // the last building row, against a polygon whose southern edge is the
+    // ruler-straight y=312 — and facing open ground.
+    //
+    // Not the D1 ownership flood, which is what the finding was escalated as.
+    // All five caps are INSIDE The Spine's own polygon at claimDepth 0
+    // (`evidence/iter6/probe-deadends.mjs`). The cause is one level down: the
+    // lattice's cut family put a street on the NEAR edge of the borough's
+    // rect and none on the far one, so a grid borough was closed on its north
+    // and west and open on its south and east, and every line of the other
+    // family ran out past the last cross street and stopped.
+    //
+    // Asked of the artifact, in the audit's own terms: along the last row of
+    // the borough, a north-south street that ends there must end at a cross
+    // street and not in a field. `road-deadend` excuses a cap wider than six
+    // tiles as a plaza or a frontage, so a cap of 2..6 with nothing below it
+    // is exactly the finding. On the pre-fix bake this reports five; the fix
+    // has to hold it at none. See `evidence/iter6/`.
+    const W = city.widthTiles;
+    const spine = plan.districts.find((d) => d.name === 'The Spine');
+    if (!spine) throw new Error('the plan no longer has a borough called The Spine');
+    const EDGE = 311; // the last row inside the polygon, whose foot is y=312
+    const isRoad = (x: number, y: number): boolean => {
+      const t = city.tiles[y * W + x] as number;
+      return t === T_ROAD || t === T_BRIDGE;
+    };
+    const caps: string[] = [];
+    let x = 0;
+    while (x < W) {
+      if (!isRoad(x, EDGE) || isRoad(x, EDGE + 1) || !pointInPoly(spine.area, x + 0.5, EDGE + 0.5)) {
+        x++;
+        continue;
+      }
+      let run = 0;
+      while (x + run < W && isRoad(x + run, EDGE) && !isRoad(x + run, EDGE + 1)) run++;
+      if (run >= 2 && run <= 6) caps.push(`${x}-${x + run - 1}`);
+      x += run;
+    }
+    expect(caps).toEqual([]);
   });
 
   it('builds Kelvin Bridge, the crossing its own plan calls the signature span', () => {

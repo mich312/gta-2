@@ -1,0 +1,75 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a3e8342d7f521b171
+
+ ❯ |server| test/shippedCity.test.ts (7 tests | 2 failed) 2762ms
+   ✓ the shipped city > passes the checker with zero errors, byte-for-byte as committed 4ms
+   ✓ the shipped city > carries only the crossings its plan is known to be wrong about 1ms
+   ✓ the shipped city > notices when a landmark loses its street frontage  830ms
+   ✓ the shipped city > tells a taxiway from a street across the runway  1340ms
+   × the shipped city > lays no street on ground no borough was drawn on 582ms
+     → expected [ …(2) ] to deeply equal [ …(2) ]
+   × the shipped city > closes an axis grid at the far edge of its rect, not only the near one 2ms
+     → expected [ '439-441', '454-456', …(4) ] to deeply equal []
+   ✓ the shipped city > builds Kelvin Bridge, the crossing its own plan calls the signature span 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |server| test/shippedCity.test.ts > the shipped city > lays no street on ground no borough was drawn on
+AssertionError: expected [ …(2) ] to deeply equal [ …(2) ]
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[2m  [[22m
+[2m    "267,312-365,375: 3237 land, 1140 road, 10 built",[22m
+[32m-   "393,312-549,365: 5749 land, 1198 road, 0 built",[39m
+[31m+   "393,312-549,365: 5749 land, 1197 road, 0 built",[39m
+[2m  ][22m
+
+ ❯ test/shippedCity.test.ts:226:19
+    224|     // shares with Beachfront. See the iteration 5 report: taking that…
+    225|     // fails `city.test.ts` "leaves no ground to nobody".
+    226|     expect(found).toEqual([
+       |                   ^
+    227|       '267,312-365,375: 3237 land, 1140 road, 10 built',
+    228|       // 1,197 until iteration 6, when The Spine's grid was closed at …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |server| test/shippedCity.test.ts > the shipped city > closes an axis grid at the far edge of its rect, not only the near one
+AssertionError: expected [ '439-441', '454-456', …(4) ] to deeply equal []
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- [][39m
+[31m+ [[39m
+[31m+   "439-441",[39m
+[31m+   "454-456",[39m
+[31m+   "484-486",[39m
+[31m+   "499-501",[39m
+[31m+   "514-516",[39m
+[31m+   "529-531",[39m
+[31m+ ][39m
+
+ ❯ test/shippedCity.test.ts:277:18
+    275|       x += run;
+    276|     }
+    277|     expect(caps).toEqual([]);
+       |                  ^
+    278|   });
+    279| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  03:01:07
+   Duration  5.47s (transform 1.31s, setup 0ms, collect 2.36s, tests 2.76s, environment 0ms, prepare 80ms)
+
+[ci/test] FAIL: 4 failed test(s), 0 real unhandled error(s).
+  - /home/user/gta-2/.claude/worktrees/agent-a3e8342d7f521b171/server/test/shippedCity.test.ts (file-level)
+  - /home/user/gta-2/.claude/worktrees/agent-a3e8342d7f521b171/server/test/shippedCity.test.ts: the shipped city
+  - /home/user/gta-2/.claude/worktrees/agent-a3e8342d7f521b171/server/test/shippedCity.test.ts: lays no street on ground no borough was drawn on
+  - /home/user/gta-2/.claude/worktrees/agent-a3e8342d7f521b171/server/test/shippedCity.test.ts: closes an axis grid at the far edge of its rect, not only the near one

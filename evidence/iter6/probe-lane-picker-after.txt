@@ -1,0 +1,36 @@
+cand#1 at 4392,4104: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#2 at 4568,4184: car actually spawned 0.0 px away; d40-from-cand 75.9
+cand#3 at 4200,4344: car actually spawned 0.0 px away; d40-from-cand 15.3
+cand#4 at 4120,4312: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#5 at 4280,3976: car actually spawned 0.0 px away; d40-from-cand 91.9
+cand#6 at 4408,3960: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#7 at 4216,3992: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#8 at 4664,4200: car actually spawned 0.0 px away; d40-from-cand 139.8
+cand#9 at 4072,4232: car actually spawned 0.0 px away; d40-from-cand 139.8
+cand#10 at 4568,4488: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#11 at 4536,3928: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#12 at 4216,3832: NOT SPAWNED
+cand#13 at 4776,4040: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#14 at 4808,4344: car actually spawned 0.0 px away; d40-from-cand 75.9
+cand#15 at 4792,4056: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#16 at 4824,4360: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#17 at 4088,3848: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#18 at 4824,4056: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#19 at 3896,4184: car actually spawned 0.0 px away; d40-from-cand 96.0
+cand#20 at 4488,4728: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#21 at 3848,4216: car actually spawned 0.0 px away; d40-from-cand 139.8
+cand#22 at 3784,4216: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#23 at 4680,4744: car actually spawned 0.0 px away; d40-from-cand 139.8
+cand#24 at 3992,3768: NOT SPAWNED
+cand#25 at 4632,4824: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#26 at 4888,4664: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#27 at 5048,4360: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#28 at 3848,3784: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#29 at 5000,3912: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#30 at 4376,3512: car actually spawned 0.0 px away; d40-from-cand 76.5
+cand#31 at 3944,3656: car actually spawned 0.0 px away; d40-from-cand 139.8
+cand#32 at 4856,4776: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#33 at 4184,3496: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#34 at 4856,3608: car actually spawned 0.0 px away; d40-from-cand 139.8
+cand#35 at 4696,3512: car actually spawned 0.0 px away; d40-from-cand 139.9
+cand#36 at 3832,3656: car actually spawned 1561.3 px away; d40-from-cand 1497.1  <-- PICKED

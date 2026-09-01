@@ -1,0 +1,14 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a3e8342d7f521b171
+
+ ✓ |server| test/shippedCity.test.ts (7 tests) 2671ms
+   ✓ the shipped city > notices when a landmark loses its street frontage  884ms
+   ✓ the shipped city > tells a taxiway from a street across the runway  1230ms
+   ✓ the shipped city > lays no street on ground no borough was drawn on  552ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  03:01:17
+   Duration  5.52s (transform 1.38s, setup 0ms, collect 2.48s, tests 2.67s, environment 0ms, prepare 79ms)
+
+[ci/test] green: 1 files matching "shippedCity", 0 failures, 0 ignored runner-noise error(s).
