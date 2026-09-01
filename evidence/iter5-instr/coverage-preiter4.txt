@@ -1,0 +1,24 @@
+bake: /tmp/claude-0/-home-user-gta-2/297482db-7a0b-5d48-914d-987762c0d996/scratchpad/city.data.preiter4.ts
+CONTROL — per-borough, the audit's own rated boroughs:
+district                  road  covered    rate
+The Spine               9601     1957    20.4%
+Old Suburbs             6129     1757    28.7%
+Ravenhill Park          1806     1260    69.8%
+Marsh End               3468     2554    73.6%
+Sunridge Park           1804     1407    78.0%
+Vasco Heights           2419     1933    79.9%
+The Docks               4776     3862    80.9%
+Beachfront             11007     9119    82.8%
+The Terraces           10980     9386    85.5%
+The Foundry             3383     2896    85.6%
+Ravenhill              20025    17181    85.8%
+North Point             5433     4679    86.1%
+New Suburbs             8252     7443    90.2%
+Old Quarter            11438    10423    91.1%
+rated boroughs 14  MEDIAN rate 82.8%
+rated-borough coverage 75857 / 100521 = 75.5%
+
+THE §26.1 MEASURE — every carriageway tile in the city:
+courses cover 75964 of 100742 carriageway tiles = 75.4%
+courses: 347 total, 330 non-path
+kinds {"ring":4,"avenue":17,"street":309,"path":17}

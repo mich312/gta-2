@@ -1686,7 +1686,8 @@ function coarseFabric(city: BakedCity, plan: CityPlan, ratioGate: number): Findi
  * of a non-`path` centreline — copied because the question this signature
  * asks is exactly the question the client asks per tile, and an audit that
  * used its own definition would be measuring something the game does not do.
- * §26.1 measures the same thing city-wide and reports 76.1%.
+ * §26.1 measures the same thing city-wide and reported 76.1%; that figure is
+ * stale, and the current reading is **85.3%** (WORLDGEN.md §44).
  */
 function courseCoverPlane(city: BakedCity): Uint8Array {
   const W = city.widthTiles;
@@ -1730,8 +1731,16 @@ const COVERAGE_MIN_ROAD = 500;
  * §26.1 reports course coverage as ONE number for the whole city — 76.1% —
  * and explains the missing quarter as "junction box and merged sheet, which
  * SHOULD be bare". The average hides the shape of it: coverage is not spread
- * thin over the city, it is missing in lumps. Measured per borough on the
- * shipped bake, twelve are between 69% and 91% and two are at 20% and 29%.
+ * thin over the city, it is missing in lumps. Measured per borough on the bake
+ * this signature was written against, twelve were between 69% and 91% and two
+ * were at 20% and 29%.
+ *
+ * **Both of those numbers have since moved.** Iteration 4 gave the axis-grid
+ * boroughs the centrelines they had been carving without recording, and on the
+ * shipped bake the fourteen rated boroughs run 70.0% to 91.6% with an 85.6%
+ * median — city-wide 85.3%, not 76.1% (WORLDGEN.md §44). The two lumps are
+ * gone and this signature now fires nothing, WITHOUT its gate being touched:
+ * the relative gate below working as specified, not a silenced check.
  *
  * **What that costs, and what it does NOT cost.** Every wave from §16 to §42
  * — the kerb casing, the junction punch-out, the ribbon lane markings, the

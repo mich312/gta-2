@@ -3246,6 +3246,11 @@ Evidence: `evidence/vector-p2-junctions.png`.
 
 ### 26.1 NOT DELIVERED, and the measurement that says why
 
+> **The 76.1% below is this round's own reading (`eb6b573`) and is now stale —
+> remeasured at 85.3% in §44.** The paragraph is left as written: it is the record of what was
+> true, and of what the decision was actually taken on. §44.3 says what the
+> new number does and does not change here (it does not unblock the deletion).
+
 The rest of phase 2 — retiring `trimCourses`, deleting the per-tile marking
 system outright, and deduplicating doubled courses in vector — is **not** in
 this commit, and the reason is a number rather than a judgement.
@@ -3331,7 +3336,7 @@ They can go when water stops being a wall.
 |---|---|---|
 | 0 — the instrument | done | `--tiles` A/B; the tool now sees courses, markings, kerbs, masses |
 | 1 — coast as curves | done | axial waterline 55.1% → 19.7%; `shoreline.ts` deleted; 3 raster passes deleted |
-| 2 — courses authoritative | **part** | junctions from the curves; the rest blocked on 76.1% course coverage (§26.1) |
+| 2 — courses authoritative | **part** | junctions from the curves; the rest blocked on 76.1% course coverage (§26.1 — **stale: 85.3% since iteration 4, §44**) |
 | 3 — plots as OBBs | **not done** | 7 world-axis emission sites in an 870-line file, then the volume grid, `collide3`, doorways and 3 renderers |
 | 4 — collision follows geometry | **not done** | blocked on 3, and wrong to build before it |
 
@@ -3657,10 +3662,11 @@ neighbour — rather than from deleting lines afterwards.
 
 The esplanade is a course: drawn as a ribbon like every other road, and
 visible to the doubling test. Course coverage 76.1% → 76.5% (the 81.3% the
-two-line version showed was double-counting one road). Over-wide, doubling and
-block count unchanged, because seniority correctly protects a long lattice
-line from yielding to a short chained esplanade — which is the right call and
-also the reason this did not move the numbers.
+two-line version showed was double-counting one road; both readings are of
+this round's bake and both are stale — 85.3% since iteration 4, §44).
+Over-wide, doubling and block count unchanged, because seniority correctly
+protects a long lattice line from yielding to a short chained esplanade —
+which is the right call and also the reason this did not move the numbers.
 
 890 tests pass.
 
@@ -3893,9 +3899,10 @@ sim still reading a tile plane in one indexed lookup. Vertices own boundaries;
 grids own fields.
 
 What is left is in §23.3 and §26.1, and none of it is a representation
-conflict: course coverage at 76.5% (so the per-tile marking system cannot yet
-be deleted), 68 junctions meeting under 30°, woodland drawn as a box, and the
-apron/course ordering differing between the three renderers.
+conflict: course coverage at 76.5% (stale — 85.3% since iteration 4, §44; the
+per-tile marking system still cannot be deleted, for the reason in §44.3 rather
+than for this number), 68 junctions meeting under 30°, woodland drawn as a box,
+and the apron/course ordering differing between the three renderers.
 
 ---
 
@@ -4146,7 +4153,9 @@ exactly as true in the bytes as in the drawing.
 That distinction is what lets routing move now rather than waiting for VECTOR
 phase 2. §26.1 declined to retire the per-tile marking system on a number —
 courses cover **76.1%** of carriageway tiles — and the same number blocks a
-graph built from them. Measured from the other direction for this work: **20.2%
+graph built from them. (**That figure is stale: 85.3% since iteration 4, §44.**
+It does not change this section's conclusion, and the 20.2% below was measured
+on the same old bake — see §44.3.) Measured from the other direction for this work: **20.2%
 of drivable tiles sit more than three tiles from any centreline**, so a course
 graph would leave a fifth of the city unroutable and the tile search would be
 the fallback more often than not. The tiles cover all of it.
@@ -4672,3 +4681,98 @@ only way to see this at all: the ground has looked right since §25.
 - `boxInSolid` and the movement faces now agree exactly on a cut tile. They
   agree only to within `EPS` on a bevelled one, for the reason in §43.2 — the
   same fix applies and the same argument against churning it does too.
+
+---
+
+## 44. Course coverage, remeasured — §26.1's 76.1% is stale
+
+§26.1 declined to retire the per-tile marking system, and gave a number rather
+than a judgement as the reason: **courses cover 76.1% of carriageway tiles**
+(78,127 of 102,719). That number is quoted three more times in this document
+(§27.4's phase table, §33.4, §40.2) and twice in `mapAudit.ts`, and every one
+of those passages reasons *from* it. It has been wrong since iteration 4.
+
+§26.1 is left as written. It is a correct record of what was true when it was
+written, and this project appends rather than edits. This section is the new
+reading.
+
+### 44.1 What moved
+
+Iteration 4 (`5b6fa2e`) found that the axis-grid fabric branch of `weaveFabrics`
+was carving its lattice streets into the tile plane and **recording no
+centreline for them**. Two whole boroughs were laid that way. Fixing it added
+33 courses (347 → 380, all `street`) and no tarmac: the shipped bake's tile
+planes are byte-identical either side of it (`evidence/iter4/plane-diff-shipped.txt`).
+
+So this is not a rebake moving the city. It is the same city, finally written
+down.
+
+### 44.2 The measurement
+
+By §26.1's own measure — what fraction of **carriageway** tiles lie under a
+non-`path` course, over the whole map rather than per borough:
+
+| bake | covered | carriageway | coverage |
+|---|---|---|---|
+| §26.1, as reported at `eb6b573` | 78,127 | 102,719 | 76.1% |
+| the bake before iteration 4 (`5b6fa2e^`) | 75,964 | 100,742 | **75.4%** |
+| **the shipped bake** | **85,960** | **100,742** | **85.3%** |
+
+**Method.** `evidence/iter5-instr/measure-course-coverage.mjs`. Carriageway is
+`T_ROAD | T_BRIDGE | T_RAMP` — `mapAudit.ts`'s `isRoad`. Covered is the tile
+CENTRE within `width / 2 + 0.05` of a non-`path` centreline, which is the
+renderer's own `courseCover` (`client/src/render/tiles.ts`, transcribed into
+`mapAudit.ts:courseCoverPlane`) rather than a fresh definition: a coverage
+number that did not use the game's rule would be measuring something the game
+does not do.
+
+**The control.** The same script re-derives the audit's per-borough table on
+both bakes, and it reproduces `evidence/iter4/coverage-{before,after}.txt`
+borough for borough and tile for tile — The Spine 20.4% → 91.6%, Old Suburbs
+28.7% → 78.6%, median 82.8% → 85.6%. An instrument that could not hit the
+audit's known numbers could not be trusted with a new one.
+
+**Why the old row does not reconcile, and is not being called wrong.** The
+§26.1 denominator is 1,977 carriageway tiles larger than today's: the bake has
+been through the ring shave and the orphan prunes since. The original reading
+cannot be retaken — that asset predates the `banks` field and today's
+`decodeBakedCity` refuses to load it
+(`evidence/iter5-instr/coverage-s26-era-attempt.txt`). So the comparable pair
+is the second and third rows, taken with one instrument in one run:
+**75.4% → 85.3%, and ~10 points of it is iteration 4.**
+
+### 44.3 What it does and does not change for §26.1's decision
+
+**It does not unblock the deletion.** A seventh of the carriageway is still
+uncovered, and §26.1's argument was never about the size of the gap — it was
+that "much of that quarter is junction box and merged sheet, which SHOULD be
+bare, but 'much' is not 'all'". That is the same sentence at 14.7% as at 23.9%.
+Retiring the per-tile marking system still needs somebody to measure how much
+of the *residue* is meant to be bare, which nobody has done. A bigger
+percentage is not that measurement.
+
+**It does change the shape of the gap.** Coverage used to be missing in lumps:
+twelve boroughs between 69% and 91%, and two at 20.4% and 28.7%. It is now
+spread — 70.0% at worst (Ravenhill Park), 91.6% at best, 85.6% median, with the
+two outliers gone. `course-coverage-outlier` was written for exactly those two
+and its gate is relative for exactly this reason; it now fires **0** against
+the 2 it found before iteration 4, without the gate being touched. That is the
+signature going quiet by itself, as designed, and it is also why nothing in
+`pnpm mapaudit`'s total of 55 records that this changed.
+
+**And it changes what §40.2 says.** That section justified building the road
+graph from tiles rather than courses partly on the 76.1%. Its own independent
+measurement — 20.2% of drivable tiles more than three tiles from any centreline
+— was taken on the pre-iteration-4 bake and has not been retaken here. The
+conclusion is very unlikely to move (the tiles cover all of it, whatever the
+courses do), but the *number* in it is of the same vintage as the one this
+section retires, and should be treated that way until somebody re-runs it.
+
+### 44.4 Evidence
+
+| file | what |
+|---|---|
+| `evidence/iter5-instr/measure-course-coverage.mjs` | The instrument. Retake: `node evidence/iter5-instr/measure-course-coverage.mjs [--data=path] [--plan=path]`. |
+| `evidence/iter5-instr/coverage-shipped.txt` | The shipped bake: 85,960 / 100,742 = 85.3%, with the per-borough control table. |
+| `evidence/iter5-instr/coverage-preiter4.txt` | The same on `5b6fa2e^`: 75,964 / 100,742 = 75.4%. |
+| `evidence/iter5-instr/coverage-s26-era-attempt.txt` | The failed attempt to retake the original 76.1% on the `eb6b573` asset, and why it cannot be done. |

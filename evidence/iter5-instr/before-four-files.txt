@@ -1,0 +1,148 @@
+# The four marginal test files, each run ALONE on an otherwise quiet box,
+# against the 60 s testTimeout in {shared,server,client}/vitest.config.ts.
+# Retake: npx vitest run <file> --reporter=verbose
+#
+# server/test/session.test.ts here is the PRE-FIX version (7200-tick wait).
+#
+
+########## server/test/session.test.ts (pre-fix)
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ✓ |server| test/session.test.ts > session > spreads its parked cars across the city, not into one corner 3705ms
+ ✓ |server| test/session.test.ts > session > records a replay that reproduces the exact final state, twice 28439ms
+ ✓ |server| test/session.test.ts > session > delta snapshots against the acked tick rebuild the server state 4714ms
+ ✓ |server| test/session.test.ts > session > falls back to a full snapshot when the ack is too stale 7871ms
+ ✓ |server| test/session.test.ts > session > resume rebinds by token; expiry despawns 3191ms
+ ✓ |server| test/session.test.ts > session > drops duplicate and replayed input seqs 3088ms
+ ✓ |server| test/session.test.ts > session > the input buffer drains back down after a jitter storm 34916ms
+ ✓ |server| test/session.test.ts > the crowd replenishes > tops pedestrians back up to target after a massacre 52881ms
+ ✓ |server| test/session.test.ts > the crowd replenishes > does not overshoot the target once full 4697ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+     Errors  1 error
+   Start at  01:24:07
+   Duration  146.29s (transform 1.70s, setup 0ms, collect 2.08s, tests 143.52s, environment 0ms, prepare 156ms)
+
+
+########## server/test/floodResistance.test.ts
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ✓ |server| test/floodResistance.test.ts > what one socket may spend > drops messages past the per-connection budget instead of parsing them 3703ms
+ ✓ |server| test/floodResistance.test.ts > what one socket may spend > refills over real time, so a normal client never notices 3674ms
+ ✓ |server| test/floodResistance.test.ts > what one socket may spend > hangs up on a socket that keeps flooding after its budget is gone 3378ms
+ ✓ |server| test/floodResistance.test.ts > what one socket may spend > spends the budget before the decode, so junk frames cost no more 3123ms
+ ✓ |server| test/floodResistance.test.ts > the verbs that cost a password hash > allows a handful of attempts and then says to wait 5088ms
+ ✓ |server| test/floodResistance.test.ts > the verbs that cost a password hash > does not block the caller while a hash runs 3829ms
+ ✓ |server| test/floodResistance.test.ts > the verbs that cost a password hash > lets the answer land afterwards 5162ms
+ ✓ |server| test/floodResistance.test.ts > caps on how much of the session one peer may hold > refuses a connection past the cap, and says why 3082ms
+ ✓ |server| test/floodResistance.test.ts > caps on how much of the session one peer may hold > refuses a join past the player cap but never a reconnect 3191ms
+ ✓ |server| test/floodResistance.test.ts > caps on how much of the session one peer may hold > skips the state message for a socket that is not draining 3431ms
+
+ Test Files  1 passed (1)
+      Tests  10 passed (10)
+   Start at  01:26:42
+   Duration  40.91s (transform 2.08s, setup 0ms, collect 2.55s, tests 37.67s, environment 0ms, prepare 137ms)
+
+
+########## shared/test/city.test.ts
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ✓ |shared| test/city.test.ts > the city, as an asset > is the city the plan bakes to, tile for tile 29137ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > survives the round trip through its encoded form 25262ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > is one island group in one sea, with edges 54ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > is one road network: no borough is cut off from the rest 42ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > can be driven end to end: the ground is connected too 88ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > carries every kind of landmark, each with a way in 1ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > spreads its landmarks over all three boroughs 0ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > names its streets and its boroughs 0ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > has more than one island, and rocks off the coast 42ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > meets its own waterfront: urban shore is never far from a street 197ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > keeps its dead ends where they were ordered: the crescent budget 69ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > cuts every contour borough across its bands, at whatever angle its shore runs 24210ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > has an island you can only reach by air 15ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > gives the city alleys to run down 0ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > bridges the channels and nothing else 65ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > crosses every named waterway an arterial is drawn over 92ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > refuses a plan that puts a landmark in the water 22977ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > refuses a carriageway too wide for the traffic model to read 1ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > refuses a carriageway with no width at all 1ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > refuses geometry drawn entirely off the map, and keeps the overhang legal 1ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > draws the same ground every time it is asked 51178ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > leaves no ground to nobody, and no borough walled off from its neighbours 24961ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > never jumps the land-use ladder without a mediating band 20ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > keeps every course centreline sample on its own ground 16ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > builds on the blocks the arterials cross 62ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > keeps runway ground inside the airstrips the plan drew 31ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > keeps the huts off the slabs, so every strip is marked down one line 1ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > lets no road run straight into open water 48ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > keeps merged tarmac sheets rare, and shrinking 35ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > gives stadiums and power stations an inside, not a slab 2ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > puts no shop inside a landmark 2ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > keeps every landmark standing: the mass it stamped is still there 2ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > leaves no landmark wall standing on the carriageway 2ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > cuts the junction where a street stops short of the street it runs at 26505ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > plants the country the block grid does not cover 25501ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > never plants a wood across the mouth of a street 25690ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > moors no boat in water it cannot leave 29ms
+ ✓ |shared| test/city.test.ts > the city, as an asset > only bevels materials the painters know by name 6ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 passed (1)
+      Tests  38 passed (38)
+     Errors  1 error
+   Start at  01:27:29
+   Duration  262.06s (transform 1.30s, setup 0ms, collect 4.98s, tests 256.35s, environment 0ms, prepare 128ms)
+
+
+########## shared/test/lanes.test.ts
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > names a street for nearly every tile of carriageway 22ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > never names a street for ground that is not road 922ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > every street runs down its own tarmac 42ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > the kerb lane is on the tarmac, in both directions 67ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > measures room only where there is room: never past a kerb 26ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > resolves which way along a street a car is going, and flips with it 21ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > puts the two directions on opposite sides of the line 7ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > aims down the lane, and hands over to the next street at the junction 304ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > is pure: the same city built twice has the same lanes 12224ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > never names a street a car is not standing on 11ms
+ ✓ |shared| test/lanes.test.ts > lanes on the graph > leaves junctions to the junction machinery 57ms
+
+ Test Files  1 passed (1)
+      Tests  11 passed (11)
+   Start at  01:32:00
+   Duration  19.41s (transform 1.24s, setup 0ms, collect 1.46s, tests 17.29s, environment 0ms, prepare 103ms)
+

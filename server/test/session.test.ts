@@ -215,10 +215,26 @@ describe('the crowd replenishes', () => {
     expect(after).toBeLessThan(target);
 
     // No players are connected, so nothing is close enough to watch: the
-    // crowd should refill within a reasonable window at the tuned rate. The
-    // window scales with the crowd — arrivals are rate-limited per second,
-    // so a city four times the size takes four times as long to refill.
-    for (let i = 0; i < 30 * 60 * Math.ceil(areaScale(session.map)); i++) session.tick();
+    // crowd refills at the tuned rate, one arrival every half second
+    // (`PED_RESPAWN_PER_SEC = 2`, server/src/session.ts). So the window is
+    // the size of the HOLE, not the size of the map: the arrivals need
+    // `deficit / 2` seconds, and we allow twice that for the spots the
+    // rolling cursor skips and the odd new arrival that walks under a car.
+    //
+    // And it is deliberately no longer than that. Waiting on past the refill
+    // does not test replenishment harder — it drifts the check into dusk,
+    // where the top-up legitimately aims lower: it scales its target by the
+    // day/night crowd curve, and tick 0 is midday. Measured on this seed
+    // (evidence/iter5-instr/daynight-cliff.txt): the crowd is back at the
+    // target by tick ~1800, and from there it tracks the falling scaled
+    // target down through the 0.85 floor — which is slack meant for the
+    // seeder skipping occupied spots, not for nightfall. The old window of
+    // `30 * 60 * ceil(areaScale)` = 7200 ticks left 7 pedestrians of margin
+    // and would have failed outright at ~8700. It also cost 40 of this
+    // test's 51 seconds against a 60-second timeout.
+    const ARRIVALS_PER_SEC = 2;
+    const window = 30 * Math.ceil((target - after) / ARRIVALS_PER_SEC) * 2;
+    for (let i = 0; i < window; i++) session.tick();
     // Back to the target, give or take. The top-up walks a rolling cursor
     // over the spawn list and skips any spot that is occupied or blocked
     // when it comes round, so on a big crowd it settles a couple short
