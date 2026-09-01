@@ -2570,3 +2570,152 @@ delivers, times its own screenshot out at 30 s, and produces no file. The agent
 worked around it with `evidence/iter7/shot.mjs`. Anyone needing eye-level
 evidence hits this. `.claude/review/LENS-B.md` tells reviewers to use the broken
 one.
+
+---
+
+# Visual loop — iteration 8 close
+
+**TOTAL 49 → 49. SCORE 2911.8 → 2911.8.** Third iteration running where the
+metric does not move, and the iteration that shipped the most visible fix of
+the whole exercise. That is not a failure of the loop; it is the loop having
+worked its way past what this metric can see. See "what the score cannot see".
+
+## The bridge decks are fixed, and the curve was already in the asset
+
+The sharpest diagnosis of the exercise. `carveCourse` lays a carriageway as a
+**swept disc** — `segmentDistance(centre, seg) <= width/2` — and records the
+*same polyline and width* in the bake. The deck's outline was therefore already
+in the asset all along: **the tile mask is that curve point-sampled at tile
+centres.** Measured 1564/1564 deck tiles inside the disc, 869/872 water
+neighbours outside, control 0% on open water away from any deck. The fix reads
+the curve back. It does not invent or smooth one.
+
+`shared/src/world/deckCut.ts` emits it in `shoreChains`' own format (water on
+the RIGHT of travel), so both renderers cut a deck tile with the two functions
+they already cut a shore tile with. Three painters wired: 2D `paintDeckTile`,
+3D `buildDeckPrisms` plus a curve-following parapet, and mapgen's per-pixel
+field.
+
+| | before | after |
+| --- | --- | --- |
+| deck/water faces covered by a curve | 37 of 872 | **872 of 872** |
+| parapet joints turning >30° | **418** | **2** (a real corner where two decks meet) |
+| blocks / buildings | 1184 / 4005 | unchanged — `city.data.ts` untouched |
+
+I looked at the picture. The deck now reads as a continuous ribbon with the
+parapet running straight along the true course angle, where iteration 7's
+photograph showed it jogging a full tile every few tiles.
+
+**The 45° deck bevel (§31) had to stand down** — it would have laid a triangle
+over the chord at a different angle on 131 water tiles. Found by reading, not
+by a failure; the first `-AFTER` plate showed it as a ragged fascia.
+
+## What the score cannot see, now three deep
+
+Neither of iteration 8's fixes can move SCORE, for three different reasons, and
+all three are now understood rather than suspected:
+
+1. **The bridge fix is renderer-only.** `built-staircase`'s `mag` is `span -
+   count` — tiles of flat tread — which no renderer can move. The staircase is
+   still in the tile plane; it is now drawn on a chord. Correct by design.
+2. **No signature covers a hedge run that stops at a block edge.** 192 tiles of
+   real fix, invisible to both metrics. Iteration 3's situation exactly.
+3. **258 weighted tiles of the score are a false positive** (below), and 402
+   raw tiles more are a staircase nothing draws (iteration 7).
+
+**12.3% of SCORE is measuring nothing.** Both agents who could have fixed that
+declined, in their own lane, because changing what fires needs a two-way
+instrument control and would break comparability back through iteration 5. Both
+were right to. It is now iteration 9's work.
+
+## `country-outside-blocks` is a false positive, and the real gap was hedgerows
+
+All 507 flagged tiles **were** asked by the blockless-country pass and all 507
+came back `meadow`. City-wide, **zero of 7,549** blockless rural tiles in 49
+regions went unasked. Iteration 3's fix is complete, and blockless country now
+matches the wildness field *better* than in-block country does — 95.9% vs 91.9%
+agreement. The flagged ground is ground iteration 3 visited and deliberately
+left as meadow.
+
+What was open was one level up: `fillBlock`'s rural branch plants three things
+and the blockless pass asked one.
+
+| rule | asked? | unplanted outside blocks |
+| --- | --- | --- |
+| woodland from the wildness field | yes, since iteration 3 | 0 |
+| **hedgerows** | **no** | **182** in 46 runs |
+| **orchard rows** | **no** | 13 |
+
+The hedgerow hash is keyed on the world grid *"so a run crosses block corners
+unbroken"* — and then a run reaching the last block's edge stopped dead on a
+line nothing draws. `hedgerowAt`/`orchardRowAt` become named predicates (proven
+byte-identical on their own) which the blockless pass now calls, so the two
+sides of a block edge cannot drift. 192 tiles: 191 planted, 1 taken back out by
+the pass's existing ride-through guard — which firing is also the control that
+it still works. 0 carriageway, 0 within a tile of water.
+
+**The population is exhausted.** Bald regions ≥40 tiles: **21** pre-iteration-3,
+**5** as shipped, **1** now — and the survivor is the false positive.
+
+## The watch instrument separated two fixes it was never told about
+
+Its first real iteration, with a renderer fix and a bake fix landing together:
+
+```
+road moved here     nowhere
+land use only       marshend 2601, southshore 3064, ringroad 464
+pixels only         hollis 108, shoulderb 1364, headlanda 119  (no tile class changed)
+```
+
+`LAND USE: 192 tiles` independently reproduces the country agent's 192 through
+a different code path, and the bridge fix lands in `pixels only` — precisely the
+category iteration 7 built it for. `blocks 1184 → 1184`, so no index-coupled
+wash.
+
+## A trap that could have invalidated the whole visual record
+
+**`mapgen` and the 3D client render from `shared/dist`, not from the asset.**
+`citybake` alone is not enough: with a stale dist, a render after a rebake
+silently re-draws the *previous* bake and the plates come back byte-identical
+to the baseline — which reads exactly like "the renderer cannot show this
+change". It cost an agent an hour and was caught by a bevel count, not the eye.
+
+I checked the loop's own record: `tsc -b server` references `../shared`, and
+`pnpm build` ran before every `mapwatch` render, so iterations 5–7's plates are
+sound. Sound because I was disciplined, not because anything enforced it — so
+`mapwatch` now refuses to draw a plate that would depict the previous bake.
+
+**My first version of that guard was wrong in this exercise's signature way.**
+It compared mtimes; `tsc -b` rebuilds from its own buildinfo, so a file whose
+mtime moved but whose content did not is never rewritten, and the guard would
+have refused forever with a remedy that could not clear it. A guard whose
+prescribed fix does not work is worse than no guard. It compares the encoded
+payload now, controlled three ways: passes on a match, refuses with the
+iteration-7 bake planted in dist, passes again on restore.
+
+## Instruments, running total
+
+- **`ci/shot.mjs` fixed.** It could not take a picture on this box at all —
+  hard-coded 2200x1000 plus playwright's 30 s screenshot default meant no file
+  *and no message*. Now `VIEW=`, 120 s timeout, ground residency polled and
+  **printed**, non-zero exit on no file. The printed residency immediately
+  caught a `resident=0` plate from a stale vite module. `LENS-B.md`, which was
+  sending every future reviewer to the broken tool, is updated.
+- **The agent's own bevel probe was briefly blind** — it read `city.bevel` off
+  the decoded bake, where the field does not exist, and printed a clean 0 in
+  every column. It has a control now.
+
+That is nine instruments caught lying in this exercise, five of them found by a
+control rather than by a failure.
+
+## Escalated
+
+- **Collision still uses the tile mask.** The drivable deck is the square, the
+  drawn deck is the curve, and they disagree by up to half a tile in both
+  directions — the same class of gap §43 closed for the coast. Needs a
+  half-plane per deck tile and a `collide.ts` change, which is a simulation
+  change with a desync surface. Filed `WORLDGEN.md` §45.5. Mitigating: the
+  parapet was never collidable either, so nothing newly drivable off the visible
+  edge was not already drivable off the tile edge.
+- **Smallholdings (rural rule 4) are still not asked outside blocks.** They
+  place `T_BUILDING` and would move the building count.
