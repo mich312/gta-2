@@ -23,6 +23,13 @@ import {
   type CityPlan,
   type StreetCourse,
 } from 'shared';
+// The bake's own noise, reached through the built package rather than through
+// `shared`'s barrel, because `world/fields.ts` is not on it and this tool is
+// not allowed to add an export to `shared/src`. A relative path into
+// `shared/dist` is redirected back to `shared/src/world/fields.ts` by the
+// project reference at compile time and resolves to the built file at run
+// time, so this is the same arithmetic `bake.ts` ran, not a second copy of it.
+import { fbm } from '../../../shared/dist/world/fields.js';
 
 /**
  * pnpm mapaudit — the visual-bug detector for the tile map.
@@ -61,16 +68,54 @@ import {
  * `m=` is the defect's MAGNITUDE in tiles — how big it is, not whether it is
  * there. It exists because the count alone could not see a fix that made a
  * defect smaller without removing it; see `magOf` for the failure that forced
- * it and the four properties any new signature's magnitude has to keep. The
- * summary carries two totals: TOTAL, the count, whose meaning is unchanged and
- * comparable straight back through the loop's history, and SCORE, the sum of
- * magnitudes with the `noisy` signatures discounted.
+ * it and the four properties any new signature's magnitude has to keep.
+ *
+ * The summary carries THREE totals:
+ *
+ *   TOTAL  the count of candidates.
+ *   SCORE  the sum of magnitudes, `noisy` signatures discounted: weighted
+ *          tiles of defect in the TILE PLANE, which is the ground as baked and
+ *          also what collision drives against.
+ *   DRAWN  the part of SCORE a renderer actually puts on the screen.
+ *
+ * SCORE and DRAWN differ because a defect can be in the tile plane and painted
+ * over — a quay stepping every three tiles is repainted against a chord by the
+ * coast, bank or deck curve and cannot be seen from any camera. Those tiles
+ * stay in SCORE, because a renderer change can expose them again without one
+ * tile of ground moving and a score that fell for a repaint could not be told
+ * from one that fell for a repair; and they are subtracted in DRAWN, because a
+ * reviewer sent to look at them will see nothing. Only a signature that has
+ * MEASURED its own drawing sets them apart, which today is `built-staircase`
+ * alone; every other signature is a defect in the ground, and ground is drawn.
+ *
+ * COMPARABILITY, stated because it was broken on purpose. TOTAL and SCORE were
+ * comparable straight back through the loop until iteration 9, which corrected
+ * `country-outside-blocks` to ask the bake's own wildness field before claiming
+ * ground "was never asked what it is". That removes a false positive worth 258
+ * weighted tiles from every bake in the series, so numbers published by
+ * iterations 5 to 8 are on the OLD instrument and do not compare with numbers
+ * from this one. Both series, over every bake the loop has, are restated in
+ * `evidence/iter9-instrument/history.txt`, and `rescore-history.sh` there
+ * regenerates them; the deltas between iterations are unchanged, because the
+ * false positive was constant across the whole series.
  *
  * `--selftest` plants a known defect for each signature and checks that the
- * detector fires AND that the magnitude rises; it then half-fixes one real
- * finding on the shipped map and checks the magnitude falls while the finding
- * stays. That last one is the control for this tool's own headline defect,
- * so if it ever goes red the score has stopped measuring progress.
+ * detector fires AND that the magnitude rises. Four controls follow it, because
+ * a plant only ever proves a detector sees a defect APPEAR:
+ *
+ *   half-fix          a real finding shrunk but not cured: does the magnitude
+ *                     fall while the finding stays? (iteration 6)
+ *   wildness-field    is the copy of `bake.ts`'s wildness rule still that rule?
+ *   unasked-country   does the new refusal refuse only answered ground?
+ *   drawn             is `drawn` read off the curve layer, and off nothing else?
+ *
+ * `evidence/iter9-instrument/red-controls.sh` breaks the tool six ways and
+ * shows every one of them turning `--selftest` red. Run it before trusting a
+ * control you have changed: the fifth break was found to pass silently against
+ * the first four legs of the `drawn` control, which is why there is a fifth.
+ *
+ * `--regions` prints the blockless rural country census `country-outside-
+ * blocks` gates on, one line per region. A diagnostic, not a signature.
  */
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +139,43 @@ interface Finding {
    * what its tiles count.
    */
   mag: number;
+  /**
+   * How much of `mag` a renderer actually DRAWS, in the same tiles.
+   *
+   * Defaults to `mag`, which is the honest default: every other signature in
+   * here is a defect in the GROUND — a road that stops, country that is bald,
+   * a slot cut through a wood — and the ground is drawn, so all of it is seen.
+   * Only `built-staircase` sets this to less than `mag`, because only that
+   * signature has measured its own drawing: a tile step whose two tiles lie on
+   * a coast, bank or deck curve is repainted against the chord by all three
+   * painters and never appears.
+   *
+   * It is a SEPARATE NUMBER and not a discount on `mag`. See the `DRAWN` note
+   * at the foot of the summary for why.
+   *
+   * Left OFF a finding rather than set equal to `mag`, so that adding a new
+   * signature cannot accidentally claim its defect is invisible by forgetting
+   * a field. Read it through `drawnOf`.
+   */
+  drawn?: number;
+  /**
+   * The working behind `drawn`, carried so a control can check it rather than
+   * take it on trust.
+   *
+   * `faces` MUST equal `span`: every position along the edge's profile is one
+   * step face, and a census that asks about a subset of them is the bug
+   * iteration 9 fixed (it only looked where the outward tile was open water,
+   * so an inland quay was never asked at all and defaulted to "drawn"). The
+   * identity is exact and not a tolerance — treads in a chain are contiguous
+   * by construction, so every position in the span has a profile value — which
+   * makes it the one assertion that catches ANY narrowing of the census.
+   */
+  profile?: { span: number; faces: number; dissolved: number };
+}
+
+/** How much of a finding a renderer draws: all of it, unless it said less. */
+function drawnOf(f: Finding): number {
+  return f.drawn ?? f.mag;
 }
 
 const SEV_ORDER: Record<Severity, number> = { high: 0, med: 1, low: 2 };
@@ -292,6 +374,17 @@ const DIRS: Array<[number, number]> = [
 ];
 
 /**
+ * How far past a cap `deadEnds` looks for the next carriageway before calling
+ * the cap `road-stops-short` rather than `road-deadend`.
+ *
+ * Named because the selftest plant has to clear at least this much ground past
+ * its own cap or it lays the other signature's defect and reads SILENT — which
+ * is exactly what it did from iteration 6 to 8. One constant, so the plant
+ * cannot drift from the detector.
+ */
+const CAP_LOOKAHEAD = 6;
+
+/**
  * A carriageway that dead-ends without a landmark, a quay or the map edge to
  * stop at.
  *
@@ -387,7 +480,7 @@ function deadEnds(a: Audit, landmarkNear: (x: number, y: number, r: number) => b
         // of grass across the road. They are not the same finding and they do
         // not deserve the same place in a queue.
         let short = 0;
-        for (let d = 1; d <= 6; d++) {
+        for (let d = 1; d <= CAP_LOOKAHEAD; d++) {
           let hit = false;
           for (let k = a0; k <= a1; k++) {
             if (isRoad(at(x + px * k + dx * d, y + py * k + dy * d))) hit = true;
@@ -1312,6 +1405,29 @@ function tileName(t: number): string {
  * are a different question this signature has not measured. So the fact is
  * REPORTED instead, per finding, and the reader can act on the ones whose
  * step faces are actually drawn.
+ *
+ * **Iteration 9 made that report a NUMBER (`drawn`) and fixed the census
+ * behind it.** Two things were wrong with the old one:
+ *
+ *  - It only looked at a profile position where the tile just outside the
+ *    outline was `T_WATER`. An inland quay has no such position, so it counted
+ *    zero faces, asked the curve layer nothing, and printed "faces dry ground,
+ *    which no coast curve describes, so it is drawn as it lies" about edges
+ *    the BANK chain covers at every position. Eight of the twenty-four
+ *    findings said that. Every profile position is a face now, and both the
+ *    outline tile and its outward neighbour are put to all three chains, which
+ *    is `evidence/iter7/curve-cover.mjs`'s method plus the deck chain.
+ *  - Nothing downstream could see the answer. `drawn` is now the share of
+ *    `mag` whose faces lie on no chain, and it sums into a DRAWN total beside
+ *    SCORE.
+ *
+ * `mag` is deliberately UNCHANGED and still `span - count`. The staircase is a
+ * fact about the tile plane: it is what collision drives against (§45.5 is
+ * open on exactly that), and a renderer change could expose it again tomorrow
+ * — iteration 8's deck curve moved 149 faces from drawn to not-drawn without
+ * moving one tile of ground, and a SCORE that fell for it would be rewarding a
+ * repaint as if it were a repair. So the drawing is reported beside the ground
+ * and never subtracted from it.
  */
 function builtStaircase(a: Audit, minSpan: number): Finding[] {
   const { W, H, tiles, at, city } = a;
@@ -1415,6 +1531,7 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
               // face if either of its two tiles is on a chain.
               let faces = 0;
               let dissolved = 0;
+              let onWater = 0;
               for (let q = first.at; q < first.at + span; q++) {
                 const v = prof[q] as number;
                 if (v < 0) continue;
@@ -1423,8 +1540,22 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
                 const y = byColumn ? v : b.y0 + q;
                 const ox = byColumn ? x : x + step;
                 const oy = byColumn ? y + step : y;
-                if (at(ox, oy) !== T_WATER) continue;
+                // EVERY profile position is a step face. Until iteration 9
+                // this line was `if (at(ox, oy) !== T_WATER) continue;` and
+                // the whole census only ran where the outward tile was open
+                // water, so the eight INLAND quays counted zero faces, never
+                // asked the curve layer anything, and printed "faces dry
+                // ground, which no coast curve describes, so it is drawn as it
+                // lies" — of edges the BANK chain covers at every position.
+                // `evidence/iter7/curve-cover.mjs` measured it: 741 positions
+                // over the 24 edges, 376 coast, 197 bank, 168 on no chain, and
+                // of the 168 all but 19 were the four bridge decks that
+                // iteration 8 has since given a chain of their own. An outline
+                // face is there whatever is on the far side of it; what
+                // decides whether it is DRAWN is the curve layer, not the
+                // material beyond.
                 faces++;
+                if (at(ox, oy) === T_WATER) onWater++;
                 if (onCurve(x, y) || onCurve(ox, oy)) dissolved++;
               }
               const meanTread = span / count;
@@ -1440,7 +1571,15 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
                 severity: meanTread >= 3 ? 'high' : 'med',
                 rank: span * meanTread,
                 mag: magOf(span - count), // tiles of flat tread beyond the one tile a half-tile bevel can reach
-                reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread. ${faces === 0 ? 'This edge faces dry ground, which no coast curve describes, so it is drawn as it lies' : dissolved === faces ? `All ${faces} of its step faces onto open water are dissolved by a curve layer (coast, bank or deck), so NONE of this staircase is drawn` : `${faces - dissolved} of its ${faces} step faces onto open water have no coast curve over them and are drawn square`}`,
+                // The drawn part of that tread, in the same tiles: the tread
+                // scaled by the share of step faces no curve covers. `mag` is
+                // untouched — the steps are in the tile plane whatever is
+                // painted over them, and collision still reads the tile mask
+                // (§45.5) — so this is a second number beside it, never a
+                // discount on it.
+                drawn: faces === 0 ? magOf(span - count) : Math.round(magOf(span - count) * ((faces - dissolved) / faces)),
+                profile: { span, faces, dissolved },
+                reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread. ${faces === 0 ? 'Its outline could not be profiled, so nothing is known about whether it is drawn' : dissolved === faces ? `All ${faces} of its step faces (${onWater} onto open water, ${faces - onWater} onto dry ground) lie on a curve layer — coast, bank or deck — which all three painters cut against the chord, so NONE of this staircase is drawn` : `${faces - dissolved} of its ${faces} step faces (${onWater} onto open water, ${faces - onWater} onto dry ground) lie on no curve at all and are drawn square`}`,
               });
             }
             i = j + 1;
@@ -2219,6 +2358,29 @@ function isCountry(t: number): boolean {
   return t === T_FIELD || t === T_TREES;
 }
 
+/**
+ * The bake's wildness field, asked the way `bake.ts` asks it.
+ *
+ * `bake.ts:55` and `bake.ts:609`:
+ *
+ *     const WILD_SEED = 0x7009d5;
+ *     const wildAt = (tx, ty) => fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52;
+ *
+ * This is the ONE rule that decides whether a tile of rural country is wood or
+ * meadow. `fbm` itself is imported rather than reimplemented; the seed, the
+ * wavelength and the threshold are three numbers copied from a file this tool
+ * is not allowed to import from, and a copy can drift. `wildFieldControl` in
+ * the selftest is the guard against that drift: it holds this predicate
+ * against the shipped ground INSIDE rural blocks, where the fill certainly
+ * ran, and fails if the agreement falls anywhere near chance. Change either of
+ * these two constants and that control goes red on the next run.
+ */
+const WILD_SEED = 0x7009d5;
+const WILD_GATE = 0.52;
+function wildAt(tx: number, ty: number): boolean {
+  return fbm(WILD_SEED, tx / 22, ty / 22) >= WILD_GATE;
+}
+
 /** How near a block has to come to count as this region's neighbour. */
 const NEIGHBOUR_REACH = 3;
 /** Country inside the neighbouring blocks below which the comparison is noise. */
@@ -2229,6 +2391,15 @@ const NEIGHBOUR_MIN_WOOD = 0.2;
 interface Orphan {
   land: number;
   wood: number;
+  /** Tiles of this region the wildness field calls WOOD. */
+  wild: number;
+  /**
+   * Tiles the wildness field calls wood and that are not wood on the ground:
+   * the only tiles in this region on which the rural fill's own rule and the
+   * shipped raster DISAGREE. Zero of them means the fill was asked and said
+   * meadow, which is not a defect. See `baldCountry`.
+   */
+  wildBare: number;
   x0: number;
   y0: number;
   x1: number;
@@ -2299,6 +2470,8 @@ function orphanCountry(a: Audit, plan: CityPlan): Orphan[] {
     const f: Orphan = {
       land: 0,
       wood: 0,
+      wild: 0,
+      wildBare: 0,
       x0: W,
       y0: H,
       x1: -1,
@@ -2317,6 +2490,10 @@ function orphanCountry(a: Audit, plan: CityPlan): Orphan[] {
       f.land++;
       f.bag.push(i);
       if (tiles[i] === T_TREES) f.wood++;
+      if (wildAt(x, y)) {
+        f.wild++;
+        if (tiles[i] !== T_TREES) f.wildBare++;
+      }
       if (x < f.x0) f.x0 = x;
       if (y < f.y0) f.y0 = y;
       if (x > f.x1) f.x1 = x;
@@ -2401,16 +2578,43 @@ function orphanCountry(a: Audit, plan: CityPlan): Orphan[] {
  * Ravenhill Park's 82% authored canopy and a grass verge between a coast road
  * and a park is not a defect.
  *
- * **Its one hit on the shipped bake is a false positive, and a measured one.**
- * The 507-tile marsh islet at 322,740 is meadow throughout against a rural
- * block next to it that is 50.8% wood — but `bake.ts`'s own wildness field
- * (`fbm(WILD_SEED, x/22, y/22) >= 0.52`) says meadow on ALL 507 of those
- * tiles, so the fill declined on purpose rather than never being asked.
- * Nothing a raster audit can see distinguishes those two, which is the honest
- * limit of this signature: it finds ground the fill never visited and ground
- * the fill visited and left alone, and only the field can tell them apart.
- * `evidence/iter4-detect/measure-wildness-field.mjs` asks it. Four hits on the
- * pre-fix asset at `e3306c8~2`, one here, and that one accounted for.
+ * **THE FIELD IS ASKED HERE NOW (iteration 9), and that is a correction.**
+ * Iterations 4 to 8 shipped this comment instead:
+ *
+ *   > Its one hit on the shipped bake is a false positive, and a measured one.
+ *   > The 507-tile marsh islet at 322,740 is meadow throughout against a rural
+ *   > block next to it that is 50.8% wood — but `bake.ts`'s own wildness field
+ *   > says meadow on ALL 507 of those tiles, so the fill declined on purpose
+ *   > rather than never being asked. Nothing a raster audit can see
+ *   > distinguishes those two, which is the honest limit of this signature.
+ *
+ * The first half was right and iteration 8 proved it at the source: all 507
+ * tiles WERE walked by the blockless-country pass and all 507 came back
+ * `meadow`, and city-wide zero of 7,549 blockless rural tiles went unasked
+ * (`evidence/iter8-country/`). The second half was wrong. The audit is not
+ * confined to the raster — `bake.ts`'s field is arithmetic on two integers,
+ * so this tool can ask it directly, and a signature that names ground the
+ * fill "was never asked" about has no business firing on ground where the
+ * fill's own rule says meadow.
+ *
+ * So the gate: **a region is refused when not one of its tiles is bare where
+ * the wildness field says wood** (`wildBare === 0`). Zero, not a fraction: it
+ * is not a tuning parameter but a statement that the raster and the rule agree
+ * everywhere in this region, and one tile of disagreement is enough to keep
+ * the finding. It cannot suppress ground the fill never visited, because
+ * ground the fill never visited keeps the ground pass's meadow on every tile
+ * including the ones the field wanted wooded — that is what "never asked"
+ * means, and it is what the `unasked-country` control in `--selftest` plants.
+ *
+ * On every bake the loop has, it removes exactly the Marsh End islet at
+ * 322,740 and nothing else: one hit of one on the four bakes from iteration 4
+ * on, and one of four on the pre-iteration-3 calibration asset at `e3306c8~2`,
+ * where the surviving three carry 661, 203 and 73 tiles of real disagreement
+ * between the field and the ground.
+ *
+ * COST: SCORE and TOTAL both fall without the map changing, so the loop's
+ * series is discontinuous at iteration 9. Both series, over every bake, are
+ * restated in `evidence/iter9-instrument/history.txt`.
  *
  * The gate has room. Gannet Rock's north reads 0.35 before the fix and 0.67
  * after, so anything from 0.36 to 0.66 gives the same two answers — swept with
@@ -2422,6 +2626,10 @@ function baldCountry(a: Audit, plan: CityPlan, minLand: number, ratioGate: numbe
   for (const f of orphanCountry(a, plan)) {
     if (f.land < minLand) continue;
     if (f.nbLand < NEIGHBOUR_MIN_COUNTRY) continue;
+    // The fill's own rule, before the neighbours' rate is used as a proxy for
+    // it. Not one tile bare where the field says wood means this ground was
+    // asked and answered, whatever the block next door happens to look like.
+    if (f.wildBare === 0) continue;
     const inside = f.nbWood / f.nbLand;
     if (inside < NEIGHBOUR_MIN_WOOD) continue;
     const outside = f.wood / f.land;
@@ -2438,7 +2646,7 @@ function baldCountry(a: Audit, plan: CityPlan, minLand: number, ratioGate: numbe
       severity: ratio <= ratioGate / 2 ? 'high' : 'med',
       rank: f.land * (1 - ratio),
       mag: magOf(f.land * (inside - outside)), // tiles of wood the fill would have planted at the neighbouring blocks' own rate and did not
-      reason: `${name} ${f.x0},${f.y0}-${f.x1},${f.y1}: ${f.land} tiles of country no block covers are ${(100 * outside).toFixed(1)}% wood, against ${(100 * inside).toFixed(1)}% in the ${f.nbLand} tiles of country inside the ${f.nbBlocks} rural block(s) next to them (${ratio.toFixed(2)}x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote`,
+      reason: `${name} ${f.x0},${f.y0}-${f.x1},${f.y1}: ${f.land} tiles of country no block covers are ${(100 * outside).toFixed(1)}% wood, against ${(100 * inside).toFixed(1)}% in the ${f.nbLand} tiles of country inside the ${f.nbBlocks} rural block(s) next to them (${ratio.toFixed(2)}x), and ${f.wildBare} of them are bare where the wildness field itself says wood — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote`,
     });
   }
   return out;
@@ -2658,6 +2866,21 @@ interface Plant {
    * needs one edits the courses here, after `apply` has run.
    */
   courses?: (courses: StreetCourse[]) => StreetCourse[];
+  /**
+   * What counts as this plant having worked, if "one more finding, and a
+   * bigger magnitude" is the wrong question to ask on some bake.
+   *
+   * Exactly one plant needs this and the reason is worth stating, because the
+   * temptation is to loosen the default instead. `country-outside-blocks` can
+   * only gain a finding on a bake that still has a QUIET eligible region to
+   * spoil. On the pre-iteration-3 calibration bake — the one bake where this
+   * defect is known present — every region with a comparator already fires, so
+   * there is nothing left to make fire and the count cannot move. Deepening one
+   * is then the only defect available, and a magnitude that rises while the
+   * count holds is exactly the state iteration 5 proved the count cannot see.
+   * The plant says which of the two it staged; the checker does not guess.
+   */
+  accept?: (before: number, after: number, magBefore: number, magAfter: number) => boolean;
 }
 
 /** A patch of open field big enough to build a defect in, away from the city. */
@@ -2684,6 +2907,9 @@ function selftest(city: BakedCity, plan: CityPlan): void {
   let victimBorough = -1;
   let victimOwner: Int16Array | null = null;
   let stubEnds: number[] = [0, 0, 0, 0];
+  // Set by the `country-outside-blocks` plant: true when the bake had no quiet
+  // eligible region left and the plant deepened a firing one instead.
+  let countryDeepen = false;
   const plants: Plant[] = [
     {
       sig: 'road-speck',
@@ -2714,7 +2940,25 @@ function selftest(city: BakedCity, plan: CityPlan): void {
       sig: 'road-deadend',
       where: 'a 3-wide street ending in open ground',
       apply: (t, W) => {
-        const [x, y] = findMeadow(base, 5, 16, 80);
+        // The meadow has to be clear for CAP_LOOKAHEAD tiles PAST the cap, not
+        // just up to it. `deadEnds` looks six tiles straight on for the next
+        // carriageway and, if it finds one, files the cap as `road-stops-short`
+        // instead — a different signature, so this plant reads SILENT.
+        //
+        // That is not hypothetical. Until iteration 9 this asked for a 16-deep
+        // meadow behind a 14-tile street, clearing only three tiles past the
+        // cap, and it worked by luck. Iteration 6's rebake moved two blocks,
+        // which re-rolled land use city-wide, which moved `findMeadow`'s first
+        // answer from 459,312 to 439,313 — where the coast road runs across the
+        // plant's line five tiles below the cap. From `ce3189b` onwards this
+        // control has read `SILENT 4 -> 4` and `--selftest` has exited 1, on
+        // iterations 6, 7 and 8, without anyone reading it. The plant was
+        // wrong, not the detector: the defect it laid was a real
+        // `road-stops-short`, which is why `road-stops-short` read 13 -> 16
+        // when its own plant adds two.
+        //
+        // Depth is 14 of street + 6 of lookahead + 2 of margin.
+        const [x, y] = findMeadow(base, 5, 14 + CAP_LOOKAHEAD + 2, 80);
         for (let d = 0; d < 14; d++) for (let k = 0; k < 3; k++) t[(y + d) * W + x + k] = T_ROAD;
         return [x, y + 13];
       },
@@ -2949,15 +3193,35 @@ function selftest(city: BakedCity, plan: CityPlan): void {
         // a comparator at all is ALREADY a finding, so a plant that only
         // stripped wood would read SILENT on the very bake where the defect
         // is known to be present.
+        //
+        // The region has to be one the WILDNESS FIELD wants partly wooded, and
+        // the wildest such rather than the biggest outright. Since iteration 9
+        // the signature refuses a region on which the field and the raster
+        // agree everywhere, so stripping the wood off ground the field calls
+        // meadow throughout lays no defect at all — it lays the false positive
+        // that was just removed. That is not hypothetical either: picking by
+        // land alone read `SILENT 3 -> 3` on the pre-iteration-3 calibration
+        // bake, the one bake where this defect is known to be present, while
+        // still passing on the shipped one.
+        //
+        // Prefer a QUIET such region, so the plant makes a finding appear. If
+        // the bake has none — every eligible region already firing, which is
+        // what the calibration bake looks like — deepen the wildest one that
+        // does fire and let `accept` ask for a magnitude instead of a count.
         let best: Orphan | null = null;
+        let quiet: Orphan | null = null;
         for (const f of orphanCountry(base, plan)) {
           if (f.land < GATES.orphanLand || f.nbLand < NEIGHBOUR_MIN_COUNTRY) continue;
+          if (f.wild < 40) continue;
           const inside = f.nbWood / f.nbLand;
-          const fires = inside >= NEIGHBOUR_MIN_WOOD && f.wood / f.land < GATES.orphanWood * inside;
-          if (fires) continue;
-          if (best === null || f.land > best.land) best = f;
+          const fires =
+            inside >= NEIGHBOUR_MIN_WOOD && f.wood / f.land < GATES.orphanWood * inside && f.wildBare > 0;
+          if (best === null || f.wild > best.wild) best = f;
+          if (!fires && (quiet === null || f.wild > quiet.wild)) quiet = f;
         }
-        if (best === null) throw new Error('no quiet stretch of orphan country to spoil');
+        countryDeepen = quiet === null;
+        best = quiet ?? best;
+        if (best === null) throw new Error('no stretch of wild orphan country to spoil');
         for (const i of best.bag) if (t[i] === T_TREES) t[i] = T_FIELD;
         for (const bi of best.nb) {
           const b = base.city.blocks[bi] as (typeof base.city.blocks)[number];
@@ -2970,6 +3234,8 @@ function selftest(city: BakedCity, plan: CityPlan): void {
         }
         return [best.x0, best.y0];
       },
+      accept: (before, after, magBefore, magAfter) =>
+        countryDeepen ? after === before && magAfter > magBefore : after > before && magAfter > magBefore,
     },
     {
       sig: 'carve-is-a-ruler',
@@ -3025,9 +3291,11 @@ function selftest(city: BakedCity, plan: CityPlan): void {
     // signature that fires with no magnitude behind it contributes nothing to
     // the score, so the score would not see it get fixed either.
     const grew = magAfter > magBefore;
-    if (!fired || !grew) broken++;
+    const ok = p.accept ? p.accept(before, after, magBefore, magAfter) : fired && grew;
+    if (!ok) broken++;
+    const verdict = ok ? (fired ? 'FIRED  ' : 'DEEPER ') : fired ? 'NOMAG  ' : 'SILENT ';
     console.log(
-      `# ${pad(p.sig, 18)}  ${fired ? (grew ? 'FIRED  ' : 'NOMAG  ') : 'SILENT '}  ${before} -> ${after}` +
+      `# ${pad(p.sig, 18)}  ${verdict}  ${before} -> ${after}` +
         `  m ${magBefore} -> ${magAfter} at ${planted[0]},${planted[1]} — ${p.where}`,
     );
   }
@@ -3036,6 +3304,9 @@ function selftest(city: BakedCity, plan: CityPlan): void {
   );
   console.log('# crossing-missing and fabric-coarse are calibrated against the 1469611 bake (--data), not planted');
   if (halfFixControl(city, plan)) broken++;
+  if (wildFieldControl(city, plan)) broken++;
+  if (unaskedCountryControl(city, plan)) broken++;
+  if (drawnControl(city, plan)) broken++;
   if (broken > 0) process.exitCode = 1;
 }
 
@@ -3112,6 +3383,323 @@ function halfFixControl(city: BakedCity, plan: CityPlan): boolean {
     }`,
   );
   return !ok;
+}
+
+/* ------------------------------------------------------------------ */
+/* Iteration 9's three controls, for the two corrections it made        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * CONTROL 1 — the audit's copy of the wildness field is the bake's field.
+ *
+ * `wildAt` copies three numbers out of `bake.ts` (the seed, the wavelength and
+ * the threshold) because this tool may not import from `shared/src`. A copied
+ * constant drifts silently: change `0.52` in the bake and `country-outside-
+ * blocks` starts refusing regions for a reason that no longer exists, and
+ * nothing fails.
+ *
+ * So hold the predicate against ground where the fill CERTAINLY ran — country
+ * inside a rural block — and require it to agree with the raster far better
+ * than chance. It reads 88.3% on the shipped bake and 84-88% on every other
+ * bake this loop can still read; a wrong seed or a wrong wavelength drops it
+ * to roughly 50%, and a wrong threshold to whatever the two canopy shares
+ * happen to be. The gate is 75%: comfortably below the worst honest reading
+ * and above anything a broken copy reaches.
+ *
+ * It is deliberately NOT an exact identity. The fill does not plant every tile
+ * the field calls wood — a hedgerow, an orchard row, a smallholding and the
+ * ride-through guard all overwrite it — so 100% is not the right answer and
+ * demanding it would make this control fire on a correct bake.
+ *
+ * Returns true if the control failed.
+ */
+const WILD_AGREE_GATE = 0.75;
+function wildFieldControl(city: BakedCity, plan: CityPlan): boolean {
+  const a = buildAudit(city);
+  const { W, H, tiles } = a;
+  const owner = ownerPlane(plan, tiles, W, H);
+  const ruralBlockTile = new Uint8Array(W * H);
+  for (const b of city.blocks) {
+    if (b.rural !== true) continue;
+    for (let y = Math.max(0, b.y); y < Math.min(H, b.y + b.h); y++) {
+      for (let x = Math.max(0, b.x); x < Math.min(W, b.x + b.w); x++) ruralBlockTile[y * W + x] = 1;
+    }
+  }
+  let n = 0;
+  let agree = 0;
+  let fieldWood = 0;
+  let groundWood = 0;
+  for (let i = 0; i < W * H; i++) {
+    if (ruralBlockTile[i] === 0) continue;
+    if (!isCountry(tiles[i] as number)) continue;
+    const d = owner[i] as number;
+    if (d < 0 || (plan.districts[d] as { rural?: boolean }).rural !== true) continue;
+    const x = i % W;
+    const y = (i - x) / W;
+    const wants = wildAt(x, y);
+    const has = tiles[i] === T_TREES;
+    n++;
+    if (wants) fieldWood++;
+    if (has) groundWood++;
+    if (wants === has) agree++;
+  }
+  const share = n === 0 ? 0 : agree / n;
+  const ok = n > 1000 && share >= WILD_AGREE_GATE;
+  console.log("# wildness-field control: the audit's copy of bake.ts:609 is bake.ts:609");
+  console.log(
+    `# ${pad('wildAt', 18)}  ${ok ? 'AGREES ' : 'DRIFTED'}  ${(100 * share).toFixed(1)}% of ${n} country tiles ` +
+      `inside rural blocks; field says wood on ${((100 * fieldWood) / Math.max(1, n)).toFixed(1)}%, ` +
+      `ground is wood on ${((100 * groundWood) / Math.max(1, n)).toFixed(1)}% (gate ${(100 * WILD_AGREE_GATE).toFixed(0)}%)`,
+  );
+  if (!ok) {
+    console.log('# THE COPIED FIELD CONSTANTS NO LONGER MATCH THE BAKE — country-outside-blocks is refusing');
+    console.log('# regions on a rule the city does not use. Re-read WILD_SEED / WILD_GATE against bake.ts.');
+  }
+  return !ok;
+}
+
+/**
+ * CONTROL 2 — the `wildBare` gate refuses ground the fill answered, and
+ * refuses nothing else.
+ *
+ * A plant proves a detector sees a defect appear. Iteration 9 did the opposite
+ * thing — it made a detector DECLINE — and a plant cannot check that at all.
+ * The failure mode of a decline is silent by construction: suppress too much
+ * and the signature simply reads zero, which is what a clean city reads.
+ *
+ * Both halves, on the same bake:
+ *
+ *  A. The gate is load-bearing. Find a region that clears every OTHER gate
+ *     — enough land, a real comparator, bald against it — and that the field
+ *     says is meadow throughout. It must be absent from the findings, and it
+ *     must be the `wildBare === 0` test that removed it. On the shipped bake
+ *     this is the Marsh End islet at 322,740, the false positive iteration 8
+ *     measured at the source.
+ *
+ *  B. The gate is not a blanket. Take a quiet region the field wants PARTLY
+ *     WOODED, strip its wood to bare meadow and plant the blocks beside it
+ *     solid — ground that was never asked, which is what this signature is
+ *     for — and require the finding to appear with `wildBare > 0`. If the
+ *     predicate suppresses this too, it is wrong, and this line goes red.
+ *
+ * B is the one that matters. It is written so that any predicate refusing on
+ * the region's SHAPE rather than on the field's ANSWER fails it.
+ *
+ * Returns true if either half failed.
+ */
+function unaskedCountryControl(city: BakedCity, plan: CityPlan): boolean {
+  const sig = 'country-outside-blocks';
+  const base = buildAudit(city);
+  const regions = orphanCountry(base, plan);
+  console.log('# unasked-country control: refuse what the field answered, keep what it did not');
+  let bad = 0;
+
+  // -- A: a region every other gate lets through, that the field calls meadow.
+  const wouldFire = (f: Orphan): boolean => {
+    if (f.land < GATES.orphanLand || f.nbLand < NEIGHBOUR_MIN_COUNTRY) return false;
+    const inside = f.nbWood / f.nbLand;
+    if (inside < NEIGHBOUR_MIN_WOOD) return false;
+    return f.wood / f.land / inside < GATES.orphanWood;
+  };
+  const answered = regions
+    .filter((f) => wouldFire(f) && f.wildBare === 0)
+    .sort((p, q) => q.land - p.land)[0];
+  if (!answered) {
+    console.log(`# ${pad(sig, 18)}  SKIPPED  no region on this bake is bald AND answered-meadow throughout`);
+  } else {
+    const fired = run(city, plan, new Set([sig])).some((f) =>
+      f.reason.includes(`${answered.x0},${answered.y0}-${answered.x1},${answered.y1}`),
+    );
+    const ok = !fired;
+    if (!ok) bad++;
+    console.log(
+      `# ${pad(sig, 18)}  ${ok ? 'REFUSED' : 'LEAKED '}  ${answered.x0},${answered.y0}-${answered.x1},${answered.y1}: ` +
+        `${answered.land} tiles, ${answered.wood} wood, ${answered.wildBare} bare where the field says wood ` +
+        `— every other gate passes it, so ${ok ? 'the field is what silenced it' : 'THE GATE DID NOTHING'}`,
+    );
+  }
+
+  // -- B: bare ground the field wanted wooded, which is what "never asked" is.
+  //
+  // The transition is BUILT rather than looked for. The first draft picked a
+  // region that was quiet on the shipped bake and spoilt it, which worked
+  // there and threw `no quiet region` on the pre-iteration-3 calibration bake,
+  // where every region with a comparator already fires — so the control
+  // vanished on exactly the bake where the defect is known to be present. Both
+  // ends are now written by hand onto the same region, so this runs on any
+  // bake: wooded (must be silent), then stripped bare with the blocks beside
+  // it planted solid (must fire).
+  const victim = regions
+    .filter(
+      (f) =>
+        f.land >= GATES.orphanLand &&
+        f.nbLand >= NEIGHBOUR_MIN_COUNTRY &&
+        f.nbWood / f.nbLand >= NEIGHBOUR_MIN_WOOD &&
+        f.wild >= 40,
+    )
+    .sort((p, q) => q.wild - p.wild)[0];
+  if (!victim) {
+    console.log(`# ${pad(sig, 18)}  ERROR    no region with a comparator and wild ground in it to work on`);
+    return true;
+  }
+  const where = `${victim.x0},${victim.y0}-${victim.x1},${victim.y1}`;
+  const hits = (t: Uint8Array): boolean =>
+    run({ ...city, tiles: t }, plan, new Set([sig])).some((f) => f.reason.includes(where));
+  const wildBareIn = (t: Uint8Array): number =>
+    orphanCountry(buildAudit({ ...city, tiles: t }), plan).find(
+      (f) => f.x0 === victim.x0 && f.y0 === victim.y0 && f.x1 === victim.x1 && f.y1 === victim.y1,
+    )?.wildBare ?? -1;
+
+  // Wooded: the region agrees with anything, and there is nothing left bare
+  // for the field to disagree with.
+  const wooded = city.tiles.slice();
+  for (const i of victim.bag) if (isCountry(wooded[i] as number)) wooded[i] = T_TREES;
+  const quietOk = !hits(wooded) && wildBareIn(wooded) === 0;
+
+  // Stripped, with the blocks next door planted solid: ground nobody asked.
+  const spoilt = city.tiles.slice();
+  let stripped = 0;
+  for (const i of victim.bag) {
+    if (spoilt[i] === T_TREES) stripped++;
+    if (isCountry(spoilt[i] as number)) spoilt[i] = T_FIELD;
+  }
+  for (const bi of victim.nb) {
+    const b = city.blocks[bi] as (typeof city.blocks)[number];
+    for (let y = Math.max(0, b.y); y < Math.min(base.H, b.y + b.h); y++) {
+      for (let x = Math.max(0, b.x); x < Math.min(base.W, b.x + b.w); x++) {
+        const i = y * base.W + x;
+        if (isCountry(city.tiles[i] as number)) spoilt[i] = T_TREES;
+      }
+    }
+  }
+  // Assert the size of the plant before believing anything downstream of it —
+  // the seventh blind instrument in this exercise was a control that planted
+  // nothing and passed on `0 === 0`.
+  const wildBareNow = wildBareIn(spoilt);
+  const fired = hits(spoilt);
+  const ok = quietOk && wildBareNow > 0 && fired;
+  if (!ok) bad++;
+  console.log(
+    `# ${pad(sig, 18)}  ${
+      ok ? 'FIRED  ' : !quietOk ? 'NOSTART' : wildBareNow <= 0 ? 'NOPLANT' : 'BLIND  '
+    }  ${where}: wooded -> ${hits(wooded) ? 'fires' : 'silent'} (wildBare 0), then stripped of ` +
+      `${stripped} wood -> ${fired ? 'fires' : 'SILENT'} with ${wildBareNow} tiles bare where the field ` +
+      `says wood — ${
+        ok
+          ? 'the gate lets genuinely unasked ground through'
+          : !quietOk
+            ? 'THE WOODED END ALREADY FIRES, so the transition tested nothing'
+            : wildBareNow <= 0
+              ? 'THE PLANT LEFT NOTHING FOR THE FIELD TO DISAGREE WITH, so this control tested nothing'
+              : 'THE GATE SUPPRESSED A REAL DEFECT'
+      }`,
+  );
+  return bad > 0;
+}
+
+/**
+ * CONTROL 3 — `drawn` is measured off the curve layer, and off nothing else.
+ *
+ * `built-staircase` now reports how much of each staircase a renderer puts on
+ * the screen, and 537 of its 540 tiles come back invisible. A number that says
+ * "almost none of this is drawn" is exactly the shape of a blind instrument:
+ * it reads the same as a census that consults nothing and returns zero.
+ *
+ * Three legs, all on the shipped bake:
+ *
+ *  A. BOTH ANSWERS ARE PRESENT. At least one finding must read fully drawn and
+ *     at least one fully dissolved. A census stuck on either answer fails.
+ *
+ *  B. TAKE THE CURVES AWAY. Re-run against a city with empty `shores`, `banks`
+ *     and `courses`. Every finding must then read fully drawn, and the drawn
+ *     total must equal the tile total. If blanking the chains does not move
+ *     the number, the census is not reading them.
+ *
+ *  C. THE DECK CHAIN IS WHAT COVERS THE DECKS. Blank ONLY `courses`, so
+ *     `buildDeckCut` has nothing to cut from while the coast and bank chains
+ *     stand. The four bridge decks must go from dissolved to drawn and the
+ *     quays must not move. That is iteration 8's fix, isolated: before it, the
+ *     decks were the drawn part of this signature.
+ *
+ * Returns true if any leg failed.
+ */
+function drawnControl(city: BakedCity, plan: CityPlan): boolean {
+  const sig = 'built-staircase';
+  const only = new Set([sig]);
+  const base = run(city, plan, only);
+  console.log('# drawn control: the curve layer is what dissolves a staircase');
+  if (base.length === 0) {
+    console.log(`# ${pad(sig, 18)}  SKIPPED  nothing fires on this bake`);
+    return false;
+  }
+  let bad = 0;
+  const mag = base.reduce((s, f) => s + f.mag, 0);
+  const drawn = base.reduce((s, f) => s + drawnOf(f), 0);
+  const full = base.filter((f) => drawnOf(f) === f.mag).length;
+  const none = base.filter((f) => drawnOf(f) === 0).length;
+  const okA = full > 0 && none > 0;
+  if (!okA) bad++;
+  console.log(
+    `# ${pad(sig, 18)}  ${okA ? 'SPLIT  ' : 'STUCK  '}  ${base.length} findings, ${mag} tiles, ${drawn} drawn` +
+      ` — ${full} fully drawn, ${none} fully dissolved${okA ? '' : ' — A CENSUS WITH ONE ANSWER IS NOT A CENSUS'}`,
+  );
+
+  // A0. The census asked about the WHOLE outline. This is the leg that catches
+  // a narrowing of it, and it was added because the first four legs did not:
+  // restoring the pre-iteration-9 `if (at(ox, oy) !== T_WATER) continue` left
+  // `--selftest` GREEN at exit 0 — SPLIT, UNCOVER and DECKS all passed while
+  // eight inland quays counted zero faces, asked no chain anything and
+  // defaulted to "fully drawn". Four of five red controls firing is four of
+  // five; the fifth is the one that had to be built.
+  const positions = base.reduce((s, f) => s + (f.profile?.span ?? 0), 0);
+  const asked = base.reduce((s, f) => s + (f.profile?.faces ?? 0), 0);
+  const unasked = base.filter((f) => (f.profile?.faces ?? 0) !== (f.profile?.span ?? -1)).length;
+  const okA0 = base.every((f) => f.profile !== undefined) && unasked === 0 && asked === positions;
+  if (!okA0) bad++;
+  console.log(
+    `# ${pad(sig, 18)}  ${okA0 ? 'WHOLE  ' : 'PARTIAL'}  ${asked} of ${positions} profile positions put to the ` +
+      `curve layer across ${base.length} edges, ${unasked} edge(s) asked about less than their whole outline` +
+      `${okA0 ? ' — every step face was asked, whatever lies beyond it' : ' — A CENSUS OF PART OF AN EDGE CANNOT SAY WHETHER IT IS DRAWN'}`,
+  );
+
+  const bare = run({ ...city, shores: [], banks: [], courses: [] }, plan, only);
+  const bareMag = bare.reduce((s, f) => s + f.mag, 0);
+  const bareDrawn = bare.reduce((s, f) => s + drawnOf(f), 0);
+  const okB = bare.length === base.length && bareMag === mag && bareDrawn === bareMag && bareDrawn > drawn;
+  if (!okB) bad++;
+  console.log(
+    `# ${pad(sig, 18)}  ${okB ? 'UNCOVER' : 'BLIND  '}  with every chain removed: ${bare.length} findings, ` +
+      `${bareMag} tiles, ${bareDrawn} drawn (was ${drawn})` +
+      `${okB ? ' — nothing is painted over, so all of it is drawn' : ' — REMOVING THE CURVES DID NOT MOVE THE DRAWN COLUMN'}`,
+  );
+
+  const noDeck = run({ ...city, courses: [] }, plan, only);
+  const deckBefore = base.filter((f) => f.reason.startsWith('bridge deck'));
+  const deckAfter = noDeck.filter((f) => f.reason.startsWith('bridge deck'));
+  const deckDrawnBefore = deckBefore.reduce((s, f) => s + drawnOf(f), 0);
+  const deckDrawnAfter = deckAfter.reduce((s, f) => s + drawnOf(f), 0);
+  const deckMag = deckBefore.reduce((s, f) => s + f.mag, 0);
+  const quayDrawnBefore = drawn - deckDrawnBefore;
+  const quayDrawnAfter = noDeck.reduce((s, f) => s + drawnOf(f), 0) - deckDrawnAfter;
+  // NOT `deckDrawnAfter === deckMag`. A few deck positions sit on the COAST
+  // chain as well — iteration 7 counted seven of them across the four decks,
+  // where a deck meets its own shore — so pulling the deck chain out leaves
+  // those still covered. What the leg has to prove is that the deck chain is
+  // load-bearing for the decks and inert for everything else, and the residue
+  // is printed rather than tolerated silently.
+  const okC =
+    deckBefore.length > 0 &&
+    deckDrawnBefore === 0 &&
+    deckDrawnAfter > deckDrawnBefore &&
+    quayDrawnAfter === quayDrawnBefore;
+  if (!okC) bad++;
+  console.log(
+    `# ${pad(sig, 18)}  ${okC ? 'DECKS  ' : 'BLIND  '}  with only the deck chain removed: the ${deckBefore.length} ` +
+      `bridge decks go ${deckDrawnBefore} -> ${deckDrawnAfter} drawn of ${deckMag} tiles ` +
+      `(${deckMag - deckDrawnAfter} still on the coast chain, where a deck meets its own shore), the quays hold at ` +
+      `${quayDrawnAfter}${okC ? " — iteration 8's curve is what covers the decks and touches nothing else" : ' — THE DECK CHAIN IS NOT WHAT IS BEING READ'}`,
+  );
+  return bad > 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3222,9 +3810,44 @@ function dumpTiles(city: BakedCity, box: [number, number, number]): void {
   }
 }
 
+/**
+ * Every blockless rural country region, with the numbers
+ * `country-outside-blocks` gates on.
+ *
+ * A diagnostic, not a signature. It exists because iteration 9's gate changed
+ * which regions are eligible, and the selftest plant has to pick its victim on
+ * what the bake actually contains rather than on whichever region happened to
+ * work on the shipped map — the previous plant passed on the shipped bake and
+ * planted a false positive on the calibration bake, which is the bake that
+ * matters.
+ */
+function dumpRegions(city: BakedCity, plan: CityPlan): void {
+  const a = buildAudit(city);
+  const rs = orphanCountry(a, plan).sort((p, q) => q.land - p.land);
+  console.log('# blockless rural country regions: land wood wild wildBare | nbLand nbWood | fires?');
+  for (const f of rs) {
+    if (f.land < 40) continue;
+    const inside = f.nbLand > 0 ? f.nbWood / f.nbLand : 0;
+    const outside = f.wood / f.land;
+    const sized = f.land >= GATES.orphanLand && f.nbLand >= NEIGHBOUR_MIN_COUNTRY;
+    const cmp = inside >= NEIGHBOUR_MIN_WOOD;
+    const bald = cmp && outside / inside < GATES.orphanWood;
+    const name = (plan.districts[f.district] as { name?: string } | undefined)?.name ?? '?';
+    console.log(
+      `${pad(`${f.x0},${f.y0}-${f.x1},${f.y1}`, 20)} ${pad(name, 14)} ` +
+        `land=${String(f.land).padStart(5)} wood=${String(f.wood).padStart(5)} ` +
+        `wild=${String(f.wild).padStart(5)} wildBare=${String(f.wildBare).padStart(5)} | ` +
+        `nbLand=${String(f.nbLand).padStart(5)} nbWood=${String(f.nbWood).padStart(5)} | ` +
+        `${sized ? 'sized' : '-----'} ${cmp ? 'cmp' : '---'} ${bald ? 'bald' : '----'} ` +
+        `${sized && bald && f.wildBare > 0 ? 'FIRES' : '.....'}`,
+    );
+  }
+}
+
 function main(): void {
   let dataPath = '';
   let planPath = '';
+  let regions = false;
   let dump: [number, number, number] | null = null;
   let only: Set<string> | null = null;
   let limit = 12;
@@ -3242,6 +3865,7 @@ function main(): void {
     if (key === 'all') limit = Infinity;
     if (key === 'summary') quiet = true;
     if (key === 'selftest') test = true;
+    if (key === 'regions') regions = true;
     if (key === 'dump' && val) {
       const p = val.split(',').map((v) => Number.parseInt(v, 10));
       if (p.length < 3 || p.some((v) => !Number.isFinite(v))) throw new Error('--dump wants x,y,w in tiles');
@@ -3269,6 +3893,10 @@ function main(): void {
 
   if (test) {
     selftest(city, plan);
+    return;
+  }
+  if (regions) {
+    dumpRegions(city, plan);
     return;
   }
   if (dump) {
@@ -3310,31 +3938,54 @@ function main(): void {
   // pushed their own numbers out of column. With one number a reader could
   // still find it; with three they cannot.
   const SW = 23;
-  const row = (name: string, n: string, m: string, sc: string, tail = ''): string =>
-    `# ${pad(name, SW)}  ${n.padStart(6)}  ${m.padStart(7)}  ${sc.padStart(9)}${tail}`;
-  console.log(row('summary', 'count', 'tiles', 'score'));
+  const row = (name: string, n: string, m: string, sc: string, dr: string, tail = ''): string =>
+    `# ${pad(name, SW)}  ${n.padStart(6)}  ${m.padStart(7)}  ${sc.padStart(9)}  ${dr.padStart(9)}${tail}`;
+  console.log(row('summary', 'count', 'tiles', 'score', 'drawn'));
   let total = 0;
   let totalTiles = 0;
   let totalScore = 0;
+  let totalDrawn = 0;
   for (const sig of ALL_SIGS) {
     if (!want(sig)) continue;
     const bag = bySig.get(sig) ?? [];
     const n = bag.length;
     const m = bag.reduce((s, f) => s + f.mag, 0);
+    const d = bag.reduce((s, f) => s + drawnOf(f), 0);
     const sc = m * weightOf(sig);
+    const dr = d * weightOf(sig);
     total += n;
     totalTiles += m;
     totalScore += sc;
+    totalDrawn += dr;
     console.log(
-      row(sig, String(n), String(m), sc.toFixed(1), NOISY.has(sig) ? `  noisy x${NOISY_WEIGHT}` : ''),
+      row(
+        sig,
+        String(n),
+        String(m),
+        sc.toFixed(1),
+        dr.toFixed(1),
+        NOISY.has(sig) ? `  noisy x${NOISY_WEIGHT}` : '',
+      ),
     );
   }
-  console.log(row('TOTAL', String(total), String(totalTiles), totalScore.toFixed(1)));
+  console.log(row('TOTAL', String(total), String(totalTiles), totalScore.toFixed(1), totalDrawn.toFixed(1)));
   console.log(`# SCORE ${totalScore.toFixed(1)}, in weighted tiles of defect, against TOTAL ${total} candidates.`);
-  console.log('# TOTAL is the count and its meaning is unchanged, so it compares straight back through the loop.');
+  console.log('# TOTAL is the count. It compared straight back through the loop until iteration 9, which');
+  console.log('# taught country-outside-blocks to ask the bake\'s own wildness field before claiming ground');
+  console.log('# "was never asked what it is" — so a number from iterations 5-8 is on the OLD instrument and');
+  console.log('# does not compare with one from this. Both series, over every bake the loop has, are in');
+  console.log('# evidence/iter9-instrument/history.txt; the deltas BETWEEN iterations are unchanged.');
   console.log('# SCORE is what moves when a defect gets SMALLER without going away — which a count cannot see.');
   console.log('# SCORE is an area, so the signature covering the most ground dominates it; a small signature\'s');
   console.log('# progress shows in its own `tiles` column, which is the same measurement unweighted.');
+  console.log(`# DRAWN ${totalDrawn.toFixed(1)} is the part of SCORE a renderer actually PUTS ON THE SCREEN.`);
+  console.log('# SCORE counts defects in the TILE PLANE — which is also what collision drives against — and');
+  console.log('# a defect can be in the tile plane and painted over: a quay stepping every three tiles is');
+  console.log('# repainted on a chord by the coast, bank or deck curve and cannot be seen. Those tiles stay');
+  console.log('# in SCORE, because a renderer change can expose them again without one tile of ground moving,');
+  console.log('# and are subtracted in DRAWN, because a reviewer sent to look at them will see nothing.');
+  console.log('# The two differ only where a signature has MEASURED its own drawing, which today is');
+  console.log('# `built-staircase` alone; every other signature is a defect in the ground, and ground is drawn.');
 }
 
 function pad(s: string, w: number): string {

@@ -1,0 +1,30 @@
+# mapaudit re-scored: the same seven bakes, the instrument before and after iteration 9
+#
+# BEFORE = mapAudit.ts at bb0aaae, the code iterations 5-8 published their numbers with.
+# AFTER  = this tree: country-outside-blocks asks the wildness field, built-staircase
+#          censuses every step face rather than only the ones onto open water, and DRAWN
+#          is a new column, never a subtraction from SCORE.
+#
+bake                                  TOTAL      SCORE    TOTAL      SCORE      DRAWN
+                                   (before)   (before)  (after)    (after)    (after)
+e3306c8~2  pre-iteration-3 (calib)       61    16728.5       60    16470.5    16339.3
+7769a2c    pre-iteration-5               55     3129.5       54     2871.5     2740.3
+ffb2e89    post-iteration-5              55     2926.5       54     2668.5     2537.3
+b5c7805    post-iteration-5 (instr)       55     2926.5       54     2668.5     2537.3
+ce3189b    post-iteration-6              49     2911.8       48     2653.8     2522.5
+cda745a    post-iteration-7 (no map)       49     2911.8       48     2653.8     2522.5
+bb0aaae    post-iteration-8              49     2911.8       48     2653.8     2522.5
+
+# per-signature, on the two bakes where the correction lands:
+
+## bb0aaae
+                             BEFORE  count  score   AFTER   count  score  drawn
+built-staircase                    24       135.0           24  135.0    3.8
+country-outside-blocks              1       258.0            0    0.0    0.0
+TOTAL                              49      2911.8           48 2653.8 2522.5
+
+## e3306c8~2
+                             BEFORE  count  score   AFTER   count  score  drawn
+built-staircase                    24       135.0           24  135.0    3.8
+country-outside-blocks              4      1770.0            3 1512.0 1512.0
+TOTAL                              61     16728.5           60 16470.5 16339.3
