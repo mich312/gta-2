@@ -1,0 +1,89 @@
+The two summary blocks, whole, then the counts column by column.
+
+BEFORE = ffb2e89 with the detector as it shipped in iteration 5.
+AFTER  = ffb2e89 with this iteration's magnitude, same bake, same plan.
+
+==============================================================================
+BEFORE   node server/dist/tools/mapAudit.js --all   (iteration 5 detector)
+==============================================================================
+# summary
+# road-deadend             9
+# road-stops-short        13
+# road-speck               0
+# road-notch               0
+# road-width-jump          1  noisy
+# junction-stub            0
+# walk-orphan              0
+# kerb-missing             0
+# crossing-missing         0
+# shore-staircase          0
+# built-staircase         24  noisy
+# bare-corridor            0
+# patch-square             0
+# edge-notch               0
+# fabric-coarse            0
+# course-coverage-outlier       0
+# street-serves-nothing       5  noisy
+# lanes-serving-nothing       2
+# country-outside-blocks       1
+# carve-is-a-ruler         0
+# TOTAL                   55
+
+==============================================================================
+AFTER    node server/dist/tools/mapAudit.js --all   (this iteration)
+==============================================================================
+# summary                   count    tiles      score
+# road-deadend                  9       26       26.0
+# road-stops-short             13      113      113.0
+# road-speck                    0        0        0.0
+# road-notch                    0        0        0.0
+# road-width-jump               1        3        0.8  noisy x0.25
+# junction-stub                 0        0        0.0
+# walk-orphan                   0        0        0.0
+# kerb-missing                  0        0        0.0
+# crossing-missing              0        0        0.0
+# shore-staircase               0        0        0.0
+# built-staircase              24      540      135.0  noisy x0.25
+# bare-corridor                 0        0        0.0
+# patch-square                  0        0        0.0
+# edge-notch                    0        0        0.0
+# fabric-coarse                 0        0        0.0
+# course-coverage-outlier       0        0        0.0
+# street-serves-nothing         5      227       56.8  noisy x0.25
+# lanes-serving-nothing         2     2337     2337.0
+# country-outside-blocks        1      258      258.0
+# carve-is-a-ruler              0        0        0.0
+# TOTAL                        55     3504     2926.5
+# SCORE 2926.5, in weighted tiles of defect, against TOTAL 55 candidates.
+# TOTAL is the count and its meaning is unchanged, so it compares straight back through the loop.
+# SCORE is what moves when a defect gets SMALLER without going away — which a count cannot see.
+# SCORE is an area, so the signature covering the most ground dominates it; a small signature's
+# progress shows in its own `tiles` column, which is the same measurement unweighted.
+
+==============================================================================
+THE COUNTS, SIDE BY SIDE
+==============================================================================
+signature                   before    after   
+road-deadend                     9        9   same
+road-stops-short                13       13   same
+road-speck                       0        0   same
+road-notch                       0        0   same
+road-width-jump                  1        1   same
+junction-stub                    0        0   same
+walk-orphan                      0        0   same
+kerb-missing                     0        0   same
+crossing-missing                 0        0   same
+shore-staircase                  0        0   same
+built-staircase                 24       24   same
+bare-corridor                    0        0   same
+patch-square                     0        0   same
+edge-notch                       0        0   same
+fabric-coarse                    0        0   same
+course-coverage-outlier          0        0   same
+street-serves-nothing            5        5   same
+lanes-serving-nothing            2        2   same
+country-outside-blocks           1        1   same
+carve-is-a-ruler                 0        0   same
+TOTAL                           55       55   same
+
+every count identical: True

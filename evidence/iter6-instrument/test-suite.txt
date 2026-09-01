@@ -1,0 +1,12 @@
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  92 passed (92)
+      Tests  992 passed (992)
+     Errors  8 errors
+   Start at  02:35:56
+   Duration  559.72s (transform 10.05s, setup 0ms, collect 250.01s, tests 1359.97s, environment 42ms, prepare 15.40s)
+
+[ci/test] ignored 8 known 'Timeout calling "onTaskUpdate"' worker error(s): runner starvation noise, not a test failure — see ci/test.mjs.
+[ci/test] green: 92 files, 0 failures, 8 ignored runner-noise error(s).

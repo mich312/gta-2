@@ -52,10 +52,24 @@ import {
  *
  * Output is one line per candidate, columns separated by two spaces:
  *
- *   <signature>  x,y,w  <severity>  <one-line reason>
+ *   <signature>  x,y,w  <severity>  m=<magnitude>  <one-line reason>
  *
  * `x,y,w` is a `pnpm mapgen --crop=` argument, so every line is directly a
  * command for looking at the thing it claims.
+ *
+ * `m=` is the defect's MAGNITUDE in tiles — how big it is, not whether it is
+ * there. It exists because the count alone could not see a fix that made a
+ * defect smaller without removing it; see `magOf` for the failure that forced
+ * it and the four properties any new signature's magnitude has to keep. The
+ * summary carries two totals: TOTAL, the count, whose meaning is unchanged and
+ * comparable straight back through the loop's history, and SCORE, the sum of
+ * magnitudes with the `noisy` signatures discounted.
+ *
+ * `--selftest` plants a known defect for each signature and checks that the
+ * detector fires AND that the magnitude rises; it then half-fixes one real
+ * finding on the shipped map and checks the magnitude falls while the finding
+ * stays. That last one is the control for this tool's own headline defect,
+ * so if it ever goes red the score has stopped measuring progress.
  */
 
 /* ------------------------------------------------------------------ */
@@ -73,9 +87,79 @@ interface Finding {
   reason: string;
   /** Ranking key within a signature: bigger is worse. */
   rank: number;
+  /**
+   * HOW BIG this defect is, in tiles of map. See `magOf` below for why this
+   * exists and what it must satisfy; each signature's own `mag:` line says
+   * what its tiles count.
+   */
+  mag: number;
 }
 
 const SEV_ORDER: Record<Severity, number> = { high: 0, med: 1, low: 2 };
+
+/**
+ * Magnitude: the size of a defect, in whole tiles of map.
+ *
+ * WHY. This tool's headline number was the COUNT of findings, and a count is
+ * binary about things that are continuous. Iteration 5 took the shoulder
+ * region from 1343 carriageway tiles on unclaimed ground down to 1140 — a
+ * 203-tile improvement, plainly visible in the render — and the count did not
+ * move, because `lanes-serving-nothing` gates on road >= 10% of the region's
+ * land and 35.2% is still over 10%. The finding still fired, so TOTAL still
+ * read 55, so a real fix scored exactly what a no-op scores. A loop whose
+ * metric cannot see partial progress cannot tell a fix from a no-op and
+ * cannot tell whether it is converging. (Iteration 3's zero was the other
+ * failure, blindness — no signature at all — and iteration 4 closed it.)
+ *
+ * WHAT IT MUST SATISFY, and these are the properties to preserve if a new
+ * signature is added:
+ *
+ *  1. It MOVES WHILE THE FINDING STILL FIRES. A magnitude that only changes
+ *     when the finding stops firing is the defect being fixed here.
+ *  2. It is MONOTONE: the defect getting smaller makes the number smaller,
+ *     and nothing else does.
+ *  3. It is a PROPERTY OF THE MAP, not of the run. No medians over the
+ *     findings, no normalisation by the total, nothing that shifts when a
+ *     different signature's count changes — otherwise two iterations'
+ *     numbers cannot be compared, which is the whole point of having one.
+ *  4. It is in TILES, one unit for the whole instrument, so the per-signature
+ *     magnitudes can be added up and the sum means something.
+ *
+ * A finding that fired is at least one tile of defect, and magnitudes are
+ * whole tiles so the printed per-finding values add up to the printed
+ * per-signature subtotal exactly.
+ *
+ * `rank` is untouched and still orders the lines within a signature. The two
+ * are deliberately separate: `rank` is a presentation key tuned for "show me
+ * the worst twelve first" and several signatures invert it or fold severity
+ * into it, so it is not comparable between runs and must not be scored.
+ */
+function magOf(n: number): number {
+  return Math.max(1, Math.round(n));
+}
+
+/**
+ * What a tile of each signature's defect is worth in the score.
+ *
+ * The `noisy` signatures are the reason this is not all ones. `built-staircase`
+ * (24) and `street-serves-nothing` (5) together are more than half the count,
+ * and a headline number more than half made of hits a reviewer is told to
+ * treat as questions is a headline number that moves for the wrong reasons.
+ * Excluding them would be worse — they are not all false positives, and a
+ * signature dropped from the score is a signature nobody looks at again. So
+ * they are DISCOUNTED, not dropped: their findings still appear, still count
+ * towards TOTAL, and still carry a magnitude, but a tile of them is worth a
+ * quarter of a tile of a signature whose hits were all defects when they were
+ * cropped and looked at.
+ *
+ * A constant of the instrument, in the source, so it is the same weight in
+ * every iteration.
+ */
+const NOISY_WEIGHT = 0.25;
+
+function weightOf(sig: string): number {
+  return NOISY.has(sig) ? NOISY_WEIGHT : 1;
+}
 
 /**
  * Signatures whose false-positive rate was measured by cropping their hits at
@@ -337,6 +421,7 @@ function deadEnds(a: Audit, landmarkNear: (x: number, y: number, r: number) => b
             w: cw,
             severity: solid ? 'high' : green ? 'med' : 'low',
             rank: (solid ? 200 : green ? 100 : 10) + (10 - short) + len,
+            mag: magOf(len * short), // tiles of unmade junction: the gap across the street's mouth
             reason: `${len}-wide carriageway at ${Math.round(cxT)},${Math.round(cyT)} stops ${short} tile(s) short of the carriageway it runs at, heading ${dirName(dx, dy)}, with ${what} across the mouth — the junction was never cut`,
           });
           continue;
@@ -358,6 +443,7 @@ function deadEnds(a: Audit, landmarkNear: (x: number, y: number, r: number) => b
           w: cw,
           severity,
           rank: (wall > 0 ? 100 : green > 0 ? 50 : 10) + len,
+          mag: magOf(len), // tiles of carriageway that end at nothing
           reason: `${len}-wide carriageway stops dead at ${Math.round(cxT)},${Math.round(cyT)} facing ${dirName(dx, dy)} into ${into} — no landmark, quay or map edge to stop at`,
         });
       }
@@ -443,6 +529,7 @@ function specksAndNotches(a: Audit): Finding[] {
       w: cw,
       severity: 'med',
       rank: 100 - bag.length,
+      mag: magOf(bag.length), // tiles of stranded tarmac
       reason: `island of ${bag.length} road tile(s) at ${b.x0},${b.y0} joined to no carriageway`,
     });
   }
@@ -471,6 +558,7 @@ function specksAndNotches(a: Audit): Finding[] {
       w: cw,
       severity: wall ? 'high' : 'med',
       rank: (wall ? 100 : 50) + (5 - bag.length),
+      mag: magOf(bag.length), // tiles of hole punched through the carriageway
       reason: `${bag.length}-tile ${wall ? 'SOLID ' : ''}hole at ${b.x0},${b.y0} punched through a carriageway (tile type ${[...kinds].join('/')})`,
     });
   }
@@ -583,6 +671,7 @@ function widthJumps(a: Audit): Finding[] {
           w: cw,
           severity: 'low',
           rank: Math.abs(wi - wj),
+          mag: magOf(Math.abs(wi - wj)), // tiles the carriageway steps by
           reason: `straight ${vertical ? 'north-south' : 'east-west'} carriageway steps ${wi}->${wj} tiles wide at ${x},${y}`,
         });
       }
@@ -642,6 +731,7 @@ function junctionStubs(a: Audit): Finding[] {
       w: cw,
       severity: 'med',
       rank: bag.length,
+      mag: magOf(bag.length), // tiles of junction serving one arm
       reason: `${b.x1 - b.x0 + 1}x${b.y1 - b.y0 + 1} junction-shaped patch at ${b.x0},${b.y0} with ${arms} arm(s) leaving it`,
     });
   }
@@ -720,6 +810,7 @@ function orphanPavement(a: Audit): Finding[] {
       w: cw,
       severity: bag.length >= 40 ? 'med' : 'low',
       rank: bag.length,
+      mag: magOf(bag.length), // tiles of pavement serving no street
       reason: `${bag.length} pavement tiles at ${b.x0},${b.y0} with no carriageway adjacent anywhere`,
     });
   }
@@ -774,6 +865,7 @@ function missingKerbs(a: Audit): { findings: Finding[]; kerbRate: number } {
       w: cw,
       severity: bag.length >= 12 ? 'med' : 'low',
       rank: bag.length,
+      mag: magOf(bag.length), // tiles of carriageway against a wall with no kerb
       reason: `${bag.length} road tiles at ${b.x0},${b.y0} abut a building with no kerb, where ${(kerbRate * 100).toFixed(0)}% of the city's road-to-wall contact goes via pavement`,
     });
   }
@@ -949,6 +1041,7 @@ function missingCrossings(a: Audit, maxGap: number): Finding[] {
       w: cw,
       severity: d < 0 || d > 240 ? 'high' : 'med',
       rank: d < 0 ? 1e9 : d,
+      mag: magOf(d < 0 ? W + H : d - straight), // tiles of detour the missing crossing costs; no route at all is capped at the longest journey the map can hold
       reason: `${s.gap}-tile water gap at ${Math.round(mx)},${Math.round(my)} between roads at ${s.ax},${s.ay} and ${s.bx},${s.by} — detour ${d < 0 ? 'inf' : d} road tiles (${ratio === Infinity ? 'inf' : ratio.toFixed(0)}x the straight line), no crossing`,
     });
   }
@@ -1132,6 +1225,7 @@ function shoreStaircase(a: Audit, minRun: number, minExcess: number): Finding[] 
                 w: cw,
                 severity: excess >= minExcess * 2 ? 'high' : 'med',
                 rank: excess,
+                mag: magOf(excess), // tiles of tread beyond what the curve's slope accounts for
                 reason: `${len}-tile ${vertical ? 'vertical' : 'horizontal'} tread on the ${cut.name} at ${Math.round(mx)},${Math.round(my)} (land side ${tileName(landT)}) where the shipped curve runs ${off.toFixed(0)} deg off the axis — ${excess.toFixed(1)}x longer than that slope accounts for`,
               });
             }
@@ -1324,6 +1418,7 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
                 w: cw,
                 severity: meanTread >= 3 ? 'high' : 'med',
                 rank: span * meanTread,
+                mag: magOf(span - count), // tiles of flat tread beyond the one tile a half-tile bevel can reach
                 reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread. ${faces === 0 ? 'This edge faces dry ground, which no coast curve describes, so it is drawn as it lies' : dissolved === faces ? `All ${faces} of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn` : `${faces - dissolved} of its ${faces} step faces onto open water have no coast curve over them and are drawn square`}`,
               });
             }
@@ -1449,6 +1544,7 @@ function bareCorridors(a: Audit, minLen: number): Finding[] {
           w: cw,
           severity: len >= minLen * 1.5 ? 'high' : 'med',
           rank: len * wSpan,
+          mag: magOf(len * wSpan), // tiles of clearing where the canopy was never put back
           reason: `${wSpan}-tile-wide straight clearing at ${x0},${y0} running ${len} tiles ${vertical ? 'east-west' : 'north-south'} with woodland hard against both flanks and no carriageway in it — the shape of a road a removal pass took out without putting the canopy back`,
         });
       }
@@ -1513,6 +1609,7 @@ function squarePatches(a: Audit): Finding[] {
         w: cw,
         severity: w >= 5 && h >= 5 ? 'med' : 'low',
         rank: w * h,
+        mag: magOf(w * h), // tiles of stamped rectangle
         reason: `perfect ${w}x${h} rectangle of ${tileName(kind)} at ${b.x0},${b.y0} embedded in ${tileName(host)}`,
       });
     }
@@ -1560,6 +1657,7 @@ function edgeNotches(a: Audit): Finding[] {
         w: cw,
         severity: 'low',
         rank: other.length,
+        mag: magOf(1), // one tile of confetti: here the count IS the magnitude
         reason: `single ${tileName(t)} tile at ${x},${y} surrounded on ${other.length} sides by ${tileName(u)}`,
       });
     }
@@ -1667,6 +1765,7 @@ function coarseFabric(city: BakedCity, plan: CityPlan, ratioGate: number): Findi
       w: cw,
       severity: ratio >= ratioGate * 1.5 ? 'high' : 'med',
       rank: ratio,
+      mag: magOf(list.length * (med - cell)), // tiles of block area beyond the cross streets the authored pitch implies
       reason: `${d.name}: ${list.length} blocks, median ${med} tiles against an authored ${d.street.pitchX}x${d.street.pitchY} = ${cell} cell (${ratio.toFixed(1)}x) — cross streets the fabric implies were never carved`,
     });
   }
@@ -1811,6 +1910,7 @@ function coverageOutliers(city: BakedCity, plan: CityPlan, ratioGate: number): F
       w: cw,
       severity: rate < gate / 2 ? 'high' : 'med',
       rank: r - (covered[di] as number),
+      mag: magOf(r - (covered[di] as number)), // tiles of carriageway with no course over them
       reason: `${d.name}: ${(100 * rate).toFixed(1)}% of ${r} carriageway tiles lie under a course (${courses[di]} courses), against a ${(100 * median).toFixed(1)}% median borough — ${r - (covered[di] as number)} tiles that the kerb casing, the junction punch-out, the ribbon markings, the follower and the kerb bevel all skip, because every one of them is keyed on courses. Missing COURSES, not missing paint: bare tarmac still gets per-tile lane marks`,
     });
   }
@@ -1938,6 +2038,7 @@ function streetsServingNothing(
       w: cw,
       severity: b0 + b1 <= 2 ? 'med' : 'low',
       rank: 40 - len,
+      mag: magOf(len * c.width), // tiles of tarmac in a street with nowhere at either end
       reason: `${len.toFixed(1)}-tile ${c.kind} from ${p0[0].toFixed(0)},${p0[1].toFixed(0)} to ${q1[0].toFixed(0)},${q1[1].toFixed(0)} meets no other centreline at either end, and its tarmac stops ${b0} and ${b1} tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable`,
     });
   }
@@ -2047,20 +2148,31 @@ function fringeRegions(a: Audit, plan: CityPlan): Fringe[] {
  * to the boroughs on either side. The building floor is what separates empty
  * ground from a fringe that is doing its job.
  */
+/** Above this share of built tiles, the lanes have something to serve. */
+const BUILT_SHARE = 0.01;
+
+/**
+ * The three gates, in one place, because `--selftest`'s half-fix control has
+ * to pick a region this signature ACTUALLY fires on. Its first draft picked
+ * the biggest fringe region by road tiles and got 627,380-706,536, which is
+ * over the land and road gates and under neither of the findings — so lifting
+ * half its carriageway moved nothing and the control read BLIND. A control
+ * that selects by different rules than the detector is not a control.
+ */
+function firesLanes(f: Fringe, minLand: number, minRoadShare: number): boolean {
+  return f.land >= minLand && f.road / f.land >= minRoadShare && f.built / f.land < BUILT_SHARE;
+}
+
 function lanesServingNothing(
   a: Audit,
   plan: CityPlan,
   minLand: number,
   minRoadShare: number,
 ): Finding[] {
-  /** Above this share of built tiles, the lanes have something to serve. */
-  const BUILT_SHARE = 0.01;
   const out: Finding[] = [];
   for (const f of fringeRegions(a, plan)) {
-    if (f.land < minLand) continue;
+    if (!firesLanes(f, minLand, minRoadShare)) continue;
     const roadShare = f.road / f.land;
-    if (roadShare < minRoadShare) continue;
-    if (f.built / f.land >= BUILT_SHARE) continue;
     const span = Math.max(f.x1 - f.x0 + 1, f.y1 - f.y0 + 1);
     const [cx, cy, cw] = crop((f.x0 + f.x1) / 2, (f.y0 + f.y1) / 2, span, a.W, a.H);
     out.push({
@@ -2070,6 +2182,7 @@ function lanesServingNothing(
       w: cw,
       severity: f.built === 0 ? 'high' : 'med',
       rank: f.road,
+      mag: magOf(f.road), // tiles of carriageway on land no district polygon claims
       reason: `${f.x0},${f.y0}-${f.x1},${f.y1}: ${f.land} tiles of land outside every district polygon carry ${f.road} carriageway tiles (${(100 * roadShare).toFixed(1)}%) and ${f.built} built tiles — lanes with nothing to drive to, because the fringe pass only places buildings within a district's own pitch of town (§14.6 D5) and this ground is in no district`,
     });
   }
@@ -2303,6 +2416,7 @@ function baldCountry(a: Audit, plan: CityPlan, minLand: number, ratioGate: numbe
       w: cw,
       severity: ratio <= ratioGate / 2 ? 'high' : 'med',
       rank: f.land * (1 - ratio),
+      mag: magOf(f.land * (inside - outside)), // tiles of wood the fill would have planted at the neighbouring blocks' own rate and did not
       reason: `${name} ${f.x0},${f.y0}-${f.x1},${f.y1}: ${f.land} tiles of country no block covers are ${(100 * outside).toFixed(1)}% wood, against ${(100 * inside).toFixed(1)}% in the ${f.nbLand} tiles of country inside the ${f.nbBlocks} rural block(s) next to them (${ratio.toFixed(2)}x) — the rural fill runs over BLOCKS, so ground outside every block was never asked what it is and keeps the bare meadow the ground pass wrote`,
     });
   }
@@ -2434,6 +2548,7 @@ function rulerCuts(a: Audit, minLen: number, maxWide: number): Finding[] {
           w: cw,
           severity: len >= minLen * 2 ? 'high' : 'med',
           rank: len / wide,
+          mag: magOf(len * wide), // tiles of slot cut with a ruler
           reason: `${wide}-tile-wide cut of ${tileName(s[2] as number)} at ${x0},${y0} running ${len} tiles ${vertical ? 'east-west' : 'north-south'} through woodland, the same span on every one of those lines — nothing in open country is straight over that distance except a carriageway or a runway, and this is neither, so it is a route some pass drew with a ruler and never softened`,
         });
       }
@@ -2878,18 +2993,104 @@ function selftest(city: BakedCity, plan: CityPlan): void {
       tiles,
       courses: p.courses ? p.courses(city.courses) : city.courses,
     };
-    const before = run(city, plan, new Set([p.sig])).filter((f) => f.sig === p.sig).length;
-    const after = run(dirty, plan, new Set([p.sig])).filter((f) => f.sig === p.sig).length;
+    const clean = run(city, plan, new Set([p.sig])).filter((f) => f.sig === p.sig);
+    const spoilt = run(dirty, plan, new Set([p.sig])).filter((f) => f.sig === p.sig);
+    const before = clean.length;
+    const after = spoilt.length;
+    const magBefore = clean.reduce((s, f) => s + f.mag, 0);
+    const magAfter = spoilt.reduce((s, f) => s + f.mag, 0);
     const fired = after > before;
-    if (!fired) broken++;
+    // A defect that was added has to make the magnitude bigger too. A
+    // signature that fires with no magnitude behind it contributes nothing to
+    // the score, so the score would not see it get fixed either.
+    const grew = magAfter > magBefore;
+    if (!fired || !grew) broken++;
     console.log(
-      `# ${pad(p.sig, 18)}  ${fired ? 'FIRED  ' : 'SILENT '}  ${before} -> ${after} at ${planted[0]},${planted[1]} — ${p.where}`,
+      `# ${pad(p.sig, 18)}  ${fired ? (grew ? 'FIRED  ' : 'NOMAG  ') : 'SILENT '}  ${before} -> ${after}` +
+        `  m ${magBefore} -> ${magAfter} at ${planted[0]},${planted[1]} — ${p.where}`,
     );
   }
   console.log(
-    `# ${broken === 0 ? 'every planted control fired' : `${broken} SIGNATURE(S) DID NOT FIRE — those numbers mean nothing`}`,
+    `# ${broken === 0 ? 'every planted control fired, and every one moved its magnitude' : `${broken} SIGNATURE(S) DID NOT FIRE OR DID NOT MOVE THEIR MAGNITUDE — those numbers mean nothing`}`,
   );
   console.log('# crossing-missing and fabric-coarse are calibrated against the 1469611 bake (--data), not planted');
+  if (halfFixControl(city, plan)) broken++;
+  if (broken > 0) process.exitCode = 1;
+}
+
+/**
+ * The control for THIS TOOL's own headline defect, and the one thing in here
+ * that is not about the city.
+ *
+ * A plant proves a detector can see a defect appear. It does not prove the
+ * instrument can see a defect get SMALLER — and that is exactly what failed:
+ * iteration 5 cut 203 carriageway tiles out of the shoulder region and the
+ * count read 55 either side, because the region was still over the 10% gate
+ * and a count only knows fired from not-fired.
+ *
+ * So: take the real `lanes-serving-nothing` finding on the shipped map, half
+ * fix it — lift out half of its carriageway, which is more than iteration 5
+ * managed and still nowhere near the gate — and require that the finding is
+ * STILL THERE and its magnitude has FALLEN. Fired-and-smaller is the state
+ * the old instrument could not distinguish from fired-and-identical.
+ *
+ * Returns true if the control failed.
+ */
+function halfFixControl(city: BakedCity, plan: CityPlan): boolean {
+  const sig = 'lanes-serving-nothing';
+  const only = new Set([sig]);
+  const before = run(city, plan, only);
+  console.log('# half-fix control: shrink a real finding without curing it');
+  if (before.length === 0) {
+    console.log(`# ${pad(sig, 18)}  SKIPPED  nothing fires on this bake, so there is nothing to half fix`);
+    return false;
+  }
+  // The region behind the biggest of them, found the same way the signature
+  // finds it so the control and the detector speak about the same tiles.
+  const a = buildAudit(city);
+  const worst = fringeRegions(a, plan)
+    .filter((f) => firesLanes(f, GATES.fringeLand, GATES.fringeRoad))
+    .sort((p, q) => q.road - p.road)[0];
+  if (!worst) {
+    console.log(`# ${pad(sig, 18)}  ERROR    the signature fires but no fringe region matches its gates`);
+    return true;
+  }
+  const tiles = city.tiles.slice();
+  const { W, H } = a;
+  let lifted = 0;
+  const half = Math.floor(worst.road / 2);
+  for (let y = worst.y0; y <= worst.y1 && lifted < half; y++) {
+    for (let x = worst.x0; x <= worst.x1 && lifted < half; x++) {
+      const i = y * W + x;
+      if (isRoad(tiles[i] as number)) {
+        tiles[i] = T_FIELD;
+        lifted++;
+      }
+    }
+  }
+  void H;
+  const after = run({ ...city, tiles }, plan, only);
+  const magBefore = before.reduce((s, f) => s + f.mag, 0);
+  const magAfter = after.reduce((s, f) => s + f.mag, 0);
+  // Still firing, and smaller. Either half missing is the failure.
+  const stillFires = after.length === before.length;
+  const shrank = magAfter < magBefore;
+  const ok = stillFires && shrank;
+  console.log(
+    `# ${pad(sig, 18)}  ${ok ? 'SHRANK ' : 'BLIND  '}  ${before.length} -> ${after.length}` +
+      `  m ${magBefore} -> ${magAfter} after lifting ${lifted} of ${worst.road} carriageway tiles out of ` +
+      `${worst.x0},${worst.y0}-${worst.x1},${worst.y1}`,
+  );
+  console.log(
+    `# ${
+      ok
+        ? 'a partial fix scores: the count held and the magnitude fell'
+        : stillFires
+          ? 'THE MAGNITUDE DID NOT MOVE FOR A HALF FIX — the score cannot see partial progress'
+          : 'the count moved, so this control tested nothing; pick a deeper half fix'
+    }`,
+  );
+  return !ok;
 }
 
 /* ------------------------------------------------------------------ */
@@ -3072,22 +3273,47 @@ function main(): void {
       bag.sort((p, q) => SEV_ORDER[p.severity] - SEV_ORDER[q.severity] || q.rank - p.rank);
       const shown = bag.slice(0, limit);
       for (const f of shown) {
-        console.log(`${pad(f.sig, 18)}  ${pad(`${f.x},${f.y},${f.w}`, 14)}  ${pad(f.severity, 5)}  ${f.reason}`);
+        console.log(
+          `${pad(f.sig, 18)}  ${pad(`${f.x},${f.y},${f.w}`, 14)}  ${pad(f.severity, 5)}  ${pad(`m=${f.mag}`, 9)}  ${f.reason}`,
+        );
       }
       if (bag.length > shown.length) {
-        console.log(`${pad(sig, 18)}  ${pad('-', 14)}  ${pad('-', 5)}  ... and ${bag.length - shown.length} more (--all to list)`);
+        const rest = bag.slice(shown.length).reduce((s, f) => s + f.mag, 0);
+        console.log(
+          `${pad(sig, 18)}  ${pad('-', 14)}  ${pad('-', 5)}  ${pad(`m=${rest}`, 9)}  ... and ${bag.length - shown.length} more (--all to list)`,
+        );
       }
     }
   }
-  console.log('# summary');
+  // Widened from 18 because three signature names are longer than that and
+  // pushed their own numbers out of column. With one number a reader could
+  // still find it; with three they cannot.
+  const SW = 23;
+  const row = (name: string, n: string, m: string, sc: string, tail = ''): string =>
+    `# ${pad(name, SW)}  ${n.padStart(6)}  ${m.padStart(7)}  ${sc.padStart(9)}${tail}`;
+  console.log(row('summary', 'count', 'tiles', 'score'));
   let total = 0;
+  let totalTiles = 0;
+  let totalScore = 0;
   for (const sig of ALL_SIGS) {
     if (!want(sig)) continue;
-    const n = bySig.get(sig)?.length ?? 0;
+    const bag = bySig.get(sig) ?? [];
+    const n = bag.length;
+    const m = bag.reduce((s, f) => s + f.mag, 0);
+    const sc = m * weightOf(sig);
     total += n;
-    console.log(`# ${pad(sig, 18)}  ${String(n).padStart(6)}${NOISY.has(sig) ? '  noisy' : ''}`);
+    totalTiles += m;
+    totalScore += sc;
+    console.log(
+      row(sig, String(n), String(m), sc.toFixed(1), NOISY.has(sig) ? `  noisy x${NOISY_WEIGHT}` : ''),
+    );
   }
-  console.log(`# ${pad('TOTAL', 18)}  ${String(total).padStart(6)}`);
+  console.log(row('TOTAL', String(total), String(totalTiles), totalScore.toFixed(1)));
+  console.log(`# SCORE ${totalScore.toFixed(1)}, in weighted tiles of defect, against TOTAL ${total} candidates.`);
+  console.log('# TOTAL is the count and its meaning is unchanged, so it compares straight back through the loop.');
+  console.log('# SCORE is what moves when a defect gets SMALLER without going away — which a count cannot see.');
+  console.log('# SCORE is an area, so the signature covering the most ground dominates it; a small signature\'s');
+  console.log('# progress shows in its own `tiles` column, which is the same measurement unweighted.');
 }
 
 function pad(s: string, w: number): string {
