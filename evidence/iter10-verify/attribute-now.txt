@@ -1,0 +1,22 @@
+# land regions outside every district polygon, largest road first
+# flagged = land >= 1000, road share >= 10%, built share < 1%
+
+ok      627,380-706,536: land 4889, road 1612 (33.0%), built 292 (5.97%)
+    (after layout)        1612   drop it and 0 road is left = 0.0%  <10%, CLEARS
+    or clear it on built tiles: needs 49, has 292 (+-243)
+
+FLAGGED 393,312-549,365: land 5749, road 1198 (20.8%), built 0 (0.00%)
+    (after layout)        1198   drop it and 0 road is left = 0.0%  <10%, CLEARS
+    or clear it on built tiles: needs 58, has 0 (+58)
+
+FLAGGED 267,312-365,375: land 3237, road 1140 (35.2%), built 10 (0.31%)
+    (after layout)        1140   drop it and 0 road is left = 0.0%  <10%, CLEARS
+    or clear it on built tiles: needs 33, has 10 (+23)
+
+ok      432,8-649,70: land 4817, road 1122 (23.3%), built 260 (5.40%)
+    (after layout)        1122   drop it and 0 road is left = 0.0%  <10%, CLEARS
+    or clear it on built tiles: needs 49, has 260 (+-211)
+
+ok      406,476-416,653: land 861, road 479 (55.6%), built 44 (5.11%)
+
+ok      77,247-179,253: land 276, road 265 (96.0%), built 0 (0.00%)

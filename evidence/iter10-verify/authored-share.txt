@@ -1,0 +1,19 @@
+# authored roads: 17, courses after median split: 18 (The Ring -> 2)
+# CONTROLS
+  C1 point on The Ring's carved course at 459,654 -> The Ring; bake says carriageway=true   FIRES
+  C2 open country at 60,60 -> no authored road; bake says carriageway=false   FIRES
+
+# flagged fringe regions, authored share re-derived from plan.roads
+
+FLAGGED 393,312-549,365: land 5749, road 1198 (20.8%), built 0
+    authored (plan disc)     213   = 3.7% of land on their own  <10%, would clear
+    everything else          985   = 17.1% of land on their own  >=10%, STILL FIRES
+      Kelvin Bridge          213
+    C3 sensitivity: disc +1 tile -> 219 authored (was 213)  FIRES
+
+FLAGGED 267,312-365,375: land 3237, road 1140 (35.2%), built 10
+    authored (plan disc)     767   = 23.7% of land on their own  >=10%, STILL FIRES
+    everything else          373   = 11.5% of land on their own  >=10%, STILL FIRES
+      The Ring               512
+      Old Bridge             255
+    C3 sensitivity: disc +1 tile -> 771 authored (was 767)  FIRES

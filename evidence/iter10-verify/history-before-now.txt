@@ -1,0 +1,11 @@
+# CONTROL: country-outside-blocks on bb0aaae — staged(bb0aaae)=1  current tree=0
+#   they differ, so the staged copy really is the pre-iteration-9 instrument  FIRES
+
+bake                                  TOTAL      SCORE
+e3306c8~2                                61    16728.5
+7769a2c                                  55     3129.5
+ffb2e89                                  55     2926.5
+b5c7805                                  55     2926.5
+ce3189b                                  49     2911.8
+cda745a                                  49     2911.8
+bb0aaae                                  49     2911.8
