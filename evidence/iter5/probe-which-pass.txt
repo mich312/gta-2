@@ -1,0 +1,13 @@
+carriageway laid on land outside every district polygon, after each pass:
+  pass                 city-wide  A headland  B shoulder
+  paintOwnership               0           0           0   (+0, +0, +0)
+  carveAuthoredRoads        2474         216         772   (+2474, +216, +772)
+  layEsplanade              5190         779        1168   (+2716, +563, +396)
+  laySeamStreets            6347        1122        1168   (+1157, +343, +0)
+  weaveFabrics              7572        1204        1362   (+1225, +82, +194)
+  stitchBoroughs            7606        1204        1362   (+34, +0, +0)
+  guardRingAccess           7523        1204        1346   (+-83, +0, +-16)
+  trimBridges               6823        1204        1346   (+-700, +0, +0)
+  mapCliffIslands           6823        1204        1346   (+0, +0, +0)
+  finishShores              6122        1198        1346   (+-701, +-6, +0)
+  cutMissedJunctions        6131        1198        1346   (+9, +0, +0)

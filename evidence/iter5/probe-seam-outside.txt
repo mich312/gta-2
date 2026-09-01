@@ -1,0 +1,16 @@
+seam tiles marked: 1557
+  anchored (one side inside its own district's polygon): 1187
+  neither side drawn there: 370  -> the tiles a polygon-anchored rule stops
+  dilated 3x3, that is at most 3330 tiles of carriageway, before overlap
+
+17 runs. For each: how much town stands within 20 tiles of it in the shipped bake.
+   run  tiles  bbox                   built  pavement  owners
+     0     97  454,338-530,351            0         1  The Spine / Beachfront
+     1     82  410,527-413,605         1012       659  Old Suburbs / New Suburbs
+     2     56  96,248-149,251           879       634  Vasco Heights / The Docks
+     3     52  541,13-555,50            149       158  Ravenhill Park / North Point
+     4     37  406,493-410,521          466       437  The Terraces / Beachfront / New Suburbs / Old Suburbs
+     5     19  155,251-173,252          339       285  Vasco Heights
+     6      6  423,312-423,317          106       209  Ravenhill / The Spine
+     7      5  85,248-89,248            273       212  Vasco Heights
+     8      4  645,463-648,467          285       249  Beachfront / New Suburbs

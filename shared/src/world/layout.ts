@@ -603,6 +603,29 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // stand cars at kerbs or walk "along the street" get the exact number the
   // lattice was carved with instead of estimating it from tarmac.
   const bearing = new Uint8Array(W * H);
+
+  /**
+   * How far this tile was carried from the ground its borough was DRAWN on.
+   *
+   * Zero inside the authored polygon, and the D1 flood's own breadth-first
+   * depth outside it — the flood assigns an owner one land tile at a time, so
+   * its wavefront depth already IS "distance over dry land from the polygon",
+   * for free. `CLAIM_FAR` for an offshore rock the second, wading wave claims,
+   * which is no distance over land at all.
+   *
+   * The passes that make TOWN need this. `owner` says which borough would take
+   * responsibility for a tile; it does not say whether that borough's plan
+   * reaches it. The coastline warp pushes land a few tiles past the outlines
+   * and the flood follows it — that is the fringe D1 exists for — but the same
+   * flood also hands a borough a whole headland the author never drew, and the
+   * esplanade and the seam street then dress it as town while the block cut,
+   * which is clipped to the polygon's bounding box, never arrives. That gap is
+   * `lanes-serving-nothing`: 5,749 tiles of headland carrying 1,197 tiles of
+   * carriageway and not one building.
+   */
+  const claimDepth = new Int32Array(W * H).fill(-1);
+  /** An offshore rock the wading wave claimed: no land reach at all. */
+  const CLAIM_FAR = 1 << 20;
   const paintOwnership = (): void => {
     for (const [di, d] of plan.districts.entries()) {
       const idx = DISTRICT_IDX[d.district];
@@ -614,6 +637,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           district[ty * W + tx] = idx;
           owner[ty * W + tx] = di;
           bearing[ty * W + tx] = deg;
+          claimDepth[ty * W + tx] = 0;
         }
       }
     }
@@ -647,6 +671,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           owner[j] = owner[i] as number;
           district[j] = district[i] as number;
           bearing[j] = bearing[i] as number;
+          claimDepth[j] = (claimDepth[i] as number) + 1;
           bag.push(j);
         }
       }
@@ -685,6 +710,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             owner[j] = wet[j] as number;
             district[j] = DISTRICT_IDX[d.district] as number;
             bearing[j] = ((Math.round(d.street.angle) % 180) + 180) % 180;
+            claimDepth[j] = CLAIM_FAR;
           }
         }
       }
@@ -998,11 +1024,72 @@ export function buildLayout(plan: CityPlan): CityLayout {
   const shoreParallelRoadNear = (tx: number, ty: number): boolean =>
     shoreParallelRoadNearIn(shoreDist, shoreSmooth, tx, ty);
 
+  /**
+   * How far past its own outline a borough's plan still reaches, in tiles.
+   *
+   * The warp fringe is the ground D1 exists for and it is shallow; a landform
+   * the author never drew is deep. Measured on the shipped plan, whole runs of
+   * street at a time (`evidence/iter5/probe-whole-runs.mjs`): the deepest run
+   * with any town beside it starts 23 tiles out — 303 tiles of Beachfront
+   * coast road with 116 built tiles within twenty — and the shallowest run
+   * with NO town beside it starts at 25. Both of those are whole runs, so the
+   * window is [23, 24] and this is the top of it. It is a narrow window and
+   * the plan can move it; the probe reprints it.
+   */
+  const CLAIM_REACH = 24;
+
+  /**
+   * Drop the runs of a proposed street that stand entirely out of reach.
+   *
+   * The unit has to be the whole connected run, not the tile. Cutting a road
+   * where it crosses a distance contour leaves half a road ending in a field —
+   * which is `road-deadend`, traded for `lanes-serving-nothing`. So a run
+   * survives if ANY of it is within `CLAIM_REACH` of the ground its borough
+   * was drawn on, and only a run with none of it in reach is refused.
+   *
+   * Grouped over a 5x5 neighbourhood rather than 3x3 on purpose: this is asked
+   * about traced lines that may be one tile wide and stagger diagonally, and
+   * the conservative direction here is to merge two pieces of one street, not
+   * to split one street into a piece that is in reach and a piece that is not.
+   */
+  const inReachRuns = (cells: number[]): Set<number> => {
+    const all = new Set(cells);
+    const keep = new Set<number>();
+    const seen = new Set<number>();
+    for (const s of cells) {
+      if (seen.has(s)) continue;
+      const bag = [s];
+      seen.add(s);
+      let near = false;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        const depth = claimDepth[i] as number;
+        if (depth >= 0 && depth <= CLAIM_REACH) near = true;
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 2; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const j = ny * W + nx;
+            if (!all.has(j) || seen.has(j)) continue;
+            seen.add(j);
+            bag.push(j);
+          }
+        }
+      }
+      if (near) for (const i of bag) keep.add(i);
+    }
+    return keep;
+  };
+
   const esplanade = new Set<number>();
   const espBand = new Set<number>();
 
   const layEsplanade = (): void => {
     preEsp = tiles.slice();
+    const candidates: number[] = [];
     // Wherever a non-rural borough meets the water, a street runs along the
     // shore at a quay's distance — §13.1's Finding 3, fixed at the source. The
     // dead fringe of bare field between the last street and the sea becomes a
@@ -1033,13 +1120,32 @@ export function buildLayout(plan: CityPlan): CityLayout {
         const sd = shoreDist[i] as number;
         if (sd < 3 || sd >= 6) continue;
         if (shoreParallelRoadNear(tx, ty)) continue;
-        lay(tx, ty, null);
-        // The esplanade's own centre line, for a course below. ONE distance,
-        // not a window: `shoreDist` is integral, so `|sd - 4.5| < 0.6` picks
-        // both 4 and 5 and the chainer then runs two lines down one road —
-        // which the doubling test correctly reports as a duplicate, of itself.
-        if (sd === 4 || sd === 5) espBand.add(i);
+        candidates.push(i);
       }
+    }
+
+    // ...and a promenade needs a town behind it. The band above is chosen on
+    // `owner`, which the D1 flood spreads over every dry tile, so it also
+    // traces the shore of ground no borough's plan reaches — where there is no
+    // "dead fringe between the last street and the sea" to close, because
+    // there is no last street and no town. Refused a whole run at a time, so a
+    // coast road is never cut in half at a distance contour.
+    const laid = inReachRuns(candidates);
+    // Walked in the scan order the band was found in, not the run order the
+    // grouping returns: `espBand`'s insertion order reaches `chainTiles`, and
+    // a course chained from the same tiles in a different order is a different
+    // polyline.
+    for (const i of candidates) {
+      if (!laid.has(i)) continue;
+      const tx = i % W;
+      const ty = (i - tx) / W;
+      lay(tx, ty, null);
+      // The esplanade's own centre line, for a course below. ONE distance,
+      // not a window: `shoreDist` is integral, so `|sd - 4.5| < 0.6` picks
+      // both 4 and 5 and the chainer then runs two lines down one road —
+      // which the doubling test correctly reports as a duplicate, of itself.
+      const sd = shoreDist[i] as number;
+      if (sd === 4 || sd === 5) espBand.add(i);
     }
 
     // One line down the middle of the band, not two. `shoreDist` is integral,
@@ -1132,6 +1238,21 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
         }
       }
+      // The seam this trace finds on ground no borough was drawn on is NOT
+      // decoration, though it looks exactly like it. Measured in iteration 5:
+      // refusing the out-of-reach runs the way `layEsplanade` refuses its own
+      // (`inReachRuns`) takes 307 tiles of carriageway off the headland north
+      // of Kelvin Bridge — a chevron crossing five hundred metres of empty
+      // meadow with three built tiles within twenty of any of it — and breaks
+      // `city.test.ts` "leaves no ground to nobody, and no borough walled off
+      // from its neighbours": that chevron is the WHOLE of the boundary The
+      // Spine shares with Beachfront, and D2's street is what makes 12% of it
+      // crossable. Crossable share falls to 3/34 of the required, and the
+      // invariant is right to fail. The defect is upstream, in a D1 flood that
+      // invents a borough boundary across a landform the author never drew;
+      // taking the street off the boundary does not take the boundary away.
+      // See `evidence/iter5/` and the iteration 5 report.
+      //
       // Chebyshev-1 dilation of the traced line: a staircase boundary
       // becomes a clean three-wide diagonal course, the same shape the
       // wavy carver leaves.

@@ -1,0 +1,58 @@
+
+=== esplanade: 34 runs, 10339 tiles.
+    wholly beyond reach 24: 1 runs, 198 tiles
+   tiles  bbox                      reach  built<20  pave<20  drop?  owners
+    2422  225,10-711,299             0-40      3644     4019  keep   Ravenhill Park / North Point / Ravenhill / Old Quarter
+     976  51,228-112,509              0-2      1999     1675  keep   Vasco Heights / The Docks / The Foundry
+     750  469,268-636,364            0-43       618      965  keep   Old Quarter / The Spine / Beachfront
+     506  157,235-178,402             0-2      1086      962  keep   Vasco Heights / The Docks
+     500  192,384-264,480             0-0       843      958  keep   The Terraces
+     498  201,485-272,620             0-0       690      876  keep   The Terraces / Old Suburbs
+     474  339,304-449,346            0-33       502      657  keep   Ravenhill / The Spine / Beachfront
+     428  651,454-687,586            0-16       719      668  keep   New Suburbs
+     333  91,184-173,229              0-0       494      625  keep   Vasco Heights
+     303  657,382-704,432           23-75       116      136  keep   Beachfront
+     302  468,378-565,410             0-0       763      794  keep   Beachfront
+     271  306,535-339,566             0-0      1146      645  keep   Old Suburbs
+     260  342,383-392,423             0-0       512      638  keep   The Terraces
+     258  208,239-265,279             0-0       455      613  keep   Ravenhill
+     211  387,426-408,488             0-1       661      866  keep   The Terraces / Beachfront
+     204  280,388-336,409             0-0       560      558  keep   The Terraces
+     204  338,494-398,528             0-0       730      794  keep   The Terraces / Old Suburbs
+     201  374,429-392,489             0-0       585      821  keep   The Terraces
+     198  288,336-332,348           25-38         0        0  DROP   Ravenhill
+     190  402,396-434,421             0-1       371      443  keep   Beachfront / The Terraces
+     187  328,494-378,528             0-0       807      738  keep   The Terraces / Old Suburbs
+     157  359,665-415,681             0-0         0      153  keep   Sunridge Park
+     106  607,378-639,389            0-13       400      429  keep   Beachfront
+     101  152,433-157,467             0-0       307      280  keep   The Foundry
+      90  273,673-302,688             0-0         9      170  keep   Sunridge Park
+      48  587,354-597,363            1-10       124      174  keep   Beachfront
+      44  118,494-132,499             0-0       171      181  keep   The Foundry
+      41  142,471-151,483             0-0       266      211  keep   The Foundry
+      37  289,308-293,322            0-11       201      173  keep   Ravenhill
+
+=== seam: 29 runs, 4803 tiles.
+    wholly beyond reach 24: 3 runs, 314 tiles
+   tiles  bbox                      reach  built<20  pave<20  drop?  owners
+    1012  393,457-637,521             0-4      2965     2635  keep   The Terraces / Beachfront / New Suburbs / Old Suburbs
+     389  540,13-560,121             0-37       491      656  keep   Ravenhill Park / North Point
+     365  422,198-426,318             0-7      1013     1203  keep   The Spine / Ravenhill
+     317  313,610-414,618             0-3       820      790  keep   Old Suburbs / Sunridge Park / Marsh End
+     307  454,337-531,352           25-40         3        4  DROP   The Spine / Beachfront
+     295  547,188-551,284             0-0       668      938  keep   The Spine / Old Quarter
+     252  409,526-414,606             2-4      1093      699  keep   Old Suburbs / New Suburbs / Marsh End
+     235  549,138-586,178             0-0       612      782  keep   The Spine / North Point / Old Quarter
+     210  618,161-677,174             0-0       611      701  keep   North Point / Old Quarter
+     191  424,132-428,194             0-0       712      892  keep   Ravenhill / The Spine
+     190  426,42-430,103              0-0       369      591  keep   Ravenhill / Ravenhill Park
+     176  95,247-150,252              0-2       906      676  keep   Vasco Heights / The Docks
+     162  282,507-333,512             0-0       710      625  keep   The Terraces / Old Suburbs
+     158  215,510-265,515             0-0       572      518  keep   The Terraces / Old Suburbs
+     156  102,406-151,411             0-0       882      552  keep   The Docks / The Foundry
+     100  66,410-97,414               0-0       597      429  keep   The Docks / The Foundry
+      98  261,618-292,622             0-0       152      269  keep   Old Suburbs / Sunridge Park / Sunridge Shore
+      60  155,250-174,253             0-2       343      310  keep   Vasco Heights / The Docks
+      42  437,121-450,123             0-0       178      365  keep   Ravenhill Park / The Spine
+      25  426,120-428,128             0-0       220      417  keep   Ravenhill / Ravenhill Park / The Spine
+      21  84,247-90,249               1-2       317      228  keep   Vasco Heights / The Docks
