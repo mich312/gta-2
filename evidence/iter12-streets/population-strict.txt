@@ -1,0 +1,57 @@
+=== CONTROLS — the strict measure must read BOTH ways ===
+
+CONTROL 1 — distribution over all 363 baked road courses
+  LOOSE   reads zero at both ends for    0 / 363
+  FOREIGN reads zero at both ends for    24 / 363
+  FOREIGN reads NONZERO at both ends for 274 / 363
+  ORPHAN  reads zero at both ends for    64 / 363
+  => FOREIGN CAN read zero AND nonzero — it discriminates
+  => LOOSE never reads zero — reproduces iteration 10s broken control
+
+CONTROL 2 — course #10 displaced (identical code path)
+  shift    0,   0: own=100  loose 7/3/3     foreign 6/3/3     orphan 1/0/0
+  shift    0, -40: own= 53  loose 9/13/8    foreign 9/13/8    orphan 0/0/0
+  shift   40,  40: own= 79  loose 12/3/9    foreign 12/3/9    orphan 0/0/0
+  shift  -60,   0: own= 23  loose 0/7/2     foreign 0/7/2     orphan 0/0/0
+  shift -200,-200: own= 19  loose 0/6/6     foreign 0/6/6     orphan 0/0/0
+
+CONTROL 3 — longest course #1 (1605 tiles, ring)
+  loose 63/106/60   foreign 53/92/52   orphan 10/14/8
+  => FOREIGN nonzero at both ends, as a plumbed-in road must be
+
+(parent source: buildLayout(plan) -> 326 authored courses — assertion fired, probe is not blind)
+
+=== POPULATION — the same 44, under FOREIGN instead of LOOSE ===
+
+baked road courses 363: whole 65, fragments 298, unmatched 0
+short fragments in the detector's length window [4,20): 44
+
+LOOSE  : both ends join 42   one end 2   NEITHER (terminal) 0
+         of the 0 terminal, the detector flags 0; it flags 5 of 44 overall
+FOREIGN: both ends join 33   one end 7   NEITHER (terminal) 4
+         of the 4 terminal, the detector flags 3; it flags 5 of 44 overall
+
+=== THE FIVE FLAGGED, loose vs foreign vs orphan ===
+
+#129 669,153->660,171 len=19.9
+   own 84  loose 10/12/10   foreign 4/7/6      orphan 6/5/4
+   => meets another course at BOTH ends
+#163 711,282->704,301 len=19.9
+   own 70  loose 8/16/3     foreign 8/10/2     orphan 0/6/1
+   => meets another course at BOTH ends
+#272 469,361->469,373 len=11.7
+   own 47  loose 7/11/2     foreign 0/0/0      orphan 7/11/2
+   => meets NO other course at either end — STRICT TERMINAL
+#298 254,568->266,568 len=11.8
+   own 53  loose 4/4/3      foreign 0/0/0      orphan 4/4/3
+   => meets NO other course at either end — STRICT TERMINAL
+#362 80,505->91,508 len=11.9
+   own 53  loose 6/11/4     foreign 0/3/0      orphan 6/8/4
+   => meets NO other course at either end — STRICT TERMINAL
+
+=== EVERY strict-terminal short fragment on the map ===
+
+  #272 469,361->469,373 len=11.7 w=3 kind=street  flagged=true  foreign 0/0/0 orphan 7/11/2
+  #298 254,568->266,568 len=11.8 w=3 kind=street  flagged=true  foreign 0/0/0 orphan 4/4/3
+  #332 536,616->553,616 len=17.0 w=3 kind=street  flagged=false  foreign 0/0/0 orphan 2/4/3
+  #362 80,505->91,508 len=11.9 w=3 kind=street  flagged=true  foreign 0/3/0 orphan 6/8/4

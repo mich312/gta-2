@@ -1,0 +1,62 @@
+=== edge-notch, rule for rule, on both bakes ===
+  before iteration 11 (city.data.before11.ts): 0
+  after  iteration 11 (shipped)               : 1
+  appeared: 625,642 water in sand
+  went away: (none)
+
+CONTROL — 1840 tiles differ between the two bakes
+  notches that appeared or vanished on ground neither bake changed: 0
+  => the rule reads the tiles and nothing else
+
+=== the ground at 625,642, before -> after ===
+
+638  r r r s s s[b>s][b>w][b>w][b>w][b>w][b>w][b>w][b>w] w
+639  f f r r[r>s][r>s][r>s][r>s][r>s][b>w][b>w][b>w] w w w
+640  f f r r[r>f][r>s][r>s][r>s][b>s][b>w][b>w] w w w w
+641 [f>t][r>f] r r[r>f][r>s][r>s][b>s] w w w w w w w
+642 [r>t][r>f] r r[r>s][r>s][b>s] w w w w w w w w
+643 [r>t][r>f] r r[r>f][r>s] s s s s w w w w w
+644 [r>t][r>f] r r[r>f][r>s][r>s] s s s s b b w w
+645 [r>t][r>f][f>r][f>r][f>r] r r r r r r r r s s
+646  f[f>t][t>f][t>f][t>f] f f f f f f r r s s
+647 [t>f][t>f][f>t][f>t][f>t] t t t t f f r r f t
+
+(x runs 618..632; a bracket is a tile iteration 11 changed)
+625,642 was water, is water
+  neighbour 626,642: water -> water
+  neighbour 624,642: bank -> sand
+  neighbour 625,643: sand -> sand
+  neighbour 625,641: bank -> sand
+
+tiles iteration 11 changed inside 580..700 x 600..680: 574
+
+=== is the notch drawn? ===
+CONTROL — the bevel plane cuts 1251 of 589824 tiles (0.2%)
+  => it cuts some tiles and not others — it discriminates
+  bevel at 625,642 (the notch): NONE
+  bevel at 626,642: NONE
+  bevel at 624,642: NONE
+  bevel at 625,643: NONE
+  bevel at 625,641: NONE
+
+CONTROL — the shore curve holds 6825 tiles
+  => it covers some tiles and not others — it discriminates
+  shore curve at 625,642: COVERED — the waterline here is repainted on a chord
+  shore curve at 626,642: not covered
+  shore curve at 624,642: not covered
+  shore curve at 625,643: not covered
+  shore curve at 625,641: covered
+
+=== what a car meets, from the shipped collision solver ===
+CONTROL — open sea at 640,642 should be 1.00 solid-to-land: 1.00
+CONTROL — dry beach  at 623,643 should be 0.00 solid-to-land: 0.00
+  the notch  625,642: 0.77 of the tile is solid to a car
+  its neighbours 625,641 / 625,643 / 624,642: 0.05 / 0.00 / 0.00
+
+=== the same tile, on the bake BEFORE iteration 11 ===
+CONTROL — open sea at 640,642: 1.00 (must be 1.00)
+CONTROL — dry beach at 623,643: 0.00 (must be 0.00)
+  625,642 solid-to-land BEFORE 0.77 -> AFTER 0.77
+  625,641 solid-to-land BEFORE 0.05 -> AFTER 0.05
+  625,643 solid-to-land BEFORE 0.00 -> AFTER 0.00
+  624,642 solid-to-land BEFORE 0.00 -> AFTER 0.00

@@ -1631,4 +1631,62 @@ describe('the city, as an asset', () => {
     // about exist on this map, so the painter case above them is live.
     expect(seen.has(T_BRIDGE)).toBe(true);
   });
+
+  it('carries at most the one single-tile bite the waterline is known to have', () => {
+    // `mapaudit`'s `edge-notch`, pinned. Iteration 12 was sent to this as "a
+    // regression introduced by this loop's own fix": it appeared in iteration
+    // 11's bake, which rerouted Coast Road onto the shore, and did not exist
+    // before. The first half is true and the second is not, and the difference
+    // is worth a test rather than a sentence.
+    //
+    // 625,642 is WATER in both bakes. What iteration 11 changed is its
+    // neighbours: 624,642 and 625,641 went from T_BANK to T_SAND when the
+    // reroute turned quay into beach. `edgeNotches` requires the three
+    // differing neighbours to be the same NATURAL material, and T_BANK is not
+    // natural — so the identical geometry was invisible to the signature while
+    // it was quay-lined, and legible the moment it became beach.
+    //
+    // The hazard itself did not move by one hundredth. Sampling the shipped
+    // `isSolidAtWorld` 8x8 across the tile gives 0.77 solid-to-land BEFORE
+    // iteration 11 and 0.77 after, against 0.00 for its dry neighbours and 1.00
+    // for open sea (`evidence/iter12-streets/notch.txt`). So it is a real, tiny,
+    // PRE-EXISTING indentation in the waterline — one tile of sea biting into a
+    // beach, open to the sea on its east side, not a pothole anybody can be
+    // trapped in — and it is not this loop's litter. It stays, and it stays
+    // VISIBLE as a finding rather than being gated away.
+    //
+    // What this pins is the budget. One is what the map has; a rebake that
+    // produces confetti will fail here, and so will a landlocked one, which is
+    // the version of this defect that would actually strand a car.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const natural = new Set<number>([T_FIELD, T_PARK, T_TREES, T_SAND, T_WATER]);
+    const at = (x: number, y: number): number =>
+      x < 0 || y < 0 || x >= W || y >= H ? T_WATER : (map.tiles[y * W + x] as number);
+    const notches: string[] = [];
+    const landlocked: string[] = [];
+    for (let y = 1; y < H - 1; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        const t = at(x, y);
+        if (!natural.has(t)) continue;
+        const n = [at(x + 1, y), at(x - 1, y), at(x, y + 1), at(x, y - 1)];
+        if (t !== T_WATER && !n.includes(T_WATER)) continue;
+        const other = n.filter((u) => u !== t);
+        if (other.length < 3) continue;
+        const u = other[0] as number;
+        if (!other.every((v) => v === u) || !natural.has(u)) continue;
+        notches.push(`${x},${y}`);
+        // Open to the sea, or a hole in the ground? The one on this map has a
+        // water neighbour, so a car meets a bite in the shoreline rather than a
+        // rock in the middle of a beach.
+        if (t === T_WATER && !n.includes(T_WATER)) landlocked.push(`${x},${y}`);
+      }
+    }
+    expect(landlocked, 'a single-tile pond with no way out is a rock in the beach').toEqual([]);
+    // Exact, not a ceiling. A ceiling would let this one be quietly cured and
+    // the decision above reversed with nothing going red; stated exactly, a
+    // round that fixes it has to come here, read why it was left, and delete
+    // the pin on purpose. That is the whole job of this test.
+    expect(notches).toEqual(['625,642']);
+  });
 });

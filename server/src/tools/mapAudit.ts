@@ -261,9 +261,10 @@ function magOf(n: number): number {
  * What a tile of each signature's defect is worth in the score.
  *
  * The `noisy` signatures are the reason this is not all ones. `built-staircase`
- * (24) and `street-serves-nothing` (5) together are more than half the count,
- * and a headline number more than half made of hits a reviewer is told to
- * treat as questions is a headline number that moves for the wrong reasons.
+ * (24) and `street-serves-nothing` (5 until iteration 12 narrowed it to 0)
+ * together were more than half the count, and a headline number more than half
+ * made of hits a reviewer is told to treat as questions is a headline number
+ * that moves for the wrong reasons.
  * Excluding them would be worse — they are not all false positives, and a
  * signature dropped from the score is a signature nobody looks at again. So
  * they are DISCOUNTED, not dropped: their findings still appear, still count
@@ -293,13 +294,13 @@ function weightOf(sig: string): number {
  * understanding them. What survives is a street narrowing where its borough
  * ends, which is real geometry and probably deliberate.
  *
- * `street-serves-nothing` earns it differently and more cheaply: four hits,
- * two of them right. Two of the four are coast roads whose COURSE was trimmed
- * at the waterline while the tarmac carries on round the bend, and no gate
- * this tool can express separates them from the islet street the signature
- * exists to find — that one joins the bridge approach sideways at exactly the
- * same angle. Four crops is a cheap glance; a reviewer taking all four for
- * defects is not.
+ * `street-serves-nothing` earned it differently and more cheaply: four hits,
+ * two of them right — and the note used to end "no gate this tool can express
+ * separates them". Iteration 12 found the gate: flood the tarmac from the end
+ * instead of marching a ray at it (`endEscape`). All five hits on the
+ * iteration-11 bake were the ray leaving a bending street, and the signature now
+ * reads 0 there. It keeps the discount anyway, for the reason given on
+ * `streetsServingNothing`: a signature is not made trustworthy by going quiet.
  */
 const NOISY = new Set<string>(['road-width-jump', 'built-staircase', 'street-serves-nothing']);
 
@@ -2730,29 +2731,149 @@ function tarmacBeyond(
 }
 
 /**
+ * How much OTHER carriageway an end opens onto: flood the tarmac from the
+ * endpoint and count the tiles reached within `reach` steps that are not this
+ * street's own paint.
+ *
+ * `tarmacBeyond` above marches a straight ray, and a straight ray is the wrong
+ * instrument on a map whose streets bend. Iteration 12 measured all five of this
+ * signature's shipped findings and every one of them has an end where the ray
+ * dies within three tiles while the STREET carries on: following the tarmac from
+ * #129's two ends gets 71.1 and 34.8 tiles away, #163's 105.3 and 78.6, #362's
+ * 86.7 and 78.9 (`evidence/iter12-streets/why-it-fires.txt`). The ray leaves the
+ * carriageway; the carriageway does not stop.
+ *
+ * Walking through the street's own band is allowed only within `D` tiles ALONG
+ * the centreline of the end being tested, so an end may step sideways off its own
+ * cap but the flood cannot drive the length of the street and out of the far end.
+ * The first version of this measure forbade the band outright and its controls
+ * caught it: it walls an endpoint in behind its own tarmac, and read `0 / 0` on
+ * the ring, which is a road round the entire city.
+ */
+function endEscape(a: Audit, c: StreetCourse, fromStart: boolean, reach: number): number {
+  const pts = c.points;
+  const half = c.width / 2 + 0.5;
+  const total = courseLength(c);
+  const D = Math.min(total / 2, 6);
+  const end = (fromStart ? pts[0] : pts[pts.length - 1]) as readonly [number, number];
+  /** null impassable; true escaped tarmac; false own paint, walk through it. */
+  const kind = (x: number, y: number): boolean | null => {
+    if (!isRoad(a.at(x, y))) return null;
+    let best = Infinity;
+    let arcAtBest = 0;
+    let acc = 0;
+    for (let k = 0; k + 1 < pts.length; k++) {
+      const [ax, ay] = pts[k] as readonly [number, number];
+      const [bx, by] = pts[k + 1] as readonly [number, number];
+      const dx = bx - ax;
+      const dy = by - ay;
+      const l2 = dx * dx + dy * dy;
+      const seg = Math.sqrt(l2);
+      let t = l2 === 0 ? 0 : ((x + 0.5 - ax) * dx + (y + 0.5 - ay) * dy) / l2;
+      t = t < 0 ? 0 : t > 1 ? 1 : t;
+      const d = Math.hypot(ax + dx * t - x - 0.5, ay + dy * t - y - 0.5);
+      if (d < best) {
+        best = d;
+        arcAtBest = acc + seg * t;
+      }
+      acc += seg;
+    }
+    if (best > half) return true;
+    return (fromStart ? arcAtBest : total - arcAtBest) <= D ? false : null;
+  };
+  const seen = new Set<number>();
+  let frontier: Array<[number, number]> = [];
+  const ex = Math.round(end[0]);
+  const ey = Math.round(end[1]);
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      const x = ex + dx;
+      const y = ey + dy;
+      if (x < 0 || y < 0 || x >= a.W || y >= a.H || kind(x, y) === null) continue;
+      const k = y * a.W + x;
+      if (!seen.has(k)) {
+        seen.add(k);
+        frontier.push([x, y]);
+      }
+    }
+  }
+  let out = 0;
+  for (let step = 0; step < reach && frontier.length > 0; step++) {
+    const next: Array<[number, number]> = [];
+    for (const [x, y] of frontier) {
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= a.W || ny >= a.H) continue;
+        const k = ny * a.W + nx;
+        if (seen.has(k)) continue;
+        const t = kind(nx, ny);
+        if (t === null) continue;
+        seen.add(k);
+        next.push([nx, ny]);
+        if (t) out++;
+        if (out > 4000) return out;
+      }
+    }
+    frontier = next;
+  }
+  return out;
+}
+
+/**
  * A short street whose course meets no other course at EITHER end, and whose
  * tarmac stops at both ends too.
  *
  * The point of this one is that connectivity cannot see it. The shipped
- * carriageway is a single 4-connected component of about 100,000 tiles, so
- * `checkCity` is satisfied by a street that is reachable; degree is a
- * different question, and a street whose both ends are terminal is a street
- * with nowhere to go. The control is the islet in the strait at 468-471 x
- * 357-374 — a fully painted 11.7-tile street with a cap at each end, entered
- * only by leaving Kelvin Bridge sideways at mid-span.
+ * carriageway is a single 4-connected component of 102,059 tiles — measured, in
+ * `evidence/iter12-streets/components.txt`, and it breaks into 7 pieces when the
+ * bridge tiles are removed, so the flood that says "one" can see a cut — and
+ * `checkCity` is satisfied by a street that is reachable. Degree is a different
+ * question, and a street whose both ends are terminal is a street with nowhere
+ * to go.
  *
- * `noisy`, and measured: of the four candidates on the shipped bake, one is
- * the islet, one is the tip of the spit at 80,505, and two (669,153 and
- * 711,282) are coast roads whose course was trimmed at the waterline while
- * the tarmac carries on around the bend — the course ends, the street does
- * not. Half is not a rate a reviewer should trust, so the caveat travels in
- * the output rather than in this comment.
+ * ITERATION 12 REPLACED THE END TEST AND THE SHIPPED FINDINGS WENT TO ZERO.
+ * The old test was `tarmacBeyond` alone: march the STRAIGHT extension of the
+ * last segment and call the end a cap if the carriageway runs out within
+ * `capReach`. On a map whose streets bend, that measures where the RAY leaves
+ * the road, not where the ROAD stops. All five findings on the iteration-11 bake
+ * were false positives of exactly this, each one shown three independent ways in
+ * `evidence/iter12-streets/`:
+ *
+ *   #129 669,153  #163 711,282  #362 80,505 — the ray dies in 1-3 tiles at both
+ *     ends; following the tarmac gets 34.8-105.3 tiles away from those same
+ *     endpoints, and flooding from them reaches 479-2158 tiles of other road.
+ *   #298 254,568 — its EAST end is a genuine cap, two tiles short of the ring
+ *     (the ring shave, WORLDGEN.md §14.3 D6, which `road-stops-short` settled in
+ *     iteration 9). Its west end opens onto 656 tiles.
+ *   #272 469,361 — the islet this comment used to name as the signature's own
+ *     designed control, "a fully painted street with a cap at each end, entered
+ *     only by leaving Kelvin Bridge sideways at mid-span". The tile dump refutes
+ *     that (`dump-272-islet-wide.txt`): it is a spur off a ring road round a
+ *     lagoon on the headland, its north end opens onto 182 tiles of that loop,
+ *     and only its south end — the tip of the peninsula — is a cap.
+ *
+ * So the cap test is now `tarmacBeyond` AND `endEscape`: the ray must die AND
+ * the end must open onto no more than `capEscape` tiles of other carriageway.
+ * `--selftest` still plants a 3-wide street in open field 300 tiles from
+ * anything and this still fires on it, which is what says the signature was
+ * narrowed rather than switched off.
+ *
+ * It stays in `NOISY`. The weight costs nothing at zero findings, and a
+ * signature demoted the moment it goes quiet is a signature nobody re-reads
+ * when it speaks again.
  */
 function streetsServingNothing(
   a: Audit,
   city: BakedCity,
   maxLen: number,
   capReach: number,
+  capEscape: number,
 ): Finding[] {
   const roads = city.courses.filter((c) => c.kind !== 'path');
   /** How near another centreline has to come to count as meeting this end. */
@@ -2774,6 +2895,10 @@ function streetsServingNothing(
     const b0 = tarmacBeyond(a, p0[0], p0[1], (p0[0] - p1[0]) / n0, (p0[1] - p1[1]) / n0, half, capReach);
     const b1 = tarmacBeyond(a, q1[0], q1[1], (q1[0] - q0[0]) / n1, (q1[1] - q0[1]) / n1, half, capReach);
     if (b0 > capReach || b1 > capReach) continue;
+    // ...and the ray dying is not enough: the end must also open onto nothing.
+    const e0 = endEscape(a, c, true, 60);
+    const e1 = endEscape(a, c, false, 60);
+    if (e0 > capEscape || e1 > capEscape) continue;
     const [cx, cy, cw] = crop((p0[0] + q1[0]) / 2, (p0[1] + q1[1]) / 2, Math.ceil(len), a.W, a.H);
     out.push({
       sig: 'street-serves-nothing',
@@ -2783,7 +2908,7 @@ function streetsServingNothing(
       severity: b0 + b1 <= 2 ? 'med' : 'low',
       rank: 40 - len,
       mag: magOf(len * c.width), // tiles of tarmac in a street with nowhere at either end
-      reason: `${len.toFixed(1)}-tile ${c.kind} from ${p0[0].toFixed(0)},${p0[1].toFixed(0)} to ${q1[0].toFixed(0)},${q1[1].toFixed(0)} meets no other centreline at either end, and its tarmac stops ${b0} and ${b1} tile(s) past them — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable`,
+      reason: `${len.toFixed(1)}-tile ${c.kind} from ${p0[0].toFixed(0)},${p0[1].toFixed(0)} to ${q1[0].toFixed(0)},${q1[1].toFixed(0)} meets no other centreline at either end, its tarmac stops ${b0} and ${b1} tile(s) past them, and flooding the carriageway from those two ends reaches only ${e0} and ${e1} tiles of any OTHER road — a street whose both ends are terminal. Connectivity cannot see it: the carriageway is one component, so this IS reachable`,
     });
   }
   return out;
@@ -4571,6 +4696,11 @@ interface Gates {
   serves: number;
   /** Tarmac allowed past a street's end before the end is not an end. */
   cap: number;
+  /**
+   * Carriageway an end may OPEN ONTO — measured by flooding the tarmac, not by
+   * marching a ray — before that end is not a cap. See `endEscape`.
+   */
+  capEscape: number;
   /** Smallest un-districted land region, in tiles, worth a finding. */
   fringeLand: number;
   /** Road share a fringe region needs before its emptiness is a defect. */
@@ -4593,6 +4723,7 @@ let GATES: Gates = {
   coverage: 0.5,
   serves: 20,
   cap: 4,
+  capEscape: 24,
   fringeLand: 1000,
   fringeRoad: 0.1,
   orphanLand: 200,
@@ -4632,7 +4763,7 @@ function run(city: BakedCity, plan: CityPlan, only: Set<string> | null): Finding
   if (want('course-coverage-outlier')) findings.push(...coverageOutliers(city, plan, GATES.coverage));
   if (want('course-unbuilt')) findings.push(...unbuiltCourses(a, plan));
   if (want('street-serves-nothing')) {
-    findings.push(...streetsServingNothing(a, city, GATES.serves, GATES.cap));
+    findings.push(...streetsServingNothing(a, city, GATES.serves, GATES.cap, GATES.capEscape));
   }
   if (want('lanes-serving-nothing')) {
     findings.push(...lanesServingNothing(a, plan, GATES.fringeLand, GATES.fringeRoad));

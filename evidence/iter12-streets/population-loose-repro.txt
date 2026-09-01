@@ -1,0 +1,41 @@
+=== A. the five hits: does the STREET stop, or only the CENTRELINE? ===
+
+## #129  669,153 -> 660,171  len=19.9  pass=?
+   parent #132 len=203.1 -> fragment kept 10%
+   parent carriageway BEYOND end A: 2.5/12.0 tiles   BEYOND end B: 11.5/12.0 tiles
+   own tarmac 84 tiles; joins other carriageway  END A 10 | MIDDLE 12 | END B 10
+
+## #163  711,282 -> 704,301  len=19.9  pass=?
+   parent #160 len=219.3 -> fragment kept 9%
+   parent carriageway BEYOND end A: 3.5/12.0 tiles   BEYOND end B: 1/12.0 tiles
+   own tarmac 70 tiles; joins other carriageway  END A 8 | MIDDLE 16 | END B 3
+
+## #272  469,361 -> 469,373  len=11.7  pass=?
+   parent #239 len=132.2 -> fragment kept 9%
+   parent carriageway BEYOND end A: 0/0.0 tiles   BEYOND end B: 1.5/12.0 tiles
+   own tarmac 47 tiles; joins other carriageway  END A 7 | MIDDLE 11 | END B 2
+
+## #298  254,568 -> 266,568  len=11.8  pass=?
+   parent #263 len=221.0 -> fragment kept 5%
+   parent carriageway BEYOND end A: 2/12.0 tiles   BEYOND end B: 7.5/12.0 tiles
+   own tarmac 53 tiles; joins other carriageway  END A 4 | MIDDLE 4 | END B 3
+
+## #362  80,505 -> 91,508  len=11.9  pass=?
+   parent #323 len=182.4 -> fragment kept 7%
+   parent carriageway BEYOND end A: 3/12.0 tiles   BEYOND end B: 1/12.0 tiles
+   own tarmac 53 tiles; joins other carriageway  END A 6 | MIDDLE 11 | END B 4
+
+=== B. city-wide population ===
+
+baked road courses          363
+  whole (parent kept)       65
+  FRAGMENTS (trimCourses)   298
+  parent not matched        0
+
+short fragments in the detector's own length window [4,20): 44
+  both ends join other carriageway   42
+  one end joins                      2
+  NEITHER end joins (truly terminal) 0
+  of these, the detector flags        5
+
+=> the detector flags 5 of 44 indistinguishable short fragments (11.4%)

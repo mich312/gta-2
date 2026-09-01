@@ -1,0 +1,13 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a73253595e4f47ded
+
+ ✓ |server| test/streetsServingNothing.test.ts (3 tests) 13589ms
+   ✓ street-serves-nothing > reports nothing on the shipped bake, where the pre-fix ray reported five  385ms
+   ✓ street-serves-nothing > still fires on a street planted in open field, so it was narrowed and not switched off  12915ms
+
+ Test Files  1 passed (1)
+      Tests  3 passed (3)
+   Start at  23:27:45
+   Duration  16.31s (transform 1.71s, setup 0ms, collect 2.08s, tests 13.59s, environment 0ms, prepare 131ms)
+
+[ci/test] green: 1 files matching "server/test/streetsServingNothing.test.ts", 0 failures, 0 ignored runner-noise error(s).
