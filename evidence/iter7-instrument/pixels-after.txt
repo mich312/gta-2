@@ -1,0 +1,24 @@
+
+  iter5 → iter6
+
+  crop               changed px   what it watches
+  -----------------------------   --------------------------------------
+  city            3918 (0.166%)   the whole map, 2 px a tile
+  ravenhill          2 (0.000%)   Ravenhill — the weave
+  kelvin          1913 (0.324%)   Kelvin — tightest streets, alleys
+  sunridge       13671 (2.318%)   Sunridge — the southern grid
+  marshend                    0   Marsh End — fringe and airfield
+  portvasco                   0   Port Vasco — across the sound
+  gannet                      0   Gannet Rock — air-only plateau
+  docks                       0   The Docks — contour fabric (A03)
+  strait         28766 (4.877%)   the strait crossings (A01)
+  hollis                      0   Hollis Creek (A02)
+  southshore                  0   the south shore and lagoon
+  ringroad                    0   the ring road through open country
+  marshpost                   0   Marsh Post — landmark mass (A04)
+  kelvinbridge                0   Kelvin Bridge deck (A01)
+  shoulderb                   0   region B, the unclaimed shoulder (iter5 reach cut)
+  headlanda       1007 (0.065%)   region A, unclaimed and unfixed (iter5, escalated)
+
+  6 of 16 watch crops moved.
+

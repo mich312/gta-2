@@ -1,0 +1,86 @@
+
+  iter5 → iter6
+
+  crop               changed px   what it watches
+  -----------------------------   --------------------------------------
+  city            3918 (0.166%)   the whole map, 2 px a tile
+  ravenhill          2 (0.000%)   Ravenhill — the weave
+  kelvin          1913 (0.324%)   Kelvin — tightest streets, alleys
+  sunridge       13671 (2.318%)   Sunridge — the southern grid
+  marshend                    0   Marsh End — fringe and airfield
+  portvasco                   0   Port Vasco — across the sound
+  gannet                      0   Gannet Rock — air-only plateau
+  docks                       0   The Docks — contour fabric (A03)
+  strait         28766 (4.877%)   the strait crossings (A01)
+  hollis                      0   Hollis Creek (A02)
+  southshore                  0   the south shore and lagoon
+  ringroad                    0   the ring road through open country
+  marshpost                   0   Marsh Post — landmark mass (A04)
+  kelvinbridge                0   Kelvin Bridge deck (A01)
+  shoulderb                   0   region B, the unclaimed shoulder (iter5 reach cut)
+  headlanda       1007 (0.065%)   region A, unclaimed and unfixed (iter5, escalated)
+
+  6 of 16 watch crops moved.
+
+  tiles  768x768, blocks 1182 → 1184
+  ! block count moved by 2. Downstream land use is index-coupled
+    to block count, so building and park placement re-rolls CITY-WIDE. Land-use
+    deltas below in boroughs your change never touched are that re-roll.
+
+  crop              tiles   carriageway  land use   what it watches
+  -----------------------------------------------   --------------------------------------
+  city                969       +294 -0       675   the whole map, 2 px a tile
+  ravenhill             0             0         0   Ravenhill — the weave
+  kelvin               34             0        34   Kelvin — tightest streets, alleys
+  sunridge            216             0       216   Sunridge — the southern grid
+  marshend              0             0         0   Marsh End — fringe and airfield
+  portvasco             0             0         0   Port Vasco — across the sound
+  gannet                0             0         0   Gannet Rock — air-only plateau
+  docks                 0             0         0   The Docks — contour fabric (A03)
+  strait              428       +219 -0       209   the strait crossings (A01)
+  hollis                0             0         0   Hollis Creek (A02)
+  southshore            0             0         0   the south shore and lagoon
+  ringroad              0             0         0   the ring road through open country
+  marshpost             0             0         0   Marsh Post — landmark mass (A04)
+  kelvinbridge          0             0         0   Kelvin Bridge deck (A01)
+  shoulderb             0             0         0   region B, the unclaimed shoulder (iter5 reach cut)
+  headlanda             1         +1 -0         0   region A, unclaimed and unfixed (iter5, escalated)
+
+  CARRIAGEWAY: 294 tiles (+294 -0), all within x 425-544 y 309-312.
+    named crops carrying it: strait, headlanda
+  LAND USE:    675 tiles, incl. kelvin 34, sunridge 216 with NO road transition.
+
+  reading the pixel column above:
+    road moved here     strait 28766 (4.877%) → +219 -0, headlanda 1007 (0.065%) → +1 -0
+    land use only       kelvin 1913 (0.324%), sunridge 13671 (2.318%)
+    pixels only         ravenhill 2 (0.000%)  (no tile class in the crop changed)
+
+  transitions per crop (— means the crop did not move)
+
+  city            969 tiles
+    carriageway   BUILDING->ROAD 130 | FIELD->ROAD 105 | SIDEWALK->ROAD 37 | LOT->ROAD 22
+    land use      LOT->BUILDING 98 | BUILDING->PARK 97 | LOT->FIELD 84 | BUILDING->FIELD 75 | LOT->SIDEWALK 70 | FIELD->BUILDING 64 | SIDEWALK->FIELD 63 | FIELD->PARK 43  (+3 more, 81 tiles)
+  ravenhill       —
+  kelvin          34 tiles
+    carriageway   NONE
+    land use      FIELD->SIDEWALK 23 | FIELD->BUILDING 10 | SIDEWALK->FIELD 1
+  sunridge        216 tiles
+    carriageway   NONE
+    land use      BUILDING->PARK 57 | FIELD->BUILDING 40 | FIELD->PARK 35 | SIDEWALK->FIELD 32 | BUILDING->FIELD 27 | PARK->BUILDING 16 | PARK->FIELD 9
+  marshend        —
+  portvasco       —
+  gannet          —
+  docks           —
+  strait          428 tiles
+    carriageway   BUILDING->ROAD 96 | FIELD->ROAD 80 | SIDEWALK->ROAD 27 | LOT->ROAD 16
+    land use      LOT->FIELD 76 | LOT->BUILDING 62 | LOT->SIDEWALK 50 | FIELD->BUILDING 12 | FIELD->SIDEWALK 9
+  hollis          —
+  southshore      —
+  ringroad        —
+  marshpost       —
+  kelvinbridge    —
+  shoulderb       —
+  headlanda       1 tile
+    carriageway   FIELD->ROAD 1
+    land use      none
+
