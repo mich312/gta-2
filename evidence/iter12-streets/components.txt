@@ -1,0 +1,19 @@
+=== CARRIAGEWAY components (T_ROAD | T_BRIDGE | T_RAMP, 4-connected) ===
+  102059 tarmac tiles in 1 components
+  largest 8: 102059
+  largest holds 100.0% of the tarmac
+  CONTROL, every T_BRIDGE tile removed: 7 components, largest 48518
+  => the flood CAN see a cut; on the real map the tarmac is genuinely ONE piece
+
+=== every baked road course NOT in the main carriageway component ===
+
+  (none — every baked road course sits in the main component)
+
+=== the six under review ===
+
+  #129 669,153->660,171: component 0 (102059 tiles) = MAIN
+  #163 711,282->704,301: component 0 (102059 tiles) = MAIN
+  #272 469,361->469,373: component 0 (102059 tiles) = MAIN
+  #298 254,568->266,568: component 0 (102059 tiles) = MAIN
+  #332 536,616->553,616: component 0 (102059 tiles) = MAIN
+  #362 80,505->91,508: component 0 (102059 tiles) = MAIN

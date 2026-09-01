@@ -1,0 +1,41 @@
+=== CONTROL — the geodesic over every baked road course ===
+
+  geodesic   0 : 350 courses
+  geodesic   1 : 1 courses
+  geodesic   4 : 1 courses
+  geodesic   8 : 1 courses
+  geodesic  11 : 3 courses
+  geodesic  15 : 1 courses
+  geodesic  20 : 1 courses
+  geodesic  21 : 1 courses
+  geodesic  39 : 1 courses
+  geodesic  42 : 2 courses
+  geodesic 141 : 1 courses
+  => the measure reads 11 distinct values; it separates plumbed-in from far — usable
+
+=== the five flagged (+ #332, strict-terminal and NOT flagged) ===
+
+#129 669,153->660,171 len=19.9 w=3 street
+   adjacent tarmac: FOREIGN 17  SELF-LEAK 15  UNOWNED 0
+   geodesic to the nearest other course, over tarmac: 0 tile(s)
+
+#163 711,282->704,301 len=19.9 w=3 street
+   adjacent tarmac: FOREIGN 20  SELF-LEAK 7  UNOWNED 0
+   geodesic to the nearest other course, over tarmac: 0 tile(s)
+
+#272 469,361->469,373 len=11.7 w=3 street
+   adjacent tarmac: FOREIGN 0  SELF-LEAK 20  UNOWNED 0
+   geodesic to the nearest other course, over tarmac: 141 tile(s)
+
+#298 254,568->266,568 len=11.8 w=3 street
+   adjacent tarmac: FOREIGN 0  SELF-LEAK 11  UNOWNED 0
+   geodesic to the nearest other course, over tarmac: 15 tile(s)
+
+#332 536,616->553,616 len=17.0 w=3 street
+   adjacent tarmac: FOREIGN 0  SELF-LEAK 9  UNOWNED 0
+   geodesic to the nearest other course, over tarmac: 21 tile(s)
+
+#362 80,505->91,508 len=11.9 w=3 street
+   adjacent tarmac: FOREIGN 3  SELF-LEAK 18  UNOWNED 0
+   geodesic to the nearest other course, over tarmac: 0 tile(s)
+

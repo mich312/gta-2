@@ -1,0 +1,3 @@
+city.data.ts  ()
+  carriageway 102059 tiles in 1 component(s): 102059
+  27 landmarks on the network; mean landmark-to-landmark travel distance 473.9 over 702 ordered pairs, 0 unreachable

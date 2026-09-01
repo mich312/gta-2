@@ -1,0 +1,58 @@
+=== CONTROLS (flood radius R=60 steps) ===
+
+CONTROL 1 — distribution over 726 course ends
+  escape 0..0: 34
+  escape 1..1: 9
+  escape 2..5: 6
+  escape 6..20: 9
+  escape 21..100: 6
+  escape 101..500: 32
+  escape 501..2000: 492
+  escape 2001..∞: 138
+  => 8 populated buckets — the measure spreads
+
+CONTROL 2 — course #10 displaced into open country (identical code path)
+  shift    0,   0: escape 1706 / 2434
+  shift   40,  40: escape 2277 / 2250
+  shift -200,-200: escape 0 / 2750
+
+CONTROL 3 — longest OPEN-ENDED course #2, 439 tiles: escape 706 / 1775
+  => saturates at both ends, as a road across the city must
+
+CONTROL 4 — #298, both ends read off dump-298.txt by eye:
+  WEST end 254,568 runs into the street at x=253-255 -> must be HIGH: 656
+  EAST end 266,568 stops two tiles short of the ring  -> must be LOW : 3
+  => one course, read both ways — the measure discriminates WITHIN a street
+
+=== the five flagged, and #332 which population-strict called terminal but the detector does not flag ===
+
+#129 669,153->660,171 len=19.9
+   escape A 1453 open       escape B 2158 open       => at least one end opens into the network
+#163 711,282->704,301 len=19.9
+   escape A 1386 open       escape B  886 open       => at least one end opens into the network
+#272 469,361->469,373 len=11.7
+   escape A  182 open       escape B  184 open       => at least one end opens into the network
+#298 254,568->266,568 len=11.8
+   escape A  656 open       escape B    3 TERMINAL   => at least one end opens into the network
+#332 536,616->553,616 len=17.0
+   escape A  566 open       escape B    8 TERMINAL   => at least one end opens into the network
+#362 80,505->91,508 len=11.9
+   escape A  732 open       escape B  479 open       => at least one end opens into the network
+
+=== POPULATION — the detector's length window, by end-escape ===
+
+courses in the detector's length window [4,20): 69
+  BOTH ends terminal (escape<=20) : 0
+  one end terminal                     : 4
+  neither                              : 65
+
+every both-ends-terminal course in the window:
+
+detector vs end-escape over the window: 0 true positive, 5 false positive, 0 false negative
+
+over ALL 363 baked road courses, both ends terminal: 5
+  #0 400,116->401,116 len=1556.1 ring escape 0/0  detector flags: false
+  #1 400,108->399,108 len=1604.7 ring escape 0/0  detector flags: false
+  #17 527,679->678,606 len=167.7 avenue escape 8/7  detector flags: false
+  #88 321,324->307,185 len=139.1 street escape 6/0  detector flags: false
+  #202 283,408->285,409 len=216.9 street escape 0/0  detector flags: false

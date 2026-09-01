@@ -1,0 +1,54 @@
+#129 width 3 street, 6 points
+   points: 669.16,153.00  667.42,156.58  665.67,160.16  663.92,163.74  662.18,167.32  660.43,170.90
+   END A 669.16,153.00 ray 0.44,-0.90
+         straight ray reaches 2 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 71.1 tiles AWAY from the endpoint
+   END B 660.43,170.90 ray -0.44,0.90
+         straight ray reaches 1 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 34.8 tiles AWAY from the endpoint
+
+#163 width 3 street, 6 points
+   points: 710.63,282.10  709.26,285.84  707.90,289.59  706.54,293.34  705.17,297.08  703.81,300.83
+   END A 710.63,282.10 ray 0.34,-0.94
+         straight ray reaches 3 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 105.3 tiles AWAY from the endpoint
+   END B 703.81,300.83 ray -0.34,0.94
+         straight ray reaches 1 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 78.6 tiles AWAY from the endpoint
+
+#272 width 3 street, 4 points
+   points: 469.06,360.95  469.00,364.83  468.93,368.72  468.86,372.61
+   END A 469.06,360.95 ray 0.02,-1.00
+         straight ray reaches 3 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 3.9 tiles AWAY from the endpoint
+   END B 468.86,372.61 ray -0.02,1.00
+         straight ray reaches 1 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 15.6 tiles AWAY from the endpoint
+
+#298 width 3 street, 4 points
+   points: 254.14,567.50  258.09,567.50  262.04,567.50  265.98,567.50
+   END A 254.14,567.50 ray -1.00,0.00
+         straight ray reaches 2 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 114.7 tiles AWAY from the endpoint
+   END B 265.98,567.50 ray 1.00,0.00
+         straight ray reaches 3 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 3 tiles AWAY from the endpoint
+
+#332 width 3 street, 9 points
+   points: 535.90,616.25  538.00,616.63  540.10,616.88  542.20,616.99  544.30,616.96  546.40,616.79  548.50,616.48  550.60,616.05  552.70,615.52
+   END A 535.90,616.25 ray -0.98,-0.18
+         straight ray reaches Infinity tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 69.7 tiles AWAY from the endpoint
+   END B 552.70,615.52 ray 0.97,-0.24
+         straight ray reaches Infinity tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 25.2 tiles AWAY from the endpoint
+
+#362 width 3 street, 4 points
+   points: 79.82,505.26  83.70,506.09  87.58,506.91  91.46,507.73
+   END A 79.82,505.26 ray -0.98,-0.21
+         straight ray reaches 3 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 86.7 tiles AWAY from the endpoint
+   END B 91.46,507.73 ray 0.98,0.21
+         straight ray reaches 1 tiles (gate: <=3 fires)
+         FOLLOWING the tarmac gets 78.9 tiles AWAY from the endpoint
+

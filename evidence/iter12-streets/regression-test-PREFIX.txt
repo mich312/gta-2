@@ -1,0 +1,61 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a73253595e4f47ded
+
+ ❯ |server| test/streetsServingNothing.test.ts (3 tests | 2 failed) 12993ms
+   × street-serves-nothing > reports nothing on the shipped bake, where the pre-fix ray reported five 341ms
+     → # street-serves-nothing         5      227       56.8       56.8  noisy x0.25: expected 5 to be +0 // Object.is equality
+   × street-serves-nothing > still fires on a street planted in open field, so it was narrowed and not switched off 12359ms
+     → expected '# street-serves-nothing  FIRED    5 -…' to match /0 -> 1/
+   ✓ street-serves-nothing > has no street on the shipped map with a cul-de-sac at both ends 291ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |server| test/streetsServingNothing.test.ts > street-serves-nothing > reports nothing on the shipped bake, where the pre-fix ray reported five
+AssertionError: # street-serves-nothing         5      227       56.8       56.8  noisy x0.25: expected 5 to be +0 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 0[39m
+[31m+ 5[39m
+
+ ❯ test/streetsServingNothing.test.ts:60:25
+     58|     const n = Number(cells[1]);
+     59|     expect(Number.isFinite(n), `could not read a count out of: ${row}`…
+     60|     expect(n, `${row}`).toBe(0);
+       |                         ^
+     61|     expect(out.split('\n').filter((l) => l.startsWith('street-serves-n…
+     62|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |server| test/streetsServingNothing.test.ts > street-serves-nothing > still fires on a street planted in open field, so it was narrowed and not switched off
+AssertionError: expected '# street-serves-nothing  FIRED    5 -…' to match /0 -> 1/
+
+[32m- Expected:[39m 
+/0 -> 1/
+
+[31m+ Received:[39m 
+"# street-serves-nothing  FIRED    5 -> 6  m 227 -> 263 at 441,313 — a 3-wide street carved in open field with a course down it and nothing at either end"
+
+ ❯ test/streetsServingNothing.test.ts:80:27
+     78|     expect(row, 'the selftest printed no line for this signature').toB…
+     79|     expect(row as string).toContain('FIRED');
+     80|     expect(row as string).toMatch(/0 -> 1/);
+       |                           ^
+     81|   });
+     82| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  22:57:25
+   Duration  15.45s (transform 1.56s, setup 0ms, collect 1.90s, tests 12.99s, environment 0ms, prepare 112ms)
+
+[ci/test] FAIL: 4 failed test(s), 0 real unhandled error(s).
+  - /home/user/gta-2/.claude/worktrees/agent-a73253595e4f47ded/server/test/streetsServingNothing.test.ts (file-level)
+  - /home/user/gta-2/.claude/worktrees/agent-a73253595e4f47ded/server/test/streetsServingNothing.test.ts: street-serves-nothing
+  - /home/user/gta-2/.claude/worktrees/agent-a73253595e4f47ded/server/test/streetsServingNothing.test.ts: reports nothing on the shipped bake, where the pre-fix ray reported five
+  - /home/user/gta-2/.claude/worktrees/agent-a73253595e4f47ded/server/test/streetsServingNothing.test.ts: still fires on a street planted in open field, so it was narrowed and not switched off
