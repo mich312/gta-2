@@ -1,0 +1,51 @@
+Requirement 1: which findings fire must not change.
+
+Proved on BOTH bakes, not one — the same detector code run against the
+iteration-4 bake and the iteration-5 bake, each diffed against what the
+iteration-5 detector said about that same bake.
+
+The only edit to a finding line is a new `m=<magnitude>` column between
+`severity` and `reason`. Strip it and the lines are byte-identical, in the
+same order, including the twelve-line `--limit` truncation lines.
+
+  strip() { sed -E 's/^([^#].{0,200}?)  (m=[0-9]+) {0,8}  /\1  /'; }
+
+--------------------------------------------------------------------------
+ffb2e89 — the shipped bake, the standing 55
+--------------------------------------------------------------------------
+  $ diff <(grep -v '^#' audit-before.txt) \
+         <(strip < audit-after.txt | grep -v '^#')
+  (no output)
+
+  55 finding lines before, 55 after, identical.
+
+--------------------------------------------------------------------------
+7769a2c — the pre-iteration-5 bake
+--------------------------------------------------------------------------
+  $ diff <(grep -v '^#' audit-7769a2c-oldcode.txt) \
+         <(strip < audit-7769a2c.txt | grep -v '^#')
+  (no output)
+
+  55 finding lines before, 55 after, identical.
+
+--------------------------------------------------------------------------
+Why this holds by construction
+--------------------------------------------------------------------------
+`mag` is a NEW field. Not one gate, threshold or `rank` expression was
+touched, and `rank` is still the sole sort key — so the set of findings, the
+order they print in, and which twelve survive `--limit` are all untouched.
+
+The one behavioural edit in the detector is `lanesServingNothing`'s three
+gates being lifted into `firesLanes()` verbatim so `--selftest`'s half-fix
+control can select by the same rules the detector fires by. Both runs above
+are AFTER that refactor, on both bakes, so it is covered by the diffs.
+
+The `x,y,w` field is untouched and still a `mapgen --crop=` argument. Taken
+straight off an audit line with awk and fed back in:
+
+  $ grep '^lanes-serving-nothing' audit-after.txt | head -1 | awk '{print $2}'
+  383,250,177
+  $ node server/dist/tools/mapgen.js --crop=383,250,177 --scale=2 \
+      --out=/tmp/crop-arg-check.png
+  seed=1 gen=1149ms blocks=1182 buildings=4012 shops=71 carSpawns=1476
+  playerSpawns=16 bevels=1213 -> /tmp/crop-arg-check.png
