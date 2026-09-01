@@ -2719,3 +2719,149 @@ control rather than by a failure.
   edge was not already drivable off the tile edge.
 - **Smallholdings (rural rule 4) are still not asked outside blocks.** They
   place `T_BUILDING` and would move the building count.
+
+---
+
+# Visual loop — iteration 9 close
+
+**TOTAL 49 → 48. SCORE 2911.8 → 2653.8. New column DRAWN 2522.5.** No map
+change: 0 of 16 watch crops moved, blocks 1184 → 1184, not one road tile moved
+anywhere. Both halves of this iteration were settlements, not fixes.
+
+## What SCORE means now
+
+> **SCORE** is the weighted tiles of defect in the **tile plane** — the ground
+> as baked, which is also what collision drives against. Otherwise unchanged:
+> it moves when a defect gets smaller without going away, it is an area,
+> `noisy` signatures at ×0.25.
+>
+> **DRAWN** is the part of SCORE a renderer actually puts on the screen. A
+> defect can be in the tile plane and painted over: a quay stepping every three
+> tiles is repainted against a chord by the coast, bank or deck curve and cannot
+> be seen from any camera. Those tiles stay in SCORE, because a renderer change
+> can expose them again without one tile of ground moving; they are subtracted
+> in DRAWN, because a reviewer sent to look at them sees nothing.
+>
+> **TOTAL** is still the count, but **no longer comparable back past iteration
+> 8**. Both series are restated in `evidence/iter9-instrument/history.txt`.
+
+## Column, not discount — and the argument that decided it
+
+Iteration 8 moved 149 step faces from drawn to not-drawn by teaching three
+painters a curve, **without moving one tile of ground**. Under a discount SCORE
+would have fallen ~100 for that: paying for a repaint at the rate it pays for a
+repair, and unable to tell a reader which had happened. Stated cost, so it can
+be reversed: SCORE carries 131 weighted invisible tiles for ever, a 5%
+over-read, mitigated by DRAWN printing on the same line every run.
+
+The two corrections are deliberately asymmetric. `built-staircase` is a **true
+report of a real but invisible fact** — §45.5 has collision reading that same
+mask — so it keeps its tiles and gains a column. `country-outside-blocks` was a
+**false report**, so it gains the gate it was missing and TOTAL falls with SCORE.
+
+## The restated history, and a correction to iteration 8's close
+
+```
+bake                                  TOTAL      SCORE    TOTAL      SCORE      DRAWN
+                                   (before)   (before)  (after)    (after)    (after)
+e3306c8~2  pre-iteration-3 (calib)       61    16728.5       60    16470.5    16339.3
+7769a2c    pre-iteration-5               55     3129.5       54     2871.5     2740.3
+ffb2e89    post-iteration-5              55     2926.5       54     2668.5     2537.3
+ce3189b    post-iteration-6              49     2911.8       48     2653.8     2522.5
+cda745a    post-iteration-7 (no map)     49     2911.8       48     2653.8     2522.5
+bb0aaae    post-iteration-8              49     2911.8       48     2653.8     2522.5
+```
+
+The BEFORE column reproduces every number this loop published, to the decimal —
+verified independently. That is what licenses the AFTER column.
+
+**Iteration 8's close said "12.3% of SCORE is measuring nothing". That was true
+of the level and never of a comparison.** The false positive was constant across
+the whole series, so it inflated every reading equally and moved no delta:
+Δ5 = −203.0 SCORE only, Δ6 = −6 TOTAL only, Δ7 = Δ8 = 0, all unchanged by the
+correction. **No iteration's verdict changes.**
+
+## The tenth instrument, and this one was mine
+
+**`--selftest` had been red since `ce3189b` — through iterations 7 and 8.**
+`road-deadend` read `SILENT 4 → 4`, exit 1. The plant, not the detector:
+it cleared three tiles past its cap where `deadEnds` looks six, so iteration 6's
+block-count wash moved `findMeadow`'s answer onto ground the coast road crosses
+and the plant laid a perfectly good `road-stops-short` instead — which is why
+that signature read `13 → 16` when its own plant adds two. Depth is now
+`14 + CAP_LOOKAHEAD + 2`, off the detector's own constant.
+
+I did not catch it, and the reason is worse than not looking. I "verified" it in
+iteration 6 as:
+
+    node server/dist/tools/mapAudit.js --selftest | tail -12; echo "exit=$?"
+
+which reads **`tail`'s** exit code, not the tool's. **This file already records
+me making that exact mistake earlier in this exercise.** I made it a second
+time, after writing it down, and then never re-ran the selftest across two
+iterations while the map moved underneath it. `ci/mapwatch.mjs --selftest`,
+checked the same careless way, turns out to be genuinely green — which is luck,
+not method.
+
+The rule was already here and needs sharpening: **never read `$?` through a
+pipe, and re-run an instrument's own control after every change to its subject,
+not only when the instrument changes.**
+
+## Two more blind controls, both caught by controls
+
+- **The agent's own `drawn` control was blind.** Restoring the pre-iteration-9
+  water-only census left `--selftest` **green at exit 0** — SPLIT, UNCOVER and
+  DECKS all passed while eight inland quays counted zero faces and defaulted to
+  "fully drawn". The WHOLE leg (faces asked == profile positions, **741 of 741**,
+  independently reproducing `evidence/iter7/curve-cover.mjs`) was written for it
+  and catches it at 502 of 741 across 11 partial edges.
+- **The new gate broke the existing country plant on the calibration bake**,
+  which the shipped bake hid: it picked by land and landed on a region the field
+  calls meadow throughout — planting the very false positive that had just been
+  removed. It picks by `wild` now.
+
+`red-controls.sh` breaks the tool six ways and shows every one turning
+`--selftest` red. The `DECKS` leg independently re-validates iteration 8:
+remove only the deck chain and the four decks go **0 → 117 drawn** while the
+quays hold at 15.
+
+## `road-stops-short` — all 13 closed, working as specified
+
+One mechanism: §14.3 D6, `guardRingAccess`. Four independent attributions each
+with a firing control — 13/13 stop short of the RING (avenue 0, street 0), 13/13
+inside its Chebyshev-2 shave band, 0/13 touching the authored-junction dilation,
+13/13 once road per `layout.cleared` (control: 4,000 sampled tiles read 98
+cleared / 3,902 never-road, so the mask is not stuck high), and
+`cutMissedJunctions` asked directly **saw 19 mouths, cut 7, refused 12 — every
+one because a removal pass had cleared the ground.**
+
+**The 13 are a sample of a designed feature.** `guardRingAccess` removes 1,802
+net carriageway tiles (70% of the whole `cleared` mask); 150 street mouths point
+at the ring, 125 outside a junction, and **0 of those 125 reach it**; 92.6% of
+the ring's frontage is cleared verge. The 13 are 10.4% of the mouths and 6.3% of
+the shave — the audit's narrow cap shape is what picks them out. The picture
+(`ring-west-limb-uniformity.png`) shows every cross street down the west limb
+ending in the same rounded kerbed turning head, unbroken except at the authored
+interchange. Opening them all costs 1,143 tiles and takes the ring from 50 join
+points to 200 — verbatim what D6 exists to prevent.
+
+Split honestly rather than closed uniformly: 11 urban mouths have a proper
+kerbed head; **2 rural lanes have no kerb band, so the tarmac simply stops** —
+same mechanism, weaker presentation, filed as the weaker half.
+
+**Ships a test and no generation change.** `city.test.ts` asserted that a gap
+over *virgin* ground gets cut; nothing asserted the converse, so a future round
+could have closed this signature by silently reversing a benched decision. Red
+on 6 planted tiles across the `264,407` mouth.
+
+## Reported, not fixed
+
+- **The shave is not final.** 7 mouths do join the ring outside a junction — 3
+  re-laid by `finishShores` after the shave, 3 laid by the bake below the layout
+  entirely, 1 authored. Pinned by name so an eighth gets looked at.
+- **`mapAudit`'s `road-stops-short` reason string is wrong**: "the junction was
+  never cut" — it was considered and refused by design for 12 of 13.
+  `city.courses` already carries `kind: 'ring'`, which separates them perfectly.
+- **`country-outside-blocks`'s `mag` is still the neighbours' rate** rather than
+  `wildBare`, the truer magnitude — switching it would confound two changes
+  inside one restatement, so `wildBare` prints in every reason instead.
