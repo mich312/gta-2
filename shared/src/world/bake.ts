@@ -9,7 +9,13 @@ import {
   takePondBankRings,
   takePondRings,
 } from './buildings.js';
-import { fbm, latticeHash } from './fields.js';
+import { latticeHash } from './fields.js';
+// The woodland predicate, imported rather than spelled out here — §46. It
+// used to live in this file as `fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52`,
+// with the seed, the wavelength and the level as local constants no painter
+// could reach. A wood's DRAWN outline is the level set of exactly this field
+// (`woodCut.ts`), so two copies of it would be two answers to one question.
+import { wildAt } from './woodCut.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
@@ -52,7 +58,6 @@ import {
  * the woodland thins. A constant, not a parameter — the city has no seed.
  */
 const BAKE_SEED = 0x0a11ce;
-const WILD_SEED = 0x7009d5;
 
 export interface BakedCity {
   name: string;
@@ -606,7 +611,6 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // eight thousand tiles of bare ground where its biggest park should have
   // been, because one landmark had claimed the block. The block is filled
   // like any other, and the landmark is cleared out of it afterwards.
-  const wildAt = (tx: number, ty: number): boolean => fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52;
   // The rural fringe (§14.3 D5): how far every tile of country stands from
   // town, walked over dry land from all urban-owned ground. The band within
   // one rural pitch of the seam is the ecotone — smallholdings and orchard

@@ -20,6 +20,7 @@ import {
 } from 'shared';
 import { courseJunctions, type RoadNet } from 'shared';
 import { buildDeckField, deckDepth, deckEdgeTiles } from 'shared';
+import { wildDepth, woodEdgeTiles } from 'shared';
 import { hexToRgb } from './png.js';
 
 /**
@@ -328,6 +329,64 @@ export function render(
           const cut =
             oc !== null && inCutHalf(code, ((px + 0.5) / scale) * 16, ((py + 0.5) / scale) * 16);
           put(tx * scale + px, ty * scale + py, cut ? oc : c);
+        }
+      }
+    }
+  }
+
+  // The WOODLAND edge, repainted against the contour it was planted from
+  // (§46).
+  //
+  // First of the curve passes, because it is the softest: the coast, the
+  // band and the deck all describe harder boundaries and each of them will
+  // walk back over any pixel of theirs this touches. It is also the reason
+  // this repaints the whole tile square rather than only the pixels near the
+  // line — the tile pass above may have laid a 45° bevel here, and a chamfer
+  // under a chord is the sawtooth §39 already learned not to draw.
+  //
+  // Per pixel and straight off the field, exactly as the deck pass below
+  // works straight off the swept disc: inside the level set is canopy,
+  // outside is the open country beside it. The client cuts the same tiles on
+  // the chord between the contour's two border crossings, which is that
+  // curve to within a hundredth of a tile and is what a clipped path can
+  // draw; both are the same line.
+  {
+    const woodTiles = woodEdgeTiles(map.tiles, map.widthTiles, map.heightTiles);
+    const trees = colors[T_TREES] as [number, number, number];
+    /** The open country beside a wood tile: the nearest one that is open. */
+    const openBeside = (mx: number, my: number): [number, number, number] => {
+      let best = Infinity;
+      let c = colors[T_FIELD] as [number, number, number];
+      for (const [dx, dy] of [
+        [0, 0],
+        [1, 0], [-1, 0], [0, 1], [0, -1],
+        [1, 1], [1, -1], [-1, 1], [-1, -1],
+      ] as const) {
+        const sx = mx + dx;
+        const sy = my + dy;
+        if (sx < 0 || sy < 0 || sx >= map.widthTiles || sy >= map.heightTiles) continue;
+        const t = map.tiles[sy * map.widthTiles + sx] as number;
+        if (t !== T_FIELD && t !== T_PARK && t !== T_SAND) continue;
+        const d = dx * dx + dy * dy;
+        if (d < best) {
+          best = d;
+          c = colors[t] as [number, number, number];
+        }
+      }
+      return c;
+    };
+    for (const idx of woodTiles) {
+      const mx = idx % map.widthTiles;
+      const my = (idx - mx) / map.widthTiles;
+      const px0 = (mx - x0) * scale;
+      const py0 = (my - y0) * scale;
+      if (px0 + scale <= 0 || py0 + scale <= 0 || px0 >= W || py0 >= H) continue;
+      const open = openBeside(mx, my);
+      for (let py = Math.max(0, py0); py < Math.min(H, py0 + scale); py++) {
+        for (let px = Math.max(0, px0); px < Math.min(W, px0 + scale); px++) {
+          const wx = x0 + (px + 0.5) / scale;
+          const wy = y0 + (py + 0.5) / scale;
+          put(px, py, wildDepth(wx, wy) >= 0 ? trees : open);
         }
       }
     }

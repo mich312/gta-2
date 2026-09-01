@@ -1,0 +1,15 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-afabe990eae5d60d0
+
+stdout | test/woodEdge.test.ts > a wood is drawn as the curve it was planted from > does not run its edge along whole tile edges the way its own tile mask does
+  islet 317,720 at 20 px/tile — woodland edge on whole tile edges: 62 of 440 px (14.1%)   |   waterline control: 0 of 927 px (0.0%)
+
+ ✓ |client| test/woodEdge.test.ts (1 test) 4549ms
+   ✓ a wood is drawn as the curve it was planted from > does not run its edge along whole tile edges the way its own tile mask does  607ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  23:18:22
+   Duration  7.84s (transform 1.74s, setup 0ms, collect 2.29s, tests 4.55s, environment 0ms, prepare 118ms)
+
+[ci/test] green: 1 files matching "client/test/woodEdge.test.ts", 0 failures, 0 ignored runner-noise error(s).

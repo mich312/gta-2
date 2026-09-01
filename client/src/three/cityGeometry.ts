@@ -38,6 +38,7 @@ import {
   shoreHalf,
   shoreChains,
   buildDeckCut,
+  buildWoodCut,
   oppositeHalf,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -634,6 +635,35 @@ export function buildCity(map: CityMap): CityBuild {
   // was drawn one square tile at a time with a parapet standing on the steps.
   const deckCut = buildDeckCut(map.tiles, W, H, map.courses);
 
+  // The WOODLAND edge as a curve (§46), same per-tile form again and the
+  // same "the other material is on the right" convention. Read back off the
+  // wildness field the wood was planted from, so a wood's outline is drawn
+  // at the angle it actually runs at instead of as the squares it is stored
+  // as. A tile the wood chain crosses loses its canopy box below and gets it
+  // back as a prism cut on the chord (`buildWoodPrisms`).
+  const woodCut = buildWoodCut(map.tiles, W, H);
+  /** The open country a demoted wood tile stands on: the nearest one. */
+  const openUnder = (tx: number, ty: number): number => {
+    let best = Infinity;
+    let mat = T_FIELD;
+    for (const [dx, dy] of [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+      [1, 1], [1, -1], [-1, 1], [-1, -1],
+    ] as const) {
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const t = map.tiles[ny * W + nx] as number;
+      if (t !== T_FIELD && t !== T_PARK && t !== T_SAND) continue;
+      const d = dx * dx + dy * dy;
+      if (d < best) {
+        best = d;
+        mat = t;
+      }
+    }
+    return mat;
+  };
+
   /**
    * Which building tiles are drawn as one rotated mass instead of a column of
    * boxes (§20), and how tall that mass is — the walk below needs both, and
@@ -683,7 +713,15 @@ export function buildCity(map: CityMap): CityBuild {
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
-      const tile = map.tiles[idx] as number;
+      const raw = map.tiles[idx] as number;
+      // A wood tile the wood curve crosses loses its canopy box, exactly as a
+      // shore tile loses its box to `buildShorePrisms`: the box is square and
+      // the wood's edge is not. What is left of the square where the canopy
+      // is not is the open country beside it, so it is drawn as that, at
+      // street level, and `buildWoodPrisms` puts the wooded half back cut by
+      // the chord. Tiles the OPEN side of the same face keep their own box
+      // and simply gain a canopy over the part the curve says is wood.
+      const tile = raw === T_TREES && woodCut.has(idx) ? openUnder(tx, ty) : raw;
       let surface: Surface;
       if (tile === T_BUILDING) {
         const bi = (buildingOf[idx] as number) - 1;
@@ -757,7 +795,13 @@ export function buildCity(map: CityMap): CityBuild {
 
       const spans: readonly Span[] = sunk
         ? [{ bottom: EARTH, top: -8 }]
-        : drawnSpans(tile, spansAt(vg, tx, ty));
+        : tile !== raw
+          // A demoted wood tile (§46): the volume grid still says canopy —
+          // it must, it is the collision — but what is DRAWN here is the open
+          // country the curve leaves outside the wood, at street level. The
+          // canopy comes back over the other half as a prism.
+          ? [{ bottom: EARTH, top: 0 }]
+          : drawnSpans(tile, spansAt(vg, tx, ty));
       for (const span of spans) {
         // Clamp the earth to something shallow: a ground span runs from
         // EARTH (-4096) and nobody is looking at the bottom of it.
@@ -830,6 +874,7 @@ export function buildCity(map: CityMap): CityBuild {
   });
   instances += buildEdgeSkirt(map, group);
   instances += buildBandPatches(map, group, shoreCut);
+  instances += buildWoodPrisms(map, group, woodCut, shoreCut);
   instances += buildShorePrisms(map, group, shoreCut);
   instances += buildShoreWedges(map, group, shoreCut, deckCut);
 
@@ -1348,6 +1393,106 @@ function buildDeckPrisms(
     mesh.receiveShadow = true;
     group.add(mesh);
   }
+  return prisms;
+}
+
+/**
+ * The wooded half of every tile the woodland curve crosses, as real geometry
+ * (§46).
+ *
+ * `buildShorePrisms` for a wood, and the same three triangles' worth of idea
+ * one material further inland. Woodland in 3D is a raised box — `volume.ts`
+ * makes the canopy solid and this file draws that volume — so a wood's
+ * silhouette from above is the plateau's edge, and the plateau is the tile
+ * mask: the staircase `evidence/final-review/islet-zoom.png` photographed.
+ * The walk above demotes a crossed wood tile to the open country beside it at
+ * street level (`tile !== raw`), exactly as it sinks a crossed shore tile, and
+ * this puts the canopy back over the half the curve says is wood: a top face
+ * at `TREE_Z`, and a vertical face down the chord, which is the edge of the
+ * wood.
+ *
+ * The OPEN side of the same face is a tile that keeps its own ground box and
+ * simply gains a canopy over the sliver of it the curve encloses — which is
+ * what turns a step into a slope rather than moving it half a tile.
+ *
+ * The coast owns any tile it also crosses: that tile's box is sunk to the
+ * riverbed and `buildShorePrisms` has already put the land back at whatever
+ * height the shore says, so a canopy prism here would stand on nothing. Same
+ * precedence the 2D painter applies (shore, then band, then wood).
+ */
+function buildWoodPrisms(
+  map: CityMap,
+  group: THREE.Group,
+  cuts: Map<number, Float32Array>,
+  shoreCut: Map<number, Float32Array> | null,
+): number {
+  if (cuts.size === 0) return 0;
+  const W = map.widthTiles;
+  const T = TILE_SIZE;
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const color = new THREE.Color();
+  color.set((SURFACES[T_TREES] ?? DEFAULT_SURFACE).color);
+  let prisms = 0;
+
+  const put = (x: number, y: number, z: number): void => {
+    positions.push(x, y, z);
+    colors.push(color.r, color.g, color.b);
+  };
+
+  const top = TREE_Z * Z_SCALE;
+  for (const [idx, seg] of cuts) {
+    if (shoreCut !== null && shoreCut.has(idx)) continue;
+    const tx = idx % W;
+    const ty = (idx - tx) / W;
+    // The wooded half. `woodCut` puts OPEN COUNTRY on the right of travel, so
+    // the wood is the left — `shoreHalf`'s dry side, by the same convention
+    // that makes it the deck's side of a deck chain.
+    const half = shoreHalf(seg, false);
+    if (half.length < 3) continue;
+    const px = (p: [number, number]): number => (tx + p[0]) * T;
+    const py = (p: [number, number]): number => (ty + p[1]) * T;
+    // Top face, fanned from the first corner: a chord through a square leaves
+    // a convex half, always.
+    for (let i = 1; i + 1 < half.length; i++) {
+      put(px(half[0] as [number, number]), py(half[0] as [number, number]), top);
+      put(px(half[i] as [number, number]), py(half[i] as [number, number]), top);
+      put(px(half[i + 1] as [number, number]), py(half[i + 1] as [number, number]), top);
+    }
+    // A wall down EVERY edge of the half, the tile borders included — the
+    // reason `buildShorePrisms` gives: two neighbouring cut tiles share a
+    // border but their wooded halves only share the point the curve crosses
+    // it, and above that point one is canopy and the other is meadow. Where
+    // two halves DO cover the same border in full the pair of walls is
+    // interior and invisible, which is a cheaper thing to be wrong about
+    // than a gap you can see the ground through.
+    for (let i = 0; i < half.length; i++) {
+      const p = half[i] as [number, number];
+      const q = half[(i + 1) % half.length] as [number, number];
+      put(px(p), py(p), top);
+      put(px(q), py(q), top);
+      put(px(q), py(q), 0);
+      put(px(p), py(p), top);
+      put(px(q), py(q), 0);
+      put(px(p), py(p), 0);
+    }
+    prisms++;
+  }
+  if (prisms === 0) return 0;
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshToonMaterial({
+    vertexColors: true,
+    gradientMap: toonGradient(),
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
   return prisms;
 }
 

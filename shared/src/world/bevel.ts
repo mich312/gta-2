@@ -34,8 +34,15 @@ import { T_BRIDGE, T_FIELD, T_PARK, T_ROAD, T_SAND, T_SIDEWALK, T_TREES, T_WATER
  *   masonry; a bridge is a deck; a cliff (the sheer-shore `T_TREES` wall) is
  *   rock; a building is a building. Squareness is what makes them read as
  *   *built*, so the pass never touches them. Woodland edges inland are left
- *   square too, for now — the 3D canopy is a box, and opening its corner to
- *   walkers would let them vanish under it (see WORLDGEN.md §15).
+ *   square by THIS pass too — the 3D canopy is a box, and opening its corner
+ *   to walkers would let them vanish under it (see WORLDGEN.md §15). They
+ *   are no longer DRAWN square: §46 gives them a chord read back off the
+ *   wildness field the wood was planted from (`woodCut.ts`), which is a
+ *   better line than a 45° chamfer could ever be and is why this pass was
+ *   never the answer there. A half-tile triangle laid over that chord is the
+ *   sawtooth §39 already learned not to draw, so all three painters skip
+ *   the bevel on a tile the wood chain cuts — the rule they already follow
+ *   for the coast, the band and the deck.
  *
  * The pass is a pure function of the finished tile plane: no rng, no
  * authored input, derived after the last pass that carves a tile. That is

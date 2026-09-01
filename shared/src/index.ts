@@ -67,3 +67,4 @@ export * from './world/turf.js';
 export * from './sim/roadnet.js';
 export * from './world/courseIndex.js';
 export * from './world/deckCut.js';
+export * from './world/woodCut.js';

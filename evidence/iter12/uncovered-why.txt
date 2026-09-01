@@ -1,0 +1,11 @@
+
+  woodland/open faces: 6375
+  still on no smoothing layer: 3953 (62.0%)
+
+   1698   43.0%  field says MEADOW under the trees, and a lane is within 3 tiles: a HEDGEROW or ORCHARD ROW, a planted LINE whose outline IS the tile
+   1073   27.1%  field says WOOD under the meadow (a cleared lane verge, a park, a block edge)
+    618   15.6%  field says WOOD under the park (a cleared lane verge, a park, a block edge)
+    534   13.5%  field says MEADOW under the trees: some other later pass
+     23    0.6%  field says MEADOW under the trees and WOOD under the meadow
+      7    0.2%  field says MEADOW under the trees: the SHEER SHORE CLIFF the shore pass stands at the waterline
+

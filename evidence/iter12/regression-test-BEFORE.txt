@@ -1,0 +1,34 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-afabe990eae5d60d0
+
+stdout | test/woodEdge.test.ts > a wood is drawn as the curve it was planted from > does not run its edge along whole tile edges the way its own tile mask does
+  islet 317,720 at 20 px/tile — woodland edge on whole tile edges: 421 of 433 px (97.2%)   |   waterline control: 0 of 927 px (0.0%)
+
+ ❯ |client| test/woodEdge.test.ts (1 test | 1 failed) 3888ms
+   × a wood is drawn as the curve it was planted from > does not run its edge along whole tile edges the way its own tile mask does 351ms
+     → expected 0.9722863741339491 to be less than 0.5
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |client| test/woodEdge.test.ts > a wood is drawn as the curve it was planted from > does not run its edge along whole tile edges the way its own tile mask does
+AssertionError: expected 0.9722863741339491 to be less than 0.5
+ ❯ test/woodEdge.test.ts:183:23
+    181|     // face of the wood lies on a whole tile edge and not one face of …
+    182|     // water's does.
+    183|     expect(woodShare).toBeLessThan(0.5);
+       |                       ^
+    184|   });
+    185| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  22:48:04
+   Duration  5.76s (transform 1.20s, setup 0ms, collect 1.52s, tests 3.89s, environment 0ms, prepare 77ms)
+
+[ci/test] FAIL: 3 failed test(s), 0 real unhandled error(s).
+  - /home/user/gta-2/.claude/worktrees/agent-afabe990eae5d60d0/client/test/woodEdge.test.ts (file-level)
+  - /home/user/gta-2/.claude/worktrees/agent-afabe990eae5d60d0/client/test/woodEdge.test.ts: a wood is drawn as the curve it was planted from
+  - /home/user/gta-2/.claude/worktrees/agent-afabe990eae5d60d0/client/test/woodEdge.test.ts: does not run its edge along whole tile edges the way its own tile mask does

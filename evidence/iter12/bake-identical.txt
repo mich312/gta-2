@@ -1,0 +1,5 @@
+
+  asset 922041 chars, fresh bake 922041 chars
+  BYTE-IDENTICAL: yes
+  CONTROL (asset with one char bent) BYTE-IDENTICAL: no
+

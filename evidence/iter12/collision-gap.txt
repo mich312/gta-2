@@ -1,0 +1,17 @@
+
+  wood curve crosses 1852 tiles: 926 wooded, 926 open
+
+  SOLID BUT NOT DRAWN  186.3 tiles of area
+    a wooded tile whose painted half is meadow. You are stopped by a wall
+    the picture does not show. This is the SAFE direction: the wood was
+    already a wall over the whole square and still is.
+
+  DRAWN BUT NOT SOLID  183.1 tiles of area
+    an open tile whose painted half is canopy. You walk under an overhang.
+    The canopy already overhung: `bevel.ts`'s [T_WATER, T_TREES] pair is
+    one-directional for exactly this reason ("the canopy simply overhangs
+    the cut"), so this is the shape the map already had at the waterline.
+
+  worst single tile: 49.9% of one square (0.5 tile = half a tile of error)
+  total wood area, for scale: 13618 tiles
+

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { T_PARK, T_TREES, TILE_SIZE, TREE_Z, type CityMap } from 'shared';
+import { T_PARK, T_TREES, TILE_SIZE, TREE_Z, buildWoodCut, chainSide, type CityMap } from 'shared';
 import type { PropState } from 'shared';
 import { Z_SCALE } from '../render/config.js';
 import { hash2 } from '../render/noise.js';
@@ -167,6 +167,20 @@ export class SceneryLayer {
     const bushes: THREE.Matrix4[] = [];
     const W = map.widthTiles;
     const H = map.heightTiles;
+    // The woodland edge as a curve (§46). `cityGeometry` cuts the canopy
+    // PLATEAU on this chord; the planting has to follow it or the canopy ends
+    // in a chord with trees standing off the end of it, in mid-air over the
+    // meadow — which is the same mistake as drawing the plateau square, one
+    // layer up. `woodCut` puts open country on the RIGHT of travel and
+    // `chainSide` returns -1 there, so a plant survives where it comes back
+    // positive — the same side `buildWoodPrisms` lays the canopy over.
+    const woodCut = buildWoodCut(map.tiles, W, H);
+    /** Is this jittered plant still inside the wood the curve describes? */
+    const inWood = (tx: number, ty: number, jx: number, jy: number): boolean => {
+      const seg = woodCut.get(ty * W + tx);
+      if (seg === undefined) return true;
+      return chainSide(seg, jx - tx, jy - ty) > 0;
+    };
     for (let ty = 0; ty < H; ty++) {
       for (let tx = 0; tx < W; tx++) {
         const tile = map.tiles[ty * W + tx] as number;
@@ -202,6 +216,7 @@ export class SceneryLayer {
           // the trees simply never got it.
           const jx = tx + 0.2 + hash2(tx, ty, 76) * 0.6;
           const jy = ty + 0.2 + hash2(tx, ty, 77) * 0.6;
+          if (!inWood(tx, ty, jx, jy)) continue;
           const grow = 0.8 + hash2(tx, ty, 78) * 0.45;
           this.one.set(grow, grow, grow);
           this.m.compose(
