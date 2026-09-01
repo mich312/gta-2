@@ -1,0 +1,52 @@
+
+  shared/src/world/city.data.ts
+  → /tmp/mapwatch-selftest-28325/road.city.data.ts
+
+  tiles  768x768, blocks 1184 → 1184
+
+  crop              tiles   carriageway  land use   what it watches
+  -----------------------------------------------   --------------------------------------
+  city                200       +200 -0         0   the whole map, 2 px a tile
+  ravenhill             0             0         0   Ravenhill — the weave
+  kelvin                0             0         0   Kelvin — tightest streets, alleys
+  sunridge              0             0         0   Sunridge — the southern grid
+  marshend              0             0         0   Marsh End — fringe and airfield
+  portvasco             0             0         0   Port Vasco — across the sound
+  gannet                0             0         0   Gannet Rock — air-only plateau
+  docks                 0             0         0   The Docks — contour fabric (A03)
+  strait              200       +200 -0         0   the strait crossings (A01)
+  hollis                0             0         0   Hollis Creek (A02)
+  southshore            0             0         0   the south shore and lagoon
+  ringroad              0             0         0   the ring road through open country
+  marshpost             0             0         0   Marsh Post — landmark mass (A04)
+  kelvinbridge          0             0         0   Kelvin Bridge deck (A01)
+  shoulderb             0             0         0   region B, the unclaimed shoulder (iter5 reach cut)
+  headlanda             0             0         0   region A, unclaimed and unfixed (iter5, escalated)
+
+  CARRIAGEWAY: 200 tiles (+200 -0), all within x 426-513 y 282-284.
+    named crops carrying it: strait
+  LAND USE:    0 tiles.
+
+  transitions per crop (— means the crop did not move)
+
+  city            200 tiles
+    carriageway   LOT->ROAD 134 | SIDEWALK->ROAD 30 | BUILDING->ROAD 27 | FIELD->ROAD 9
+    land use      none
+  ravenhill       —
+  kelvin          —
+  sunridge        —
+  marshend        —
+  portvasco       —
+  gannet          —
+  docks           —
+  strait          200 tiles
+    carriageway   LOT->ROAD 134 | SIDEWALK->ROAD 30 | BUILDING->ROAD 27 | FIELD->ROAD 9
+    land use      none
+  hollis          —
+  southshore      —
+  ringroad        —
+  marshpost       —
+  kelvinbridge    —
+  shoulderb       —
+  headlanda       —
+
