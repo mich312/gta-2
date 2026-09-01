@@ -1,0 +1,10 @@
+   ✓ the shipped city > notices when a landmark loses its street frontage  827ms
+   ✓ the shipped city > tells a taxiway from a street across the runway  1197ms
+   ✓ the shipped city > lays no street on ground no borough was drawn on  569ms
+
+ Test Files  1 passed (1)
+      Tests  8 passed (8)
+   Start at  05:09:11
+   Duration  5.70s (transform 1.41s, setup 0ms, collect 2.43s, tests 2.88s, environment 0ms, prepare 85ms)
+
+[ci/test] green: 1 files matching "shippedCity", 0 failures, 0 ignored runner-noise error(s).

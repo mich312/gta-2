@@ -42,6 +42,11 @@ export * from './world/volume.js';
 export * from './world/collide3.js';
 export * from './world/params.js';
 export * from './world/amenities.js';
+// The countryside's two planted patterns, by name rather than the whole
+// module: a test that asks whether the shipped ground carries a hedgerow has
+// to ask with the same predicate the bake planted it by, or it is measuring
+// its own copy of the rule.
+export { hedgerowAt, orchardRowAt } from './world/buildings.js';
 export * from './world/generate.js';
 // The committed asset itself, exported so tests can hold the SHIPPED bytes to
 // the same checker the bake ran — not a fresh bake that might disagree.

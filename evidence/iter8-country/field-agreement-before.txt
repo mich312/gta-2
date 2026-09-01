@@ -1,0 +1,3 @@
+/home/user/gta-2/.claude/worktrees/agent-a45cad1115b344948/shared/src/world/city.data.ts
+  inside a rural block:  14808 country tiles, wood 49.0%, field says wood 47.7%, AGREE 91.9% (13613/14808), 2019 held back at a verge
+  outside every block :   6685 country tiles, wood 34.5%, field says wood 32.6%, AGREE 95.9% (6410/6685), 864 held back at a verge

@@ -1,6 +1,14 @@
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
-import { fillBlock, fillRegion, takePathCourses, takePondBankRings, takePondRings } from './buildings.js';
+import {
+  fillBlock,
+  fillRegion,
+  hedgerowAt,
+  orchardRowAt,
+  takePathCourses,
+  takePondBankRings,
+  takePondRings,
+} from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
 import { buildLayout, type StreetCourse } from './layout.js';
@@ -753,6 +761,12 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // Decided against the picture as the blocks left it, so the answer does
     // not depend on the order the plane is walked in.
     const plant: number[] = [];
+    const chosen = new Uint8Array(W * H);
+    const take = (i: number): void => {
+      if (chosen[i] === 1) return;
+      chosen[i] = 1;
+      plant.push(i);
+    };
     for (let i = 0; i < W * H; i++) {
       if (!orphan(i)) continue;
       const x = i % W;
@@ -763,7 +777,44 @@ export function bakeCity(plan: CityPlan): BakedCity {
       if (near(x, y, T_ROAD, 1) || near(x, y, T_BRIDGE, 1)) continue;
       if (near(x, y, T_WATER, 1)) continue;
       if (acrossAMouth(x, y)) continue;
-      plant.push(i);
+      take(i);
+    }
+
+    // THE REST OF THE RULE, not just the wildness field.
+    //
+    // `fillBlock`'s rural branch plants three things, and until now this pass
+    // asked about one. The wildness field decides WOODLAND, and it is the
+    // only one of the three that has anything to say about open country in
+    // the middle of a parish — which is why asking it alone closed the seam
+    // at Gannet Rock's y=600 and left nothing visible outstanding there.
+    //
+    // The other two are patterns keyed to something the ground already has,
+    // and they are the ones a block boundary cuts in half:
+    //
+    //  - HEDGEROWS, one verge back from every lane. Their hash is keyed on
+    //    the world grid precisely "so a run crosses block corners unbroken" —
+    //    and then a run reaching the edge of the last block stopped dead on a
+    //    line nothing draws, because the ground beyond it was in no block. On
+    //    the shipped plan 19 of the 46 severed runs touch a hedge that IS
+    //    planted, which is the seam in its visible form.
+    //  - ORCHARD ROWS, in the fringe band within one rural pitch of town
+    //    (§14.3 D5). Blockless country inside that band — 1,076 tiles of it —
+    //    got plain meadow where the block beside it frays into rows.
+    //
+    // The predicates are `buildings.ts`'s own, called rather than copied, so
+    // the two sides of a block edge cannot answer differently. What this pass
+    // keeps from itself are its own two refusals, which are stricter than the
+    // block's and stay that way: nothing within one tile of the waterline,
+    // where a tree is the cliff the shore pass put there; and nothing across
+    // a held-short mouth, where a tree is not a hedge but a street walled up.
+    for (let i = 0; i < W * H; i++) {
+      if (!orphan(i)) continue;
+      const x = i % W;
+      const y = (i - x) / W;
+      if (!hedgerowAt(tiles, W, H, x, y) && !(fringeAt(x, y) && orchardRowAt(tiles, W, H, x, y))) continue;
+      if (near(x, y, T_WATER, 1)) continue;
+      if (acrossAMouth(x, y)) continue;
+      take(i);
     }
     for (const i of plant) tiles[i] = T_TREES;
 
