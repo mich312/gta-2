@@ -2471,3 +2471,102 @@ its criterion.** Repaired as staging; assertions untouched; green on both bakes.
 
 That is the sixth instrument in this exercise found lying, and the fourth found
 by a control rather than by a failure.
+
+---
+
+# Visual loop — iteration 7 close
+
+**TOTAL 49 → 49. SCORE 2911.8 → 2911.8.** Nothing moved, because nothing was
+fixed. The iteration's product is knowledge, and it is the most valuable
+iteration so far.
+
+## `built-staircase` was never one defect, and 74% of it is invisible
+
+The label "noisy, cosmetic, architectural fix only" has sat on this signature
+since iteration 3 **on nobody's measurement**. It was right about three
+quarters of it and wrong about the part that matters.
+
+| group | n | m | step face on | drawn? |
+| --- | --- | --- | --- | --- |
+| A bridge deck | 4 | **123** | open water, no curve layer at all | **yes, grossly** |
+| B quay on the coast | 11 | 249 | water, coast chain covers every position | no |
+| C quay inland | 8 | 153 | pavement/road/field, **bank chain** covers every position | no |
+| D yard at 82,462 | 1 | 15 | a diagonal street's kerb | drawn, but out of scope |
+
+**19 findings, 402 tiles, are a tile staircase no renderer draws.** I checked
+the pictures rather than taking the verdict on report: `B-quay-427-678-eye.png`
+shows a smooth continuous waterline where the audit reports 43 tiles of
+staircase. The coast chain draws a curve over the tile steps.
+
+**The four bridge decks are real and the commissioner's own named class.**
+`A-bridge-178-478-eye.png` shows the parapet jogging a full tile every few
+tiles and the deck edge stepping in hard right angles, with the shoreline
+behind it smooth. The deck is refused by name in all three painters
+(`tiles.ts:1498`, "the coast runs UNDER it"; `T_BRIDGE` absent from
+`GROUND_AT_SEA`), so its outline is drawn as it lies, and `buildBridgeRails`
+stands a 5-unit parapet along the stepped outline. A rails-off experiment
+proves the rail **amplifies rather than causes** it.
+
+City-wide the deck problem is **872 deck/water faces, 835 covered by neither
+chain, 418 rail boxes at a step — about 2.8x the flagged part.** A fix has a
+curve to follow: 100% of the 1,564 deck tiles are within 6 tiles of one of 381
+authored courses. **Escalated:** giving the deck a curve outline in all three
+painters is architectural.
+
+## The detector mislabels group C, and the agent declined to fix it
+
+`built-staircase` prints *"faces dry ground, which no coast curve describes, so
+it is drawn as it lies"* for the inland quays **without ever consulting the
+bank chain** — it only counts a face when the outward tile is `T_WATER`, and an
+inland quay has none. Asking both chains at all 741 profile positions gives 376
+coast, 197 bank, 168 bare, and 149 of the 168 bare are the four bridge decks.
+
+The agent deliberately did not fix this, because changing what `m` means would
+break SCORE's comparability back through iterations 5 and 6. **That is the
+right call** and it is the first time an agent in this exercise has declined a
+correct local fix to protect a measurement. The measurement sits in
+`curve-cover.mjs` for whoever changes the detector.
+
+**Consequence for the loop: SCORE is overstated by 402 raw tiles (100.5
+weighted) in a signature where there is nothing to see.** Not corrected yet —
+correcting it is an instrument change needing a two-way control.
+
+## The watch set now separates what changed from how much
+
+Iteration 6's wash, re-read: 969 tiles, **294 carriageway all within
+x 425–544 y 309–312** (tighter than the x 384–576 / y 256–320 I quoted from the
+fixer), `sunridge 216` and `kelvin 34` both printing `carriageway NONE`, and
+`ravenhill 2 px` isolated as *pixels only, no tile class changed*.
+
+Verified: the pixel column is byte-identical to the pre-change numbers, so the
+loop's continuous record back to iteration 1 survives; and the run rewrites no
+plates. That second check mattered — an intermediate draft of the agent's own
+arg parser silently re-rendered iteration 6's plates, harmless only because
+mapgen is bit-deterministic. The parser is now a whitelist that refuses unknown
+arguments rather than falling through to a render.
+
+Carriageway is `ROAD | BRIDGE | RAMP`; `SIDEWALK`, `BANK`, `LOT`, `RUNWAY` are
+excluded, which is what makes Kelvin's `FIELD→SIDEWALK 23` read as zero road and
+agree with the hand count. Stated consequence: a future fix about an apron or a
+quay reports as land use.
+
+Iteration 7 changed no map bytes, so its own diff is a free identity control on
+the new instrument: **0 of 16 crops, blocks 1184 → 1184, "not one road, bridge
+or ramp tile moved anywhere on the map."**
+
+## The seventh blind instrument, and the first an agent caught in its own work
+
+The watch agent's first case-3 control planted road down a row containing no
+eligible tiles, laid **zero**, and passed its assertion on `0 === 0`. Every case
+now asserts its plant size before believing anything downstream, and the
+negative control genuinely goes red — one planted road tile fails the "land
+only reads no road" assertion.
+
+## Also found
+
+`ci/shot.mjs` **cannot take a picture on this box.** At its hard-coded
+2200x1000 it wants more painted-ground chunks than the 2-per-frame budget
+delivers, times its own screenshot out at 30 s, and produces no file. The agent
+worked around it with `evidence/iter7/shot.mjs`. Anyone needing eye-level
+evidence hits this. `.claude/review/LENS-B.md` tells reviewers to use the broken
+one.
