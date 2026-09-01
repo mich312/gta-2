@@ -2245,3 +2245,103 @@ R7-C05 (`scanAhead` brakes for a corpse), R9-D03 (the README describes a city
 half the size), R9-D05 (`city-anywhere.png`, 72 px). Plus two filed in round 10
 and never verified: the debug overlay shares B01's broken identity, and
 `mapRender.ts` marks clinics as clothing shops through a fourth colour scheme.
+
+---
+
+# Visual loop — iteration 5 close
+
+**Audit: 55 → 55. No signature count moved.** The second time in this loop the
+headline metric registered nothing for a real fix, and for a different reason
+than iteration 3's.
+
+Iteration 3's zero was blindness: the fixes had no signature. Iteration 5's
+zero is a **threshold that stays tripped**. `lanes-serving-nothing` gates on
+road ≥ 10% of a region's land; the fix took region B from 41.5% to 35.2%, so
+the region still fires and the count still reads 2. The instrument is not
+blind here — it is binary about a thing that is continuous.
+
+| region | before | after |
+| --- | --- | --- |
+| B, 267,312–365,375 (shoulder) | 1343 road, 41.5% | **1140 road, 35.2%** |
+| A, 393,312–549,365 (headland) | 1197 road, 20.8% | 1197 road, 20.8% |
+
+## The brief was wrong by a factor of twelve
+
+I dispatched the fixer at "stop the carve laying lattice on land no district
+polygon claims". It instrumented `buildLayout`'s pass loop and attributed every
+offending tile to the pass that laid it:
+
+| pass | tiles on region A | keyed on |
+| --- | --- | --- |
+| `layEsplanade` | 563 | `owner` |
+| `laySeamStreets` | 343 | `owner` |
+| `carveAuthoredRoads` | 216 | the authored line |
+| `weaveFabrics` (the lattice) | **82** | bbox-clipped |
+
+My route was 82 of 956 tiles — **8.6%**. The mechanism is one level up:
+`paintOwnership`'s D1 flood gives every dry tile an owner, the esplanade and
+seam street key on `owner`, and the block cut clips to `polyBounds(d.area)` and
+never arrives. Road with no town beside it is exactly that gap.
+
+This is the eighth self-correction in the exercise, and the first where the
+fixer refuted the *brief* rather than a measurement inside it.
+
+## What shipped, and what was reverted with a reason
+
+Shipped: `claimDepth` (the D1 flood's own BFS depth, recorded free) plus
+`inReachRuns`, refusing a **whole connected run** beyond `CLAIM_REACH = 24` —
+whole runs because a per-tile cut trades `lanes-serving-nothing` for
+`road-deadend`. Applied to `layEsplanade`. Exactly one run drops: 198 tiles at
+288,336–332,348, a promenade on an empty peninsula, 0 built within twenty tiles.
+The safe window is [23,24] and 24 is the top of it — the nearest kept run starts
+at reach 23.
+
+Reverted: the same rule on `laySeamStreets`. It takes 307 more tiles and baked
+clean with six warns, then failed `city.test.ts` — The Spine | Beachfront
+crossable share fell to 0.088 against a required 0.12. **That chevron is the
+whole of the boundary those two boroughs share.** The invariant is right. The
+measurement now lives in `laySeamStreets` where the next reader hits it.
+
+Reachability, same script both sides: 1 component before and after, mean
+landmark-to-landmark **491.6 unchanged to the decimal**, 0 unreachable. The
+Kelvin Bridge approach — load-bearing at +7.1% — survives.
+
+## The watch set had a hole, and it was where the fix landed
+
+The 14-crop diff read **1 of 14 moved**: only the whole-city plate. All 13 named
+crops read zero because none of them covers 288,336–332,348 — the nearest,
+`kelvinbridge`, sits 104 tiles east in the same y band. Thirteen zeros were the
+instrument's blind spot, not a quiet city.
+
+Added `shoulderb` (267,312,100) and `headlanda` (393,312,156), and backfilled
+their iteration-4 baseline from a throwaway worktree at `7769a2c`. The 16-crop
+diff:
+
+```
+city             814 (0.035%)
+shoulderb      13116 (2.049%)
+headlanda         28 (0.002%)
+3 of 16 watch crops moved.
+```
+
+**Two independent scales agree.** City plate at 2 px/tile: 814 px ≈ 203 tiles.
+`shoulderb` at 8 px/tile: 13,116 px ≈ 205 tiles. Against a claimed 198, the
+remainder being kerb alongside. And `headlanda` moved 28 px — less than half a
+tile — which is region A being quantitatively unfixed, as filed.
+
+Suite green on the merged tree: 92 files, 992 tests, 0 failures. This mattered:
+the merge combined the agent's rebake (based on `7769a2c`) with the
+`session.test.ts` window change (`b772ca0`), a combination neither side tested,
+and the ped test reads map spawn points.
+
+## Escalated
+
+- **Bound the D1 flood itself.** The one fix that reaches region A. Both
+  `road-deadend` clusters are the same root cause: a pass clipping to
+  `polyBounds` while `owner` runs past it.
+- `road-deadend` ×9 **corrected**: not the Foundry's. Five are The Spine's
+  streets stopping on y=311, one is Ravenhill's at 342,312 — both polygons end
+  at y=312. The other three are the same class at other edges.
+- Both costed routes rejected with numbers: a boundary street adds ~1,200 tiles
+  on exactly the ground Finding 1 flags; closing the last block row misses
+  Ravenhill entirely and puts a country road round four rural parishes.

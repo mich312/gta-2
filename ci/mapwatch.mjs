@@ -33,6 +33,8 @@ export const WATCH = [
   ['ringroad',    '300,600,96,8',   'the ring road through open country'],
   ['marshpost',   '524,540,32,20',  'Marsh Post — landmark mass (A04)'],
   ['kelvinbridge','436,336,44,16',  'Kelvin Bridge deck (A01)'],
+  ['shoulderb',   '267,312,100,8' , 'region B, the unclaimed shoulder (iter5 reach cut)'],
+  ['headlanda',   '393,312,156,8' , 'region A, unclaimed and unfixed (iter5, escalated)'],
 ];
 
 const MAPGEN = 'server/dist/tools/mapgen.js';
