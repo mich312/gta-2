@@ -19,6 +19,7 @@ import {
   inCutHalf,
 } from 'shared';
 import { courseJunctions, type RoadNet } from 'shared';
+import { buildDeckField, deckDepth, deckEdgeTiles } from 'shared';
 import { hexToRgb } from './png.js';
 
 /**
@@ -516,6 +517,41 @@ export function render(
     }
   }
 
+
+  // The bridge deck's own edge, repainted against the curve (§45).
+  //
+  // The road ribbons below already stroke a span as the smooth band it is,
+  // and the serration on `evidence/iter7/A-bridge-178-478-topdown.png` is not
+  // them: it is the TILE pass at the top of this function, which fills a
+  // `T_BRIDGE` square with `palette.kerb` and leaves the corners that stick
+  // out past the ribbon's casing standing in the river. Nothing later covers
+  // them — the coast pass above refuses a deck (`groundOf` returns null for
+  // one, because a river runs UNDER a span and its chain says nothing about
+  // where the deck stops).
+  //
+  // So this decides those squares by the curve the deck was cut from, per
+  // pixel and with no chain needed: inside the swept disc is deck, outside is
+  // the river. Before the ribbons, so their casing and asphalt still land on
+  // top exactly as they did.
+  if (map.courses !== undefined && map.courses.length > 0) {
+    const field = buildDeckField(map.courses);
+    const water = colors[T_WATER] as [number, number, number];
+    const deck = colors[T_BRIDGE] as [number, number, number];
+    for (const idx of deckEdgeTiles(map.tiles, map.widthTiles, map.heightTiles)) {
+      const mx = idx % map.widthTiles;
+      const my = (idx - mx) / map.widthTiles;
+      const px0 = (mx - x0) * scale;
+      const py0 = (my - y0) * scale;
+      if (px0 + scale <= 0 || py0 + scale <= 0 || px0 >= W || py0 >= H) continue;
+      for (let py = Math.max(0, py0); py < Math.min(H, py0 + scale); py++) {
+        for (let px = Math.max(0, px0); px < Math.min(W, px0 + scale); px++) {
+          const wx = x0 + (px + 0.5) / scale;
+          const wy = y0 + (py + 0.5) / scale;
+          put(px, py, deckDepth(field, wx, wy) >= 0 ? deck : water);
+        }
+      }
+    }
+  }
 
   // The roads, drawn as the CURVES they are (§16) rather than as the tiles
   // they were rasterised into — in the client's own paint order, because the

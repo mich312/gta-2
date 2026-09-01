@@ -1,0 +1,11 @@
+parapet boxes                       874
+  standing on an axis (<5 deg)      293
+  total length, tiles               763.2
+
+joints where two boxes meet         845
+  turn: median 0.00 deg   p90 0.14 deg   worst 80.08 deg
+  joints turning more than 30 deg   2
+    80.1deg at 454.0,413.0   71.9deg at 450.0,413.0
+
+Before, every joint at the end of a tread turned 90 degrees, and
+there were 418 of them (evidence/iter7/deck-census.txt).

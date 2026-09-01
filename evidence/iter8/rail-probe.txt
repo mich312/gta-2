@@ -1,0 +1,9 @@
+probe 0.33 tiles:  water  773   still on the deck  104   land   0   of 877
+probe 0.50 tiles:  water  868   still on the deck    8   land   1   of 877
+probe 0.75 tiles:  water  874   still on the deck    0   land   3   of 877
+probe 1.00 tiles:  water  867   still on the deck    0   land  10   of 877
+probe 1.25 tiles:  water  865   still on the deck    0   land  12   of 877
+
+A probe that lands back on the deck tile is the gap: the chord can
+sit anywhere in its square, so a third of a tile past it is often
+still the same square, and that square is T_BRIDGE.

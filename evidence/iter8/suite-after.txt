@@ -1,0 +1,366 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e
+
+(node:13941) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |server| test/economy.test.ts (41 tests) 98740ms
+   ✓ purchases > rejects buys away from the doorway; accepts in it; charges exactly once  3639ms
+   ✓ score multiplier > multiplies every award path, and nothing else  21796ms
+   ✓ score multiplier > multiplies the driving award too (the path with no event)  6492ms
+   ✓ score multiplier > a crate raises the multiplier through the same chokepoint a frenzy does  3183ms
+   ✓ score multiplier > a crate cannot push past the cap  3137ms
+   ✓ score multiplier > every other crate leaves the multiplier alone  3055ms
+   ✓ score multiplier > district standing accrues where the work was done, and nowhere else  3032ms
+   ✓ score multiplier > a completed frenzy raises the multiplier, and the cap holds  3114ms
+   ✓ score multiplier > arrest halves it and death does not; the floor is 1  3158ms
+   ✓ score multiplier > purchases are not multiplied — you do not pay x3 for a pistol  3324ms
+   ✓ score multiplier > the leaderboard ranks on cash, not on kills  3228ms
+   ✓ score multiplier > lifetime earnings accumulate the multiplied amounts  3269ms
+   ✓ Pay'n'Spray > worldgen places respray garages  3065ms
+   ✓ Pay'n'Spray > refuses a respray on foot — you drive the hot car in  3040ms
+   ✓ Pay'n'Spray > clears heat outright, and the cops lose interest  3175ms
+   ✓ district standing gates services, not geography (L3) > an unknown district will not sell you the upper shelf, and says why  3072ms
+   ✓ district standing gates services, not geography (L3) > ...and sells you the ordinary shelf regardless  3106ms
+   ✓ district standing gates services, not geography (L3) > earning in that district opens the shelf there  3083ms
+   ✓ district standing gates services, not geography (L3) > the leaderboard still ranks on cash, not on standing  3057ms
+   ✓ money you can find, and a till you can empty (O1) > a hold-up takes time, pays once, and shuts the shop  3117ms
+   ✓ money you can find, and a till you can empty (O1) > a shut shop refuses to serve you, with a reason  3161ms
+   ✓ money you can find, and a till you can empty (O1) > you cannot hold up a counter with your bare hands  3129ms
+   ✓ money you can find, and a till you can empty (O1) > walking away resets it, so a hold-up has to be held  3194ms
+   ✓ money you can find, and a till you can empty (O1) > shooting pedestrians for ten minutes loses to one mission  3268ms
+ ✓ |server| test/session.test.ts (9 tests) 115226ms
+   ✓ session > spreads its parked cars across the city, not into one corner  3743ms
+   ✓ session > records a replay that reproduces the exact final state, twice  30541ms
+   ✓ session > delta snapshots against the acked tick rebuild the server state  4772ms
+   ✓ session > falls back to a full snapshot when the ack is too stale  8406ms
+   ✓ session > resume rebinds by token; expiry despawns  3394ms
+   ✓ session > drops duplicate and replayed input seqs  3276ms
+   ✓ session > the input buffer drains back down after a jitter storm  34844ms
+   ✓ the crowd replenishes > tops pedestrians back up to target after a massacre  21256ms
+   ✓ the crowd replenishes > does not overshoot the target once full  4986ms
+ ✓ |shared| test/plangen.test.ts (9 tests) 89198ms
+   ✓ generated city plans > are legal plans — the schema parses what the generator emits  3829ms
+   ✓ generated city plans > are deterministic — one seed, the same numbers  10453ms
+   ✓ generated city plans > differ from seed to seed, in the land and not merely the furniture  9851ms
+   ✓ generated city plans > hold every kind of landmark the checker insists on  14246ms
+   ✓ generated city plans > never draw a carriageway wider than the junction labeller can bear  14459ms
+   ✓ generated city plans > name a road that exists wherever a borough hangs off a spine  13112ms
+   ✓ generated city plans > give the map a floor: every tile is inside some borough polygon  4522ms
+   ✓ generated city plans > give the leeward coast back to the country, with no streets on it  14223ms
+   ✓ generated city plans > put every landmark on the map, with room round it  4497ms
+ ✓ |server| test/provingGround.test.ts (16 tests) 88250ms
+   ✓ the proving ground is off unless asked for > no depot in a default city  3644ms
+   ✓ turning it on changes nothing else about the city > seed 1 generates the same city either way  6798ms
+   ✓ turning it on changes nothing else about the city > seed 7 generates the same city either way  6242ms
+   ✓ turning it on changes nothing else about the city > seed 4242 generates the same city either way  6206ms
+   ✓ turning it on changes nothing else about the city > adds exactly one room, and only tiles inside it differ  6169ms
+   ✓ turning it on changes nothing else about the city > seed 1: you start at the door, not somewhere across town  3519ms
+   ✓ turning it on changes nothing else about the city > seed 7: you start at the door, not somewhere across town  3087ms
+   ✓ turning it on changes nothing else about the city > seed 4242: you start at the door, not somewhere across town  3083ms
+   ✓ turning it on changes nothing else about the city > and the city itself is untouched, spawns aside  8743ms
+   ✓ the counter > serves nobody who is not standing in it  3089ms
+   ✓ the counter > refuses anything that is not on it  3371ms
+   ✓ the counter > hands over a tank that is really there  3235ms
+   ✓ the counter > lays six cars out in a row, none of them inside each other  3092ms
+   ✓ the counter > every row on the counter actually does something  24758ms
+   ✓ the counter > grants only through commands, so the session still replays  3200ms
+ ✓ |shared| test/city.test.ts (38 tests) 258448ms
+   ✓ the city, as an asset > is the city the plan bakes to, tile for tile  31051ms
+   ✓ the city, as an asset > survives the round trip through its encoded form  25380ms
+   ✓ the city, as an asset > cuts every contour borough across its bands, at whatever angle its shore runs  23649ms
+   ✓ the city, as an asset > refuses a plan that puts a landmark in the water  23598ms
+   ✓ the city, as an asset > draws the same ground every time it is asked  52674ms
+   ✓ the city, as an asset > leaves no ground to nobody, and no borough walled off from its neighbours  25394ms
+   ✓ the city, as an asset > cuts the junction where a street stops short of the street it runs at  26070ms
+   ✓ the city, as an asset > plants the country the block grid does not cover  24976ms
+   ✓ the city, as an asset > never plants a wood across the mouth of a street  24861ms
+ ✓ |shared| test/water.test.ts (17 tests) 73619ms
+   ✓ the river > is carved across every seed, and is bridged  16078ms
+   ✓ the river > never has a building standing in it  14951ms
+   ✓ the river > is a pure function of the seed  3605ms
+   ✓ the river > bridges cross water; they never run along it or across the sea  15572ms
+   ✓ the river > waterways are lined with quays: nothing is built against open water  14015ms
+   ✓ the river > every bridge tile is open water underneath — boats go under, everywhere  8975ms
+ ✓ |shared| test/world.test.ts (12 tests) 69843ms
+   ✓ world generation > is one city: the same ground whatever the seed, the same map twice  10493ms
+   ✓ world generation > dresses a session inside its budget  3133ms
+   ✓ world generation > produces a real city: roads, sidewalks, buildings, all districts in use  9538ms
+   ✓ world generation > meets the plan's shop quotas with walkable doorways  3052ms
+   ✓ world generation > every hospital has a clinic counter at its door  12222ms
+   ✓ world generation > every shop has a room you can walk into from its door  12572ms
+   ✓ world generation > a respray garage is wide enough to drive into  3064ms
+   ✓ world generation > parks cars at the kerb rather than in the middle of the road  3073ms
+   ✓ world generation > parks cars along straight streets, never crosswise on the ring road  3171ms
+   ✓ world generation > player spawns are walkable, inside the map, and spread apart  3093ms
+   ✓ collision > a player can never end up inside a building, whatever they mash  3241ms
+   ✓ collision > moveWithCollision clamps flush against a solid tile and zeroes velocity  3181ms
+ ✓ |server| test/interest.test.ts (3 tests) 29577ms
+   ✓ interest management > filters far entities but always keeps players and driven cars  3913ms
+   ✓ interest management > a moving client stays hash-consistent across AOI enter/leave churn  20811ms
+   ✓ interest management > an ack gap falls back to a full filtered snapshot  4846ms
+ ✓ |server| test/floodResistance.test.ts (10 tests) 36489ms
+   ✓ what one socket may spend > drops messages past the per-connection budget instead of parsing them  3586ms
+   ✓ what one socket may spend > refills over real time, so a normal client never notices  3429ms
+   ✓ what one socket may spend > hangs up on a socket that keeps flooding after its budget is gone  3376ms
+   ✓ what one socket may spend > spends the budget before the decode, so junk frames cost no more  3273ms
+   ✓ the verbs that cost a password hash > allows a handful of attempts and then says to wait  5161ms
+   ✓ the verbs that cost a password hash > does not block the caller while a hash runs  3214ms
+   ✓ the verbs that cost a password hash > lets the answer land afterwards  5134ms
+   ✓ caps on how much of the session one peer may hold > refuses a connection past the cap, and says why  3074ms
+   ✓ caps on how much of the session one peer may hold > refuses a join past the player cap but never a reconnect  3002ms
+   ✓ caps on how much of the session one peer may hold > skips the state message for a socket that is not draining  3230ms
+ ✓ |shared| test/landmarks.test.ts (7 tests) 58974ms
+   ✓ landmarks > every city gets named landmarks, including hospitals  16773ms
+   ✓ landmarks > they are bigger than ordinary buildings  3214ms
+   ✓ landmarks > none of them stands in the river  16403ms
+   ✓ landmarks > hospital doors are somewhere a player can actually stand  15899ms
+   ✓ landmarks > are a pure function of the seed  6667ms
+ ✓ |server| test/sparseInput.test.ts (2 tests) 30553ms
+   ✓ a client that renders slowly still plays at full speed > keeps a sparse sender moving nearly as far as a fast one  15584ms
+   ✓ a client that renders slowly still plays at full speed > still stops a client that has genuinely gone quiet  14965ms
+ ✓ |client| test/cityRebuild.test.ts (6 tests) 23691ms
+   ✓ rebuilding the city > builds a different city for a different window  6865ms
+   ✓ rebuilding the city > builds the same city for the same window  6882ms
+   ✓ rebuilding the city > leaves nothing of the old city behind  7155ms
+   ✓ rebuilding the city > gives back the GPU memory rather than only unhooking the group  2352ms
+ ✓ |shared| test/turf.test.ts (11 tests) 35522ms
+   ✓ turf (H1) > every gang holds ground, and all of the map belongs to somebody  16983ms
+   ✓ turf (H1) > territory is contiguous, not confetti  3028ms
+   ✓ turf (H1) > the same seed always draws the same map  6149ms
+   ✓ turf (H1) > gangAt agrees with the cell grid, and is safe off the edges  3035ms
+   ✓ turf (H1) > some pedestrians belong to the gang whose ground they stand on  3069ms
+   ✓ seven gangs (M3) > all seven hold ground, and the whole map still belongs to somebody  3243ms
+ ✓ |server| test/bridgingRoads.test.ts (1 test) 25471ms
+   ✓ a road that may bridge > is reported when its course stops in the water instead of reaching the far bank  25470ms
+ ✓ |shared| test/props.test.ts (16 tests) 26807ms
+   ✓ explosive barrels (K2) > worldgen puts barrels in every city, and only against industrial walls  13776ms
+   ✓ street furniture reaches the whole city > places props in proportion to the pavement, not to sweep order  9531ms
+   ✓ street furniture reaches the whole city > reaches the far edge of the map  3326ms
+ ✓ |server| test/plangen.test.ts (2 tests) 16172ms
+   ✓ a generated city > passes the same checker the drawn city passes  7020ms
+   ✓ a generated city > has a beach on its sheltered coast, and the beach runs at 45 degrees  9149ms
+ ✓ |shared| test/lanes.test.ts (11 tests) 18195ms
+   ✓ lanes on the graph > never names a street for ground that is not road  973ms
+   ✓ lanes on the graph > aims down the lane, and hands over to the next street at the junction  321ms
+   ✓ lanes on the graph > is pure: the same city built twice has the same lanes  12740ms
+ ✓ |shared| test/trig.test.ts (6 tests) 17066ms
+   ✓ the trig rule holds on the path both hosts run > generateCity calls no unpinned Math function  16931ms
+ ✓ |shared| test/shoreCut.test.ts (7 tests) 13340ms
+   ✓ collision on the coastline > leaves nobody standing in the sea, however hard they drive at it  2467ms
+   ✓ collision on the coastline > a boat is stopped by exactly the land a walker stands on  314ms
+   ✓ collision on the coastline > is pure: the same city built twice cuts the coast the same way  6804ms
+ ✓ |server| test/resumeInput.test.ts (2 tests) 12420ms
+   ✓ a reloaded tab gets a body it can move > welcome carries the input watermark, and a client resuming from it walks  6343ms
+   ✓ a reloaded tab gets a body it can move > still drops intents numbered at or below what it has already taken  6071ms
+ ✓ |shared| test/prediction.test.ts (6 tests) 13469ms
+   ✓ collision prediction > the predicted car stops against a parked one instead of driving through it  3441ms
+   ✓ collision prediction > without a world view it drives straight through — the old behaviour  3389ms
+   ✓ collision prediction > prediction agrees with the server about where the car ends up  3250ms
+   ✓ collision prediction > the client never invents damage  3279ms
+ ✓ |shared| test/traffic.test.ts (60 tests) 14481ms
+   ✓ ambient traffic > populates the streets around a player  360ms
+   ✓ ambient traffic > does not exceed the tuned target  633ms
+   ✓ ambient traffic > does not gridlock: traffic keeps moving over a long run  328ms
+   ✓ ambient traffic > drives on the right-hand side of the road  697ms
+   ✓ ambient traffic > stays on the carriageway  673ms
+   ✓ ambient traffic > drives forwards: reverse is only ever a brief recovery  597ms
+   ✓ errand driving (goto) > drives the errand to the far side of town, then melts back into traffic  605ms
+   ✓ errand driving (goto) > errands are deterministic like everything else  455ms
+   ✓ traffic signals (J1) > never shows green to both axes, and both arms of one axis agree  897ms
+   ✓ traffic signals (J1) > traffic actually queues at reds, and gets away again  330ms
+   ✓ traffic signals (J1) > signals change nothing about determinism  367ms
+   ✓ getting in and out of cars (J3) > a driver whose trip is up parks and walks away, at a parking spot  382ms
+   ✓ getting in and out of cars (J3) > boarding cannot push the ambient population past its ceiling  560ms
+   ✓ getting in and out of cars (J3) > nobody boards a police vehicle, and it does not freeze if they try  412ms
+   ✓ getting in and out of cars (J3) > getting in and out is deterministic  528ms
+   ✓ the ambient fleet does not grow (R5-C03) > reclaiming is deterministic like everything else  457ms
+   ✓ what a vehicle is decides how fast it drives > a sports car outruns a bus, and a bus outruns a digger  533ms
+   ✓ what a vehicle is decides how fast it drives > nothing is scaled into a rolling roadblock or off the road  814ms
+ ✓ |shared| test/police.test.ts (63 tests) 9537ms
+   ✓ wanted + police > a speeding car runs a cop down, and it counts against the driver  493ms
+   ✓ wanted + police > cops spawn for the wanted, converge, and hurt them (the level-3 chase)  504ms
+   ✓ wanted + police > ...but a suspect who stands still gets nicked instead of shot  384ms
+   ✓ escalation by kind > four stars throws roadblocks across the road  778ms
+   ✓ escalation by kind > every vehicle the chase creates sits on the wire grid  486ms
+   ✓ escalation by kind > the cruisers a chase leaves behind do not outlive it  345ms
+   ✓ escalation by kind > an officer who cannot find the suspect gives up, rather than hunting for ever (P1a)  360ms
+   ✓ escalation by kind > the whole motorised chase is deterministic  314ms
+   ✓ the difficulty pass (P2) > accuracy falls off with range (P2a)  307ms
+   ✓ the difficulty pass (P2) > ...and with how fast the target is moving  318ms
+   ✓ escalation by kind (I1) > each tier fields a different force, not more of the last one  1045ms
+ ✓ |client| test/cityCulling.test.ts (3 tests) 18870ms
+   ✓ the 3D city, culled > submits a fraction of the map at the camera the game uses  6532ms
+   ✓ the 3D city, culled > gives nothing but the skirt a bounding sphere bigger than a chunk  6288ms
+   ✓ the 3D city, culled > keeps one material per surface however many chunks there are  6048ms
+ ✓ |shared| test/roadnet.test.ts (8 tests) 8423ms
+   ✓ the road network > gets every tile home along the tree, one step at a time  2176ms
+   ✓ the road network > joins its nodes with paths a car could actually drive  1059ms
+   ✓ the road network > agrees with the tiles about what connects to what  1281ms
+   ✓ the road network > keeps a driver on the road BETWEEN corners, not just at them  2455ms
+   ✓ the road network > is a pure function of the map: rebuilding changes nothing  1149ms
+ ✓ |server| test/secrets.test.ts (8 tests) 10080ms
+   ✓ hidden packages (L2) > is a pure function of the seed  10047ms
+ ✓ |client| test/bridgeParapet.test.ts (4 tests) 11242ms
+   ✓ the parapet on the bridge deck at 178,478 > is not the tile grid: a span that runs off the axis has a parapet that does too  2803ms
+   ✓ the parapet on the bridge deck at 178,478 > runs straight, rather than stepping half a tile every few tiles  2441ms
+   ✓ the parapet on the bridge deck at 178,478 > still refuses an abutment, and still covers every deck/water face  2398ms
+ ✓ |shared| test/courseIndex.test.ts (4 tests) 7268ms
+   ✓ the course index > answers what a scan of every segment would answer  7227ms
+ ✓ |shared| test/pickups.test.ts (14 tests) 4427ms
+   ✓ the world places pickups > is a pure function of the seed  3342ms
+   ✓ health and armour > pickup collection is deterministic  895ms
+ ✓ |client| test/reconnect.test.ts (2 tests) 5225ms
+   ✓ reconnect policy > stops after a protocol rejection  2618ms
+   ✓ reconnect policy > keeps retrying a full server  2604ms
+ ✓ |shared| test/respect.test.ts (16 tests) 3123ms
+   ✓ respect (H2) > respect drifts back toward neutral, from both directions  652ms
+   ✓ gang war (J4) > the city does not fight itself to death  1682ms
+ ✓ |server| test/shippedCity.test.ts (7 tests) 3047ms
+   ✓ the shipped city > notices when a landmark loses its street frontage  1009ms
+   ✓ the shipped city > tells a taxiway from a street across the runway  1426ms
+   ✓ the shipped city > lays no street on ground no borough was drawn on  605ms
+ ✓ |shared| test/daynight.test.ts (13 tests) 3754ms
+   ✓ the clock (L1) > the map carries the day length, so client and server share one clock  3521ms
+ ✓ |shared| test/facing.test.ts (11 tests) 989ms
+   ✓ a building that faces its street > keeps its mass inside its own plot  394ms
+ ✓ |shared| test/vehicleDamage.test.ts (16 tests) 2236ms
+   ✓ vehicle destruction > a packed car park chain-reacts, and does so identically twice  800ms
+ ✓ |shared| test/courses.test.ts (8 tests) 1456ms
+   ✓ street courses > keeps every centreline on the ground it was carved as  987ms
+   ✓ street courses > round-trips through the wire form unchanged  343ms
+ ✓ |shared| test/vehicleHomes.test.ts (7 tests) 6303ms
+   ✓ every vehicle can be found somewhere (R3) > the same seed puts the same vehicles in the same places  6239ms
+ ✓ |shared| test/binary.test.ts (9 tests) 524ms
+ ✓ |shared| test/vehicle.test.ts (14 tests) 142ms
+ ✓ |server| test/missions.test.ts (23 tests) 753ms
+   ✓ payphone missions (H3) > worldgen puts phones on street corners, spread out  665ms
+ ✓ |shared| test/ambulance.test.ts (8 tests) 768ms
+   ✓ the ambulance service > turns out to a casualty nobody has claimed, and gets them back on their feet  432ms
+ ✓ |shared| test/prng.test.ts (5 tests) 471ms
+   ✓ prng > nextFloat01 stays in [0, 1)  334ms
+ ✓ |shared| test/flight.test.ts (19 tests) 442ms
+ ✓ |shared| test/peds.test.ts (11 tests) 842ms
+   ✓ pedestrians > killing a pedestrian is a crime  503ms
+ ✓ |client| test/entities3d.test.ts (14 tests) 247ms
+ ✓ |server| test/persistFallback.test.ts (1 test) 66ms
+ ✓ |shared| test/colliders.test.ts (64 tests) 342ms
+ ✓ |shared| test/coastCache.test.ts (6 tests) 289ms
+ ✓ |shared| test/vehicleParts.test.ts (14 tests) 466ms
+ ✓ |shared| test/signalHeads.test.ts (5 tests) 361ms
+ ✓ |shared| test/geometry.test.ts (9 tests) 205ms
+ ✓ |client| test/lights3d.test.ts (12 tests) 193ms
+ ✓ |shared| test/step.test.ts (7 tests) 362ms
+   ✓ step > same seed + same inputs => bit-identical state  310ms
+ ✓ |client| test/flicker.test.ts (8 tests) 107ms
+ ✓ |shared| test/projectiles.test.ts (10 tests) 158ms
+ ✓ |shared| test/powerups.test.ts (14 tests) 232ms
+ ✓ |shared| test/fittings.test.ts (15 tests) 159ms
+ ✓ |client| test/spriteFrames.test.ts (4 tests) 66ms
+ ✓ |shared| test/frenzy.test.ts (10 tests) 172ms
+ ✓ |shared| test/snapshot.test.ts (8 tests) 108ms
+ ✓ |client| test/lagcomp.test.ts (2 tests) 74ms
+ ✓ |client| test/radio.test.ts (4 tests) 38ms
+ ✓ |client| test/effects3d.test.ts (6 tests) 29ms
+ ✓ |client| test/cityTerrain.test.ts (11 tests) 71ms
+(node:15559) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ |server| test/createStore.test.ts (4 tests) 29ms
+ ✓ |client| test/extrude.test.ts (16 tests) 73ms
+ ✓ |client| test/shadows.test.ts (23 tests) 52ms
+ ✓ |client| test/cityOrientation.test.ts (12 tests) 37ms
+ ✓ |shared| test/volume.test.ts (17 tests) 37ms
+ ✓ |shared| test/weapons.test.ts (7 tests) 54ms
+ ✓ |server| test/portable.test.ts (3 tests) 13ms
+ ✓ |client| test/scenery3d.test.ts (5 tests) 37ms
+ ✓ |client| test/spritePaint.test.ts (4 tests) 43ms
+ ✓ |client| test/worldObjects.test.ts (6 tests) 29ms
+ ✓ |client| test/hudProjection.test.ts (5 tests) 15ms
+ ✓ |shared| test/diffCoverage.test.ts (2 tests) 15ms
+ ✓ |client| test/vehicleSprite.test.ts (10 tests) 13ms
+ ✓ |shared| test/noise.test.ts (10 tests) 73ms
+ ✓ |client| test/roadMarks.test.ts (6 tests) 6ms
+ ✓ |shared| test/bevel.test.ts (15 tests) 30ms
+ ✓ |client| test/viewport.test.ts (8 tests) 16ms
+ ✓ |client| test/wetSurface.test.ts (6 tests) 5ms
+ ✓ |shared| test/tuning.test.ts (3 tests) 9ms
+ ✓ |client| test/collision.test.ts (5 tests) 9ms
+ ✓ |shared| test/codec.test.ts (5 tests) 8ms
+ ✓ |server| test/jobs.test.ts (7 tests) 28ms
+ ✓ |client| test/groundOrientation.test.ts (3 tests) 7ms
+ ✓ |shared| test/marks.test.ts (7 tests) 7ms
+ ✓ |shared| test/chroma.test.ts (3 tests) 12ms
+ ✓ |server| test/frameKinds.test.ts (3 tests) 6ms
+ ✓ |shared| test/overhead.test.ts (5 tests) 9ms
+ ✓ |client| test/bodySprite.test.ts (6 tests) 6ms
+ ✓ |client| test/wreckShade.test.ts (2 tests) 3ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 7 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  93 passed (93)
+      Tests  997 passed (997)
+     Errors  7 errors
+   Start at  05:42:12
+   Duration  488.36s (transform 9.18s, setup 0ms, collect 161.29s, tests 1269.90s, environment 29ms, prepare 8.89s)
+
+[ci/test] ignored 7 known 'Timeout calling "onTaskUpdate"' worker error(s): runner starvation noise, not a test failure — see ci/test.mjs.
+[ci/test] green: 93 files, 0 failures, 7 ignored runner-noise error(s).

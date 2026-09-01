@@ -1,0 +1,10 @@
+Anywhere City: 768x768 tiles, baked in 24266ms
+  of dry land: road 33.4%  building 14.5%  bare 12.0%
+  road 16.8%  pavement 7.2%  building 7.3%  lot 4.4%  park 4.5%  water 49.6%  sand 0.2%
+  1184 blocks, 4005 buildings, 29 landmarks, 66 shops
+  warn   The Ring may bridge but 77 tiles of its course carry no carriageway at all, from 641,309 to 644,381 — a crossing longer than the plan's maxBridgeSpan of 72
+  warn   The Ring may bridge but 80 tiles of its course carry no carriageway at all, from 649,306 to 652,380 — a crossing longer than the plan's maxBridgeSpan of 72
+  warn   Marsh Causeway may bridge but 81 tiles of its course carry no carriageway at all, from 566,292 to 571,373 — the course begins or ends out in the water, so the deck has land on one side only
+  warn   Coast Road may bridge but 169 tiles of its course carry no carriageway at all, from 360,685 to 520,681 — a crossing longer than the plan's maxBridgeSpan of 72
+  warn   Coast Road may bridge but 79 tiles of its course carry no carriageway at all, from 542,675 to 612,648 — a crossing longer than the plan's maxBridgeSpan of 72
+  warn   Coast Road may bridge but 22 tiles of its course carry no carriageway at all, from 679,606 to 694,596 — the course begins or ends out in the water, so the deck has land on one side only

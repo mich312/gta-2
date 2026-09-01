@@ -1,0 +1,14 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e
+
+ ✓ |client| test/bridgeParapet.test.ts (4 tests) 9996ms
+   ✓ the parapet on the bridge deck at 178,478 > is not the tile grid: a span that runs off the axis has a parapet that does too  2248ms
+   ✓ the parapet on the bridge deck at 178,478 > runs straight, rather than stepping half a tile every few tiles  2039ms
+   ✓ the parapet on the bridge deck at 178,478 > still refuses an abutment, and still covers every deck/water face  2207ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  05:41:32
+   Duration  12.10s (transform 1.34s, setup 0ms, collect 1.74s, tests 10.00s, environment 0ms, prepare 81ms)
+
+[ci/test] green: 1 files matching "client/test/bridgeParapet.test.ts", 0 failures, 0 ignored runner-noise error(s).
