@@ -1,0 +1,6 @@
+before-city.data.ts
+  joins outside an authored junction: ['456,664', '461,118', '499,107', '510,122', '513,123', '570,612', '641,307']
+  mouths held short of the ring: 150
+city.data.ts
+  joins outside an authored junction: ['456,664', '461,118', '499,107', '510,122', '513,123', '570,612']
+  mouths held short of the ring: 151

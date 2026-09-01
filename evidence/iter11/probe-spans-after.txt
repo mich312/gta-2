@@ -1,0 +1,37 @@
+
+=== The Ring (width 4)
+  water run 641,309 -> 644,380  along-course 76  worst per-tile shortest-axis run 73
+  water run 277,385 -> 284,343  along-course 46  worst per-tile shortest-axis run 48
+  water run 285,319 -> 285,313  along-course 7  worst per-tile shortest-axis run 7
+  water run 649,306 -> 652,379  along-course 78  worst per-tile shortest-axis run 75
+  water run 269,382 -> 277,338  along-course 48  worst per-tile shortest-axis run 48
+  water run 277,326 -> 277,318  along-course 10  worst per-tile shortest-axis run 9
+  water run 277,313 -> 275,298  along-course 17  worst per-tile shortest-axis run 18
+
+=== Kelvin Bridge (width 4)
+  water run 452,363 -> 452,414  along-course 52  worst per-tile shortest-axis run 52
+
+=== Hollis Bridge (width 4)
+  water run 389,492 -> 393,492  along-course 5  worst per-tile shortest-axis run 5
+
+=== Old Bridge (width 4)
+  water run 337,344 -> 340,404  along-course 61  worst per-tile shortest-axis run 62
+
+=== Marsh Causeway (width 4)
+  water run 565,277 -> 571,373  along-course 97  worst per-tile shortest-axis run 76
+
+=== North Sound Bridge (width 4)
+  water run 177,232 -> 219,225  along-course 43  worst per-tile shortest-axis run 44
+
+=== South Sound Bridge (width 4)
+  water run 157,471 -> 200,482  along-course 45  worst per-tile shortest-axis run 52
+
+=== The Esplanade (width 4)
+  water run 394,426 -> 401,425  along-course 9  worst per-tile shortest-axis run 8
+
+=== Coast Road (width 4)
+  water run 359,685 -> 523,681  along-course 174  worst per-tile shortest-axis run 88
+  water run 616,635 -> 665,613  along-course 58  worst per-tile shortest-axis run 46
+
+=== Longacre Road (width 4)
+  water run 332,532 -> 334,532  along-course 3  worst per-tile shortest-axis run 3

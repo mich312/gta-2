@@ -1413,18 +1413,28 @@ describe('the city, as an asset', () => {
         }
       }
     }
-    // The seven the shave does not reach: 641,307 is the ring's own authored
-    // plumbing; 456,664 was shaved and put back by the orphan repair in
-    // `finishShores`, with 510,122 and 513,123 laid there too; 461,118,
-    // 499,107 and 570,612 are laid by the bake, downstream of the layout
-    // entirely. Named so that an eighth has to be looked at rather than
-    // absorbed. `evidence/iter9/leaks.txt` has the pictures.
+    // The six the shave does not reach: 456,664 was shaved and put back by the
+    // orphan repair in `finishShores`, with 510,122 and 513,123 laid there
+    // too; 461,118, 499,107 and 570,612 are laid by the bake, downstream of
+    // the layout entirely. Named so that a seventh has to be looked at rather
+    // than absorbed. `evidence/iter9/leaks.txt` has the pictures.
+    //
+    // There were SEVEN. The one that went is 641,307, and it went by being
+    // fixed rather than by being excused: it was described here as "the
+    // ring's own authored plumbing", and it was the tile where the ring's
+    // eastern carriageway stopped dead at the water because the bay is 73
+    // tiles wide and `maxBridgeSpan` was 72. Iteration 11 raised the span and
+    // the deck was built, so that mouth is no longer a street meeting the
+    // ring — it is the ring, continuous. `evidence/iter11/probe-ringjoins.mjs`
+    // prints this list from a bake and reproduces all seven on the pre-fix
+    // asset.
     expect(joined.sort(), 'a street now joins the ring outside an authored junction').toEqual(
-      ['456,664', '461,118', '499,107', '510,122', '513,123', '570,612', '641,307'],
+      ['456,664', '461,118', '499,107', '510,122', '513,123', '570,612'],
     );
     // And the shave is still doing its work: opening the held mouths is how
     // a future round would "fix" `road-stops-short`, and this is the floor
-    // that refuses it. 150 as shipped.
+    // that refuses it. 150 as shipped when this was written, 151 since the
+    // ring's eastern crossing was built.
     expect(held, 'mouths held short of the ring').toBeGreaterThanOrEqual(140);
   });
 

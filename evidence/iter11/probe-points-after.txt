@@ -1,0 +1,74 @@
+landmasses: 9; largest 125961, 124093, 32281, 9322, 1153, 1098, 958, 735
+
+=== The Ring
+  [400,112] DRY on landmass #1
+  [520,112] DRY on landmass #1
+  [602,152] DRY on landmass #1
+  [646,212] DRY on landmass #1
+  [652,272] DRY on landmass #1
+  [640,332] WET — nearest land 18 tiles away, landmass #1
+  [652,402] DRY on landmass #0
+  [648,472] DRY on landmass #0
+  [630,542] DRY on landmass #0
+  [590,612] DRY on landmass #0
+  [510,652] DRY on landmass #0
+  [420,662] DRY on landmass #0
+  [330,650] DRY on landmass #0
+  [286,600] DRY on landmass #0
+  [268,530] DRY on landmass #0
+  [286,462] DRY on landmass #0
+  [268,392] DRY on landmass #0
+  [286,322] DRY on landmass #1
+  [266,250] DRY on landmass #1
+  [300,172] DRY on landmass #1
+  [350,122] DRY on landmass #1
+  [400,112] DRY on landmass #1
+
+=== Kelvin Bridge
+  [452,288] DRY on landmass #1
+  [452,418] DRY on landmass #0
+
+=== Hollis Bridge
+  [378,492] DRY on landmass #0
+  [402,492] DRY on landmass #0
+
+=== Old Bridge
+  [334,288] DRY on landmass #1
+  [340,408] DRY on landmass #0
+
+=== Marsh Causeway
+  [565,272] DRY on landmass #1
+  [572,396] DRY on landmass #0
+
+=== North Sound Bridge
+  [132,240] DRY on landmass #2
+  [222,224] DRY on landmass #1
+
+=== South Sound Bridge
+  [140,466] DRY on landmass #2
+  [214,486] DRY on landmass #0
+
+=== The Esplanade
+  [228,470] DRY on landmass #0
+  [300,448] DRY on landmass #0
+  [400,424] WET — nearest land 1 tiles away, landmass #0
+  [500,408] DRY on landmass #0
+  [590,404] DRY on landmass #0
+  [634,428] DRY on landmass #0
+
+=== Coast Road
+  [248,626] DRY on landmass #0
+  [330,682] DRY on landmass #0
+  [430,696] WET — nearest land 14 tiles away, landmass #0
+  [520,684] WET — nearest land 4 tiles away, landmass #0
+  [547,668] DRY on landmass #0
+  [578,648] DRY on landmass #0
+  [624,632] WET — nearest land 5 tiles away, landmass #0
+  [678,606] DRY on landmass #0
+
+=== Longacre Road
+  [256,542] DRY on landmass #0
+  [360,528] DRY on landmass #0
+  [470,520] DRY on landmass #0
+  [580,522] DRY on landmass #0
+  [648,540] DRY on landmass #0

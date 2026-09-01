@@ -1,0 +1,22 @@
+changed tiles: 1840 of 589824
+    1159  WATER -> BRIDGE
+     223  FIELD -> ROAD
+     174  BRIDGE -> WATER
+      57  TREES -> ROAD
+      53  FIELD -> TREES
+      44  ROAD -> FIELD
+      39  TREES -> FIELD
+      26  BANK -> ROAD
+      21  ROAD -> SAND
+      12  SAND -> ROAD
+      11  ROAD -> BANK
+       9  BANK -> SAND
+       4  ROAD -> TREES
+       3  SIDEWALK -> ROAD
+       2  FIELD -> SIDEWALK
+       2  SAND -> BANK
+       1  LOT -> SIDEWALK
+regions: 3
+     855 tiles in [504, 600, 695, 695]
+     600 tiles in [624, 288, 671, 383]
+     385 tiles in [552, 264, 575, 383]

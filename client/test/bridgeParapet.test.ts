@@ -298,10 +298,50 @@ describe('the parapet on the bridge deck at 178,478', () => {
       if (!met) loose++;
     }
     // The city's bridges have a finite number of runs, and every run has two
-    // real ends where the deck reaches its abutment. Sixty is generous room
-    // for those on a map with four spans and their approaches; a hundred and
-    // four refused chords would put this at over two hundred.
-    expect(loose).toBeLessThan(60);
+    // real ends where the deck reaches its abutment — on both sides, so four
+    // loose ends a run, plus a little room.
+    //
+    // That "plus a little room" used to be spent: the bound was a flat 60,
+    // described as "generous room ... on a map with four spans". It was not
+    // generous, it was exact — the map had THIRTEEN separate decks and
+    // 4 x 13 + 8 is 60 — so the first change to add a span failed here for a
+    // reason that had nothing to do with parapets. Iteration 11 added three
+    // (The Ring's two crossings of the eastern bay and Marsh Causeway, all
+    // three of which the plan had always asked for and the bake had always
+    // refused), and 65 loose ends on 16 runs is the same ratio as 59 on 13.
+    //
+    // So count the runs and let the bound follow them. The property is
+    // unchanged and the arithmetic reproduces the old number exactly on the
+    // old map; what is gone is a constant that silently encoded how many
+    // bridges the city happened to have. A staircase regression is still
+    // caught by a mile: the 104 refused chords this test was written for put
+    // it "over two hundred", against a bound of 72 here.
+    const seen = new Uint8Array(map.widthTiles * map.heightTiles);
+    let runs = 0;
+    for (let start = 0; start < seen.length; start++) {
+      if (seen[start] === 1 || map.tiles[start] !== T_BRIDGE) continue;
+      runs++;
+      const bag = [start];
+      seen[start] = 1;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % map.widthTiles;
+        const y = (i - x) / map.widthTiles;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= map.widthTiles || ny >= map.heightTiles) continue;
+            const j = ny * map.widthTiles + nx;
+            if (seen[j] === 1 || map.tiles[j] !== T_BRIDGE) continue;
+            seen[j] = 1;
+            bag.push(j);
+          }
+        }
+      }
+    }
+    expect(runs, 'no bridge decks in the city at all').toBeGreaterThan(8);
+    expect(loose, `${runs} deck runs`).toBeLessThan(4 * runs + 8);
   });
 });
 

@@ -1,0 +1,5 @@
+Anywhere City: 768x768 tiles, baked in 21867ms
+  of dry land: road 33.4%  building 14.5%  bare 11.8%
+  road 16.9%  pavement 7.2%  building 7.3%  lot 4.4%  park 4.5%  water 49.4%  sand 0.2%
+  1185 blocks, 4005 buildings, 29 landmarks, 66 shops
+  warn   Coast Road may bridge but 169 tiles of its course carry no carriageway at all, from 360,685 to 520,681 — a crossing longer than the plan's maxBridgeSpan of 96

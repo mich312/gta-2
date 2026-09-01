@@ -1,0 +1,57 @@
+x=340  lowest carriageway y=681  waterline y=694  clear gap  12
+x=345  lowest carriageway y=685  waterline y=690  clear gap   4   <- no room for a second carriageway
+x=350  lowest carriageway y=684  waterline y=689  clear gap   4   <- no room for a second carriageway
+x=355  lowest carriageway y=685  waterline y=687  clear gap   1   <- no room for a second carriageway
+x=360  lowest carriageway y=683  waterline y=685  clear gap   1   <- no room for a second carriageway
+x=365  lowest carriageway y=678  waterline y=682  clear gap   3   <- no room for a second carriageway
+x=370  lowest carriageway y=674  waterline y=679  clear gap   4   <- no room for a second carriageway
+x=375  lowest carriageway y=671  waterline y=675  clear gap   3   <- no room for a second carriageway
+x=380  lowest carriageway y=669  waterline y=672  clear gap   2   <- no room for a second carriageway
+x=385  lowest carriageway y=667  waterline y=671  clear gap   3   <- no room for a second carriageway
+x=390  lowest carriageway y=667  waterline y=670  clear gap   2   <- no room for a second carriageway
+x=395  lowest carriageway y=667  waterline y=670  clear gap   2   <- no room for a second carriageway
+x=400  lowest carriageway y=668  waterline y=672  clear gap   3   <- no room for a second carriageway
+x=405  lowest carriageway y=670  waterline y=674  clear gap   3   <- no room for a second carriageway
+x=410  lowest carriageway y=672  waterline y=676  clear gap   3   <- no room for a second carriageway
+x=415  lowest carriageway y=673  waterline y=676  clear gap   2   <- no room for a second carriageway
+x=420  lowest carriageway y=664  waterline y=677  clear gap  12
+x=425  lowest carriageway y=664  waterline y=678  clear gap  13
+x=430  lowest carriageway y=664  waterline y=679  clear gap  14
+x=435  lowest carriageway y=664  waterline y=681  clear gap  16
+x=440  lowest carriageway y=664  waterline y=682  clear gap  17
+x=445  lowest carriageway y=664  waterline y=684  clear gap  19
+x=450  lowest carriageway y=663  waterline y=685  clear gap  21
+x=455  lowest carriageway y=684  waterline y=686  clear gap   1   <- no room for a second carriageway
+x=460  lowest carriageway y=663  waterline y=687  clear gap  23
+x=465  lowest carriageway y=662  waterline y=687  clear gap  24
+x=470  lowest carriageway y=661  waterline y=685  clear gap  23
+x=475  lowest carriageway y=661  waterline y=681  clear gap  19
+x=480  lowest carriageway y=660  waterline y=679  clear gap  18
+x=485  lowest carriageway y=659  waterline y=679  clear gap  19
+x=490  lowest carriageway y=658  waterline y=680  clear gap  21
+x=495  lowest carriageway y=657  waterline y=680  clear gap  22
+x=500  lowest carriageway y=678  waterline y=680  clear gap   1   <- no room for a second carriageway
+x=505  lowest carriageway y=654  waterline y=680  clear gap  25
+x=510  lowest carriageway y=653  waterline y=681  clear gap  27
+x=515  lowest carriageway y=652  waterline y=681  clear gap  28
+x=520  lowest carriageway y=679  waterline y=681  clear gap   1   <- no room for a second carriageway
+x=525  lowest carriageway y=679  waterline y=681  clear gap   1   <- no room for a second carriageway
+x=530  lowest carriageway y=678  waterline y=680  clear gap   1   <- no room for a second carriageway
+x=535  lowest carriageway y=677  waterline y=679  clear gap   1   <- no room for a second carriageway
+x=540  lowest carriageway y=674  waterline y=676  clear gap   1   <- no room for a second carriageway
+x=545  lowest carriageway y=671  waterline y=674  clear gap   2   <- no room for a second carriageway
+x=550  lowest carriageway y=645  waterline y=672  clear gap  26
+x=555  lowest carriageway y=646  waterline y=670  clear gap  23
+x=560  lowest carriageway y=646  waterline y=667  clear gap  20
+x=565  lowest carriageway y=646  waterline y=665  clear gap  18
+x=570  lowest carriageway y=646  waterline y=661  clear gap  14
+x=575  lowest carriageway y=646  waterline y=657  clear gap  10   <- no room for a second carriageway
+x=580  lowest carriageway y=646  waterline y=653  clear gap   6   <- no room for a second carriageway
+x=585  lowest carriageway y=646  waterline y=651  clear gap   4   <- no room for a second carriageway
+x=590  lowest carriageway y=647  waterline y=649  clear gap   1   <- no room for a second carriageway
+x=595  lowest carriageway y=644  waterline y=648  clear gap   3   <- no room for a second carriageway
+x=600  lowest carriageway y=643  waterline y=648  clear gap   4   <- no room for a second carriageway
+x=605  lowest carriageway y=642  waterline y=648  clear gap   5   <- no room for a second carriageway
+x=610  lowest carriageway y=641  waterline y=647  clear gap   5   <- no room for a second carriageway
+x=615  lowest carriageway y=647  waterline y=656  clear gap   8   <- no room for a second carriageway
+x=620  lowest carriageway y=644  waterline y=657  clear gap  12
