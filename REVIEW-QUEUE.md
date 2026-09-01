@@ -3034,3 +3034,81 @@ hold up, this is the loop's last live defect rather than its last false one.
 I am recording it this way rather than publishing 11.4%, because publishing a
 headline whose own control calls it broken is the precise failure iteration 10
 spent its first half correcting four instances of.
+
+---
+
+# Final visual review — looking, with no detector steering
+
+Ten iterations were steered by `mapaudit`. This pass was the opposite: render
+and look. `mapaudit` reads **TOTAL 48 / SCORE 2653.8 / DRAWN 2522.5** on this
+tree and none of its 20 signatures fires on either finding below.
+
+## 1. 508 tiles of road that simply are not there — and the loop used them as a constant
+
+The six `citybake --check` warnings are not six notes. They are **508 tiles of
+authored course carrying no carriageway**, on four named roads:
+
+| road | span | tiles |
+| --- | --- | --- |
+| The Ring | 641,309 → 644,381 | 77 |
+| The Ring | 649,306 → 652,380 | 80 |
+| Marsh Causeway | 566,292 → 571,373 | 81 |
+| Coast Road | 360,685 → 520,681 | **169** |
+| Coast Road | 542,675 → 612,648 | 79 |
+| Coast Road | 679,606 → 694,596 | 22 |
+
+`evidence/final-review/causeway-end.png` is what that looks like at 20 px/tile:
+**two carriageways ending in mid-air with rounded caps, passing within a tile or
+two of each other over open water, joining nothing.** The cap at ~613,647 is
+exactly the `612,648` end of Coast Road's 79-tile warning.
+`coastroad-169.png` shows the 169-tile span as open water with an **orphaned
+capsule of carriageway** stranded on the shore where the road gives up.
+
+This is the most visually obvious defect on the map and it is the user's own
+phrase — a road that makes no sense — and:
+
+- **No `mapaudit` signature fires on it.** `road-deadend` wants a cap facing
+  open ground; these face water, which reads as a legitimate quay.
+- **Every iteration of this loop reported "citybake holds at its six warnings"
+  as a PASS CONDITION.** I treated the largest visible defect on the map as a
+  stable baseline constant, for ten iterations, while optimising a score that
+  could not see it. The warnings were in front of me every single run.
+
+They are not undiscovered — they were escalated to the author in the *first*
+loop (`maxBridgeSpan` 72 → 76 with blast radius measured at zero, Marsh
+Causeway's reroute, Coast Road's own finding, then promote the gate from
+`warning` to `error`). Nobody ever rendered them. **An escalation that is never
+looked at becomes furniture.**
+
+## 2. Woodland is drawn as raw tile squares inside a smoothly-curved coast
+
+`islet-zoom.png` at 20 px/tile: the coastline is a smooth curve and the
+woodland boundary inside it is a **perfect one-tile staircase** you can count
+the steps of. `causeway-end.png` shows the same thing as literal green
+rectangles scattered over the spit. This is "squares from the pixel based map"
+in the land-use fill.
+
+Scale: **8,135 tiles of woodland/open-ground boundary in axis-aligned runs of
+3+**, 4.2× the length of the entire coastline.
+
+**My first probe for this was wrong and its own control said so.** I compared
+those runs against the coastline expecting the coast to score low; it scored
+1,946 with a longest run of 46 — nearly as staircased. Of course it is: both
+are tile masks. The tile plane is not the discriminator. The discriminator is
+that the coast has a `shoreChains` curve repainting it and woodland has nothing
+— which is what the picture shows and what `deckCut.ts` (iteration 8) did for
+bridge decks. The number establishes scale only; the picture is the evidence.
+
+`built-staircase` does not scan this because its kinds are built edges — quay,
+deck, building frontage. A `TREES`/`FIELD` boundary is in none of them.
+
+## What this says about the loop
+
+The detector found real things and settled a great deal — but it also defined
+the search. Two of the map's most visible problems sat outside its 20
+signatures for ten iterations, and one of them was printed in the bake's own
+output on every single run and read as "held at six".
+
+**A metric you optimise becomes the edge of what you can see.** The cheapest
+correction available to this loop, all along, was to render the city and look
+at it.
