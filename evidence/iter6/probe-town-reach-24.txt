@@ -1,0 +1,33 @@
+# CLAIM_REACH = 24
+# per borough: the rect the lattice and block cut run over today (polyBounds),
+# and the rect they would run over if they clipped to owner-within-reach.
+Ravenhill        poly [168,36-432,312]  reach [206,37-435,335]  gained 1980  lost 0
+The Spine        poly [424,120-558,312]  reach [424,122-555,335]  gained 2697  lost 0
+North Point      poly [556,36-720,182]  reach [542,12-687,175]  gained 886  lost 0
+Old Quarter      poly [548,150-744,312]  reach [548,150-713,315]  gained 24  lost 0
+Ravenhill Park   poly [428,40-560,128]  reach [428,22-559,127]  gained 1213  lost 0
+The Terraces     poly [176,376-408,524]  reach [190,377-410,514]  gained 33  lost 0
+Beachfront       poly [404,364-644,492]  reach [405,341-659,494]  gained 2272  lost 0
+Old Suburbs      poly [188,506-412,636]  reach [209,506-413,621]  gained 26  lost 0
+New Suburbs      poly [412,470-688,618]  reach [410,451-689,605]  gained 305  lost 0
+Sunridge Park    poly [262,612-418,694]  reach [262,612-415,688]  gained 0  lost 0
+Sunridge Shore   poly [168,600-276,700]  reach [156,595-273,680]  gained 285  lost 0
+Marsh End        poly [276,584-716,740]  reach [294,587-707,759]  gained 1521  lost 7
+Vasco Heights    poly [26,166-186,252]  reach [79,181-180,253]  gained 1  lost 0
+The Docks        poly [28,248-190,422]  reach [48,248-181,413]  gained 0  lost 0
+The Foundry      poly [32,406-190,540]  reach [50,408-159,511]  gained 0  lost 0
+Gannet Rock      poly [50,598-172,702]  reach [64,574-168,678]  gained 1539  lost 0
+
+total gained 12782, total lost 7
+
+region 432,8-649,70: land 4817, road 1122, built 260
+  within reach 24: 3982 tiles (82.7%), 3072 of them not already carriageway — the ground a block cut could reach
+
+region 267,312-365,375: land 3237, road 1140, built 10
+  within reach 24: 1790 tiles (55.3%), 1329 of them not already carriageway — the ground a block cut could reach
+
+region 393,312-549,365: land 5749, road 1197, built 0
+  within reach 24: 4409 tiles (76.7%), 3740 of them not already carriageway — the ground a block cut could reach
+
+region 627,380-706,536: land 4889, road 1612, built 292
+  within reach 24: 2892 tiles (59.2%), 1647 of them not already carriageway — the ground a block cut could reach

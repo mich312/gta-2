@@ -1,0 +1,9 @@
+415,672 east   laid by layEsplanade:9                     owner Sunridge Park   fabric grid     polyBounds [262,612-418,694] inPoly 1 claimDepth 0
+440,311 south  laid by weaveFabrics:9                     owner The Spine       fabric grid     polyBounds [424,120-558,312] inPoly 1 claimDepth 0
+485,311 south  laid by weaveFabrics:9                     owner The Spine       fabric grid     polyBounds [424,120-558,312] inPoly 1 claimDepth 0
+500,311 south  laid by weaveFabrics:9                     owner The Spine       fabric grid     polyBounds [424,120-558,312] inPoly 1 claimDepth 0
+515,311 south  laid by weaveFabrics:9                     owner The Spine       fabric grid     polyBounds [424,120-558,312] inPoly 1 claimDepth 0
+530,311 south  laid by weaveFabrics:9                     owner The Spine       fabric grid     polyBounds [424,120-558,312] inPoly 1 claimDepth 0
+321,327 south  laid by weaveFabrics:9                     owner Ravenhill       fabric spine    polyBounds [168,36-432,312] inPoly 0 claimDepth 16
+478,600 south  laid by weaveFabrics:9                     owner New Suburbs     fabric crescent polyBounds [412,470-688,618] inPoly 1 claimDepth 0
+342,312 south  laid by weaveFabrics:6                     owner Ravenhill       fabric spine    polyBounds [168,36-432,312] inPoly 0 claimDepth 1
