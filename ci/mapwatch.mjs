@@ -50,7 +50,7 @@
  * than printing a tile table of zeros.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, existsSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -109,7 +109,44 @@ function cropRect(spec, W, H) {
 /* Rendering                                                           */
 /* ------------------------------------------------------------------ */
 
+/*
+ * mapgen renders from `shared/dist`, NOT from `shared/src/world/city.data.ts`.
+ * `citybake` alone is therefore not enough: with a stale dist, a render after a
+ * rebake silently re-draws the PREVIOUS bake, and the plates come back
+ * byte-identical to the baseline. That reads exactly like "the renderer cannot
+ * show this change" and it cost an iteration-8 agent an hour — it was caught by
+ * a bevel count, not by the eye.
+ *
+ * The whole worth of a watch plate is that it depicts the bake it is filed
+ * under, so refuse rather than draw a plate that does not.
+ */
+function assertDistFresh() {
+  const src = 'shared/src/world/city.data.ts';
+  const dist = 'shared/dist/world/city.data.js';
+  if (!existsSync(dist)) {
+    throw new Error(`${dist} does not exist — run \`pnpm build\` before rendering.`);
+  }
+  // Compare the encoded payload, NOT mtimes. `tsc -b` decides what to rebuild
+  // from its own buildinfo, so a file whose mtime moved but whose content did
+  // not is never rewritten — an mtime guard then refuses forever and `pnpm
+  // build` cannot clear it. A guard whose prescribed remedy does not work is
+  // worse than no guard; this one compares the bytes that actually get drawn.
+  const payload = (f) => {
+    const t = readFileSync(f, 'utf8');
+    const a = t.indexOf('"'), b = t.lastIndexOf('"');
+    if (a < 0 || b <= a) throw new Error(`${f} does not look like a city.data module`);
+    return t.slice(a, b + 1);
+  };
+  if (payload(src) !== payload(dist)) {
+    throw new Error(
+      `${dist} does not carry the bake in ${src}.\n` +
+      `mapgen renders from dist, so these plates would depict the PREVIOUS bake.\n` +
+      `Run \`pnpm build\` first.`);
+  }
+}
+
 function render(iter) {
+  assertDistFresh();
   const dir = join('evidence/watch', `iter${iter}`);
   mkdirSync(dir, { recursive: true });
   for (const [name, spec] of WATCH) {
