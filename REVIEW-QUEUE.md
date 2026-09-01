@@ -3225,3 +3225,129 @@ matched the others' command lines, which contain that string, so every one waite
 on the next while no suite ran at all. Same trap that killed the coordinator's
 own shell three times earlier with `pkill -f "vite"`. Killed by PID, since a
 pattern kill would have matched the killer.
+
+---
+
+# Visual loop — iteration 12 close
+
+**TOTAL 81 → 59. SCORE 5528.8 → 4206.0. DRAWN 5119.5 → 3589.8.**
+**SCORE −1,322.8, DRAWN −1,529.7 — roughly four times iteration 11's improvement.**
+
+Suite green at 95 files, citybake at its one escalated warning, reachability and
+block/building counts unchanged. Both halves shipped, and the picture is the
+proof: `evidence/final-review/islet-zoom.png` against `AFTER-islet-zoom.png`,
+same crop, same scale — a countable one-tile staircase becomes a flowing
+contour.
+
+## The woodland curve was already in the asset, exactly as the deck's was
+
+The agent asked iteration 8's question before designing anything, and the answer
+was yes. `bake.ts` plants open-country woodland from a field and nothing else:
+
+    wildAt(tx,ty) == fbm(WILD_SEED, tx/22, ty/22) >= 0.52
+
+one sample per tile — so **a wood's outline is that field's level set, and the
+`T_TREES` mask is that level set point-sampled at tile centres.** The same
+relationship §25 has between shore rings and water tiles, and §45 between a deck
+and its swept disc. `woodCut.ts` reads the contour back in `shoreChains`' own
+format, and `wildAt` moved into it so the planting rule and the drawn outline are
+**one function** rather than two that can drift.
+
+**Where the field is not the outline, nothing is drawn** — and that was measured,
+not assumed. Only 69.8% of woodland boundary tiles agree with the field (wrong
+seed 49.6%, wrong scale 50.5%, wrong threshold 49.4% — three controls proving the
+agreement is real and not arithmetic). So `woodEdgeTiles` cuts a tile only where
+the field explains **both squares** of the face: 1,852 tiles, 926 wooded, 926
+open.
+
+| check | result |
+| --- | --- |
+| 2D chord vs 3D prism | **0 disagreements over 118,528 sub-texels**; flipped-side control red on all of them |
+| 3D instances | 612,578 → 614,430 = **+1,852**, the cut count exactly |
+| regression test, written against the *picture*, importing nothing from the fix | islet's drawn wood edge on whole tile edges **97.2% → 14.1%**; waterline control 0.0% both times |
+| collision gap, stated not hidden (§46.3, §45.5's form) | 186.3 tiles solid but painted meadow, 183.1 painted canopy but open, worst case half a square, against 13,618 tiles of woodland |
+
+Not claimed, and said so: 3,953 of 6,375 woodland faces remain on no smoothing
+layer — 43% hedgerows and orchard rows (a planted *line* whose outline IS the
+tile), 43% a later pass's own boundary, 0.8% the sheer shore cliff. **None is an
+outline the field drew.** The residual square notches visible at the islet's
+edges are exactly these.
+
+The agent **deliberately did not** teach `mapaudit`'s `drawn` column about the
+new chain, because another agent held that file — so it documented the one-line
+diff and measured its price with a census whose control reproduces the shipped
+tool's row to the decimal (`31 2703 2703.0 2427.0`) and exits 1 if it does not.
+I applied that line after the other agent merged; it landed on the census's
+prediction exactly: **SCORE 2703 → 1437, DRAWN 2427 → 954.**
+
+## `street-serves-nothing` ×5: all false positives, and it took three measures
+
+Two of them were wrong first.
+
+- **LOOSE** cannot read zero, because the bake paints a **round end cap**, so
+  every course joins itself. This reproduces iteration 10's broken control.
+- **STRICT** (foreign tarmac) reads 4 of 44 terminal — and failed too. `#298`
+  reads `0/0/0` while its west end runs into a street at x=253–255 that **no
+  course owns**, because most of this map's tarmac is carved block grid, not
+  courses. Dumping the ground is what caught it.
+- **ESCAPE**, over the tarmac alone, whose own first version was wrong and whose
+  controls caught it (it walled endpoints in behind their own paint; the ring
+  read `0/0`). Re-controlled four ways: **0 of 69 courses in the length window
+  are terminal at both ends.**
+
+**Not the sampling artifact iteration 10 suspected — a definitional one.**
+`tarmacBeyond` marches the straight extension of a **trimmed** centreline, so it
+measures where the *ray* leaves the road, not where the road ends. The
+signature's own documented exemplar was described wrongly: `#272` is not an islet
+cul-de-sac but the main street of a built-up headland running into a lagoon ring
+road. `#332` is a false *negative*.
+
+Cap test is now `tarmacBeyond` **AND** `endEscape`; the plant still fires 0 → 1,
+so it was narrowed rather than switched off.
+
+## `edge-notch`: my filing's premise was wrong
+
+I filed it as litter from iteration 11's own fix. **625,642 is water in both
+bakes.** Iteration 11 turned two neighbours from `T_BANK` to `T_SAND`, and
+`edgeNotches` needs its three differing neighbours to be the same *natural*
+material — `T_BANK` is not one. Identical geometry; the hazard is unchanged to
+the hundredth through the shipped `isSolidAtWorld` (0.77 → 0.77, controls: open
+sea 1.00, dry beach 0.00). A pre-existing bite in the waterline that iteration 11
+made *visible to the detector*, not one it created. Left firing and pinned
+exactly, so curing it cannot silently reverse the decision.
+
+## The twelfth blind instrument, and it is mine — the same rule, twice
+
+**`--selftest` was red at `6304e7d`**, the commit whose close published
+iteration 11's measurement. Three parties found it independently: both iteration
+12 agents, and me.
+
+The cause is my own process failure. I ran the selftest at iteration 11 *after
+merging the instrument agent* and got a genuine `EXIT=0` — then merged the map
+fixer, which rerouted Coast Road through the plant's site at 695,632, and **never
+re-ran it**. I wrote the rule that forbids exactly this at iteration 9:
+
+> re-run an instrument's own control after every change to its **subject**, not
+> only when the instrument changes
+
+and did not follow it two iterations later. That is the second time in this
+exercise a map change silently reddened this selftest.
+
+**The plant's own defect, diagnosed and fixed here.** It was not a gate problem —
+at every relaxed `minexcess` the plant added exactly zero findings (3→3, 6→6,
+26→26). The plant tested `curveOffAxis` at the run's **start** while
+`shoreStaircase` scores `len * tan(off)` at its **midpoint**. A site 25° off-axis
+where the plant looked and axis-aligned seven tiles along plants a tread that can
+never fire. Anchored to the detector's own quantity, it now FIRES 0 → 2 and
+`--selftest` exits 0.
+
+## Also flagged, not fixed
+
+- `evidence/iter10/population.mjs` wants a `__PASS_PROBE__` hook in `layout.ts`
+  that is not present; its `pass=` column reads `?`. **Third blind probe of the
+  kind iteration 10 flagged** — a probe needing a source hook must assert the
+  hook fired.
+- `ci/shot.mjs` still cannot take a 3D shot here, and it is a *different* failure
+  from the one iteration 8 fixed: it dies during **navigation**, not screenshot —
+  `networkidle` against playwright's 30 s default, and baking 768×768 in the page
+  outlives it.

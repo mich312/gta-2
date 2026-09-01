@@ -7,6 +7,7 @@ import {
   type PlanPoint,
   shoreChains,
   buildDeckCut,
+  buildWoodCut,
   BEV_NONE,
   deriveBevels,
   T_BANK,
@@ -1541,9 +1542,14 @@ function curveLayer(
   const coast = shoreChains(city.shores, W, H);
   const band = shoreChains(city.banks, W, H);
   const deck = buildDeckCut(tiles, W, H, city.courses);
+  // §46 gave woodland a chain of its own, read back off the wildness field's
+  // level set the same way §45's deck chain is read off the swept disc. Without
+  // it this tool reports a wood edge as undrawn while both renderers cut it on
+  // a chord — which is the failure `landuse-staircase` exists to measure.
+  const wood = buildWoodCut(tiles, W, H);
   return (x: number, y: number): boolean => {
     const i = y * W + x;
-    return coast.has(i) || band.has(i) || deck.has(i);
+    return coast.has(i) || band.has(i) || deck.has(i) || wood.has(i);
   };
 }
 
@@ -3786,7 +3792,14 @@ function selftest(city: BakedCity, plan: CityPlan): void {
           for (let x = 4; x < W - 20; x++) {
             if (at(x, y) !== T_WATER) continue;
             if (at(x, y + 1) !== T_SAND && at(x, y + 1) !== T_FIELD) continue;
-            if (curveOffAxis(idx, x + 0.5, y + 0.5, 6) < 25) continue;
+            // Ask where the DETECTOR asks. `shoreStaircase` takes the curve's
+            // angle at the MIDPOINT of the run and scores `len * tan(off)`, so a
+            // site 25 deg off-axis at its start and axis-aligned seven tiles
+            // along plants a tread that can never fire. That is precisely how
+            // this plant went silent when iteration 11 rerouted Coast Road
+            // through its site: the plant still landed, and created nothing
+            // detectable. Anchor the test to the detector's own quantity.
+            if (curveOffAxis(idx, x + 7, y + 0.5, 6) < 25) continue;
             let clear = true;
             for (let k = 0; k < 14 && clear; k++) {
               const below = at(x + k, y + 1);
