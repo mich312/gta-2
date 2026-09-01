@@ -2345,3 +2345,129 @@ and the ped test reads map spawn points.
 - Both costed routes rejected with numbers: a boundary street adds ~1,200 tiles
   on exactly the ground Finding 1 flags; closing the last block row misses
   Ravenhill entirely and puts a country road round four rural parishes.
+
+---
+
+# Visual loop — iteration 6 close
+
+**TOTAL 55 → 49. SCORE 2926.5 → 2911.8.** The first iteration where both
+metrics exist, and they disagree in the way that justifies having both.
+
+| | count | score |
+| --- | --- | --- |
+| iteration 5 | 0 | **−203.0** |
+| iteration 6 | **−6** | −14.7 |
+
+Iteration 5 removed a 198-tile promenade and the count could not see it.
+Iteration 6 closed six street ends and the score barely moved, because a
+deadend cap is a handful of tiles and a promenade is two hundred. Neither
+metric alone would have called both iterations productive. The loop needed
+the pair, and it now has one historical point for each failure mode.
+
+## My hypothesis was refuted for the second iteration running
+
+I escalated "bound the D1 flood" as the root cause of all nine deadends. The
+fixer attributed every tile before building anything:
+
+**All nine are `weaveFabrics`. Seven of the nine caps sit inside their own
+borough's polygon at `claimDepth 0`** — the flood had already claimed that
+ground correctly and was not involved.
+
+The defect was five lines in `cuts()`: it put a street on the **near** edge of
+a borough's rect and none on the far one, so a grid borough was closed north
+and west and open south and east, and every line of the other family ran past
+the last cross street and stopped. On the shipped plan exactly one street
+lands — The Spine's, y=309–311, inside its own polygon.
+
+Two iterations, two briefs from me, both wrong: iteration 5's named the wrong
+pass by a factor of twelve, iteration 6's named the wrong *layer*. Both were
+caught by attribution the fixer ran before writing code. **The instruction
+that keeps paying is "measure before you build on my hypothesis", not any
+hypothesis I have supplied.**
+
+## `lanes-serving-nothing` cannot be closed by removing road
+
+Proven arithmetically, which retires four iterations of attempts:
+
+| region | land | road | by pass |
+| --- | --- | --- | --- |
+| A headland | 5749 | 1197 | esplanade 563, seam 337, authored 213, lattice 70 |
+| B shoulder | 3237 | 1140 | **authored 767**, lattice 189, esplanade 176 |
+
+Region B's 767 authored tiles are The Ring's two carriageways and the Old
+Bridge — **23.7% of its land on their own, against a 10% gate.** Every other
+pass could stop laying there and it would still fire at 11.5%. Region A needs
+623 of 1,197 gone; the esplanade is 563 of them and is anchored in 618 built
+tiles round Old Quarter's real shore.
+
+The only route that closes either is clipping the block cut to owner-within-
+`CLAIM_REACH` instead of `polyBounds`: **12,782 tiles change hands across all
+sixteen boroughs**, three rural parishes and two parks among them. That is a
+plan decision, not a layout one. **Escalated, and the measurement now lives on
+`claimDepth` where the next reader will hit it.**
+
+## Two of my nine filings named the wrong mechanism
+
+- `478,600` — New Suburbs, `crescent` fabric, cap inside its own polygon *and*
+  its own rect. A stretch the crescent `drop` hash deliberately did not carve.
+- `415,672` — `layEsplanade`, inside Sunridge Park at `claimDepth 0`, where the
+  shore band runs out.
+
+Neither is the `polyBounds` clipping I filed them as. Filed status: not fixed,
+and re-filed against the right mechanism.
+
+## The change is correct but not surgical, and the loop pays for that
+
+The fixer's claim that the road diff is confined is **exact** — I checked it
+tile by tile: **294 road tiles changed, all inside x 384–576 / y 256–320, zero
+outside.**
+
+But the bake changed **969 tiles** and only 568 are in that box. The other 401
+are land-use churn in boroughs the fix never touched:
+
+```
+sunridge  216 tiles   BUILDING->PARK 57 | FIELD->BUILDING 40 | FIELD->PARK 35
+kelvin     34 tiles   FIELD->SIDEWALK 23 | FIELD->BUILDING 10
+```
+
+No road transitions in either. Blocks went 1182 → 1184, and downstream land use
+is **index-coupled to block count**, so adding two blocks re-rolls building and
+park placement city-wide.
+
+**Cost to the loop:** the watch diff can no longer separate "this fix changed
+Sunridge" from "this fix changed the block count and Sunridge fell out
+differently". `sunridge` read 13,671 px and `kelvin` 1,913 px this iteration
+and *neither is about the fix*. Any future iteration that changes block count
+will show the same wash. Not filed as a defect — it is what a deterministic
+seeded bake does — but the watch set needs to report tile-class deltas, not
+just changed pixels, or it will keep pointing at the wrong borough.
+
+## The instrument agent, same iteration
+
+Gave every finding a magnitude in tiles (`m=`), summed as SCORE, noisy
+signatures discounted ×0.25 rather than dropped — cutting them out is how a
+signature stops being looked at. Two-sided control at `7769a2c` vs `ffb2e89`
+with the same detector: count flat 55→55, region B m=1343→1140, SCORE
+3129.5→2926.5. It scored iteration 5 retroactively at 203.
+
+`rank` was deliberately **not** reused as the magnitude: several signatures
+invert it (`100 - bag.length`) or fold severity in, so it is not comparable
+between runs. Reusing it would have silently corrupted every future comparison.
+
+`--selftest` gained a half-fix control, because **a plant only proves a
+detector sees a defect appear, never that it sees one shrink** — which is
+exactly what iteration 5 needed and did not have. Its first draft read
+**blind** (`m 2337 → 2337`); the negative control is kept as
+`control-negative.txt` as proof it can go red.
+
+## A third instrument was found broken
+
+`drivableLane` in `shared/test/prediction.test.ts` measured travel from a
+candidate the car had not spawned at — the winning candidate's car spawned
+**1,561 px away**, so it read 1,497 px of "driving" for a lane the car had
+never been on. Every candidate the car really drove read 140 px against a
+180 px gate, on the pre-fix bake too. **The helper had never once picked on
+its criterion.** Repaired as staging; assertions untouched; green on both bakes.
+
+That is the sixth instrument in this exercise found lying, and the fourth found
+by a control rather than by a failure.
