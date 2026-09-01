@@ -1,0 +1,1 @@
+2549 bridge tiles; widest crossing 76 at 569,325; 0 over maxBridgeSpan 96

@@ -411,6 +411,28 @@ export function checkCity(city: BakedCity, plan: ReturnType<typeof parseCityPlan
   //    ferry; a course that stops in the water usually means the polyline is
   //    short. The shipped city's surviving disagreements are pinned by name
   //    in `server/test/shippedCity.test.ts`, so a NEW one is a red test.
+  //
+  //    That severity is now the LAST thing standing between this rule and
+  //    `error`, and it should be read as a countdown rather than a policy.
+  //    Six of these stood for eleven iterations: 508 tiles of authored course
+  //    with no carriageway on them, which at 20 px/tile is two carriageways
+  //    ending in mid-air with rounded caps over open water and a 169-tile
+  //    reach of sea where a road is drawn. No `mapaudit` signature fires on
+  //    any of it — `road-deadend` wants a cap facing open ground and these
+  //    face water, which reads as a legitimate quay — so the ONLY instrument
+  //    that ever saw them was this line, and every run of the loop read "six
+  //    warnings" as the stable baseline it was passing against. A defect a
+  //    tool prints on every run and nobody acts on is furniture.
+  //
+  //    Iteration 11 settled five of the six (`evidence/iter11/`). The sixth,
+  //    Coast Road from 360,685 to 520,681, is the one case none of this
+  //    rule's three cures fits: the map has no room for the crossing, the
+  //    polyline has nowhere on land to move to — between x=348 and x=415
+  //    there is 1 to 4 tiles of ground between the ring road and the
+  //    waterline, so the ring IS the coast road there — and dropping
+  //    `bridges` would hide the hole rather than fill it. It needs an
+  //    authoring decision about which road owns that shore. When it is taken,
+  //    change this to `error` and the pin in `shippedCity.test.ts` to `[]`.
   for (const road of plan.roads) {
     if (!road.bridges) continue;
     const half = road.width / 2;

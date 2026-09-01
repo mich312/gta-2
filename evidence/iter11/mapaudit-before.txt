@@ -1,0 +1,20 @@
+# road-deadend                  4       11       11.0       11.0
+# road-stops-short             13      113      113.0      113.0
+# road-speck                    0        0        0.0        0.0
+# road-notch                    0        0        0.0        0.0
+# road-width-jump               0        0        0.0        0.0  noisy x0.25
+# junction-stub                 0        0        0.0        0.0
+# walk-orphan                   0        0        0.0        0.0
+# kerb-missing                  0        0        0.0        0.0
+# crossing-missing              0        0        0.0        0.0
+# shore-staircase               0        0        0.0        0.0
+# built-staircase              24      540      135.0        3.8  noisy x0.25
+# bare-corridor                 0        0        0.0        0.0
+# patch-square                  0        0        0.0        0.0
+# edge-notch                    0        0        0.0        0.0
+# fabric-coarse                 0        0        0.0        0.0
+# course-coverage-outlier       0        0        0.0        0.0
+# street-serves-nothing         5      227       56.8       56.8  noisy x0.25
+# lanes-serving-nothing         2     2338     2338.0     2338.0
+# country-outside-blocks        0        0        0.0        0.0
+# carve-is-a-ruler              0        0        0.0        0.0

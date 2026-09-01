@@ -1,0 +1,40 @@
+
+  /tmp/claude-0/-home-user-gta-2/297482db-7a0b-5d48-914d-987762c0d996/scratchpad/before-city.data.ts
+  → shared/src/world/city.data.ts
+
+  tiles  768x768, blocks 1184 → 1185
+  ! block count moved by 1. Downstream land use is index-coupled
+    to block count, so building and park placement re-rolls CITY-WIDE. Land-use
+    deltas below in boroughs your change never touched are that re-roll.
+
+  crop              tiles   carriageway  land use   what it watches
+  -----------------------------------------------   --------------------------------------
+  city               1840    +1480 -254       106   the whole map, 2 px a tile
+  ravenhill             0             0         0   Ravenhill — the weave
+  kelvin                0             0         0   Kelvin — tightest streets, alleys
+  sunridge              0             0         0   Sunridge — the southern grid
+  marshend             78       +51 -10        17   Marsh End — fringe and airfield
+  portvasco             0             0         0   Port Vasco — across the sound
+  gannet                0             0         0   Gannet Rock — air-only plateau
+  docks                 0             0         0   The Docks — contour fabric (A03)
+  strait                0             0         0   the strait crossings (A01)
+  hollis                0             0         0   Hollis Creek (A02)
+  southshore          543     +260 -240        43   the south shore and lagoon
+  ringroad              0             0         0   the ring road through open country
+  marshpost             0             0         0   Marsh Post — landmark mass (A04)
+  kelvinbridge          0             0         0   Kelvin Bridge deck (A01)
+  shoulderb             0             0         0   region B, the unclaimed shoulder (iter5 reach cut)
+  headlanda             0             0         0   region A, unclaimed and unfixed (iter5, escalated)
+
+  CARRIAGEWAY: 1734 tiles (+1480 -254), all within x 519-677 y 273-679.
+    named crops carrying it: marshend, southshore
+  LAND USE:    106 tiles.
+
+  transitions per crop (— means the crop did not move)
+
+  city            1840 tiles
+    carriageway   WATER->BRIDGE 1159 | FIELD->ROAD 223 | BRIDGE->WATER 174 | TREES->ROAD 57 | ROAD->FIELD 44 | BANK->ROAD 26 | ROAD->SAND 21 | SAND->ROAD 12  (+3 more, 18 tiles)
+    land use      FIELD->TREES 53 | TREES->FIELD 39 | BANK->SAND 9 | FIELD->SIDEWALK 2 | SAND->BANK 2 | LOT->SIDEWALK 1
+  ravenhill       —
+  kelvin          —
+  sunridge        —

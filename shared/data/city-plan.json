@@ -3,7 +3,7 @@
   "note": "The authored source of the one city. Outlines and courses, not a picture of tiles: shared/src/world/layout.ts turns them into ground, `pnpm citybake` freezes the result into shared/src/world/city.data.ts. See WORLDGEN.md section 12.",
   "widthTiles": 768,
   "heightTiles": 768,
-  "maxBridgeSpan": 72,
+  "maxBridgeSpan": 96,
   "geography": {
     "note": "One long island split by a tidal strait, a second island across a narrow sound to the west, and the rocks and barrier islands you would expect off a coast this shape. The swell comes from the west-south-west: that side is planed straight and takes the weather, the lee keeps its inlets.",
     "swell": [
@@ -1347,13 +1347,14 @@
     },
     {
       "name": "Marsh Causeway",
+      "note": "North\u2013south over the tidal estuary, from the head of the inlet down to the Seaview shore. Its north end used to be drawn eight tiles out in open water, so the deck had land on one side only and the no-piers pass reverted the whole causeway to sea; it now starts on the bank at the head of the inlet. It crosses the estuary at its widest, and 96 tiles of water on this line is what sets maxBridgeSpan: 90 is not enough, 96 is. The narrowest point of the same strait is 22 tiles, 33 tiles west at x=532 \u2014 moving the causeway there would make it an ordinary bridge, but it would no longer join Market Square to the Seaview shore, which is the connection it was drawn for.",
       "width": 4,
       "curve": false,
       "bridges": true,
       "points": [
         [
-          566,
-          292
+          565,
+          272
         ],
         [
           572,
@@ -1476,6 +1477,7 @@
     },
     {
       "name": "Coast Road",
+      "note": "The south shore road. It was drawn on a coastline the geography warp no longer produces: five of its seven control points stood in open water, and 270 of its 511 tiles carried no carriageway because the course ran out at sea PARALLEL to the beach \u2014 there is no far bank on that heading, only the same island again, so those decks were causeways and the bake was right to refuse them. Its EAST half is now back on the shore it is named for: past the Old Point light it follows the coast to the mouth of the eastern bay, crosses that, and stops on the headland by Gannet Light where the land does. Its WEST half, 360,685 to 520,681, is still out at sea and still refused, and that one is not a polyline nudge \u2014 between x=348 and x=415 there is 1 to 4 tiles of land between the ring road and the waterline, so the ring IS the coast road there and a second carriageway cannot be laid beside it without the two merging into one sheet of tarmac. The measurement is evidence/iter11/probe-room.txt and the two candidate reroutes that were built and rejected are in evidence/iter11/README.md.",
       "width": 4,
       "curve": true,
       "bridges": true,
@@ -1497,16 +1499,20 @@
           684
         ],
         [
-          604,
-          654
+          547,
+          668
         ],
         [
-          660,
-          618
+          578,
+          648
         ],
         [
-          694,
-          596
+          624,
+          632
+        ],
+        [
+          678,
+          606
         ]
       ]
     },
