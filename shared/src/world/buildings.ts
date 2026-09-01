@@ -250,6 +250,82 @@ function packRect(
 }
 
 /**
+ * The countryside's two PLANTED patterns, as predicates on the ground alone.
+ *
+ * Both used to live inside `fillBlock`'s rural branch, which walks blocks —
+ * so rural country that no block covers never got either of them, and a hedge
+ * run reaching the edge of a block stopped dead on a line nothing draws. The
+ * bake's blockless-country pass asks them again out there (`bake.ts`), and
+ * they are predicates here rather than two copies of a rule so that the two
+ * callers cannot drift apart: a hedge planted by one and not the other is the
+ * seam this exists to remove.
+ *
+ * Neither reads the block, so neither needs one. Both read the ground as it
+ * stands, so the caller decides when to ask.
+ */
+const HEDGE_SEED = 0x5eed9e;
+const ORCHARD_SEED = 0x0bc4a2d;
+
+/**
+ * Hedgerows (§14.3 D5). The countryside's cheap trick with outsized reach:
+ * every lane carries an intermittent tree-line one verge back from its edge,
+ * so country reads as a FIELD with a boundary instead of open felt. One tile
+ * of verge keeps every lane drivable at full width (the same rule the
+ * woodland clearing enforces), and the hash gaps are gates in the chokepoint
+ * sense — a hedge you must find the gap in is countryside gameplay. The hash
+ * is keyed on the world grid, not the block, so a run crosses block corners
+ * unbroken. A hedge never stands against a building (that is a smallholding's
+ * yard) and never beside another hedge's corner — two runs meeting at a bend
+ * would seal the verge pocket between themselves and the lane.
+ */
+export function hedgerowAt(tiles: Uint8Array, W: number, H: number, tx: number, ty: number): boolean {
+  if (tx < 1 || ty < 1 || tx >= W - 1 || ty >= H - 1) return false;
+  if (tiles[ty * W + tx] !== T_FIELD) return false;
+  const ctx: Ctx = { tiles, W, H, buildings: [] };
+  const nearRoad4 = (x: number, y: number): boolean =>
+    isRoad(ctx, x - 1, y) || isRoad(ctx, x + 1, y) || isRoad(ctx, x, y - 1) || isRoad(ctx, x, y + 1);
+  const onShore4 = (x: number, y: number): boolean =>
+    isWater(ctx, x - 1, y) || isWater(ctx, x + 1, y) || isWater(ctx, x, y - 1) || isWater(ctx, x, y + 1);
+  if (nearRoad4(tx, ty) || onShore4(tx, ty)) return false;
+  // One verge off the lane: a neighbour touches the road, this tile does not.
+  const secondRow =
+    nearRoad4(tx - 1, ty) || nearRoad4(tx + 1, ty) || nearRoad4(tx, ty - 1) || nearRoad4(tx, ty + 1);
+  if (!secondRow) return false;
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (tiles[(ty + dy) * W + tx + dx] === T_BUILDING) return false;
+    }
+  }
+  // Roads on two perpendicular sides mean a junction corner: a hedge bending
+  // round it would pen the corner verge in with the lane.
+  const roadNS =
+    isRoad(ctx, tx, ty - 1) || isRoad(ctx, tx, ty - 2) || isRoad(ctx, tx, ty + 1) || isRoad(ctx, tx, ty + 2);
+  const roadEW =
+    isRoad(ctx, tx - 1, ty) || isRoad(ctx, tx - 2, ty) || isRoad(ctx, tx + 1, ty) || isRoad(ctx, tx + 2, ty);
+  if (roadNS && roadEW) return false;
+  return latticeHash(HEDGE_SEED, tx >> 2, ty >> 2) < 0.68;
+}
+
+/**
+ * Orchard rows: hash-chosen 16-tile cells carry trees on a planted grid —
+ * every third column, every other row — which is what makes them read as rows
+ * rather than woodland. The caller supplies the fringe test (§14.3 D5): this
+ * pattern belongs to the band within one rural pitch of town, not to the open
+ * country behind it.
+ */
+export function orchardRowAt(tiles: Uint8Array, W: number, H: number, tx: number, ty: number): boolean {
+  if (tx < 1 || ty < 1 || tx >= W - 1 || ty >= H - 1) return false;
+  if (tiles[ty * W + tx] !== T_FIELD) return false;
+  const ctx: Ctx = { tiles, W, H, buildings: [] };
+  const nearRoad4 =
+    isRoad(ctx, tx - 1, ty) || isRoad(ctx, tx + 1, ty) || isRoad(ctx, tx, ty - 1) || isRoad(ctx, tx, ty + 1);
+  const onShore4 =
+    isWater(ctx, tx - 1, ty) || isWater(ctx, tx + 1, ty) || isWater(ctx, tx, ty - 1) || isWater(ctx, tx, ty + 1);
+  if (nearRoad4 || onShore4) return false;
+  return latticeHash(ORCHARD_SEED, tx >> 4, ty >> 4) < 0.35 && tx % 3 === 0 && ty % 2 === 0;
+}
+
+/**
  * Fill one block: sidewalk ring, then district-specific building layout.
  * The visual identity of each district lives here — downtown packs solid,
  * residential rows leave yards, industrial is big slabs on open lots,
@@ -308,11 +384,6 @@ export function fillBlock(
       }
     }
 
-    const nearRoad4 = (tx: number, ty: number): boolean =>
-      isRoad(ctx, tx - 1, ty) ||
-      isRoad(ctx, tx + 1, ty) ||
-      isRoad(ctx, tx, ty - 1) ||
-      isRoad(ctx, tx, ty + 1);
     const onShore4 = (tx: number, ty: number): boolean =>
       isWater(ctx, tx - 1, ty) ||
       isWater(ctx, tx + 1, ty) ||
@@ -387,63 +458,22 @@ export function fillBlock(
           }
         }
       }
-      const ORCHARD_SEED = 0x0bc4a2d;
       for (let ty = Math.max(1, b.y); ty < Math.min(H - 1, b.y + b.h); ty++) {
         for (let tx = Math.max(1, b.x); tx < Math.min(W - 1, b.x + b.w); tx++) {
           if (within !== undefined && !within(tx, ty)) continue;
-          if (tiles[ty * W + tx] !== T_FIELD) continue;
           if (!fringeAt(tx, ty)) continue;
-          if (nearRoad4(tx, ty) || onShore4(tx, ty)) continue;
-          // Orchard rows: hash-chosen 16-tile cells carry trees on a
-          // planted grid — every third column, every other row — which is
-          // what makes them read as rows rather than woodland.
-          if (latticeHash(ORCHARD_SEED, tx >> 4, ty >> 4) < 0.35 && tx % 3 === 0 && ty % 2 === 0) {
-            tiles[ty * W + tx] = T_TREES;
-          }
+          if (orchardRowAt(tiles, W, H, tx, ty)) tiles[ty * W + tx] = T_TREES;
         }
       }
     }
 
-    // Hedgerows (§14.3 D5). The countryside's cheap trick with outsized
-    // reach: every lane carries an intermittent tree-line one verge back
-    // from its edge, so a rural block reads as a FIELD with a boundary
-    // instead of open felt. One tile of verge keeps every lane drivable at
-    // full width (the same rule the woodland clearing above enforces), and
-    // the hash gaps are gates in the chokepoint sense — a hedge you must
-    // find the gap in is countryside gameplay. The hash is keyed on the
-    // world grid, not the block, so a run crosses block corners unbroken.
-    // A hedge never stands against a building (that is a smallholding's
-    // yard) and never beside another hedge's corner — two runs meeting at
-    // a bend would seal the verge pocket between themselves and the lane.
-    const HEDGE_SEED = 0x5eed9e;
-    const besideBuilding = (tx: number, ty: number): boolean => {
-      for (let dy = -1; dy <= 1; dy++) {
-        for (let dx = -1; dx <= 1; dx++) {
-          const j = (ty + dy) * W + tx + dx;
-          if (tiles[j] === T_BUILDING) return true;
-        }
-      }
-      return false;
-    };
+    // Hedgerows (§14.3 D5), one verge back from every lane. The rule itself
+    // is `hedgerowAt` above, so the bake's blockless-country pass plants the
+    // same run on the other side of a block edge.
     for (let ty = Math.max(1, b.y); ty < Math.min(H - 1, b.y + b.h); ty++) {
       for (let tx = Math.max(1, b.x); tx < Math.min(W - 1, b.x + b.w); tx++) {
         if (within !== undefined && !within(tx, ty)) continue;
-        if (tiles[ty * W + tx] !== T_FIELD) continue;
-        if (nearRoad4(tx, ty) || onShore4(tx, ty)) continue;
-        // One verge off the lane: a neighbour touches the road, this
-        // tile does not.
-        const secondRow =
-          nearRoad4(tx - 1, ty) || nearRoad4(tx + 1, ty) || nearRoad4(tx, ty - 1) || nearRoad4(tx, ty + 1);
-        if (!secondRow) continue;
-        if (besideBuilding(tx, ty)) continue;
-        // Roads on two perpendicular sides mean a junction corner: a hedge
-        // bending round it would pen the corner verge in with the lane.
-        const roadNS =
-          isRoad(ctx, tx, ty - 1) || isRoad(ctx, tx, ty - 2) || isRoad(ctx, tx, ty + 1) || isRoad(ctx, tx, ty + 2);
-        const roadEW =
-          isRoad(ctx, tx - 1, ty) || isRoad(ctx, tx - 2, ty) || isRoad(ctx, tx + 1, ty) || isRoad(ctx, tx + 2, ty);
-        if (roadNS && roadEW) continue;
-        if (latticeHash(HEDGE_SEED, tx >> 2, ty >> 2) < 0.68) tiles[ty * W + tx] = T_TREES;
+        if (hedgerowAt(tiles, W, H, tx, ty)) tiles[ty * W + tx] = T_TREES;
       }
     }
     return rng;

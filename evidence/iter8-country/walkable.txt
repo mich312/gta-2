@@ -1,0 +1,7 @@
+/tmp/baseline.city.data.ts
+  240651 open tiles in 7 piece(s); largest 232287, 5149, 1153, 832, 572, 332, ...
+  pieces of 20 tiles or more: 7
+shared/src/world/city.data.ts
+  240461 open tiles in 7 piece(s); largest 232097, 5149, 1153, 832, 572, 332, ...
+  pieces of 20 tiles or more: 7
+PIECES MOVED 7 -> 7, largest 232287 -> 232097

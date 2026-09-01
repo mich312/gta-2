@@ -1,0 +1,8 @@
+/home/user/gta-2/.claude/worktrees/agent-a45cad1115b344948/shared/src/world/city.data.ts
+  rural country INSIDE a block : 16827 tiles, 28 of them hedgerow positions
+  rural country OUTSIDE every block: 7549 tiles
+     in the fringe band (§14.3 D5) : 1076
+     hedgerow positions unplanted  : 28
+     orchard-row positions unplanted: 2
+       hedgerow Marsh End: 24
+       hedgerow Sunridge Shore: 4

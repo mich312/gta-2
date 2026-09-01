@@ -1,0 +1,3 @@
+CITY-WIDE blockless rural country: 49 regions, 7549 tiles, 2777 wood (36.8%)
+  regions >= 40 tiles: 23, 7117 tiles, 2648 wood
+

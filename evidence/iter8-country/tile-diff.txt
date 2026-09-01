@@ -1,0 +1,5 @@
+192 tiles changed; 0 of them carriageway (ROAD|BRIDGE|RAMP)
+bounding box 246,596-677,689
+     191  T_FIELD->T_TREES
+       1  T_TREES->T_FIELD
+blocks 1184 -> 1184, buildings 4005 -> 4005

@@ -1,0 +1,25 @@
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |server| test/shippedCity.test.ts > the shipped city > carries the hedgerow ACROSS a block edge, not up to it
+AssertionError: expected 156 to be less than or equal to 2
+ ❯ test/shippedCity.test.ts:370:45
+    368|     // is the bake refusing on purpose. A ceiling, so a later bake may…
+    369|     // better. 156 on the pre-fix bake.
+    370|     expect(shipped.missing - shipped.mouth).toBeLessThanOrEqual(2);
+       |                                             ^
+    371|     // And the rule fires on this ground at all. 66 before the fix, 22…
+    372|     expect(shipped.planted).toBeGreaterThanOrEqual(200);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 7 passed (8)
+   Start at  05:08:54
+   Duration  6.12s (transform 1.40s, setup 0ms, collect 2.54s, tests 3.14s, environment 0ms, prepare 77ms)
+
+[ci/test] FAIL: 3 failed test(s), 0 real unhandled error(s).
+  - /home/user/gta-2/.claude/worktrees/agent-a45cad1115b344948/server/test/shippedCity.test.ts (file-level)
+  - /home/user/gta-2/.claude/worktrees/agent-a45cad1115b344948/server/test/shippedCity.test.ts: the shipped city
+  - /home/user/gta-2/.claude/worktrees/agent-a45cad1115b344948/server/test/shippedCity.test.ts: carries the hedgerow ACROSS a block edge, not up to it

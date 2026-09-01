@@ -10,7 +10,10 @@ import {
   T_FLOOR,
   T_LOT,
   T_ROAD,
+  T_TREES,
   T_WATER,
+  T_FIELD,
+  hedgerowAt,
 } from 'shared';
 import { checkCity } from '../src/tools/cityCheck.js';
 
@@ -275,6 +278,116 @@ describe('the shipped city', () => {
       x += run;
     }
     expect(caps).toEqual([]);
+  });
+
+  it('carries the hedgerow ACROSS a block edge, not up to it', () => {
+    // Iteration 8, `country-outside-blocks`.
+    //
+    // The rural fill's rule is not one rule. `fillBlock`'s rural branch plants
+    // woodland where the wildness field says wood, AND a hedgerow one verge
+    // back from every lane, AND — inside the fringe band — orchard rows.
+    // Iteration 3 taught the bake to ask the ground no block covers what it
+    // is, and asked it only the first of the three. So a hedge run whose hash
+    // is deliberately "keyed on the world grid, not the block, so a run
+    // crosses block corners unbroken" reached the edge of the last block and
+    // stopped dead on a line nothing draws, with bare verge beyond it.
+    //
+    // Asked of the artifact, with the bake's own predicate rather than a copy
+    // of it: on rural country that no block's box covers, how many positions
+    // does `hedgerowAt` claim that carry no tree? The bake refuses two kinds
+    // on purpose and those are counted apart — a tree across a held-short
+    // mouth is not a hedge, it is a street walled up.
+    //
+    //   pre-fix bake:  planted  66, missing 182, 26 across a mouth -> 156 unexplained
+    //   this bake:     planted 220, missing  28, 26 across a mouth ->   2 unexplained
+    //
+    // `planted` is asserted too, and that is not decoration: a rule that
+    // stopped firing at all would leave nothing to be missing and would pass
+    // the first assertion on 0 === 0, which is how the seventh blind
+    // instrument in this exercise passed its own control (iteration 7).
+    const W = city.widthTiles;
+    const H = city.heightTiles;
+    const rural = new Uint8Array(W * H);
+    for (const d of plan.districts) {
+      if ((d as { rural?: boolean }).rural !== true) continue;
+      for (let ty = 0; ty < H; ty++) {
+        for (let tx = 0; tx < W; tx++) {
+          if (rural[ty * W + tx] === 0 && pointInPoly(d.area, tx + 0.5, ty + 0.5)) rural[ty * W + tx] = 1;
+        }
+      }
+    }
+    // A block's bounding BOX, which is what the audit uses and is the larger
+    // of the two readings — the bake's pass works off the block's mask, so
+    // this can only understate the ground it was responsible for.
+    const covered = new Uint8Array(W * H);
+    for (const b of city.blocks) {
+      for (let y = Math.max(0, b.y); y < Math.min(H, b.y + b.h); y++) {
+        for (let x = Math.max(0, b.x); x < Math.min(W, b.x + b.w); x++) covered[y * W + x] = 1;
+      }
+    }
+    const census = (tiles: Uint8Array): { planted: number; missing: number; mouth: number } => {
+      const at = (x: number, y: number): number =>
+        x < 0 || y < 0 || x >= W || y >= H ? -1 : (tiles[y * W + x] as number);
+      const roadWithin3 = (x: number, y: number, dx: number, dy: number): boolean => {
+        for (let k = 1; k <= 3; k++) {
+          const v = at(x + dx * k, y + dy * k);
+          if (v === T_ROAD || v === T_BRIDGE) return true;
+        }
+        return false;
+      };
+      const acrossAMouth = (x: number, y: number): boolean =>
+        (roadWithin3(x, y, 1, 0) && roadWithin3(x, y, -1, 0)) ||
+        (roadWithin3(x, y, 0, 1) && roadWithin3(x, y, 0, -1));
+      let planted = 0;
+      let missing = 0;
+      let mouth = 0;
+      for (let i = 0; i < W * H; i++) {
+        if (rural[i] === 0 || covered[i] === 1) continue;
+        const x = i % W;
+        const y = (i - x) / W;
+        const t = tiles[i] as number;
+        if (t === T_TREES) {
+          // A tree standing where the rule would have put one had the ground
+          // still been bare. `hedgerowAt` asks for `T_FIELD`, so the tile is
+          // put back for the length of the question and restored after.
+          tiles[i] = T_FIELD;
+          if (hedgerowAt(tiles, W, H, x, y)) planted++;
+          tiles[i] = T_TREES;
+          continue;
+        }
+        if (t !== T_FIELD) continue;
+        if (!hedgerowAt(tiles, W, H, x, y)) continue;
+        missing++;
+        if (acrossAMouth(x, y)) mouth++;
+      }
+      return { planted, missing, mouth };
+    };
+
+    const shipped = census(decodeBakedCity(JSON.parse(CITY_DATA)).tiles);
+    // Where the rule fires, the tree is there — except across a mouth, which
+    // is the bake refusing on purpose. A ceiling, so a later bake may only do
+    // better. 156 on the pre-fix bake.
+    expect(shipped.missing - shipped.mouth).toBeLessThanOrEqual(2);
+    // And the rule fires on this ground at all. 66 before the fix, 220 after.
+    expect(shipped.planted).toBeGreaterThanOrEqual(200);
+
+    // The control: the census can go red. Take one planted hedgerow tile back
+    // to bare ground and it must show up as missing, or the two assertions
+    // above are measuring nothing.
+    const cut = decodeBakedCity(JSON.parse(CITY_DATA));
+    let felled = -1;
+    for (let i = 0; i < W * H && felled < 0; i++) {
+      if (rural[i] === 0 || covered[i] === 1 || cut.tiles[i] !== T_TREES) continue;
+      const x = i % W;
+      const y = (i - x) / W;
+      cut.tiles[i] = T_FIELD;
+      if (hedgerowAt(cut.tiles, W, H, x, y)) felled = i;
+      else cut.tiles[i] = T_TREES;
+    }
+    expect(felled).toBeGreaterThanOrEqual(0);
+    const after = census(cut.tiles);
+    expect(after.missing).toBe(shipped.missing + 1);
+    expect(after.planted).toBe(shipped.planted - 1);
   });
 
   it('builds Kelvin Bridge, the crossing its own plan calls the signature span', () => {

@@ -1,0 +1,4 @@
+planted 191, taken back out 1
+  4-adjacent to a carriageway : 0   (must be 0)
+  within one tile of water    : 0   (must be 0)
+  inside a block's bounding box: 28   (a box is not a mask; these sit outside the mask)
