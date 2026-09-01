@@ -32,6 +32,7 @@ import {
   shoreHalf,
   shoreChains,
   buildDeckCut,
+  buildWoodCut,
   courseJunctions,
   buildingCorners,
   buildingMass,
@@ -407,6 +408,18 @@ export class TileLayer {
    * rings have to the water tiles.
    */
   private deckSegs: Map<number, Float32Array> | null = null;
+  /**
+   * The WOODLAND edge through each tile it crosses (§46), indexed exactly as
+   * `shoreSegs` is and cut with the same two functions.
+   *
+   * The fourth line of the same kind and the last one still drawn square. A
+   * wood is planted from a field — `wildAt` is `fbm(...) >= 0.52` — so its
+   * outline is that field's level set and the `T_TREES` mask is the level set
+   * point-sampled at tile centres, the same relationship the water tiles have
+   * to the shore rings. `buildWoodCut` reads the contour back; nothing here
+   * smooths anything.
+   */
+  private woodSegs: Map<number, Float32Array> | null = null;
 
   /** Tile indices that host a parked vehicle — see `indexParking`. */
   private readonly parkingTiles = new Set<number>();
@@ -456,6 +469,8 @@ export class TileLayer {
     this.bandSegs = banks.length === 0 ? null : shoreChains(banks, map.widthTiles, map.heightTiles);
     const deck = buildDeckCut(map.tiles, map.widthTiles, map.heightTiles, map.courses);
     this.deckSegs = deck.size === 0 ? null : deck;
+    const wood = buildWoodCut(map.tiles, map.widthTiles, map.heightTiles);
+    this.woodSegs = wood.size === 0 ? null : wood;
   }
 
   /** World-px ribbons and the tile cover mask, from the baked courses. */
@@ -1367,8 +1382,18 @@ export class TileLayer {
     // The waterline wins a tile that holds both. They are a tile and a half
     // apart by construction (`QUAY_REACH`), so that is a degenerate case at a
     // tight corner rather than the ordinary shape.
+    //
+    // And the WOODLAND edge (§46) one line further in again, last of the
+    // four because it is the softest: where the coast, the band or the deck
+    // has an answer about a tile, that answer is about a harder boundary
+    // running through the same square and it wins. Same bevel rule as the
+    // two above — a curve and a 45° chamfer disagreeing about where a wood
+    // starts is worse than either.
     if (seg !== undefined) this.paintShoreTile(ctx, tx, ty, x, y, seg, plants);
-    else if (!this.paintBandTile(ctx, tx, ty, x, y, plants)) {
+    else if (
+      !this.paintBandTile(ctx, tx, ty, x, y, plants, this.bandSegAt(tx, ty)) &&
+      !this.paintBandTile(ctx, tx, ty, x, y, plants, this.woodSegAt(tx, ty))
+    ) {
       this.paintBevel(ctx, tx, ty, x, y, plants);
     }
   }
@@ -1385,6 +1410,14 @@ export class TileLayer {
    * type — so each half takes the material of the nearest tile centre that
    * `chainSide` puts on that half, which asks the line itself.
    *
+   * The chain is now a PARAMETER rather than a lookup, because §46's woodland
+   * edge is the same kind of line asked the same question — two dry materials
+   * either side of a curve — and giving it a second near-identical painter is
+   * how the map ends up with two answers about one boundary. `T_TREES` and
+   * `T_FIELD` are told apart by their own tile types, but the branch that
+   * cannot do that (a wooded cliff and the wood behind it) is exactly the one
+   * this function was written for, so it needed no change to serve both.
+   *
    * Returns whether it cut, so the caller knows to leave the bevel alone.
    */
   private paintBandTile(
@@ -1394,11 +1427,10 @@ export class TileLayer {
     x: number,
     y: number,
     plants: boolean,
+    seg: Float32Array | undefined,
   ): boolean {
     const map = this.map;
-    if (this.bandSegs === null || !map) return false;
-    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
-    const seg = this.bandSegs.get(ty * map.widthTiles + tx);
+    if (!map) return false;
     if (seg === undefined || seg.length < 4) return false;
     // A wall is not shaded by the beach it stands behind, and a deck is not
     // ground at all.
@@ -1464,6 +1496,22 @@ export class TileLayer {
     if (this.shoreSegs === null || !map) return undefined;
     if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
     return this.shoreSegs.get(ty * map.widthTiles + tx);
+  }
+
+  /** The band's inner edge through a tile, if the beach's back line runs here. */
+  private bandSegAt(tx: number, ty: number): Float32Array | undefined {
+    const map = this.map;
+    if (this.bandSegs === null || !map) return undefined;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
+    return this.bandSegs.get(ty * map.widthTiles + tx);
+  }
+
+  /** The woodland edge through a tile, if a wood ends inside it (§46). */
+  private woodSegAt(tx: number, ty: number): Float32Array | undefined {
+    const map = this.map;
+    if (this.woodSegs === null || !map) return undefined;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
+    return this.woodSegs.get(ty * map.widthTiles + tx);
   }
 
   /** The deck's own edge through a tile, if a bridge ends inside it (§45). */

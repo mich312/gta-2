@@ -1,0 +1,10 @@
+
+Woodland boundary tiles vs the wildness field, shipped bake
+
+bake.ts:609 field (real)       boundary tiles   8890   field agrees   6203 = 69.8%   (trees 72.6%  open 67.6%)
+CONTROL wrong seed             boundary tiles   8890   field agrees   4412 = 49.6%   (trees 47.1%  open 51.6%)
+CONTROL wrong scale            boundary tiles   8890   field agrees   4488 = 50.5%   (trees 40.6%  open 58.1%)
+CONTROL wrong threshold        boundary tiles   8890   field agrees   4392 = 49.4%   (trees 85.5%  open 21.6%)
+
+real 69.8%  vs best control 50.5%
+

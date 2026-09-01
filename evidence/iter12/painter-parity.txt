@@ -1,0 +1,17 @@
+
+  wood curve crosses 1852 tiles; 118528 sub-texels sampled at 8x8
+
+  called WOOD by   mapgen (field)  59236
+                   3D    (prism)   59120
+                   2D    (chord)   59120
+
+  3D vs 2D  disagree 0 of 118528  (0.000%)  — both read the CHORD, so this must be 0
+  mapgen vs 2D       3992 of 118528  (3.368%)  — field against its own secant
+  mapgen vs 3D       3992 of 118528  (3.368%)
+
+  the two halves partition the square: worst area error 0.00e+0 over 1852 tiles
+
+  CONTROL, 3D side flipped: 3D vs 2D disagree 118528 of 118528 — red, as it must be
+
+  VERDICT: the chord painters agree exactly and the check can fail
+

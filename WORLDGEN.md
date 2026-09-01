@@ -4944,3 +4944,147 @@ before and compare straight back through the review loop.
 | `evidence/iter8/bevel-overlap.mjs` | the 131 tiles the 45-degree chamfer had to stand down on |
 | `client/test/bridgeParapet.test.ts` | the regression, written against the built city so it runs either side of the change |
 | `evidence/iter8/A-bridge-178-478-eye-BEFORE.png` / `-AFTER.png` | the same camera, before and after |
+
+## 46. The woodland edge, as a curve
+
+§25 made the coast a curve and the water tiles its rasterisation; §39 did the
+same for the shore band's inner edge; §45 for the bridge deck. Three
+boundaries of one kind, each drawn from the curve its tile mask is a sample
+of. The **land-use** boundary got none of them, and `bevel.ts` refused it in
+as many words:
+
+> *"Woodland edges inland are left square too, for now — the 3D canopy is a
+> box, and opening its corner to walkers would let them vanish under it."*
+
+That "for now" is what the final visual review photographed.
+`evidence/final-review/islet-zoom.png` at 20 px per tile is a smoothly curved
+coastline with a perfect tile staircase of woodland inside it, and you can
+count the steps; `causeway-end.png` is the same thing as green rectangles on a
+spit. It is the commissioner's own complaint — *"squares from the pixel based
+map"* — in the one boundary nothing repaints. `mapAudit`'s
+`landuse-staircase` priced it at **31 woods, 2,703 tiles, DRAWN 2,427 — 90% of
+its own SCORE and 46% of the map's**, with several woods reading `228 of 228`
+and `165 of 165` boundary faces on no smoothing layer at all.
+
+### 46.1 The curve was already in the bake
+
+It does not have to be invented, fitted or smoothed. Open-country woodland is
+planted from a field and from nothing else (`bake.ts`):
+
+```
+wildAt(tx, ty)  ==  fbm(WILD_SEED, tx / 22, ty / 22) >= 0.52
+```
+
+one sample per tile. So a wood's true outline is the **level set** of that
+field, and **the tile mask is that level set point-sampled at tile centres** —
+precisely the relationship §25 established between the shore rings and the
+water tiles, and §45 between a deck and its swept disc. `woodCut.ts` reads the
+contour back. `wildAt` itself now lives there and `bake.ts` imports it, so the
+planting rule and the drawn outline are one function and cannot drift.
+
+**And where the field is not the outline, which is a third of it.** The field
+decides woodland; later passes then edit the result — a lane's one-tile verge
+is cleared, hedgerows and orchard rows plant `T_TREES` where the field says
+meadow, the shore pass stands a sheer `T_TREES` cliff at the waterline, a park
+fills to its block edge. Measured on the shipped bake
+(`evidence/iter12/wild-contour-probe.mjs`): **69.8%** of woodland boundary
+tiles agree with the field, against **49.6%** for a wrong seed, **50.5%** for a
+wrong scale and **49.4%** for a wrong threshold. The field is unmistakably the
+right one and unmistakably not the whole story.
+
+So `woodEdgeTiles` cuts a tile only where the field **explains both squares of
+the face**: `wildAt` true on the wooded side, false on the open side. Where a
+later pass moved the boundary, that boundary belongs to that pass and is left
+exactly as it lies. **A curve that cannot honestly claim a face does not draw
+it.** 1,852 tiles qualify — 926 wooded, 926 open, which is what a contour
+running between tile centres has to look like.
+
+### 46.2 Three painters, one chain
+
+Output shape is `shoreChains`'s, deliberately, for the reason §45 gives:
+`Map<tile, Float32Array>` of tile-local points with the **open country on the
+RIGHT of travel**, the one convention `shoreHalf` and `chainSide` are written
+against.
+
+| painter | what it does now |
+|---|---|
+| `client/src/render/tiles.ts` | `paintBandTile` takes the chain as a **parameter** and serves both the band and the wood — the band's own case (two dry materials told apart only by the line) is exactly this one, so it needed no new logic. Tried after the coast, the band and the deck, and it suppresses the bevel on the tiles it cuts, the same rule those three already follow. |
+| `client/src/three/cityGeometry.ts` | a crossed wood tile is **demoted** to the open country beside it at street level — its canopy box goes, exactly as a crossed shore tile's box is sunk — and `buildWoodPrisms` puts the canopy back over the wooded half: top face at `TREE_Z`, a wall down the chord. `client/src/three/scenery.ts` plants the canopy sprites on the same side, or a wood would end in a chord with trees standing in mid-air past it. |
+| `server/src/tools/mapRender.ts` | a per-pixel pass over `woodEdgeTiles`, straight off `wildDepth`, exactly as the deck pass runs straight off `deckDepth`. First of the curve passes, because the wood is the softest boundary and the other three walk back over anything of theirs it touches. |
+
+Measured (`evidence/iter12/painter-parity.mjs`, 118,528 sub-texels at 8x8 over
+all 1,852 tiles): the 2D chord and the 3D prism disagree **0 times**; mapgen's
+field disagrees with them on **3.368%** of sub-texels, which is the chord's own
+bow away from the contour it is a secant of. The control — the 3D side flipped
+— goes red on all 118,528, so the check can fail. The two halves partition each
+square with **0.00e+0** worst-case area error.
+
+### 46.3 What this does NOT change, and the honest gap
+
+**No ground moves.** A fresh bake is byte-identical to the shipped asset
+(`evidence/iter12/bake-identical.mjs`, with a bent-payload control): 1,185
+blocks, 4,005 buildings, reachability 102,059 tiles / 1 component / mean
+landmark travel 473.9 over 702 pairs / 0 unreachable, `citybake --check` at its
+one known warning. This is a repaint.
+
+**The collision shape is untouched, and it is the §45.5 gap again.** `T_TREES`
+is a wall — `collide.ts` blocks on the tile and `volume.ts` gives the canopy a
+solid span to `TREE_Z` — so the walkable wood is still the tile mask while the
+drawn wood is now the chord. Measured
+(`evidence/iter12/collision-gap.mjs`): **186.3 tiles of area are solid but
+painted meadow**, and **183.1 tiles of area are painted canopy but open**,
+worst case **half a square**, against 13,618 tiles of woodland. Both directions
+are the shape the map already had — the wood was a wall over the whole square
+before and still is, and `bevel.ts`'s `[T_WATER, T_TREES]` pair is
+one-directional precisely so *"the canopy simply overhangs the cut"*. **Filed,
+not fixed**, for §45.5's reason: closing it means a half-plane per wood tile
+and a `collide.ts` change, which is a simulation change with a desync surface.
+
+**`mapAudit` cannot yet see it.** `landuse-staircase`'s `drawn` column asks
+`smoothLayer`, which asks `curveLayer`, which knows the coast, bank and deck
+chains and not this one. Adding `buildWoodCut` there is a one-line change in
+`server/src/tools/mapAudit.ts`, deliberately **not** made in this iteration
+because another agent held that file. Until it lands, `pnpm mapaudit` prints
+`31 2703 2703.0 2427.0` unchanged. `evidence/iter12/landuse-census.mjs`
+reproduces the tool's own row exactly as its control and then prices the chain:
+**SCORE 2703.0 → 1437.0, DRAWN 2427.0 → 954.0**, with the tile plane held at
+`31 / 2703` — no ground moved. SCORE falls only because 17 woods drop under the
+detector's own `LANDUSE_UNCOVERED` half-gate and stop being reported at all,
+which is the gate working, not the mask changing.
+
+### 46.4 What is left, named
+
+`evidence/iter12/uncovered-why.mjs` attributes every woodland boundary face
+still on no smoothing layer — **3,953 of 6,375** — to the reason the field
+could not claim it:
+
+| faces | share | why |
+|---|---|---|
+| 1,698 | 43.0% | field says meadow under the trees with a lane within 3 tiles: a **hedgerow or orchard row**, a planted LINE one tile wide whose outline IS the tile |
+| 1,073 | 27.1% | field says wood under the **meadow**: a cleared lane verge, a block edge |
+| 618 | 15.6% | field says wood under the **park**: §15.4 keeps a block's edge square on purpose |
+| 534 | 13.5% | field says meadow under the trees, no lane near: some other later pass |
+| 31 | 0.8% | the **sheer shore cliff** the shore pass stands at the waterline |
+| 23 | 0.6% | both sides disagree with the field |
+
+None of these is a wood outline the field drew. A hedgerow is a line of tiles
+by design; a verge is square because the road is; a park's edge is a block's
+edge. Cutting any of them against this contour would be inventing a curve
+rather than reading one back, which is the thing §45 and this section both
+refuse to do.
+
+### 46.5 Evidence
+
+| file | what |
+|---|---|
+| `evidence/iter12/README.md` | the whole iteration, before and after |
+| `evidence/iter12/wild-contour-probe.mjs` | the tile mask IS the wildness field's point sample, with three discriminating controls |
+| `evidence/iter12/landuse-census.mjs` | `landuse-staircase` reproduced to the decimal as its own control, then repriced with the chain |
+| `evidence/iter12/painter-parity.mjs` | 2D and 3D agree exactly; mapgen differs by the chord's bow; a flipped-side control that goes red |
+| `evidence/iter12/collision-gap.mjs` | the §45.5 gap, sized and signed |
+| `evidence/iter12/uncovered-why.mjs` | every remaining uncovered face, attributed |
+| `evidence/iter12/bake-identical.mjs` | moving `wildAt` moves no ground, with a bent-payload control |
+| `client/test/woodEdge.test.ts` | the regression, written against the PICTURE so it runs either side of the change: 97.2% of the islet's drawn wood edge on whole tile edges becomes 14.1%, against a waterline control of 0.0% both times |
+| `evidence/iter12/BEFORE-islet-317-720.png` / `AFTER-` | the photographed islet, `--crop=317,720,26 --scale=20` |
+| `evidence/iter12/BEFORE-wood-67-610.png` / `AFTER-` | the 4,024-tile wood, the largest finding |
+| `evidence/iter12/BEFORE-3d-wood.png` / `AFTER-3d-wood.png` | the same 3D camera, before and after |

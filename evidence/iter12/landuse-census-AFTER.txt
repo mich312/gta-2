@@ -1,0 +1,50 @@
+
+  landuse-staircase, reproduced from mapAudit's definitions
+
+  layer set                     n    tiles      SCORE      DRAWN   TILE PLANE
+                                                                      n     mag
+  SHIPPED (control)            31     2703     2703.0     2427.0     31    2703
+
+  CONTROL MATCHES pnpm mapaudit's own row: 31 2703 2703.0 2427.0
+
+  + wood chain                 14     1437     1437.0      954.0     31    2703
+
+  wood chain covers 1852 tiles
+
+  per wood, biggest first. `crop` is the detector's own; `drawn` is what a reviewer sent to look at it sees.
+
+  crop          tiles   mag  drawn  ->  drawn   faces on NO smoothing layer
+  85,628         4024   538    348  ->      0   513 of 792 -> below the half-gate, not reported
+  488,52          827   227    211  ->    123   277 of 298 -> 162 of 298
+  447,604         430   173    173  ->    133   228 of 228 -> 175 of 228
+  439,36          466   140    140  ->    102   160 of 160 -> 116 of 160
+  495,655         631   135    134  ->     76   181 of 182 -> 103 of 182
+  471,614         767   123    123  ->     94   165 of 165 -> 126 of 165
+  516,601         234   118    118  ->    101   131 of 131 -> 112 of 131
+  424,70          567   114    102  ->     62   134 of 150 -> 82 of 150
+  304,680         192    88     86  ->     67   112 of 115 -> 87 of 115
+  511,612         155    77     77  ->     39   88 of 88 -> 45 of 88
+  526,76          246    73     73  ->      0   98 of 98 -> below the half-gate, not reported
+  536,599         146    68     68  ->      0   80 of 80 -> below the half-gate, not reported
+  424,643         181    68     68  ->      0   90 of 90 -> below the half-gate, not reported
+  365,656         240    64     59  ->     44   86 of 94 -> 65 of 94
+  461,733         386    63     61  ->      0   83 of 86 -> below the half-gate, not reported
+  569,633         111    54     54  ->      0   64 of 64 -> below the half-gate, not reported
+  446,636         139    50     50  ->      0   72 of 72 -> below the half-gate, not reported
+  499,98          289    47     47  ->      0   73 of 73 -> below the half-gate, not reported
+  490,656         114    47     47  ->     29   57 of 57 -> 35 of 57
+  591,612         114    46     37  ->     26   44 of 54 -> 31 of 54
+  450,672         340    46     39  ->      0   59 of 69 -> below the half-gate, not reported
+  590,607         187    44     33  ->     27   52 of 70 -> 43 of 70
+  479,72          233    42     42  ->      0   69 of 69 -> below the half-gate, not reported
+  302,668          83    41     41  ->     31   58 of 58 -> 44 of 58
+  120,587         106    38     38  ->      0   50 of 50 -> below the half-gate, not reported
+  533,51           91    37     37  ->      0   48 of 48 -> below the half-gate, not reported
+  403,741         400    33     26  ->      0   34 of 43 -> below the half-gate, not reported
+  607,585          65    29     17  ->      0   26 of 44 -> below the half-gate, not reported
+  522,69           61    28     28  ->      0   38 of 38 -> below the half-gate, not reported
+  322,725         266    27     26  ->      0   38 of 40 -> below the half-gate, not reported
+  251,646         287    25     24  ->      0   61 of 63 -> below the half-gate, not reported
+  SCORE 2703.0 -> 1437.0    DRAWN 2427.0 -> 954.0
+  TILE PLANE 31/2703 -> 31/2703  HELD — no ground moved; SCORE falls only because 17 woods drop below the detector's own LANDUSE_UNCOVERED half-gate and stop being reported
+
