@@ -1,0 +1,45 @@
+# Headroom of the four files on the marginal list, worst test in each.
+#
+# Each file run ALONE on an otherwise quiet box (load average 1-2), which is
+# the most flattering condition there is: the whole suite is ~8 min idle and
+# ~12 under contention on this 4-core box, so a test measured here can be
+# half again as slow inside a full run.
+#
+# The timeout is 60 s from {shared,server,client}/vitest.config.ts unless the
+# test overrides it with its own `{ timeout: N }`, which city.test.ts does for
+# its heaviest ones — so the headroom column is against the timeout that test
+# actually runs under, not against 60 s.
+#
+# Raw: evidence/iter5-instr/before-four-files.txt (before), after-session-file.txt.
+# Retake: npx vitest run <file> --reporter=verbose
+
+BEFORE
+
+  file / worst test                                            took   timeout  headroom
+  server/test/session.test.ts
+    the crowd replenishes > tops pedestrians back up ...       52.9s     60s      7.1s   MARGINAL
+    session > the input buffer drains back down ...            34.9s     60s     25.1s
+    session > records a replay that reproduces ... twice       28.4s     60s     31.6s
+  shared/test/city.test.ts
+    draws the same ground every time it is asked               51.2s    150s     98.8s
+    is the city the plan bakes to, tile for tile               29.1s     60s     30.9s
+    survives the round trip through its encoded form           25.3s     60s     34.7s
+  shared/test/lanes.test.ts
+    is pure: the same city built twice has the same lanes      12.2s     60s     47.8s
+  server/test/floodResistance.test.ts
+    lets the answer land afterwards                             5.2s     60s     54.8s
+
+AFTER
+
+  server/test/session.test.ts
+    the crowd replenishes > tops pedestrians back up ...       18.7s     60s     41.3s
+    session > the input buffer drains back down ...            33.8s     60s     26.2s   (untouched)
+
+ONE file is marginal, and it is the one that was filed: the massacre test, at
+7.1 s of headroom on an idle box. The other three are not, and the reason
+`city.test.ts` looks marginal at 51.2 s is that whoever wrote its slowest test
+saw the same cliff coming and gave that ONE test a 150 s timeout — the file's
+worst real headroom is 30.9 s.
+
+Whole-file totals, same conditions: session 146.3s -> 109.5s, city 262.1s,
+flood 40.9s, lanes 19.4s.

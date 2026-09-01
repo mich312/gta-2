@@ -1,0 +1,68 @@
+# CONTROL B — is the shortened window a loosening or a tightening?
+#
+# `PED_RESPAWN_PER_SEC` halved 2 -> 1 in server/src/session.ts (reverted after
+# this capture), which is a real regression in the behaviour this test names:
+# the crowd still comes back, at half the rate.
+#
+# PART 1: the SHORTENED test (2520 ticks). Expected FAIL.
+# Command: npx vitest run server/test/session.test.ts -t "tops pedestrians back up" --reporter=verbose
+
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ↓ |server| test/session.test.ts > session > spreads its parked cars across the city, not into one corner
+ ↓ |server| test/session.test.ts > session > records a replay that reproduces the exact final state, twice
+ ↓ |server| test/session.test.ts > session > delta snapshots against the acked tick rebuild the server state
+ ↓ |server| test/session.test.ts > session > falls back to a full snapshot when the ack is too stale
+ ↓ |server| test/session.test.ts > session > resume rebinds by token; expiry despawns
+ ↓ |server| test/session.test.ts > session > drops duplicate and replayed input seqs
+ ↓ |server| test/session.test.ts > session > the input buffer drains back down after a jitter storm
+ × |server| test/session.test.ts > the crowd replenishes > tops pedestrians back up to target after a massacre 15896ms
+   → expected 124 to be greater than or equal to 136
+ ↓ |server| test/session.test.ts > the crowd replenishes > does not overshoot the target once full
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |server| test/session.test.ts > the crowd replenishes > tops pedestrians back up to target after a massacre
+AssertionError: expected 124 to be greater than or equal to 136
+ ❯ test/session.test.ts:243:43
+    241|     // rather than landing exactly — which is the behaviour wanted (no…
+    242|     // materialises on top of anybody) rather than a shortfall.
+    243|     expect(session.state.peds.ids.length).toBeGreaterThanOrEqual(Math.…
+       |                                           ^
+    244|     expect(session.state.peds.ids.length).toBeLessThanOrEqual(target);
+    245|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 8 skipped (9)
+   Start at  01:22:36
+   Duration  17.98s (transform 1.38s, setup 0ms, collect 1.68s, tests 15.90s, environment 0ms, prepare 79ms)
+
+
+
+# PART 2: the ORIGINAL 7200-tick test, same halved rate (`git checkout --` on
+# the test file only; the fix was copied aside and copied back afterwards).
+# It PASSES. The old window was long enough to absorb the rate halving, so it
+# could not see this regression at all.
+
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ↓ |server| test/session.test.ts > session > spreads its parked cars across the city, not into one corner
+ ↓ |server| test/session.test.ts > session > records a replay that reproduces the exact final state, twice
+ ↓ |server| test/session.test.ts > session > delta snapshots against the acked tick rebuild the server state
+ ↓ |server| test/session.test.ts > session > falls back to a full snapshot when the ack is too stale
+ ↓ |server| test/session.test.ts > session > resume rebinds by token; expiry despawns
+ ↓ |server| test/session.test.ts > session > drops duplicate and replayed input seqs
+ ↓ |server| test/session.test.ts > session > the input buffer drains back down after a jitter storm
+ ✓ |server| test/session.test.ts > the crowd replenishes > tops pedestrians back up to target after a massacre 44890ms
+ ↓ |server| test/session.test.ts > the crowd replenishes > does not overshoot the target once full
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 8 skipped (9)
+   Start at  01:23:04
+   Duration  47.09s (transform 1.41s, setup 0ms, collect 1.74s, tests 44.89s, environment 0ms, prepare 109ms)
+

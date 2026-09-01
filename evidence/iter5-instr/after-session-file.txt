@@ -1,0 +1,36 @@
+# server/test/session.test.ts after the fix, alone on a quiet box.
+# Retake: npx vitest run server/test/session.test.ts --reporter=verbose
+
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a024ea541c43a1cc0
+
+ ✓ |server| test/session.test.ts > session > spreads its parked cars across the city, not into one corner 3579ms
+ ✓ |server| test/session.test.ts > session > records a replay that reproduces the exact final state, twice 27630ms
+ ✓ |server| test/session.test.ts > session > delta snapshots against the acked tick rebuild the server state 4606ms
+ ✓ |server| test/session.test.ts > session > falls back to a full snapshot when the ack is too stale 7951ms
+ ✓ |server| test/session.test.ts > session > resume rebinds by token; expiry despawns 3147ms
+ ✓ |server| test/session.test.ts > session > drops duplicate and replayed input seqs 3174ms
+ ✓ |server| test/session.test.ts > session > the input buffer drains back down after a jitter storm 33835ms
+ ✓ |server| test/session.test.ts > the crowd replenishes > tops pedestrians back up to target after a massacre 18717ms
+ ✓ |server| test/session.test.ts > the crowd replenishes > does not overshoot the target once full 4644ms
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯⎯ Unhandled Error ⎯⎯⎯⎯⎯⎯⎯
+Error: [vitest-worker]: Timeout calling "onTaskUpdate"
+ ❯ Object.onTimeoutError node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/rpc.-pEldfrD.js:53:10
+ ❯ Timeout._onTimeout node_modules/.pnpm/vitest@3.2.7_@types+node@22.20.1/node_modules/vitest/dist/chunks/index.B521nVV-.js:59:62
+ ❯ listOnTimeout node:internal/timers:585:17
+ ❯ processTimers node:internal/timers:521:7
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+     Errors  1 error
+   Start at  01:32:55
+   Duration  109.48s (transform 1.48s, setup 0ms, collect 1.80s, tests 107.29s, environment 0ms, prepare 80ms)
+

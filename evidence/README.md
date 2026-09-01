@@ -634,3 +634,35 @@ export OLD_CITY_DATA=/tmp/prefix.city.data.ts
 | `iter4-detect/test-baseline-unchanged-tree.txt` / `test-this-tree-full-run.txt` / `test-session-isolated.txt` | `pnpm test` on the tree with `mapAudit.ts` reverted (**green: 92 files, 990 tests**), the same run with this round's change (**one failure**), and `server/test/session.test.ts` alone on this tree (**9/9**). The failure is `the crowd replenishes > tops pedestrians back up to target after a massacre`, which times out at 60s: it takes **55.0s inside the green baseline run** and **55.8s alone on this tree with nothing else on the box**. Four seconds of headroom on a twelve-minute suite, and this round's diff cannot reach it — `mapAudit.ts` has no importers anywhere in the repo. Filed here rather than fixed: it is a marginal timeout of its own, not this round's finding. |
 | `iter4-detect/part2-measurements.txt` | Its raw output. Retake: `node evidence/iter4-detect/measure-lanes-reachability.mjs`, then `measure-lanes-costing.mjs`, then `measure-lanes-attribution.mjs`. |
 | `iter4-detect/measure-wildness-field.mjs` | Asks `bake.ts`'s own `wildAt` whether the fill should have planted where the signature says it is bald — the check that separates a defect from the field's own answer. |
+
+## Visual loop, iteration 5 — two instrument defects: a latent flake and a stale number
+
+No game code changed this round, so the bake, `citybake --check` and
+`pnpm mapaudit` (55) are all unmoved either side. The two artefacts are a test
+that was four seconds from timing out, and `WORLDGEN.md` §26.1's headline
+coverage figure, which an architectural decision rests on and which has been
+wrong since iteration 4.
+
+The 55-second test is `server/test/session.test.ts` > `the crowd replenishes` >
+`tops pedestrians back up to target after a massacre`. It was not slow because
+crowd replenishment is slow: it waited `30 * 60 * ceil(areaScale)` = **7200
+ticks** for a refill that finishes at tick ~1800, and the extra six sim-minutes
+did not test replenishment harder — they walked the check into dusk, where the
+top-up legitimately aims at a smaller crowd. The window is now derived from the
+hole and the tuned arrival rate (2/sec), which is 2,520 ticks on this seed.
+
+| file | what it shows |
+|---|---|
+| `iter5-instr/headroom.txt` | The headroom table for all four files, worst test in each, against the timeout that test actually runs under. Only one is marginal: the massacre test at **52.9 s against 60 s, 7.1 s of headroom**. `city.test.ts`'s worst real headroom is 30.9 s (its 51.2 s test carries its own `{ timeout: 150_000 }`), `lanes.test.ts` 47.8 s, `floodResistance.test.ts` 54.8 s. |
+| `iter5-instr/before-four-files.txt` | The raw per-test durations behind that table, each file run alone on an otherwise quiet box. Retake: `npx vitest run <file> --reporter=verbose`. |
+| `iter5-instr/after-session-file.txt` | The same file after the fix: the massacre test **18.7 s (41.3 s headroom)**, 2.8x faster, and every other test in the file unmoved (the jitter storm 34.9 s -> 33.8 s, i.e. noise). |
+| `iter5-instr/probe-massacre.mjs` | Where the time went, against the built `dist` rather than through vitest: construct 1.2 s, then 39.5 s in the tick loop. It logs the crowd every 600 ticks, which is how the refill was found to complete at tick ~1750 of 7200. Retake: `node evidence/iter5-instr/probe-massacre.mjs`. |
+| `iter5-instr/daynight-cliff.txt` | The reason the long window was dangerous rather than merely slow. Past the refill the crowd tracks the day/night-scaled target down: at the old checkpoint of tick 7200 it is **143 against an assertion floor of 136**, and at tick ~8700 it goes under. The 0.85 slack in the assertion is documented as room for the seeder skipping occupied spots; by tick 7200 nightfall had eaten nearly all of it. Retake: `node evidence/iter5-instr/probe-daynight-cliff.mjs`. |
+| `iter5-instr/control-A-topups-disabled.txt` | **The control.** `topUpPeds` neutered (`if (1) return;` at the top, reverted after): the shortened test **FAILS**, `expected 57 to be greater than or equal to 136`. The test still catches the defect it exists for. |
+| `iter5-instr/control-B-half-rate.txt` | The second control, which is the one that shows the change is a tightening and not a loosening. With `PED_RESPAWN_PER_SEC` halved 2 → 1, the **shortened** test fails (`expected 124 to be greater than or equal to 136`) and the **old 7200-tick** test passes, in 44.5 s. The old window was so long that it could not see the arrival rate halve. |
+| `iter5-instr/measure-course-coverage.mjs` | The coverage instrument for `WORLDGEN.md` §44, and its own control: it re-derives the audit's per-borough table and reproduces `iter4/coverage-{before,after}.txt` borough for borough on both bakes before it prints a city-wide number. Carriageway is `mapAudit.ts`'s `isRoad`; covered is the renderer's own `courseCover` rule, transcribed rather than re-derived. Retake: `node evidence/iter5-instr/measure-course-coverage.mjs [--data=path] [--plan=path]`. |
+| `iter5-instr/coverage-shipped.txt` | The shipped bake: **85,960 of 100,742 carriageway tiles = 85.3%**, against §26.1's 76.1%. |
+| `iter5-instr/coverage-preiter4.txt` | The same instrument on `5b6fa2e^`: **75,964 of 100,742 = 75.4%**. The comparable pair, one instrument, one run: 75.4% → 85.3%. |
+| `iter5-instr/coverage-s26-era-attempt.txt` | Why the original 76.1% is not retaken instead: the `eb6b573` asset predates the `banks` field and today's `decodeBakedCity` refuses it. Its denominator is also 1,977 carriageway tiles larger than today's, so the old figure is stale in both terms. |
+| `iter5-instr/citybake-check.txt` | `node server/dist/tools/citybake.js --check` after this round: the same six known-broken crossings as iterations 3 and 4 and no seventh, line for line identical to `iter4-detect/citybake-check.txt` apart from the bake's own wall-clock. |
+| `iter5-instr/mapaudit-before.txt` / `mapaudit-after.txt` | `pnpm mapaudit` either side of this round: **55 and 55**, signature for signature. The only code file this round touches is a docstring in `mapAudit.ts` itself, and this is the check that it stayed a docstring. |
