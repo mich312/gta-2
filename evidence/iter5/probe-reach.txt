@@ -1,0 +1,10 @@
+carriageway outside its own borough’s authored polygon, by the pass that laid it
+and by how far over land it stands from that polygon:
+
+  pass              00-08    09-16    17-24    25-32    33-48    49-80      81+unreached     total
+  seam                690       47       24      269       84        0        0        0      1114
+  esplanade           572      500      316      386      330      174        0        0      2278
+  lattice             629      225       49        0        0        0        0        0       903
+  finishShores         35        9        4       14        2        1        0        0        65
+  authored            285      370      374      176       42        0        0        0      1247
+  junctions             9        0        0        0        0        0        0        0         9

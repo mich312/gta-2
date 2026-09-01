@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import cityPlanJson from 'shared/data/city-plan.json';
-import { CITY_DATA, decodeBakedCity, parseCityPlan, T_BRIDGE, T_LOT, T_ROAD } from 'shared';
+import {
+  CITY_DATA,
+  decodeBakedCity,
+  parseCityPlan,
+  pointInPoly,
+  T_BRIDGE,
+  T_BUILDING,
+  T_FLOOR,
+  T_LOT,
+  T_ROAD,
+  T_WATER,
+} from 'shared';
 import { checkCity } from '../src/tools/cityCheck.js';
 
 /**
@@ -132,6 +143,90 @@ describe('the shipped city', () => {
       for (let x = 525; x <= 526; x++) stub.tiles[y * W + x] = T_ROAD;
     }
     expect(checkCity(stub, plan).filter((p) => p.severity === 'error')).toEqual([]);
+  });
+
+  it('lays no street on ground no borough was drawn on', () => {
+    // R4 `lanes-serving-nothing`, pinned as a ceiling on the shipped bytes.
+    //
+    // The D1 ownership flood hands EVERY dry tile to a borough, so the passes
+    // keyed on `owner` — the esplanade and the seam street — used to dress
+    // ground the author never drew as if it were town, while the block cut,
+    // which is clipped to the polygon's bounding box, never arrived. The
+    // result is carriageway with nothing on either side of it: the headland
+    // north of Kelvin Bridge carried 1,197 tiles of it and not one building.
+    //
+    // The audit reports this and the audit is not run in CI, so the number
+    // lives here too. These are ceilings — a bake may take road OFF this
+    // ground, never put more on — and any NEW region of unclaimed land that
+    // acquires lanes is a failure with nowhere to hide.
+    const W = city.widthTiles;
+    const H = city.heightTiles;
+    const inPoly = new Uint8Array(W * H);
+    for (const d of plan.districts) {
+      for (let ty = 0; ty < H; ty++) {
+        for (let tx = 0; tx < W; tx++) {
+          const i = ty * W + tx;
+          if (inPoly[i] === 0 && pointInPoly(d.area, tx + 0.5, ty + 0.5)) inPoly[i] = 1;
+        }
+      }
+    }
+    const seen = new Uint8Array(W * H);
+    const found: string[] = [];
+    for (let s = 0; s < W * H; s++) {
+      if (seen[s] === 1 || inPoly[s] === 1 || city.tiles[s] === T_WATER) continue;
+      const bag = [s];
+      seen[s] = 1;
+      let land = 0;
+      let road = 0;
+      let built = 0;
+      let x0 = W;
+      let y0 = H;
+      let x1 = -1;
+      let y1 = -1;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        land++;
+        if (x < x0) x0 = x;
+        if (y < y0) y0 = y;
+        if (x > x1) x1 = x;
+        if (y > y1) y1 = y;
+        const t = city.tiles[i] as number;
+        if (t === T_ROAD || t === T_BRIDGE) road++;
+        if (t === T_BUILDING || t === T_FLOOR) built++;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (seen[j] === 1 || inPoly[j] === 1 || city.tiles[j] === T_WATER) continue;
+          seen[j] = 1;
+          bag.push(j);
+        }
+      }
+      // The same three gates the audit uses, so the two speak about the same
+      // regions: a stretch big enough to be a place, carrying enough road to
+      // be a street plan rather than an arterial passing through, and with
+      // too little built on it for the lanes to be serving anything. The
+      // built gate is what separates empty ground from a warp fringe that is
+      // doing its job — two other regions of unclaimed land carry more road
+      // than these and are not this finding, because the borough's own
+      // buildings stand on them.
+      if (land < 1000 || road * 10 < land || built * 100 >= land) continue;
+      found.push(`${x0},${y0}-${x1},${y1}: ${land} land, ${road} road, ${built} built`);
+    }
+    // The strait shoulder, whose promenade round an empty peninsula is gone
+    // (1,343 road tiles, was 41.5% of its land, now 35.2%); and the headland
+    // north of Kelvin Bridge, still at 1,197 — its remaining lanes are its
+    // 241-tile bridge approach, the coast road that runs on from Ravenhill's
+    // own shore, and the seam street that carries the only boundary The Spine
+    // shares with Beachfront. See the iteration 5 report: taking that seam off
+    // fails `city.test.ts` "leaves no ground to nobody".
+    expect(found).toEqual([
+      '267,312-365,375: 3237 land, 1140 road, 10 built',
+      '393,312-549,365: 5749 land, 1197 road, 0 built',
+    ]);
   });
 
   it('builds Kelvin Bridge, the crossing its own plan calls the signature span', () => {

@@ -1,0 +1,16 @@
+
+=== esplanade: 890 tiles stand more than 24 from their owner's authored polygon
+   tiles  bbox                   built  pavement     reach  owners
+     300  657,382-704,431          116       109     25-75  Beachfront
+     198  288,336-332,348            0         0     25-38  Ravenhill
+     169  497,10-554,22              0         0     25-40  Ravenhill Park / North Point
+     115  520,336-543,358            0         0     25-43  The Spine / Beachfront
+      63  339,331-360,339            8        12     25-31  Ravenhill
+      43  440,336-449,346            6        10     25-33  The Spine / Beachfront
+  (+ 2 runs under 8 tiles, 2 tiles)
+
+=== seam: 353 tiles stand more than 24 from their owner's authored polygon
+   tiles  bbox                   built  pavement     reach  owners
+     307  454,337-531,352            3         4     25-40  The Spine / Beachfront
+      39  540,13-542,25             32        12     25-37  Ravenhill Park / North Point
+  (+ 2 runs under 8 tiles, 7 tiles)

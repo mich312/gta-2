@@ -1,0 +1,13 @@
+dry land 297208, carriageway 100742
+land outside every district polygon: 27065 tiles, 6127 carriageway
+unreachable-over-land from any polygon tile (islets the wet wave claims): 1485 tiles, 0 carriageway
+
+distance from the nearest polygon tile, walked over land:
+  band     land   carriageway   cumulative carriageway
+  01-04     4907     1626          1626
+  05-08     3472      760          2386
+  09-12     3229      683          3069
+  13-16     2924      606          3675
+  17-24     5024      896          4571
+  25-40     4743     1313          5884
+  41-80     1281      243          6127

@@ -1,0 +1,16 @@
+# NOTE: measured with BOTH halves of the reach rule in — the seam half was
+# reverted before shipping (it is load-bearing for city.test.ts, see the report).
+# Kept because it is the measurement of what refusing the seam would remove.
+carriageway laid on land outside every district polygon, after each pass:
+  pass                 city-wide  A headland  B shoulder
+  paintOwnership               0           0           0   (+0, +0, +0)
+  carveAuthoredRoads        2474         216         772   (+2474, +216, +772)
+  layEsplanade              4585         779         948   (+2111, +563, +176)
+  laySeamStreets            5422         808         948   (+837, +29, +0)
+  weaveFabrics              6647         890        1142   (+1225, +82, +194)
+  stitchBoroughs            6681         890        1142   (+34, +0, +0)
+  guardRingAccess           6614         890        1142   (+-67, +0, +0)
+  trimBridges               5914         890        1142   (+-700, +0, +0)
+  mapCliffIslands           5914         890        1142   (+0, +0, +0)
+  finishShores              5601         883        1143   (+-313, +-7, +1)
+  cutMissedJunctions        5610         883        1143   (+9, +0, +0)

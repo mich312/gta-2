@@ -1,0 +1,9 @@
+road-deadend        403,660,24      med    3-wide carriageway stops dead at 415,672 facing east into open ground — no landmark, quay or map edge to stop at
+road-deadend        428,299,24      med    3-wide carriageway stops dead at 440,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        473,299,24      med    3-wide carriageway stops dead at 485,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        488,299,24      med    3-wide carriageway stops dead at 500,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        503,299,24      med    3-wide carriageway stops dead at 515,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        518,299,24      med    3-wide carriageway stops dead at 530,311 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        309,315,24      med    3-wide carriageway stops dead at 321,327 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        466,588,24      med    3-wide carriageway stops dead at 478,600 facing south into open ground — no landmark, quay or map edge to stop at
+road-deadend        330,300,24      med    2-wide carriageway stops dead at 342,312 facing south into open ground — no landmark, quay or map edge to stop at
