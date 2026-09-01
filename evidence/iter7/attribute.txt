@@ -1,0 +1,28 @@
+re-derived 24 findings (audit reports 24)
+
+ 1 bridge deck  at 274,361               m= 37 span= 45 tread=5.6 | waterfaces= 44 coastOnly=  2 bandOnly=  0 both=  0 undissolved= 42 | far side: WATER:44 BANK:1
+ 2 bridge deck  at 200,226               m= 36 span= 45 tread=5.0 | waterfaces= 45 coastOnly=  1 bandOnly=  0 both=  0 undissolved= 44 | far side: WATER:45
+ 3 quay         at 427,678               m= 43 span= 59 tread=3.7 | waterfaces= 59 coastOnly= 55 bandOnly=  0 both=  4 undissolved=  0 | far side: WATER:59
+ 4 quay         at 640,382               m= 27 span= 32 tread=6.4 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: ROAD:14 SIDEWALK:9 FIELD:9
+ 5 quay         at 205,463               m= 29 span= 37 tread=4.6 | waterfaces= 36 coastOnly= 35 bandOnly=  0 both=  1 undissolved=  0 | far side: WATER:36 BRIDGE:1
+ 6 quay         at 643,601               m= 22 span= 26 tread=6.5 | waterfaces= 26 coastOnly= 24 bandOnly=  0 both=  2 undissolved=  0 | far side: WATER:26
+ 7 bridge deck  at 178,478               m= 32 span= 44 tread=3.7 | waterfaces= 44 coastOnly=  1 bandOnly=  0 both=  0 undissolved= 43 | far side: WATER:44
+ 8 quay         at 304,692               m= 33 span= 51 tread=2.8 | waterfaces= 51 coastOnly= 46 bandOnly=  0 both=  5 undissolved=  0 | far side: WATER:51
+ 9 quay         at 67,274                m= 28 span= 40 tread=3.3 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: SIDEWALK:29 ROAD:8 LOT:3
+10 bridge deck  at 274,305               m= 18 span= 22 tread=5.5 | waterfaces= 22 coastOnly=  2 bandOnly=  0 both=  0 undissolved= 20 | far side: WATER:22
+11 quay         at 686,388               m= 27 span= 42 tread=2.8 | waterfaces= 42 coastOnly= 38 bandOnly=  0 both=  4 undissolved=  0 | far side: WATER:42
+12 quay         at 337,756               m= 19 span= 24 tread=4.8 | waterfaces= 24 coastOnly= 23 bandOnly=  0 both=  1 undissolved=  0 | far side: WATER:24
+13 quay         at 214,531               m= 24 span= 37 tread=2.8 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: SIDEWALK:26 FIELD:10 PARK:1
+14 quay         at 176,332               m= 16 span= 20 tread=5.0 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: SIDEWALK:15 ROAD:5
+15 quay         at 65,399                m= 23 span= 37 tread=2.6 | waterfaces= 37 coastOnly= 35 bandOnly=  0 both=  2 undissolved=  0 | far side: WATER:37
+16 quay         at 388,671               m= 15 span= 19 tread=4.8 | waterfaces= 19 coastOnly= 19 bandOnly=  0 both=  0 undissolved=  0 | far side: WATER:19
+17 yard         at 82,462                m= 15 span= 19 tread=4.8 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: ROAD:11 SIDEWALK:8
+18 quay         at 172,379               m= 18 span= 26 tread=3.3 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: SIDEWALK:15 ROAD:8 LOT:3
+19 quay         at 464,739               m= 13 span= 17 tread=4.3 | waterfaces= 17 coastOnly= 16 bandOnly=  0 both=  1 undissolved=  0 | far side: WATER:17
+20 quay         at 543,327               m= 16 span= 26 tread=2.6 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: FIELD:26
+21 quay         at 730,415               m= 14 span= 20 tread=3.3 | waterfaces= 20 coastOnly= 20 bandOnly=  0 both=  0 undissolved=  0 | far side: WATER:20
+22 quay         at 207,436               m= 12 span= 18 tread=3.0 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: SIDEWALK:12 PARK:3 ROAD:3
+23 quay         at 660,455               m= 12 span= 19 tread=2.7 | waterfaces=  0 coastOnly=  0 bandOnly=  0 both=  0 undissolved=  0 | far side: FIELD:19
+24 quay         at 704,403               m= 11 span= 16 tread=3.2 | waterfaces= 16 coastOnly= 16 bandOnly=  0 both=  0 undissolved=  0 | far side: WATER:16
+
+TOTALS  mag=540 waterfaces=502 coastOnly=333 bandOnly=0 both=20 undissolved=149

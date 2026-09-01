@@ -1,0 +1,9 @@
+courses: 381
+by kind: { ring: 4, avenue: 17, street: 343, path: 17 }
+
+deck 274,361: nearest course 2.09 tiles away kind=ring width=4 pts=360
+deck 200,226: nearest course 1.88 tiles away kind=avenue width=4 pts=24
+deck 178,478: nearest course 1.67 tiles away kind=avenue width=4 pts=21
+deck 274,305: nearest course 1.91 tiles away kind=ring width=4 pts=360
+
+T_BRIDGE tiles: 1564, within 6 tiles of a course: 1564 (100.0%)

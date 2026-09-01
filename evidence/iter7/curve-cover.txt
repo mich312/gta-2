@@ -1,0 +1,29 @@
+Every profile position of all 24 edges, against BOTH curve layers.
+"bare" = on no chain at all, so nothing repaints it: the drawn staircase.
+
+ 1 bridge deck  274,361 m= 37 tread=5.6 | positions= 45 coast=  3 band=  0 bare= 42 | far: WATER:44 BANK:1
+ 2 bridge deck  200,226 m= 36 tread=5.0 | positions= 45 coast=  1 band=  0 bare= 44 | far: WATER:45
+ 3 quay         427,678 m= 43 tread=3.7 | positions= 59 coast= 59 band=  0 bare=  0 | far: WATER:59
+ 4 quay         640,382 m= 27 tread=6.4 | positions= 32 coast=  7 band= 25 bare=  0 | far: ROAD:14 SIDEWALK:9 FIELD:9
+ 5 quay         205,463 m= 29 tread=4.6 | positions= 37 coast= 37 band=  0 bare=  0 | far: WATER:36 BRIDGE:1
+ 6 quay         643,601 m= 22 tread=6.5 | positions= 26 coast= 26 band=  0 bare=  0 | far: WATER:26
+ 7 bridge deck  178,478 m= 32 tread=3.7 | positions= 44 coast=  1 band=  0 bare= 43 | far: WATER:44
+ 8 quay         304,692 m= 33 tread=2.8 | positions= 51 coast= 51 band=  0 bare=  0 | far: WATER:51
+ 9 quay          67,274 m= 28 tread=3.3 | positions= 40 coast=  4 band= 36 bare=  0 | far: SIDEWALK:29 ROAD:8 LOT:3
+10 bridge deck  274,305 m= 18 tread=5.5 | positions= 22 coast=  2 band=  0 bare= 20 | far: WATER:22
+11 quay         686,388 m= 27 tread=2.8 | positions= 42 coast= 42 band=  0 bare=  0 | far: WATER:42
+12 quay         337,756 m= 19 tread=4.8 | positions= 24 coast= 24 band=  0 bare=  0 | far: WATER:24
+13 quay         214,531 m= 24 tread=2.8 | positions= 37 coast=  1 band= 36 bare=  0 | far: SIDEWALK:26 FIELD:10 PARK:1
+14 quay         176,332 m= 16 tread=5.0 | positions= 20 coast=  0 band= 20 bare=  0 | far: SIDEWALK:15 ROAD:5
+15 quay          65,399 m= 23 tread=2.6 | positions= 37 coast= 37 band=  0 bare=  0 | far: WATER:37
+16 quay         388,671 m= 15 tread=4.8 | positions= 19 coast= 19 band=  0 bare=  0 | far: WATER:19
+17 yard          82,462 m= 15 tread=4.8 | positions= 19 coast=  0 band=  0 bare= 19 | far: ROAD:11 SIDEWALK:8
+18 quay         172,379 m= 18 tread=3.3 | positions= 26 coast=  6 band= 20 bare=  0 | far: SIDEWALK:15 ROAD:8 LOT:3
+19 quay         464,739 m= 13 tread=4.3 | positions= 17 coast= 17 band=  0 bare=  0 | far: WATER:17
+20 quay         543,327 m= 16 tread=2.6 | positions= 26 coast=  1 band= 25 bare=  0 | far: FIELD:26
+21 quay         730,415 m= 14 tread=3.3 | positions= 20 coast= 20 band=  0 bare=  0 | far: WATER:20
+22 quay         207,436 m= 12 tread=3.0 | positions= 18 coast=  1 band= 17 bare=  0 | far: SIDEWALK:12 PARK:3 ROAD:3
+23 quay         660,455 m= 12 tread=2.7 | positions= 19 coast=  1 band= 18 bare=  0 | far: FIELD:19
+24 quay         704,403 m= 11 tread=3.2 | positions= 16 coast= 16 band=  0 bare=  0 | far: WATER:16
+
+TOTALS m=540 positions=741 coast=376 band=197 bare=168
