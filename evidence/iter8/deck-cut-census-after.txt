@@ -1,0 +1,17 @@
+chained tiles           877
+deck/water faces        872
+  covered by DECK curve 872
+  covered by coast/bank 0
+  covered by NEITHER    0
+
+chord endpoints on a tile border          1754
+  neighbour chord starts at the same point 1680
+  worst mismatch where a neighbour exists   0.00e+0 tiles
+  (the rest are the run's own two ends, where the deck meets land or the
+   neighbour is square because the curve does not enter it)
+
+deck tiles the curve crosses             388
+  of those, carrying a road marking      0
+
+CONTROL buildDeckCut with no courses     0 chained tiles
+  -> coverage above is the curve, not the counting.

@@ -31,6 +31,7 @@ import {
   chainSide,
   shoreHalf,
   shoreChains,
+  buildDeckCut,
   courseJunctions,
   buildingCorners,
   buildingMass,
@@ -393,6 +394,19 @@ export class TileLayer {
    * the same kind of line and it gets the same treatment.
    */
   private bandSegs: Map<number, Float32Array> | null = null;
+  /**
+   * The BRIDGE DECK's own outer edge through each tile it crosses (§45),
+   * indexed exactly as `shoreSegs` is and cut with the same two functions.
+   *
+   * The third line of the same kind, and the last one still drawn square. The
+   * coast chain deliberately says nothing about a deck — a river runs under a
+   * span — so `paintShoreTile` refuses a deck by name ("the coast runs UNDER
+   * it") and until this the deck was painted one tile at a time, with a
+   * parapet standing on the steps. `buildDeckCut` reads back the swept disc
+   * `carveCourse` cut the deck FROM, which is the same relationship the shore
+   * rings have to the water tiles.
+   */
+  private deckSegs: Map<number, Float32Array> | null = null;
 
   /** Tile indices that host a parked vehicle — see `indexParking`. */
   private readonly parkingTiles = new Set<number>();
@@ -440,6 +454,8 @@ export class TileLayer {
     this.shoreSegs = loops.length === 0 ? null : shoreChains(loops, map.widthTiles, map.heightTiles);
     const banks = map.banks ?? [];
     this.bandSegs = banks.length === 0 ? null : shoreChains(banks, map.widthTiles, map.heightTiles);
+    const deck = buildDeckCut(map.tiles, map.widthTiles, map.heightTiles, map.courses);
+    this.deckSegs = deck.size === 0 ? null : deck;
   }
 
   /** World-px ribbons and the tile cover mask, from the baked courses. */
@@ -1079,7 +1095,14 @@ export class TileLayer {
         // reason the mask is eight texels an edge rather than one: it was
         // always built to follow a line finer than the tile, and until now
         // the finest line it had was a 45° cut.
-        const seg = this.shoreSegAt(tx, ty);
+        //
+        // The deck's own edge outranks it on the tiles it touches (§45): on
+        // a deck/water boundary the coast chain describes the river passing
+        // UNDER the span and would cut the hole in the wrong place, and the
+        // bevel below is the 45° chamfer that cut the same edge before a
+        // chord existed. Same chain format, same wet-on-the-right rule, so
+        // the loop underneath does not know which line it is following.
+        const seg = this.deckSegAt(tx, ty) ?? this.shoreSegAt(tx, ty);
         for (let sy = 0; sy < CUT_SUB; sy++) {
           for (let sx = 0; sx < CUT_SUB; sx++) {
             let wet = false;
@@ -1123,6 +1146,15 @@ export class TileLayer {
           // towards transparent black was a dark rim around every island.
           ctx.fillStyle = palette.water;
           ctx.fillRect(x, y, TD, TD);
+          // A water tile the DECK's edge crosses is part carriageway: the
+          // tile mask is a point sample, so a span whose true edge runs past
+          // this centre overhangs the square the tiles call river (§45).
+          // `buildDeckPrisms` puts the geometry under it.
+          const deck = this.deckSegAt(tx, ty);
+          if (deck !== undefined) {
+            this.paintDeckTile(ctx, tx, ty, x, y, deck);
+            continue;
+          }
           // A water tile the coast crosses is part beach (or bank, or quay):
           // paint the dry side so the ground plane has something to show
           // where the cutout has just decided not to remove it.
@@ -1305,6 +1337,19 @@ export class TileLayer {
         ctx.fillStyle = palette.field;
         ctx.fillRect(x, y, TD, TD);
     }
+    // The deck's own edge first, where a bridge ends inside this tile (§45).
+    // It outranks both of the lines below on the tiles it touches, and only
+    // there: a deck/water boundary is the one place all three could speak and
+    // the only one with an answer about where the DECK stops. The coast chain
+    // is describing the river passing underneath, and the bevel is the 45°
+    // chamfer §31 gave the same edge when a chord was not available — a
+    // half-tile triangle laid over a chord is the sawtooth the band pass
+    // already learned not to draw.
+    const deck = this.deckSegAt(tx, ty);
+    if (deck !== undefined) {
+      this.paintDeckTile(ctx, tx, ty, x, y, deck);
+      return;
+    }
     // The shoreline. Two ways of drawing the same line, and the better one
     // wins where it exists: the coast course (§18) cuts this tile at whatever
     // angle the coast actually runs at, and the bevel plane (§15) cuts it at
@@ -1419,6 +1464,110 @@ export class TileLayer {
     if (this.shoreSegs === null || !map) return undefined;
     if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
     return this.shoreSegs.get(ty * map.widthTiles + tx);
+  }
+
+  /** The deck's own edge through a tile, if a bridge ends inside it (§45). */
+  private deckSegAt(tx: number, ty: number): Float32Array | undefined {
+    const map = this.map;
+    if (this.deckSegs === null || !map) return undefined;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return undefined;
+    return this.deckSegs.get(ty * map.widthTiles + tx);
+  }
+
+  /**
+   * One tile of a bridge deck, painted against its own edge CURVE (§45).
+   *
+   * `paintShoreTile` for a deck, and the reason it is not `paintShoreTile` is
+   * the material rule. The waterline can say "wet side is sea, dry side is
+   * the nearest dry tile", and over a river that answer is a beach that is
+   * not there. Here the two sides are known outright: inside the swept disc
+   * is carriageway, outside it is the river the span crosses. Nothing is
+   * inferred from the neighbours at all.
+   *
+   * The parapet goes on the chord rather than on the tile's border, which is
+   * the whole point — `paintBridge`'s per-tile rail is what jogged a full
+   * tile every few tiles, because the tile mask it keyed off is the deck's
+   * outline point-sampled at tile centres.
+   */
+  private paintDeckTile(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+    seg: Float32Array,
+  ): void {
+    const local = (p: [number, number]): [number, number] => [x + p[0] * TD, y + p[1] * TD];
+    const clipTo = (poly: Array<[number, number]>): boolean => {
+      if (poly.length < 3) return false;
+      ctx.beginPath();
+      ctx.moveTo((poly[0] as [number, number])[0], (poly[0] as [number, number])[1]);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo((poly[i] as [number, number])[0], (poly[i] as [number, number])[1]);
+      }
+      ctx.closePath();
+      ctx.clip();
+      return true;
+    };
+
+    ctx.save();
+    if (clipTo(shoreHalf(seg, false).map(local))) this.paintRoad(ctx, tx, ty, x, y);
+    ctx.restore();
+    ctx.save();
+    if (clipTo(shoreHalf(seg, true).map(local))) this.paintWater(ctx, tx, ty, x, y);
+    ctx.restore();
+
+    // The parapet, along the chord and set inboard so it stands on the deck.
+    // Only where the water side really is open water: an abutment, where the
+    // deck runs onto land, has never had one and still does not.
+    const ax = seg[0] as number;
+    const ay = seg[1] as number;
+    const bx = seg[2] as number;
+    const by = seg[3] as number;
+    const vx = bx - ax;
+    const vy = by - ay;
+    const len = Math.sqrt(vx * vx + vy * vy);
+    if (len === 0) return;
+    // Water is on the right of travel; y runs down, so that is the run turned
+    // a quarter turn clockwise.
+    const wx = -vy / len;
+    const wy = vx / len;
+    // 0.75 tiles off the chord, the same derived probe the 3D parapet uses: a
+    // chord midpoint's own border is at most sqrt(2)/2 away along any
+    // direction, so a shorter sample lands back on this square — which is
+    // deck, and refuses a parapet that belongs — and a longer one reaches
+    // past the square next door onto the far bank.
+    if (
+      this.tileAt(
+        Math.floor(tx + (ax + bx) / 2 + wx * 0.75),
+        Math.floor(ty + (ay + by) / 2 + wy * 0.75),
+      ) !== T_WATER
+    ) {
+      return;
+    }
+    const rail = Math.max(1, (TD / 10) | 0);
+    // Half a rail INBOARD — against the normal, which points into the water —
+    // so the stroke's own width lands on the deck rather than straddling the
+    // edge. The same offset the 3D parapet box is given.
+    const inset = -(rail / 2) / TD;
+    ctx.save();
+    clipTo([
+      [x, y],
+      [x + TD, y],
+      [x + TD, y + TD],
+      [x, y + TD],
+    ]);
+    ctx.strokeStyle = palette.kerb;
+    ctx.lineWidth = rail;
+    // Round, so two chords meeting at a bend close their joint the way the
+    // waterline stroke above closes its own. Butt ends leave a hairline
+    // wedge of river showing through the parapet at every turn.
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x + (ax + wx * inset) * TD, y + (ay + wy * inset) * TD);
+    ctx.lineTo(x + (bx + wx * inset) * TD, y + (by + wy * inset) * TD);
+    ctx.stroke();
+    ctx.restore();
   }
 
   /**
@@ -1765,10 +1914,19 @@ export class TileLayer {
     // deck that is true of every tile, so every tile drew its rails top and
     // bottom and the deck came out as a ladder of rungs across the road.
     // Edges onto land are abutments and get none.
-    if (this.tileAt(tx, ty - 1) === T_WATER) ctx.fillRect(x, y, TD, rail);
-    if (this.tileAt(tx, ty + 1) === T_WATER) ctx.fillRect(x, y + TD - rail, TD, rail);
-    if (this.tileAt(tx - 1, ty) === T_WATER) ctx.fillRect(x, y, rail, TD);
-    if (this.tileAt(tx + 1, ty) === T_WATER) ctx.fillRect(x + TD - rail, y, rail, TD);
+    //
+    // And nor does an edge the deck's own curve has taken over (§45): where
+    // either tile of the face carries a deck chain, `paintDeckTile` stands
+    // the parapet on the chord instead. Both would draw two parapets a
+    // fraction of a tile apart, which is the staircase with a shadow.
+    const railed = (dx: number, dy: number): boolean =>
+      this.tileAt(tx + dx, ty + dy) === T_WATER &&
+      this.deckSegAt(tx, ty) === undefined &&
+      this.deckSegAt(tx + dx, ty + dy) === undefined;
+    if (railed(0, -1)) ctx.fillRect(x, y, TD, rail);
+    if (railed(0, 1)) ctx.fillRect(x, y + TD - rail, TD, rail);
+    if (railed(-1, 0)) ctx.fillRect(x, y, rail, TD);
+    if (railed(1, 0)) ctx.fillRect(x + TD - rail, y, rail, TD);
   }
 
   /** Stunt ramp: chevrons on concrete, so it reads as "hit this fast". */

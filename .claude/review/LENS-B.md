@@ -18,6 +18,25 @@ painted ground fills at two chunks a frame; shooting early photographs the
 flat instanced slabs instead of the city. A previous review made exactly that
 mistake and documented it so the next one would not — do not be the next one.
 
+**Read the `ground resident=` line before you believe the picture.** The tool
+prints what residency it actually reached and says so when it shot under
+target. Iteration 8 was handed a plate at `resident=0` — a stale module the
+dev server had cached — and the line is the only reason it was not mistaken
+for the city.
+
+At an eye-level height (`h` under about 150) ask for 20, not 24: a low camera
+sees fewer chunks and will never reach a number set for a high one, so it
+spends the whole 300-second budget before shooting anyway.
+
+`VIEW=<w>x<h>` sets the viewport; the default is 1400x700. Bigger is not
+better here — the tool used to shoot at a hard-coded 2200x1000 and **could
+not take a picture at all on this box**, because the wider frustum wants more
+painted ground than the paint budget delivers and the software renderer then
+missed playwright's default 30-second screenshot timeout. It wrote no file and
+said nothing. Both are fixed (`ci/shot.mjs`), and it now exits non-zero rather
+than silently producing nothing; iteration 7's private stand-in at
+`evidence/iter7/shot.mjs` is no longer needed.
+
 The contact sheets are pages in `client/`: `body-sheet.html`,
 `damage-sheet.html`, `fall-sheet.html`, `flight-sheet.html`, `hud-sheet.html`,
 `vehicle-sheet.html`. Shoot them with `ci/shot.mjs` too.

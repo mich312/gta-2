@@ -37,6 +37,7 @@ import {
   chainSide,
   shoreHalf,
   shoreChains,
+  buildDeckCut,
   oppositeHalf,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -626,6 +627,13 @@ export function buildCity(map: CityMap): CityBuild {
   // once for both the sinking below and the prisms that replace what is sunk.
   const shoreCut = map.shores && map.shores.length > 0 ? shoreChains(map.shores, W, H) : null;
 
+  // The deck's OWN edge as a curve (§45), in the same per-tile form and the
+  // same "water on the right" convention. The coast chain above says nothing
+  // about it — a river runs under a span — so before this the deck was the
+  // one built edge over open water with no curve of any kind on it, and it
+  // was drawn one square tile at a time with a parapet standing on the steps.
+  const deckCut = buildDeckCut(map.tiles, W, H, map.courses);
+
   /**
    * Which building tiles are drawn as one rotated mass instead of a column of
    * boxes (§20), and how tall that mass is — the walk below needs both, and
@@ -723,8 +731,16 @@ export function buildCity(map: CityMap): CityBuild {
       // a building never stands at the waterline, and sinking one would
       // drop a tower into the sea.
       const crossed = shoreCut !== null && shoreCut.has(idx) && GROUND_AT_SEA.has(tile);
+      // And a DECK tile the deck curve crosses loses its box for the same
+      // reason (§45): the box is square, the deck's edge is not, and
+      // `buildDeckPrisms` puts the deck part back cut by the curve. Sunk to
+      // the river, because what is left of the square where the deck is not
+      // is river — the span is over open water by construction, this being
+      // the deck/water boundary and nowhere else.
+      const deckCrossed = tile === T_BRIDGE && deckCut.has(idx);
       const sunk =
         crossed ||
+        deckCrossed ||
         (bevCode !== 0 &&
           tile !== T_WATER &&
           bevelOther(map.tiles, map.bevel as Uint8Array, W, tx, ty) === T_WATER);
@@ -804,11 +820,18 @@ export function buildCity(map: CityMap): CityBuild {
   }
 
   instances += buildRoofDetail(map, group, heightAt, masses, massTiles);
-  instances += buildBridgeRails(map, group);
+  instances += buildBridgeRails(map, group, deckCut);
+  // Before the shore prisms: a deck tile is never a shore tile (a deck is not
+  // in `GROUND_AT_SEA`), so the two never touch the same square, and keeping
+  // them adjacent keeps the two halves of "what replaces a sunk box" together.
+  instances += buildDeckPrisms(map, group, deckCut, (tx, ty) => {
+    const cross = crossing(tx, ty);
+    return cross ? 0 : roadMark(tx, ty);
+  });
   instances += buildEdgeSkirt(map, group);
   instances += buildBandPatches(map, group, shoreCut);
   instances += buildShorePrisms(map, group, shoreCut);
-  instances += buildShoreWedges(map, group, shoreCut);
+  instances += buildShoreWedges(map, group, shoreCut, deckCut);
 
   const box = new THREE.BoxGeometry(1, 1, 1);
   // One material per surface, shared by every chunk that has any of it.
@@ -985,36 +1008,87 @@ function buildRoofDetail(
  * "a stretch of road that happens to have water beside it" — which is all the
  * deck reads as now that it sits at the height the game drives at.
  *
- * On the sides that face open water, and only those. The 2D painter rails
- * whichever axis the deck runs along and lets consecutive tiles overlap into
- * one line; in 3D that would stand a parapet down the middle of the
- * carriageway, and picking the axis per tile leaves stray posts on the deck
- * wherever the shoreline crosses it at an angle. "Is there river on this side"
- * is the question a parapet actually answers, so it is the one asked.
+ * Along the deck's own edge CURVE, one box per chord (§45). It used to be one
+ * axis-aligned box per tile side with open water across it — "is there river
+ * on this side", which is the right question and was asked of the wrong
+ * shape. The tile mask is the deck's outline point-sampled at tile centres,
+ * so on a span running fifteen degrees off the axis that answer changes a
+ * whole tile at a time, and a 5-unit parapet standing on the answer jogged a
+ * whole tile with it. Measured on the shipped city: 872 rail boxes, 418 of
+ * them at the end of a tread. That zig-zag ribbon is what
+ * `evidence/iter7/A-bridge-178-478-eye.png` photographs.
+ *
+ * `buildDeckCut` supplies the curve the deck was cut FROM, so the box is
+ * placed on the chord through the tile, turned to the chord's own bearing and
+ * set half its width inboard — standing on deck, as a parapet does, rather
+ * than half over the drop. Chords meet exactly on a shared tile border (their
+ * crossing is bisected from the same field), and the box is lengthened by one
+ * `SEAM_OVERLAP` so the joint closes rather than showing daylight.
+ *
+ * The deck/water test is kept and moved onto the curve: a sample is taken off
+ * the chord on its wet side, and only a genuine `T_WATER` tile there earns a
+ * parapet. An abutment, where the deck runs onto land, still gets none.
+ *
+ * `PROBE` is 0.75 tiles and that number is derived, not tuned. The sample has
+ * to leave the chord's OWN square — which is `T_BRIDGE` on every deck tile,
+ * so a short probe answers "deck" and refuses a parapet that belongs. A chord
+ * midpoint lies inside the unit square, so along any direction its own border
+ * is at most sqrt(2)/2 ~ 0.707 away; and the probe must not reach past the
+ * square next door, so it must stay under 1. Measured over the shipped city's
+ * 877 chords (`evidence/iter8/rail-probe.mjs`), a third of a tile lands back
+ * on the deck 104 times — the gapped parapet that shows in the first draft of
+ * `A-bridge-178-478-eye-AFTER.png` — 0.75 lands there never, and 1.0 starts
+ * overshooting onto the far bank and refusing 10 rails that belong.
  */
-function buildBridgeRails(map: CityMap, group: THREE.Group): number {
+function buildBridgeRails(
+  map: CityMap,
+  group: THREE.Group,
+  deckCut: Map<number, Float32Array>,
+): number {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const T = TILE_SIZE;
   const RAIL_H = 5;
   const RAIL_W = 2;
+  /** How far off the chord to ask "is that the river". See above. */
+  const PROBE = 0.75;
   const at = (tx: number, ty: number): number =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
 
   const rails = new Map<number, Boxes>();
-  for (let ty = 0; ty < H; ty++) {
-    for (let tx = 0; tx < W; tx++) {
-      if (at(tx, ty) !== T_BRIDGE) continue;
-      const cx = (tx + 0.5) * T;
-      const cy = (ty + 0.5) * T;
-      const rail = (x: number, y: number, w: number, d: number): void => {
-        intoChunk(rails, tx, ty, w, d, RAIL_H, x, y, RAIL_H / 2);
-      };
-      if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, T, RAIL_W);
-      if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, T, RAIL_W);
-      if (at(tx - 1, ty) === T_WATER) rail(cx - T / 2 + RAIL_W / 2, cy, RAIL_W, T);
-      if (at(tx + 1, ty) === T_WATER) rail(cx + T / 2 - RAIL_W / 2, cy, RAIL_W, T);
-    }
+  for (const [idx, seg] of deckCut) {
+    const tx = idx % W;
+    const ty = (idx - tx) / W;
+    const ax = seg[0] as number;
+    const ay = seg[1] as number;
+    const bx = seg[2] as number;
+    const by = seg[3] as number;
+    const vx = bx - ax;
+    const vy = by - ay;
+    const len = Math.sqrt(vx * vx + vy * vy);
+    if (len === 0) continue;
+    // Water is on the RIGHT of travel, so the unit normal into the water is
+    // the run turned a quarter turn clockwise on screen — the same rotation
+    // `buildShoreCut` derives its wet half-plane from.
+    const wx = -vy / len;
+    const wy = vx / len;
+    const mx = tx + (ax + bx) / 2;
+    const my = ty + (ay + by) / 2;
+    if (at(Math.floor(mx + wx * PROBE), Math.floor(my + wy * PROBE)) !== T_WATER) continue;
+    // Inboard by half the rail's width, so the parapet stands on the deck.
+    const inset = RAIL_W / 2;
+    intoChunk(
+      rails,
+      tx,
+      ty,
+      len * T + SEAM_OVERLAP,
+      RAIL_W,
+      RAIL_H,
+      mx * T - wx * inset,
+      my * T - wy * inset,
+      RAIL_H / 2,
+      Math.atan2(vy, vx),
+    );
   }
   return addChunkedBoxes(group, rails, col('kerb', 0x787d86), 0.4);
 }
@@ -1175,6 +1249,109 @@ function buildBandPatches(
 }
 
 /**
+ * The deck side of every tile the deck's own edge curve crosses (§45).
+ *
+ * `buildShorePrisms` for a bridge, and it exists separately for one reason
+ * the shore version cannot serve: a deck is CARRIAGEWAY, and the carriageway
+ * is drawn by `roadMaterial`, a shader that reads world position for its
+ * asphalt grain and its lane markings. A vertex-coloured prism would have cut
+ * the tile straight and painted flat tarmac over it, trading a stepped edge
+ * for a missing lane line. Routing the prism through the very same material
+ * the box used means the cut costs nothing at all: the shader does not know
+ * or care that the triangles under it are no longer a square.
+ *
+ * (Measured before relying on it: of the 388 deck tiles the curve crosses on
+ * the shipped city, `evidence/iter8/deck-cut-census.mjs` finds **zero**
+ * carrying a road marking — the markings are on the centre lane and the curve
+ * only ever reaches the outermost half tile. So the mark is 0 on every prism
+ * in practice; it is asked for per tile anyway rather than assumed, because
+ * a narrower span on some future plan would not have that luxury.)
+ *
+ * The tile's own box is gone by the time this runs (`deckCrossed` in the walk
+ * above sinks it to the river), so this prism IS the deck there: a top face
+ * at street level and a vertical fascia down the chord, which is the edge you
+ * see from the water.
+ */
+function buildDeckPrisms(
+  map: CityMap,
+  group: THREE.Group,
+  cuts: Map<number, Float32Array>,
+  markOf: (tx: number, ty: number) => number,
+): number {
+  const W = map.widthTiles;
+  const T = TILE_SIZE;
+  const DEPTH = 16;
+  const surface = SURFACES[T_BRIDGE] as Surface;
+  // One buffer per marking, because the mark is a uniform on the material.
+  const byMark = new Map<number, number[]>();
+  let prisms = 0;
+
+  for (const [idx, seg] of cuts) {
+    const tx = idx % W;
+    const ty = (idx - tx) / W;
+    // Water tiles the curve clips are built too, and must be: the tile mask
+    // is a point sample, so where the deck's true edge runs past a tile
+    // centre the OVERHANG lives on a square the tiles call river. The painted
+    // ground plane already draws deck there (its cutout follows the same
+    // chain), and painted ground over a hole with no sides is water sliding
+    // under the deck's edge from any angle but straight down — which is the
+    // defect `buildShorePrisms` was written to stop happening on the coast.
+    const own = map.tiles[idx] as number;
+    if (own !== T_BRIDGE && own !== T_WATER) continue;
+    const dry = shoreHalf(seg, false);
+    if (dry.length < 3) continue;
+    const mark = markOf(tx, ty);
+    let out = byMark.get(mark);
+    if (!out) byMark.set(mark, (out = []));
+    const px = (p: [number, number]): number => (tx + p[0]) * T;
+    const py = (p: [number, number]): number => (ty + p[1]) * T;
+    const put = (x: number, y: number, z: number): void => {
+      (out as number[]).push(x, y, z);
+    };
+    // Top face, fanned from the first corner: a chord through a square leaves
+    // a convex half, always.
+    for (let i = 1; i + 1 < dry.length; i++) {
+      put(px(dry[0] as [number, number]), py(dry[0] as [number, number]), 0);
+      put(px(dry[i] as [number, number]), py(dry[i] as [number, number]), 0);
+      put(px(dry[i + 1] as [number, number]), py(dry[i + 1] as [number, number]), 0);
+    }
+    // A fascia down every edge of the half, tile borders included — the same
+    // reasoning as `buildShorePrisms`: two neighbouring deck halves only
+    // share the point where the curve crosses their common border, and above
+    // that point one side is deck and the other is open river.
+    for (let i = 0; i < dry.length; i++) {
+      const p = dry[i] as [number, number];
+      const q = dry[(i + 1) % dry.length] as [number, number];
+      put(px(p), py(p), 0);
+      put(px(q), py(q), 0);
+      put(px(q), py(q), -DEPTH);
+      put(px(p), py(p), 0);
+      put(px(q), py(q), -DEPTH);
+      put(px(p), py(p), -DEPTH);
+    }
+    prisms++;
+  }
+  if (prisms === 0) return 0;
+
+  for (const [mark, positions] of byMark) {
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.computeVertexNormals();
+    const material = roadMaterial(surface.color, mark, surface.line);
+    // DoubleSide for the same reason `buildShorePrisms` needs it: the fascia
+    // quads are emitted in the order the half's own boundary runs, which is
+    // clockwise or anticlockwise depending on which way the curve crosses the
+    // square, so half of them would be back-facing and the deck would have
+    // holes in its side from one bank and not the other.
+    material.side = THREE.DoubleSide;
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+  return prisms;
+}
+
+/**
  * The dry side of every tile the coast course crosses, as real geometry.
  *
  * The generalisation of `buildShoreWedges` below, and the same three
@@ -1312,6 +1489,7 @@ function buildShoreWedges(
   map: CityMap,
   group: THREE.Group,
   cuts: Map<number, Float32Array> | null,
+  deckCut: Map<number, Float32Array>,
 ): number {
   const bevel = map.bevel;
   if (!bevel) return 0;
@@ -1337,6 +1515,14 @@ function buildShoreWedges(
       if (code === 0) continue;
       // The chord has already built this one, at a better angle.
       if (cuts !== null && cuts.has(idx)) continue;
+      // And so has the DECK chord (§45). §31 gave the deck/water pair a
+      // one-directional bevel — the water yields, so a diagonal crossing
+      // reads as a ramp rather than a flight of stairs — and that 45 degree
+      // wedge is the best a half-tile chamfer could do before the deck had a
+      // curve. It now has one, and leaving the wedge in lays a triangle over
+      // a chord at a different angle: the sawtooth the band pass already
+      // learned not to draw over a curve it disagrees with.
+      if (deckCut.has(idx)) continue;
       const tile = map.tiles[idx] as number;
       const other = bevelOther(map.tiles, bevel, W, tx, ty);
       // Only water bevels need geometry: a sand/grass bevel sits on the

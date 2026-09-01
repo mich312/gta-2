@@ -1,0 +1,9 @@
+deck tiles                       1564
+  covered by the swept disc      1564  (100.00%)
+deck/water faces                 872
+  water tile OUTSIDE the disc    869  (99.66%)
+  first misses: [["water-inside-disc",196,226],["water-inside-disc",196,226],["water-inside-disc",393,494]]
+
+CONTROL open water away from any deck   4000 samples
+  covered by the swept disc             0  (0.00%)
+  -> the test discriminates: it says no to open water and yes to deck.

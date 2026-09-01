@@ -4,6 +4,7 @@ import {
   parseCityPlan,
   pointInPoly,
   shoreChains,
+  buildDeckCut,
   T_BANK,
   T_BRIDGE,
   T_BUILDING,
@@ -1296,9 +1297,14 @@ function tileName(t: number): string {
  * (`paintShoreTile` -> `paintShoreMaterial`, which has a `T_BANK` case; the
  * 3D `shoreCut` prisms), so a step face with either of its two tiles on a
  * chain is never drawn at all. Measured on the shipped bake: 1,293 of 1,293
- * quay step faces dissolved, 0 of 466 bridge-deck ones — because a deck is
+ * quay step faces dissolved, 0 of 466 bridge-deck ones — because a deck was
  * refused by name in all three painters ("the coast runs UNDER it", "a deck
- * is not ground at all") and no curve describes a deck's own outer edge.
+ * is not ground at all") and no curve described a deck's own outer edge.
+ * §45 gave it one — `buildDeckCut`, read back off the swept disc
+ * `carveCourse` cut the deck FROM — and the deck chain is asked here too, so
+ * a deck face now dissolves like a quay face. What that does NOT change is
+ * `mag`: the tile staircase is still there and still counted, because this
+ * signature measures the tiles and reports on the drawing.
  *
  * That is not gated on here, deliberately. Refusing the dissolved chains
  * lets a LANDWARD chain of the same quay through the one-edge-one-finding
@@ -1314,9 +1320,24 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
   // `shoreChains` both painters index, so this asks the question they answer.
   const coast = shoreChains(city.shores, W, H);
   const band = shoreChains(city.banks, W, H);
+  // And the deck's own edge (§45). Added when the deck got a curve, for the
+  // same reason the other two are here: this test exists to say whether the
+  // staircase is DRAWN, and the answer changed. Asking only `coast u band`
+  // would keep printing "no coast curve over them and are drawn square" of
+  // 872 faces that are now cut on a chord in all three painters — which is
+  // the single most expensive kind of wrong an instrument in this exercise
+  // has been.
+  //
+  // `mag` and the finding COUNT are untouched, deliberately. `mag` is
+  // `span - count`, tiles of flat tread, and the curve layer has never been
+  // gated into it (see the note above). So SCORE and TOTAL still mean exactly
+  // what they meant in iterations 5, 6 and 7 and still compare straight back
+  // through the loop; only the sentence changes, and only where it had become
+  // untrue.
+  const deck = buildDeckCut(tiles, W, H, city.courses);
   const onCurve = (x: number, y: number): boolean => {
     const i = y * W + x;
-    return coast.has(i) || band.has(i);
+    return coast.has(i) || band.has(i) || deck.has(i);
   };
   // Built surfaces whose OUTLINE is a drawn shape rather than a block edge.
   // Buildings and pavement are left out: the urban lattice is square by
@@ -1419,7 +1440,7 @@ function builtStaircase(a: Audit, minSpan: number): Finding[] {
                 severity: meanTread >= 3 ? 'high' : 'med',
                 rank: span * meanTread,
                 mag: magOf(span - count), // tiles of flat tread beyond the one tile a half-tile bevel can reach
-                reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread. ${faces === 0 ? 'This edge faces dry ground, which no coast curve describes, so it is drawn as it lies' : dissolved === faces ? `All ${faces} of its step faces onto open water are dissolved by the coast curve, so NONE of this staircase is drawn` : `${faces - dissolved} of its ${faces} step faces onto open water have no coast curve over them and are drawn square`}`,
+                reason: `${label} edge at ${Math.round(mx)},${Math.round(my)} climbs ${count} treads averaging ${meanTread.toFixed(1)} tiles over ${span} tiles — a half-tile bevel only reaches a 1-tile tread. ${faces === 0 ? 'This edge faces dry ground, which no coast curve describes, so it is drawn as it lies' : dissolved === faces ? `All ${faces} of its step faces onto open water are dissolved by a curve layer (coast, bank or deck), so NONE of this staircase is drawn` : `${faces - dissolved} of its ${faces} step faces onto open water have no coast curve over them and are drawn square`}`,
               });
             }
             i = j + 1;
@@ -1786,7 +1807,7 @@ function coarseFabric(city: BakedCity, plan: CityPlan, ratioGate: number): Findi
  * asks is exactly the question the client asks per tile, and an audit that
  * used its own definition would be measuring something the game does not do.
  * §26.1 measures the same thing city-wide and reported 76.1%; that figure is
- * stale, and the current reading is **85.3%** (WORLDGEN.md §44).
+ * stale, and the current reading is **85.3%** (WORLDGEN.md §45).
  */
 function courseCoverPlane(city: BakedCity): Uint8Array {
   const W = city.widthTiles;
@@ -1837,7 +1858,7 @@ const COVERAGE_MIN_ROAD = 500;
  * **Both of those numbers have since moved.** Iteration 4 gave the axis-grid
  * boroughs the centrelines they had been carving without recording, and on the
  * shipped bake the fourteen rated boroughs run 70.0% to 91.6% with an 85.6%
- * median — city-wide 85.3%, not 76.1% (WORLDGEN.md §44). The two lumps are
+ * median — city-wide 85.3%, not 76.1% (WORLDGEN.md §45). The two lumps are
  * gone and this signature now fires nothing, WITHOUT its gate being touched:
  * the relative gate below working as specified, not a silenced check.
  *

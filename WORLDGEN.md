@@ -4776,3 +4776,171 @@ section retires, and should be treated that way until somebody re-runs it.
 | `evidence/iter5-instr/coverage-shipped.txt` | The shipped bake: 85,960 / 100,742 = 85.3%, with the per-borough control table. |
 | `evidence/iter5-instr/coverage-preiter4.txt` | The same on `5b6fa2e^`: 75,964 / 100,742 = 75.4%. |
 | `evidence/iter5-instr/coverage-s26-era-attempt.txt` | The failed attempt to retake the original 76.1% on the `eb6b573` asset, and why it cannot be done. |
+
+---
+
+## 45. The bridge deck, as a curve
+
+§25 made the coast a curve and the water tiles its rasterisation. §39 did the
+same for the shore band's inner edge. Both are quoted in the two renderers as
+the reason a shoreline is smooth while the tiles under it are square.
+
+The bridge deck was never given the same treatment, and — uniquely — was
+refused **by name** in each of the three painters that draw it:
+
+| painter | the refusal |
+|---|---|
+| `client/src/render/tiles.ts` | `paintShoreTile`: *"A bridge deck keeps its own painter: the coast runs UNDER it, so the wet side of a bridge tile is deck, not sea."* |
+| `client/src/three/cityGeometry.ts` | `T_BRIDGE` is absent from `GROUND_AT_SEA`, so `shoreCut` never sinks a deck tile and no prism replaces it |
+| `server/src/tools/mapRender.ts` | `groundOf` returns `null` for a deck, so the coast pass skips it |
+
+**Every one of those refusals is correct about the coast.** A river runs
+beneath a span, and the waterline's chain says nothing whatever about where
+the deck stops. What they left behind is the one built edge in the city that
+stands over open water with no curve of any kind over it, so it was drawn
+exactly as it lies — one square tile at a time — while the shoreline behind it
+was drawn smooth. `buildBridgeRails` then stood a 5-unit parapet along that
+stepped outline, and on a span running fifteen degrees off the axis it jogged
+a whole tile every three or four columns.
+
+Iteration 7 of the visual review sized it: **872 deck/water faces, 835 covered
+by neither chain, 872 rail boxes of which 418 stand at the end of a tread.**
+`evidence/iter7/A-bridge-178-478-eye.png` is the picture.
+
+### 45.1 The curve was already in the bake
+
+The deck's outline does not have to be invented, fitted or smoothed. It is
+already there, and it is exact.
+
+`carveCourse` (layout.ts) lays a carriageway as a **swept disc**: a tile
+becomes road, or deck where the water is bridgeable, when
+
+```
+segmentDistance(tx + 0.5, ty + 0.5, seg) <= width / 2
+```
+
+and the same polyline and the same width are then recorded in the bake as a
+`StreetCourse`. So the deck's true outline is the level set
+`distance == width / 2` of the deck's own course, and **the tile mask is that
+curve point-sampled at tile centres** — precisely the relationship §25
+established between the shore rings and the water tiles.
+
+Measured on the shipped city (`evidence/iter8/deck-curve-probe.mjs`): all
+**1,564 of 1,564** deck tiles fall inside the disc, and **869 of the 872**
+tiles across a deck/water face fall outside it. The control — 4,000 samples of
+open water well away from any deck — comes out at **0%**, so the test
+discriminates rather than saying yes to everything. The three exceptions are
+water tiles the disc covers where `bridgeable` declined to lay a deck at all,
+a span past the plan's `maxBridgeSpan`.
+
+### 45.2 `deckCut.ts`, and why its output shape is `shoreChains`'s
+
+`buildDeckCut` evaluates the sign of `deckDepth` at a tile's four corners,
+bisects the two border crossings, and emits the chord between them — as a
+`Map<tile, Float32Array>` of tile-local points **with the water on the RIGHT
+of travel**.
+
+That is deliberate and it is most of the value. It is the one convention
+`shoreHalf` and `chainSide` are written against, so both renderers cut a deck
+tile with the same two functions they already cut a shore tile with, and **no
+second polygon-splitting path exists to disagree with the first**. A tile
+whose curve enters and leaves twice — four crossings, a saddle — gets nothing
+and stays square, exactly as `buildShoreCut` declines a chain that bows too
+far from its own chord.
+
+The segment index files each course segment by its **bounding box grown by its
+own half-width**, not by sampling along it as `courseIndex` does. Sampling is
+fine for "which centreline is nearest" and is not fine here: a segment the
+sampler missed would flip the SIGN of the field at a point, and the sign is
+what decides whether a pixel is deck or river.
+
+Restricted to the deck/water boundary and nowhere else (`deckEdgeTiles`, one
+exported definition that all three painters and `mapAudit` key off). The level
+set runs round every carriageway in the city; following it inland would redraw
+every kerb on the map, which is a different change by orders of magnitude.
+
+### 45.3 What each painter does with it
+
+**3D.** A deck tile the curve crosses is sunk to the river like a shore tile,
+and `buildDeckPrisms` puts the deck part back — a top face at street level and
+a vertical fascia down the chord. It is a separate function from
+`buildShorePrisms` for one reason: a deck is CARRIAGEWAY, drawn by
+`roadMaterial`, a shader that reads world position for its asphalt grain and
+its lane markings. A vertex-coloured prism would have traded a stepped edge for
+a missing lane line; routing the prism through the very material the box used
+means the cut costs nothing, because the shader does not know the triangles
+under it are no longer a square. (Of the 388 deck tiles the curve crosses,
+**zero** carry a marking anyway — they are on the centre lane, and the curve
+only reaches the outermost half tile. Measured, not assumed.)
+
+Water tiles the curve clips are built too, and must be: the tile mask is a
+point sample, so where the deck's true edge runs past a tile centre the
+OVERHANG lives on a square the tiles call river.
+
+**The parapet** is one box per chord, turned to the chord's bearing and set
+half its width inboard. The old "is there river on this side" test survives,
+moved onto the curve: a sample 0.75 tiles off the chord on its wet side must
+be `T_WATER`. That 0.75 is derived, not tuned — a chord midpoint is inside the
+unit square, so its own border is at most `sqrt(2)/2 ~ 0.707` away along any
+direction, and the probe must stay under 1 to avoid the square next door.
+`evidence/iter8/rail-probe.mjs` is the acceptance curve: a third of a tile
+lands back on the deck 104 times of 877, 0.75 never, 1.0 overshoots onto the
+far bank and refuses 10 rails that belong.
+
+**2D.** `paintDeckTile`, and the reason it is not `paintShoreTile` is the
+material rule. The waterline can say "wet side is sea, dry side is the nearest
+dry tile", and over a river that answer is a beach that is not there. Here
+both sides are known outright: inside the disc is carriageway, outside is the
+river. Nothing is inferred from the neighbours.
+
+**Top-down.** `mapRender` already stroked the span as the smooth ribbon it is;
+what serrated was the TILE pass filling a `T_BRIDGE` square with `palette.kerb`
+and leaving the corners that stick out past the ribbon's casing standing in the
+river. Those squares are now decided per pixel by the same field.
+
+### 45.4 What it stood down, and why that was load-bearing
+
+§31 gave the deck/water pair a one-directional 45-degree bevel — the water
+yields, so a diagonal crossing reads as a ramp rather than a flight of stairs.
+That was the best a half-tile chamfer could do before the deck had a curve.
+With one, a wedge left in place lays a triangle over a chord at a different
+angle, which is the sawtooth §39 already records learning not to draw.
+
+`buildShoreWedges` and `paintBevel` now stand down on a tile the deck chord
+owns, the same way both already stand down for the coast chord. On the shipped
+city that is **131 water tiles that would otherwise have carried both**, and
+all 131 deck-pair bevels sit on a tile that now carries a chord — so nothing
+is orphaned on the other side either.
+
+### 45.5 What this does NOT change, and the honest gap
+
+The **collision** shape is untouched. `volume.ts` still gives a whole
+`T_BRIDGE` tile a deck span, so the drivable deck is still the tile mask while
+the drawn deck is now the curve. They disagree by up to about half a tile at
+the edge — in both directions, since the mask is a point sample. This is the
+same class of gap §43 closed for the coast, and closing it here means deriving
+a half-plane per deck tile and teaching `collide.ts` to read it, which is a
+simulation change with a desync surface and belongs in its own wave rather
+than riding along with a renderer one. **Filed, not fixed.** In practice the
+parapet is not collidable either and never was, so nothing that could be
+driven off the visible edge could not already be driven off the tile edge.
+
+`mapAudit`'s `built-staircase` asks the deck chain in `onCurve`, so it stops
+printing *"no coast curve over them and are drawn square"* of 872 faces that
+are now cut on a chord. **`mag` and the finding count are untouched** — `mag`
+is `span - count`, tiles of flat tread, and the curve layer has never been
+gated into it — so `SCORE` and `TOTAL` still mean exactly what they meant
+before and compare straight back through the review loop.
+
+### 45.6 Evidence
+
+| file | what |
+|---|---|
+| `evidence/iter8/README.md` | the whole iteration, before and after |
+| `evidence/iter8/deck-curve-probe.mjs` | the tile mask IS the swept disc's point sample, with a discriminating control |
+| `evidence/iter8/deck-cut-census.mjs` | 872 of 872 faces covered; chord joints bit-exact; 0 markings lost; a no-courses control |
+| `evidence/iter8/parapet-census.mjs` | 418 joints turning 90 degrees becomes 2, both of them a real corner |
+| `evidence/iter8/rail-probe.mjs` | where 0.75 comes from |
+| `evidence/iter8/bevel-overlap.mjs` | the 131 tiles the 45-degree chamfer had to stand down on |
+| `client/test/bridgeParapet.test.ts` | the regression, written against the built city so it runs either side of the change |
+| `evidence/iter8/A-bridge-178-478-eye-BEFORE.png` / `-AFTER.png` | the same camera, before and after |

@@ -1,0 +1,9 @@
+bevelled tiles on the map              1213
+  of the deck/water pair (S31)         131
+  water tiles that would have got BOTH 131
+    a 45-degree wedge and a deck prism, at different angles
+
+So the stand-down is load-bearing, not a precaution.
+
+CONTROL: the bevel plane is populated (1213 tiles), so a 0 in the
+  columns above is an answer and not an empty input.

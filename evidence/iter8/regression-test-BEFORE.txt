@@ -1,0 +1,48 @@
+
+ RUN  v3.2.7 /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e
+
+Sourcemap for "/home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e/shared/dist/world/deckCut.js" points to missing source files
+ ❯ |client| test/bridgeParapet.test.ts (3 tests | 2 failed) 9636ms
+   × the parapet on the bridge deck at 178,478 > is not the tile grid: a span that runs off the axis has a parapet that does too 2166ms
+     → expected 1 to be less than 0.1
+   × the parapet on the bridge deck at 178,478 > runs straight, rather than stepping half a tile every few tiles 2036ms
+     → expected 0.48789374369552074 to be less than 0.25
+   ✓ the parapet on the bridge deck at 178,478 > still refuses an abutment, and still covers every deck/water face  2003ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |client| test/bridgeParapet.test.ts > the parapet on the bridge deck at 178,478 > is not the tile grid: a span that runs off the axis has a parapet that does too
+AssertionError: expected 1 to be less than 0.1
+ ❯ test/bridgeParapet.test.ts:199:34
+    197|     // side and this share was 1.00.
+    198|     const axial = boxes.filter((b) => offAxis(b.bearing) < 5).length;
+    199|     expect(axial / boxes.length).toBeLessThan(0.1);
+       |                                  ^
+    200|   });
+    201| 
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |client| test/bridgeParapet.test.ts > the parapet on the bridge deck at 178,478 > runs straight, rather than stepping half a tile every few tiles
+AssertionError: expected 0.48789374369552074 to be less than 0.25
+ ❯ test/bridgeParapet.test.ts:238:37
+    236|     // above it is a staircase a half-tile bevel cannot reach, which i…
+    237|     // `built-staircase` is counting.
+    238|     expect(strayFromBestLine(left)).toBeLessThan(0.25);
+       |                                     ^
+    239|     expect(strayFromBestLine(right)).toBeLessThan(0.25);
+    240|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  05:08:46
+   Duration  11.75s (transform 1.30s, setup 0ms, collect 1.74s, tests 9.64s, environment 0ms, prepare 76ms)
+
+[ci/test] FAIL: 4 failed test(s), 0 real unhandled error(s).
+  - /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e/client/test/bridgeParapet.test.ts (file-level)
+  - /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e/client/test/bridgeParapet.test.ts: the parapet on the bridge deck at 178,478
+  - /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e/client/test/bridgeParapet.test.ts: is not the tile grid: a span that runs off the axis has a parapet that does too
+  - /home/user/gta-2/.claude/worktrees/agent-a106572bff1dedb2e/client/test/bridgeParapet.test.ts: runs straight, rather than stepping half a tile every few tiles
