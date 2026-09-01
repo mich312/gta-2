@@ -1257,6 +1257,177 @@ describe('the city, as an asset', () => {
     expect(uncut.slice(0, 8), `${uncut.length} mouths short of a road over untouched ground`).toEqual([]);
   });
 
+  it('keeps the ring limited-access: the lattice joins it only at the authored junctions', () => {
+    // The other half of the test above, and the half nothing asserted for
+    // nine rounds. That one says a gap over VIRGIN ground is a junction
+    // nobody cut; this one says a gap over ground the ring shave CLEARED
+    // stays a gap. Without it, `road-stops-short`'s thirteen findings — every
+    // one of which is a street held two tiles short of the ring, measured in
+    // `evidence/iter9/` — read as thirteen defects, and closing them would
+    // quietly reverse §14.3 D6: "a motorway with four hundred driveways is a
+    // wide street, not a motorway", benched on the chase harness and shipped.
+    //
+    // Measured on the shipped map rather than the layout on purpose: three of
+    // the seven mouths below are laid by the BAKE, after the shave has run and
+    // where it cannot see them, and the player drives the bake.
+    //
+    // 150 mouths two tiles or more wide point at the ring's carriageways.
+    // Outside a nine-tile dilation of the authored crossings, none of them
+    // reaches it — except these seven, which is the budget this pins.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const courses = map.courses ?? [];
+    expect(courses.filter((c) => c.kind === 'ring').length, 'no ring courses in the bake').toBeGreaterThan(0);
+    const swept = (kind: string): Uint8Array => {
+      const m = new Uint8Array(W * H);
+      for (const c of courses) {
+        if (c.kind !== kind) continue;
+        const half = c.width / 2;
+        for (let k = 0; k + 1 < c.points.length; k++) {
+          const [ax, ay] = c.points[k] as readonly [number, number];
+          const [bx, by] = c.points[k + 1] as readonly [number, number];
+          const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - half - 1));
+          const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx) + half + 1));
+          const y0 = Math.max(0, Math.floor(Math.min(ay, by) - half - 1));
+          const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by) + half + 1));
+          for (let ty = y0; ty <= y1; ty++) {
+            for (let tx = x0; tx <= x1; tx++) {
+              if (segmentDistance(tx + 0.5, ty + 0.5, ax, ay, bx, by) <= half) m[ty * W + tx] = 1;
+            }
+          }
+        }
+      }
+      return m;
+    };
+    const onRing = swept('ring');
+    const onAvenue = swept('avenue');
+    const carriageway = (i: number): boolean => {
+      const t = map.tiles[i] as number;
+      return t === T_ROAD || t === T_BRIDGE || t === T_RAMP;
+    };
+    const ringRoad = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) if (onRing[i] === 1 && carriageway(i)) ringRoad[i] = 1;
+    // An authored junction, dilated as `guardRingAccess` dilates it: ground
+    // the ring and a named avenue both carved, flooded nine tiles.
+    const JUNCTION_REACH = 9;
+    const junction = new Uint8Array(W * H);
+    const bag: number[] = [];
+    const depth = new Int32Array(W * H).fill(-1);
+    for (let i = 0; i < W * H; i++) {
+      if (onRing[i] === 1 && onAvenue[i] === 1) {
+        junction[i] = 1;
+        depth[i] = 0;
+        bag.push(i);
+      }
+    }
+    expect(bag.length, 'the ring crosses no authored avenue').toBeGreaterThan(0);
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      if ((depth[i] as number) >= JUNCTION_REACH) continue;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (junction[j] === 1) continue;
+        junction[j] = 1;
+        depth[j] = (depth[i] as number) + 1;
+        bag.push(j);
+      }
+    }
+    // Every mouth two tiles or more across whose next tile IS the ring.
+    const joined: string[] = [];
+    let held = 0;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const px = dy;
+      const py = -dx;
+      const meets = new Uint8Array(W * H);
+      const short = new Uint8Array(W * H);
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * W + x;
+          if (ringRoad[i] === 1 || !carriageway(i)) continue;
+          const fx = x + dx;
+          const fy = y + dy;
+          if (fx < 0 || fy < 0 || fx >= W || fy >= H) continue;
+          const f = fy * W + fx;
+          // Joining the ring: the very next tile ahead is its carriageway.
+          if (junction[i] !== 1 && ringRoad[f] === 1) meets[i] = 1;
+          // Held short: the next tile ahead is not carriageway at all, and
+          // the ring is within four.
+          if (carriageway(f)) continue;
+          for (let d = 1; d <= 4; d++) {
+            const nx = x + dx * d;
+            const ny = y + dy * d;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) break;
+            const j = ny * W + nx;
+            if (!carriageway(j)) continue;
+            if (ringRoad[j] === 1 && d > 1) short[i] = 1;
+            break;
+          }
+        }
+      }
+      for (const [flag, sink] of [
+        [meets, joined],
+        [short, null],
+      ] as const) {
+        const used = new Uint8Array(W * H);
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < W; x++) {
+            if (flag[y * W + x] !== 1 || used[y * W + x] === 1) continue;
+            let a0 = 0;
+            let a1 = 0;
+            while (
+              x + px * (a0 - 1) >= 0 &&
+              y + py * (a0 - 1) >= 0 &&
+              flag[(y + py * (a0 - 1)) * W + (x + px * (a0 - 1))] === 1
+            ) {
+              a0--;
+            }
+            while (
+              x + px * (a1 + 1) < W &&
+              y + py * (a1 + 1) < H &&
+              flag[(y + py * (a1 + 1)) * W + (x + px * (a1 + 1))] === 1
+            ) {
+              a1++;
+            }
+            for (let k = a0; k <= a1; k++) used[(y + py * k) * W + (x + px * k)] = 1;
+            if (a1 - a0 + 1 < 2) continue;
+            const cx = Math.round(x + px * ((a0 + a1) / 2));
+            const cy = Math.round(y + py * ((a0 + a1) / 2));
+            if (sink) sink.push(`${cx},${cy}`);
+            else held++;
+          }
+        }
+      }
+    }
+    // The seven the shave does not reach: 641,307 is the ring's own authored
+    // plumbing; 456,664 was shaved and put back by the orphan repair in
+    // `finishShores`, with 510,122 and 513,123 laid there too; 461,118,
+    // 499,107 and 570,612 are laid by the bake, downstream of the layout
+    // entirely. Named so that an eighth has to be looked at rather than
+    // absorbed. `evidence/iter9/leaks.txt` has the pictures.
+    expect(joined.sort(), 'a street now joins the ring outside an authored junction').toEqual(
+      ['456,664', '461,118', '499,107', '510,122', '513,123', '570,612', '641,307'],
+    );
+    // And the shave is still doing its work: opening the held mouths is how
+    // a future round would "fix" `road-stops-short`, and this is the floor
+    // that refuses it. 150 as shipped.
+    expect(held, 'mouths held short of the ring').toBeGreaterThanOrEqual(140);
+  });
+
   it('plants the country the block grid does not cover', () => {
     // R2 iteration 3. The rural fill runs over BLOCKS, and the blocks are cut
     // round the lattice inside the district's own polygon — so country that

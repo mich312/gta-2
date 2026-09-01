@@ -1,0 +1,21 @@
+SHIPPED: mouths >=2 tiles wide joining the ring outside the 9-tile authored-junction dilation: 7
+499,107 w=2
+570,612 w=2
+461,118 w=2
+510,122 w=3
+513,123 w=2
+641,307 w=3
+456,664 w=2
+
+CONTROL: planted 6 tiles of tarmac across the 264,407 mouth.
+AFTER PLANT: 8 mouth(s) join the ring outside a junction:
+266,407 w=3
+499,107 w=2
+570,612 w=2
+461,118 w=2
+510,122 w=3
+513,123 w=2
+641,307 w=3
+456,664 w=2
+
+The check goes red on a planted junction, so its 0 on the shipped city is a measurement.

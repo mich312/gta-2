@@ -1,0 +1,11 @@
+# site        layout      bake
+499,107     0           1   BARE in the layout, road in the BAKE — a bake pass laid it
+570,612     0           1   BARE in the layout, road in the BAKE — a bake pass laid it
+461,118     0           1   BARE in the layout, road in the BAKE — a bake pass laid it
+510,122     1           1   road in the layout
+513,123     1           1   road in the layout
+641,307     1           1   road in the layout
+456,664     1           1   road in the layout
+
+city-wide, the bake adds 126 carriageway tiles the layout did not have and removes 11.
+CONTROL: if both were 0 the comparison would be measuring nothing.

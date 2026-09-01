@@ -1,0 +1,22 @@
+# guardRingAccess: shaved 1808 carriageway tiles beside the ring, re-laid 6 as potholes; net 1802 cleared. junction dilation covered 5142 tiles.
+# cutMissedJunctions saw 19 mouths
+426,51 w=3 gap=1 dir=1,0 CUT
+421,239 w=3 gap=1 dir=1,0 CUT
+264,385 w=3 gap=2 dir=1,0 REFUSED: a removal pass cleared this ground
+264,390 w=3 gap=2 dir=1,0 REFUSED: a removal pass cleared this ground
+264,407 w=3 gap=2 dir=1,0 REFUSED: a removal pass cleared this ground
+641,437 w=3 gap=2 dir=1,0 REFUSED: a removal pass cleared this ground
+265,552 w=3 gap=2 dir=1,0 REFUSED: a removal pass cleared this ground
+268,567 w=3 gap=2 dir=1,0 REFUSED: a removal pass cleared this ground
+253,168 w=3 gap=2 dir=-1,0 CUT
+285,424 w=3 gap=2 dir=-1,0 REFUSED: a removal pass cleared this ground
+289,475 w=3 gap=2 dir=-1,0 REFUSED: a removal pass cleared this ground
+410,103 w=3 gap=2 dir=0,1 REFUSED: a removal pass cleared this ground
+548,284 w=3 gap=3 dir=0,1 CUT
+413,606 w=3 gap=3 dir=0,1 CUT
+502.5,640 w=2 gap=3 dir=0,1 REFUSED: a removal pass cleared this ground
+456.5,649 w=2 gap=2 dir=0,1 REFUSED: a removal pass cleared this ground
+427,120 w=3 gap=2 dir=0,-1 REFUSED: a removal pass cleared this ground
+541.5,596 w=2 gap=1 dir=0,-1 CUT
+452.5,603 w=2 gap=3 dir=0,-1 CUT
+# cut 7, refused 12; laid 38 tiles

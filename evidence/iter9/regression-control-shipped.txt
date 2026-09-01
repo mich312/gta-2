@@ -1,0 +1,4 @@
+ ✓ |shared| test/city.test.ts (39 tests | 38 skipped) 346ms
+   ✓ the city, as an asset > keeps the ring limited-access: the lattice joins it only at the authored junctions  343ms
+ Test Files  1 passed (1)
+      Tests  1 passed | 38 skipped (39)
