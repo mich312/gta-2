@@ -1,0 +1,15 @@
+T_BRIDGE tiles          1564
+deck/water faces        872
+  covered by coast      37
+  covered by bank       0
+  covered by NEITHER    835
+
+  (all three painters refuse a deck by name anyway — 2D
+   tiles.ts:1498 "the coast runs UNDER it", 3D cityGeometry.ts
+   GROUND_AT_SEA has no T_BRIDGE — so even a covered face is
+   drawn square. The coverage column is here to show the curve
+   layer is not quietly doing the job on decks.)
+
+rail boxes              872
+  at a step (an end of a tread, so a visible jog)   418
+  mid-tread (collinear with both neighbours)        454
