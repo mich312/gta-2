@@ -1,0 +1,12 @@
+/tmp/claude-0/-home-user-gta-2/297482db-7a0b-5d48-914d-987762c0d996/scratchpad/prefix.city.data.ts
+  49 regions, 7549 tiles, 692 wood (9.2%), 6857 bare
+  of 40 tiles or more: 23 regions, 7117 tiles, 673 wood
+  BALD (not one tree) among those: 21 regions, 3530 tiles — the wildness field calls 1379 of those tiles wood
+/tmp/claude-0/-home-user-gta-2/297482db-7a0b-5d48-914d-987762c0d996/scratchpad/baseline.city.data.ts
+  49 regions, 7549 tiles, 2615 wood (34.6%), 4934 bare
+  of 40 tiles or more: 23 regions, 7117 tiles, 2526 wood
+  BALD (not one tree) among those: 5 regions, 928 tiles — the wildness field calls 18 of those tiles wood
+/home/user/gta-2/.claude/worktrees/agent-a262d5a78c136f84a/shared/src/world/city.data.ts
+  49 regions, 7549 tiles, 2777 wood (36.8%), 4772 bare
+  of 40 tiles or more: 23 regions, 7117 tiles, 2648 wood
+  BALD (not one tree) among those: 1 regions, 507 tiles — the wildness field calls 0 of those tiles wood

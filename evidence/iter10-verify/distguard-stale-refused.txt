@@ -1,0 +1,16 @@
+rendering watch set for iteration 10
+file:///home/user/gta-2/.claude/worktrees/agent-a262d5a78c136f84a/ci/mapwatch.mjs:141
+    throw new Error(
+          ^
+
+Error: shared/dist/world/city.data.js does not carry the bake in shared/src/world/city.data.ts.
+mapgen renders from dist, so these plates would depict the PREVIOUS bake.
+Run `pnpm build` first.
+    at assertDistFresh (file:///home/user/gta-2/.claude/worktrees/agent-a262d5a78c136f84a/ci/mapwatch.mjs:141:11)
+    at render (file:///home/user/gta-2/.claude/worktrees/agent-a262d5a78c136f84a/ci/mapwatch.mjs:149:3)
+    at file:///home/user/gta-2/.claude/worktrees/agent-a262d5a78c136f84a/ci/mapwatch.mjs:578:78
+    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)
+
+Node.js v22.22.2

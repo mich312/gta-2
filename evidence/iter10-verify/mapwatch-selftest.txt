@@ -1,0 +1,19 @@
+
+  mapwatch selftest — Anywhere City 768x768, blocks 1184
+
+  PASS  case 0  codec round trip           encode(decode(city.data.ts)) is byte-identical
+  PASS  case 1  identity                   0 tiles changed, carriageway 0
+  PASS  case 2  plant landed               200 tiles ->PARK inside sunridge, no road touched
+  PASS  case 2  land only reads no road    map 200 tiles, carriageway 0; sunridge land 200
+  PASS  case 3  plant landed               200 tiles ->ROAD inside strait
+  PASS  case 3  road only reads road       map carriageway +200 -0; strait +200 -0; sunridge 0
+  PASS  case 4  contaminant landed         one ->ROAD at 382,577
+
+  case 4  the same "land only reads no road" assertion, re-run against a bake
+          with ONE road tile planted at 382,577 — it must go RED:
+            FAIL  land only reads no road          map 201 tiles, carriageway +1 -0; sunridge +1 -0
+  PASS  case 4  the control went red       one planted road tile is enough to fail case 2
+
+  selftest green
+  mutants in /tmp/mapwatch-selftest-3412
+
