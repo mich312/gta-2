@@ -49,6 +49,14 @@ export const Z_PER_STOREY = 24;
 export const BRIDGE_DECK_Z = 40;
 /** Thickness of a bridge deck: what a boat's mast would hit. */
 export const BRIDGE_DECK_THICKNESS = 6;
+/**
+ * How much a bridge deck rises per tile away from the shore (3D.md, the
+ * bridges wave). A deck climbs from its landfall to `BRIDGE_DECK_Z` over
+ * four tiles — each step inside the step-up allowance, so a car drives up
+ * it rather than hitting a lip — and holds that height mid-river, where a
+ * boat wants the clearance. A short bridge never gets there and is a hump.
+ */
+export const BRIDGE_CLIMB = 10;
 /** How high a ramp tile lifts its surface. Stepped, not sloped — see below. */
 export const RAMP_Z = 12;
 /** Trees are solid to a mover but not to a helicopter passing overhead. */
@@ -319,10 +327,74 @@ export function supportUnderWorld(vg: VolumeGrid, x: number, y: number, z: numbe
  * Deterministic and total: every tile gets at least one span, so no query can
  * fall through a hole that only exists because a tile type was forgotten.
  */
+/**
+ * The height of every bridge deck's driving surface, per tile; zero off the
+ * decks.
+ *
+ * A deck is low where it leaves the land and high over the water: the
+ * surface rises `BRIDGE_CLIMB` per tile of distance from the nearest shore,
+ * measured through the deck itself, and holds at `BRIDGE_DECK_Z` plus the
+ * deck's thickness once it gets there. "Shore" is any land tile the deck
+ * touches — the carriageway it continues at either end, and a bank it runs
+ * beside — so no deck edge ever stands forty px over ground somebody could
+ * step off it onto. A deck with no landfall at all (a test's river with a
+ * bridge across the whole map) sits at full height throughout.
+ *
+ * This is the profile the ground field, the volume columns and the renderer
+ * all read, so a car climbs exactly what is drawn and a boat passes under
+ * exactly what the columns say is there.
+ */
+export function bridgeDeckHeights(map: CityMap): Float32Array {
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const tiles = map.tiles;
+  const deck = new Float32Array(W * H);
+  const top = BRIDGE_DECK_Z + BRIDGE_DECK_THICKNESS;
+  const dist = new Int32Array(W * H).fill(-1);
+  const queue: number[] = [];
+  const land = (tx: number, ty: number): boolean => {
+    if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
+    const t = tiles[ty * W + tx];
+    return t !== T_WATER && t !== T_BRIDGE;
+  };
+  for (let ty = 0; ty < H; ty++) {
+    for (let tx = 0; tx < W; tx++) {
+      const i = ty * W + tx;
+      if (tiles[i] !== T_BRIDGE) continue;
+      deck[i] = top;
+      if (land(tx - 1, ty) || land(tx + 1, ty) || land(tx, ty - 1) || land(tx, ty + 1)) {
+        dist[i] = 0;
+        queue.push(i);
+      }
+    }
+  }
+  for (let q = 0; q < queue.length; q++) {
+    const i = queue[q] as number;
+    const d = dist[i] as number;
+    deck[i] = Math.min(top, BRIDGE_CLIMB * (d + 1));
+    if (deck[i] === top) continue;
+    const tx = i % W;
+    const ty = (i - tx) / W;
+    const step = (nx: number, ny: number): void => {
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) return;
+      const j = ny * W + nx;
+      if (tiles[j] !== T_BRIDGE || dist[j] !== -1) return;
+      dist[j] = d + 1;
+      queue.push(j);
+    };
+    step(tx - 1, ty);
+    step(tx + 1, ty);
+    step(tx, ty - 1);
+    step(tx, ty + 1);
+  }
+  return deck;
+}
+
 export function buildVolumeGrid(map: CityMap): VolumeGrid {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const n = W * H;
+  const deck = bridgeDeckHeights(map);
 
   // Which building covers each tile, so a building's tiles share one height
   // rather than each rolling their own and producing a staircase.
@@ -344,7 +416,7 @@ export function buildVolumeGrid(map: CityMap): VolumeGrid {
   const columns: Span[][] = new Array(n);
   let total = 0;
   for (let i = 0; i < n; i++) {
-    const col = columnFor(map, i, heightOf[i] as number);
+    const col = columnFor(map, i, heightOf[i] as number, deck[i] as number);
     columns[i] = col.spans;
     ground[i] = col.ground;
     offset[i] = total;
@@ -384,22 +456,33 @@ export const STEP_UP = 16;
  * every tick for every mover and wants a lookup, not a span walk, and it
  * builds in a few milliseconds where the full grid takes seven hundred.
  *
- * The one place the two disagree, on purpose and for now: a bridge deck.
- * The columns put it forty px over the water, where a boat can pass under;
- * this plane puts it at street level, because no bridge in the city has a
- * ramp yet and a car reaching its landfall would have to climb forty px in
- * one tile. The renderer draws the deck at street level for the same reason
- * (BUGS.md §2.1). Raising both is the bridges wave, and it starts by laying
- * the ramps.
+ * A bridge deck is where the two used to disagree: the columns put it forty
+ * px over the water and this plane kept it at street level, because a car
+ * reaching its landfall would have had to climb forty px in one tile. Now
+ * both read `bridgeDeckHeights`, which climbs from the shore in steps a car
+ * takes — the ramps the bridges wave was waiting for, laid in height rather
+ * than in tiles, so the road network, the traffic and the flat game are
+ * untouched.
  */
 export function buildGroundField(map: CityMap): Float32Array {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const ground = new Float32Array(W * H);
+  const deck = bridgeDeckHeights(map);
   for (let i = 0; i < ground.length; i++) {
     const t = map.tiles[i] as number;
     ground[i] =
-      t === T_WATER ? -8 : t === T_TREES ? TREE_Z : t === T_RAMP ? RAMP_Z : t === T_SIDEWALK ? KERB_Z : 0;
+      t === T_WATER
+        ? -8
+        : t === T_TREES
+          ? TREE_Z
+          : t === T_RAMP
+            ? RAMP_Z
+            : t === T_SIDEWALK
+              ? KERB_Z
+              : t === T_BRIDGE
+                ? (deck[i] as number)
+                : 0;
   }
   for (const b of map.buildings) {
     const z = buildingStoreys(b) * Z_PER_STOREY;
@@ -466,7 +549,12 @@ export function wallTopAt(map: CityMap, tx: number, ty: number): number {
  * smoothly enough to prove the model without it. Recorded here rather than
  * hidden: this is the first thing to revisit when ramps need to feel right.
  */
-function columnFor(map: CityMap, i: number, buildingZ: number): { spans: Span[]; ground: number } {
+function columnFor(
+  map: CityMap,
+  i: number,
+  buildingZ: number,
+  deckZ: number,
+): { spans: Span[]; ground: number } {
   const tile = map.tiles[i];
 
   switch (tile) {
@@ -478,13 +566,15 @@ function columnFor(map: CityMap, i: number, buildingZ: number): { spans: Span[];
 
     case T_BRIDGE:
       // The case the flat grid could not express: water at the bottom, a deck
-      // in the air, and clear space between them for a boat.
+      // in the air, and clear space between them for a boat. The deck's
+      // height is its profile's (`bridgeDeckHeights`): low at the landfall,
+      // full height mid-river.
       return {
         spans: [
           { bottom: EARTH, top: -8 },
-          { bottom: BRIDGE_DECK_Z, top: BRIDGE_DECK_Z + BRIDGE_DECK_THICKNESS },
+          { bottom: deckZ - BRIDGE_DECK_THICKNESS, top: deckZ },
         ],
-        ground: BRIDGE_DECK_Z + BRIDGE_DECK_THICKNESS,
+        ground: deckZ,
       };
 
     case T_BUILDING: {

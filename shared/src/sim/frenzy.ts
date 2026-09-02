@@ -118,6 +118,7 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
     // every comparison below is the one it always was.
     if (p.mode !== 'driving' || p.vehicleId === null) {
       const g = groundUnder(map, p.pos.x, p.pos.y, PLAYER_RADIUS);
+      stepDown(map, p, g);
       if (p.z > g || p.vz > 0) {
         p.vz = q8(p.vz - GRAVITY * DT);
         p.z = q8(p.z + p.vz * DT);
@@ -156,6 +157,7 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
     const v = state.vehicles.byId[p.vehicleId];
     if (!v) continue;
     const g = groundUnder(map, v.pos.x, v.pos.y, getVehicleTuning(v.kind).halfExtent);
+    stepDown(map, p, g);
 
     if (p.z > g || p.vz > 0) {
       // In the air: integrate, accumulate distance, and land.
@@ -236,6 +238,29 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
       y: Math.round(v.pos.y),
     });
   }
+}
+
+/**
+ * Coming down a step is a step, not a fall.
+ *
+ * With the ground at height, the far side of a kerb, a ramp's edge and every
+ * tile of a bridge deck on the way down is a few px lower than the one
+ * before. Left to gravity that was a flight each time: three ticks in the
+ * air with the wall collision switched off, a `stuntLanded` event and its
+ * cash for every kerb, and an impact hard enough to dent the car on every
+ * tile of a bridge's descent. A lip inside the step-up allowance, met with
+ * no vertical speed and no flight behind it, is taken by putting the feet
+ * (or the wheels) on the lower ground. A launched car has `vz` and then
+ * `airDist`; a bail-out from a helicopter has the height. Neither is a step.
+ *
+ * Only where the ground HAS height: on a flat map the ground is zero, a
+ * mover above it is in the air by definition, and this must not change what
+ * that game does.
+ */
+function stepDown(map: CityMap, p: { z: number; vz: number; airDist: number }, g: number): void {
+  if (!map.ground) return;
+  if (p.vz !== 0 || p.airDist !== 0) return;
+  if (p.z > g && p.z - g <= STEP_UP) p.z = g;
 }
 
 /**

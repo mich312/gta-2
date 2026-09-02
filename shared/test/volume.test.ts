@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BRIDGE_DECK_THICKNESS,
   BRIDGE_DECK_Z,
   EARTH,
   Z_PER_STOREY,
   blockedAt,
+  bridgeDeckHeights,
+  buildGroundField,
   buildVolumeGrid,
   ceilingAbove,
   spansAt,
@@ -270,5 +273,54 @@ describe('support queries', () => {
   it('reports open sky as an infinite ceiling', () => {
     const vg = buildVolumeGrid(FLAT());
     expect(ceilingAbove(vg, 4, 4, 0)).toBe(Infinity);
+  });
+});
+
+describe('the bridge deck profile — low at the shore, high mid-river', () => {
+  // Roads on both banks, a river eight tiles wide, and a deck across it on
+  // one row: the deck's driving surface must climb from the landfall in
+  // steps a car takes and hold its height where the boats are.
+  const river = (): CityMap =>
+    makeMap(16, 16, (tx, ty) => (tx < 4 || tx >= 12 ? T_ROAD : ty === 8 ? T_BRIDGE : T_WATER));
+
+  it('climbs BRIDGE_CLIMB per tile from either landfall and holds at the deck height', () => {
+    const deck = bridgeDeckHeights(river());
+    const row = [...Array(8).keys()].map((k) => deck[8 * 16 + 4 + k]);
+    expect(row).toEqual([10, 20, 30, 40, 40, 30, 20, 10]);
+    // Nothing off the deck.
+    expect(deck[7 * 16 + 8]).toBe(0);
+    expect(deck[8 * 16 + 3]).toBe(0);
+  });
+
+  it('is a hump on a short bridge and full height on one with no landfall', () => {
+    const short = makeMap(16, 16, (tx, ty) => (tx < 6 || tx >= 10 ? T_ROAD : ty === 8 ? T_BRIDGE : T_WATER));
+    const deck = bridgeDeckHeights(short);
+    expect([...Array(4).keys()].map((k) => deck[8 * 16 + 6 + k])).toEqual([10, 20, 20, 10]);
+    // A bridge across the whole map touches no land: the case the volume
+    // tests above are written against, at full height throughout.
+    const endless = bridgeDeckHeights(
+      makeMap(16, 16, (tx) => (tx === 8 ? T_BRIDGE : tx === 7 || tx === 9 ? T_WATER : T_ROAD)),
+    );
+    for (let ty = 0; ty < 16; ty++) expect(endless[ty * 16 + 8]).toBe(BRIDGE_DECK_Z + BRIDGE_DECK_THICKNESS);
+  });
+
+  it('is what the columns and the ground field both say', () => {
+    const map = river();
+    const deck = bridgeDeckHeights(map);
+    const vg = buildVolumeGrid(map);
+    const ground = buildGroundField(map);
+    for (let k = 0; k < 8; k++) {
+      const i = 8 * 16 + 4 + k;
+      expect(vg.ground[i]).toBe(deck[i]);
+      expect(ground[i]).toBe(deck[i]);
+      // Water below, a deck's thickness of slab, air between.
+      const spans = spansAt(vg, 4 + k, 8);
+      expect(spans).toHaveLength(2);
+      expect(spans[0]!.top).toBe(-8);
+      expect(spans[1]!.bottom).toBe((deck[i] as number) - BRIDGE_DECK_THICKNESS);
+      expect(spans[1]!.top).toBe(deck[i]);
+    }
+    // A boat's-eye slice under the middle of the span is clear.
+    expect(blockedAt(vg, 8, 8, -8, 20)).toBe(false);
   });
 });

@@ -934,7 +934,7 @@ function drawWorld3d(scene: Scene | null): void {
           },
         }
       : {}),
-  });
+  }, map);
   scenery.updateProps(scene.remotes.props);
   fx.update(effects);
   objects.update(scene, cam, { w: viewport.w, h: viewport.h });

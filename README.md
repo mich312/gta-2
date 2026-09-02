@@ -59,7 +59,7 @@ the art on whole pixels.
 | `PERSIST_PATH` | `data/persist.db` | SQLite (node:sqlite); `.json` = file store |
 | `DIFFICULTY` | `normal` | police preset: `relaxed`, `normal` or `hard` (`police.json` → `presets`). Server-side: in a shared city a per-player difficulty is a cheat |
 | `PROVING_GROUND` | unset | `1` adds a debug room by the spawn that hands out vehicles and kit for nothing. **Free-cars room — off unless you ask** |
-| `HEIGHTS` | unset | `1` gives the ground height in the simulation (3D.md X2): kerbs stand three px up, a roof is a surface, a fall lands on what is under it. Reaches every client through worldgen like the proving ground; `?heights=1` is the offline equivalent |
+| `HEIGHTS` | unset | `1` gives the ground height in the simulation (3D.md X2): kerbs stand three px up, a roof is a surface, a fall lands on what is under it, and bridges are real: decks at height with a climb at each landfall, boats under. Reaches every client through worldgen like the proving ground; `?heights=1` is the offline equivalent |
 | `REPLAY` / `REPLAY_DIR` | on / `replays` | input recording (`REPLAY=0` off) |
 
 ### Testing a physics change

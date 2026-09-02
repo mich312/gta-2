@@ -1,5 +1,74 @@
 # PROGRESS
 
+## 3D, real bridges: decks at height, cars climb them, boats pass under
+
+The visible target agreed for after X2. Real bridges, not the ring flyover:
+the flyover needs a two-level road graph and is the plan's own "most
+underestimated" item; a bridge is a surface the game already has, at the
+wrong height.
+
+**Laid in height, not in tiles.** The plan expected ramp tiles at every
+landfall. Ramp tiles are stunt ramps to `frenzy.ts` — a car crossing one
+above 128 px/s takes off — and they would have changed the shipped city,
+the road network and the flat game. Instead `bridgeDeckHeights` (volume.ts)
+gives every deck tile a driving surface from its distance to the nearest
+land it touches, measured through the deck: `BRIDGE_CLIMB` of 10 px per
+tile, so 10, 20, 30, 40 and then 46 (`BRIDGE_DECK_Z` plus the deck's
+thickness) mid-river. Four steps inside the step-up allowance, so a car
+drives up without noticing a lip; a short bridge is a hump; a deck that runs
+beside a bank is low along it, so nowhere does a deck edge stand forty px
+over a pavement somebody could walk off it onto. On the shipped city: 81
+deck tiles at 10, 79 at 20, 74 at 30, 60 at 40, 988 at full height. One
+profile, three readers — the ground field the sim rests on, the volume
+columns a boat sails under, the renderer — so they cannot disagree.
+
+**Coming down is a step.** The first drive across found it: with the ground
+at height, the far side of every kerb and every tile of the descent was a
+few px lower than the last, and gravity made each one a flight — three
+ticks with the wall collision off, a `stuntLanded` event with its cash, and
+an impact above the safe landing speed on every tile down the bridge. Now a
+lip inside the step-up allowance, met with no vertical speed and no flight
+behind it (`vz` and `airDist` both zero), puts the wheels on the lower
+ground (`stepDown`). A launched car has `vz`; a helicopter bail-out has the
+height; neither is a step. Only where the ground has height, so the flat
+game is untouched.
+
+**Drawn as it is.** `drawnSpans` — the renderer's reconciliation that kept
+the deck at street level while the sim drove at zero — steps aside where
+`map.ground` exists: the deck is a slab in the air, the river is drawn under
+it (in the water's colour; the per-tile bucket that paved it in BUGS §2.1
+now files a bridge column's lower span under water), the parapets stand on
+the deck, and a span that starts above the street is scaled at both ends.
+Every body is placed on the ground under it — pedestrians and driverless
+cars the sim keeps at zero stand on the kerb and on the deck — and at
+`Z_SCALE`, because that is what the deck and the buildings are drawn at; a
+car at 46 drawn at 46 floated a deck's height above a deck drawn at 11.5.
+The 2D renderer subtracts the ground under a body from its `z` for the same
+reason, so a car on the deck is not drawn jumping.
+
+**The bridge mouths were walled.** Found by the test that drives across: the
+car stopped dead at the landfall on the FLAT map too. The coast curve (§43)
+is the smoothed outline of the water, a deck is carved over water, so the
+curve follows the bank to the deck's side, turns along it, and — smoothed —
+rounds that corner straight across the road at the mouth. Measured: 64 of
+the shipped city's 67 mouth columns a car could drive straight at stopped on
+a cut through the road tile before the deck, or through the pavement corner
+beside it that an 18 px vehicle box overlaps by a pixel. `buildShoreCut` now
+declines on any land tile within one of a deck (`bridgeMouth`): 54 of 67
+columns open; the 13 left are the outermost lanes clipping a square water
+tile flush with the deck's edge, which is what the outer lane of any quay
+does. Nothing opens onto the sea — the water keeps its own cut — and what is
+given up is a few px of drawn water at a quay corner a body can now stand
+on. This one is not behind the flag: it is a bug in the shipped game.
+
+**Gates.** `shared/test/heights.test.ts` (a car drives up, across and down
+a shipped bridge unharmed and without a stunt event; a kerb is stepped off,
+not fallen off), `shared/test/volume.test.ts` (the profile, the columns and
+the field agree), `client/test/cityTerrain.test.ts` (a deck slab in the air
+over drawn water, rails on it), `shared/test/shoreCut.test.ts` (no cut at a
+mouth; a sample of mouth columns driven onto the deck). Full suite, bots and
+parity with heights on and off, as for X2.
+
 ## 3D, X2: the ground has height — behind `heights`, flat by default
 
 The owner's direction: "a 3D game, still top-down". `3D.md` already holds

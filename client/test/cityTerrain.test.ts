@@ -20,6 +20,7 @@ import {
   T_WATER,
   TILE_SIZE,
   TREE_Z,
+  buildGroundField,
   type CityMap,
 } from 'shared';
 import palette from 'shared/data/palette.json';
@@ -277,5 +278,56 @@ describe('the 3D city, against the world the simulation runs', () => {
     });
     expect(far.length).toBeGreaterThan(0);
     expect(outside).toBeGreaterThan(0);
+  });
+});
+
+describe('the 3D city, where the ground has height', () => {
+  // With `map.ground` present the sim drives the deck at its profile's
+  // height (3D.md, the bridges wave), so the reconciliation that kept the
+  // deck at street level steps aside and the columns are drawn as they are.
+  it('keeps the deck, the kerb and the ramp at their own heights', () => {
+    const deck = [
+      { bottom: -4096, top: -8 },
+      { bottom: 34, top: 40 },
+    ];
+    expect(drawnSpans(T_BRIDGE, deck, true)).toBe(deck);
+    expect(drawnSpans(T_SIDEWALK, [{ bottom: -4096, top: KERB_Z }], true)[0]!.top).toBe(KERB_Z);
+    expect(drawnSpans(T_RAMP, [{ bottom: -4096, top: RAMP_Z }], true)[0]!.top).toBe(RAMP_Z);
+    // And without it, nothing changed.
+    expect(drawnSpans(T_BRIDGE, deck)[0]!.top).toBe(0);
+  });
+
+  it('draws a real bridge: a deck slab in the air over the river, and rails on it', () => {
+    // Roads on both banks, a river, a deck across it on one row.
+    const size = 12;
+    const over: Array<[number, number, number]> = [];
+    for (let ty = 0; ty < size; ty++) {
+      for (let tx = 3; tx < 9; tx++) over.push([tx, ty, ty === 6 ? T_BRIDGE : T_WATER]);
+    }
+    const map = mapOf(T_ROAD, over, size);
+    (map as { ground?: Float32Array }).ground = buildGroundField(map);
+    const kerb = hex(palette.kerb as string);
+    const road = hex(palette.road as string);
+    const water = hex(palette.water as string);
+    const all = inWindow(map, surfaces(map));
+    const onDeck = (s: { x: number; y: number }): boolean =>
+      s.y > 6 * TILE_SIZE && s.y < 7 * TILE_SIZE && s.x > 3 * TILE_SIZE && s.x < 9 * TILE_SIZE;
+    const decks = all.filter((s) => s.color === road && onDeck(s));
+    // Every deck tile has a road surface ABOVE the street, and the river is
+    // still there under it.
+    expect(decks.length).toBeGreaterThanOrEqual(6);
+    for (const s of decks) expect(s.top).toBeGreaterThan(0);
+    expect(all.filter((s) => s.color === water && onDeck(s)).length).toBeGreaterThanOrEqual(6);
+    // Mid-river the deck is higher than at the landfall.
+    const at = (tx: number): number =>
+      Math.max(...decks.filter((s) => Math.floor(s.x / TILE_SIZE) === tx).map((s) => s.top));
+    expect(at(5)).toBeGreaterThan(at(3));
+    // The parapet stands on the deck, not on the street below it.
+    const rails = all.filter((s) => s.color === kerb && onDeck(s));
+    expect(rails.length).toBeGreaterThan(0);
+    for (const r of rails) {
+      const tx = Math.floor(r.x / TILE_SIZE);
+      expect(r.top).toBeGreaterThan(at(tx));
+    }
   });
 });

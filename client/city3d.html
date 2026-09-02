@@ -56,7 +56,8 @@
         // Flyover: no sim, just the city. Useful for looking at geometry
         // without a player in the way.
         initLocalTuning('normal');
-        const map = generateCity(seed, localWorldgenParams());
+        // `?heights=1`: the ground with height (3D.md X2) — decks up, kerbs up.
+        const map = generateCity(seed, { ...localWorldgenParams(), heights: q.get('heights') === '1' });
         const viewH = num('h', 900);
         const view = new CityView({ canvas, map, pitch, viewHeight: viewH });
         view.setNight(night);

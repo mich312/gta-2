@@ -185,7 +185,7 @@ export class Live {
 
     if (this.view && this.entities) {
       const world = this.interp.sample(-1, null);
-      this.entities.update(world, -1);
+      this.entities.update(world, -1, undefined, this.map);
       this.scenery?.updateProps(world.props);
       const me = world.players.find((p) => p.player.id === this.playerId);
       const inCar = me

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { getVehicleTuning } from 'shared';
+import { PLAYER_RADIUS, getVehicleTuning, groundUnder, type CityMap } from 'shared';
 import type { RenderWorld } from '../net/interpolation.js';
+import { Z_SCALE } from '../render/config.js';
 import {
   COP_SPRITE,
   PED_VARIANTS,
@@ -501,16 +502,33 @@ export class EntityLayer {
    * two views are looking at exactly the same state — which is what makes
    * the 3D path checkable against the one that already works.
    */
-  update(world: RenderWorld, localPlayerId: number, local?: LocalBodies): void {
+  update(
+    world: RenderWorld,
+    localPlayerId: number,
+    local?: LocalBodies,
+    /**
+     * The city, for the ground under each body. Where the session's ground
+     * has height (3D.md X2) a body the sim keeps at zero — every pedestrian,
+     * every car nobody is driving — stands on the ground that is actually
+     * there: a kerb, a bridge deck. Without it, or on a flat map, zero.
+     */
+    map: CityMap | null = null,
+  ): void {
     for (const pool of this.pools.values()) pool.begin();
     this.escorts?.begin();
     this.seen.clear();
+
+    // Everything that stands up is drawn at `Z_SCALE` of its world height
+    // — the buildings, the canopy, a bridge deck — so a body's height is
+    // too, or a car on the deck would float a deck's height above it.
+    const lift = (x: number, y: number, half: number, z: number): number =>
+      Math.max(z, map ? groundUnder(map, x, y, half) : 0) * Z_SCALE;
 
     // Models are authored at world scale with their feet at z=0, so an
     // instance is placed unscaled — scaling them here would stretch the
     // outline hull along whichever axis was longer.
     const place = (pool: Pool, x: number, y: number, z: number, heading: number): void => {
-      this.pos.set(x, y, z);
+      this.pos.set(x, y, lift(x, y, PLAYER_RADIUS, z));
       this.q.setFromAxisAngle(UP, heading);
       this.m.compose(this.pos, this.q, this.scl);
       pool.put(this.m);
@@ -605,7 +623,7 @@ export class EntityLayer {
       // Vehicle boxes carry their own geometry size, so the instance is
       // placed unscaled: composing with a unit scale keeps the outline hull's
       // thickness even instead of stretching it along the longer axis.
-      const z = v.vehicle.z ?? 0;
+      const z = lift(v.x, v.y, getVehicleTuning(kind).halfExtent, v.vehicle.z ?? 0);
       this.pos.set(v.x, v.y, z);
       this.q.setFromAxisAngle(UP, v.heading);
       this.m.compose(this.pos, this.q, this.scl);
@@ -647,8 +665,9 @@ export class EntityLayer {
       const v = local.vehicle;
       const pool = this.vehiclePool(v.kind, v.id, v.paint ?? -1, v.gangId ?? 0);
       const shade = vehicleShade(v.condition, v.wear);
+      const z = lift(v.x, v.y, getVehicleTuning(v.kind).halfExtent, v.z);
       this.m.compose(
-        this.pos.set(v.x, v.y, v.z),
+        this.pos.set(v.x, v.y, z),
         this.q.setFromAxisAngle(UP, v.heading),
         this.scl,
       );
@@ -657,7 +676,7 @@ export class EntityLayer {
         v.kind,
         v.x,
         v.y,
-        v.z,
+        z,
         v.heading,
         shade,
         v.aim ?? null,

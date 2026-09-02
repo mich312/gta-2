@@ -7,7 +7,11 @@ import { parseWorldgenParams } from '../src/world/params.js';
 import { generateCity } from '../src/world/generate.js';
 import { boxInSolid, isSolidAtWorld, moveWithCollision } from '../src/world/collide.js';
 import { buildShoreCut } from '../src/world/shoreCut.js';
-import { T_WATER, TILE_SIZE, type CityMap } from '../src/world/types.js';
+import { T_BRIDGE, T_ROAD, T_WATER, TILE_SIZE, type CityMap } from '../src/world/types.js';
+import weaponsJson from '../data/weapons.json';
+import { createGameState } from '../src/sim/state.js';
+import { step } from '../src/sim/step.js';
+import { NULL_INPUT } from '../src/sim/input.js';
 
 /**
  * Collision on the coastline (WORLDGEN.md §43).
@@ -23,7 +27,7 @@ const params = parseWorldgenParams(worldgenJson);
 let map: CityMap;
 
 beforeAll(() => {
-  initTuning({ player: playerTuning, vehicles: vehiclesJson });
+  initTuning({ player: playerTuning, vehicles: vehiclesJson, weapons: weaponsJson });
   map = generateCity(1, params);
 });
 
@@ -196,5 +200,87 @@ describe('collision on the coastline', () => {
     }
     // Not a claim that there ARE any; only that if there are, they are solid.
     expect(walls).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('the bridge mouth', () => {
+  // The curve is the smoothed outline of the water, a deck is carved over
+  // water, and smoothing the corner where the bank meets the deck ran the
+  // curve across the road at the mouth: 64 of the shipped city's 67 mouth
+  // columns stopped a car dead before the deck. A road tile a deck continues
+  // is whole.
+  it('leaves the carriageway a deck continues uncut', () => {
+    const m = generateCity(1, params);
+    const W = m.widthTiles;
+    const H = m.heightTiles;
+    const t = (x: number, y: number): number => (x < 0 || y < 0 || x >= W || y >= H ? -1 : (m.tiles[y * W + x] as number));
+    let mouths = 0;
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        if (t(x, y) !== T_ROAD) continue;
+        const deck = [t(x - 1, y), t(x + 1, y), t(x, y - 1), t(x, y + 1)].includes(T_BRIDGE);
+        if (!deck) continue;
+        mouths++;
+        expect(m.shoreCut!.slot.has(y * W + x)).toBe(false);
+      }
+    }
+    expect(mouths).toBeGreaterThan(30);
+  });
+
+  it('lets a car drive straight onto the deck', () => {
+    const m = generateCity(1, params);
+    const W = m.widthTiles;
+    const H = m.heightTiles;
+    const t = (x: number, y: number): number => (x < 0 || y < 0 || x >= W || y >= H ? -1 : (m.tiles[y * W + x] as number));
+    const px = (v: number): number => (v + 0.5) * TILE_SIZE;
+    // Every mouth column with two tiles of straight road behind it.
+    const columns: Array<{ x: number; y: number; dx: number; dy: number }> = [];
+    for (let y = 2; y < H - 2; y++) {
+      for (let x = 2; x < W - 2; x++) {
+        if (t(x, y) !== T_ROAD) continue;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          if (t(x + dx, y + dy) !== T_BRIDGE) continue;
+          if (t(x - dx, y - dy) !== T_ROAD || t(x - 2 * dx, y - 2 * dy) !== T_ROAD) continue;
+          columns.push({ x, y, dx, dy });
+        }
+      }
+    }
+    expect(columns.length).toBeGreaterThan(30);
+    let onto = 0;
+    // A sample across the whole city rather than all of them: each drive is
+    // a hundred full-city ticks.
+    const sample = columns.filter((_, i) => i % 6 === 0);
+    for (const c of sample) {
+      const start = { x: px(c.x - 2 * c.dx), y: px(c.y - 2 * c.dy) };
+      let s = createGameState(3);
+      s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'd' }], m);
+      s = step(
+        s,
+        {},
+        [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: start.x, y: start.y, heading: Math.atan2(c.dy, c.dx) }],
+        m,
+      );
+      const p = s.players.byId[1]!;
+      p.pos = { ...start };
+      p.mode = 'driving';
+      p.vehicleId = 2;
+      s.vehicles.byId[2]!.driverId = 1;
+      for (let i = 0; i < 100; i++) {
+        s = step(s, { 1: { ...NULL_INPUT, seq: i + 1, tick: i, up: true } }, [], m);
+        const v = s.vehicles.byId[2]!;
+        if (t(Math.floor(v.pos.x / TILE_SIZE), Math.floor(v.pos.y / TILE_SIZE)) === T_BRIDGE) {
+          onto++;
+          break;
+        }
+      }
+    }
+    // A column at the very edge of a diagonal bank can still be a genuine
+    // corner; the mouth as a whole is open.
+    expect(onto).toBeGreaterThanOrEqual(Math.ceil(sample.length * 0.8));
   });
 });

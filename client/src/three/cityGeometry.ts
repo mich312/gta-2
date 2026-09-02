@@ -25,6 +25,7 @@ import {
   type Span,
   EARTH,
   districtAt,
+  bridgeDeckHeights,
   buildVolumeGrid,
   spansAt,
   diagonalMark,
@@ -134,10 +135,14 @@ export function isCarriageway(tile: number): boolean {
  * Everything else — buildings, canopy, the water — is solid or unreachable,
  * and its volume is exactly what you should see.
  *
- * This function is the whole of the reconciliation, deliberately: when the sim
- * does adopt `collide3`, deleting it is the change.
+ * This function is the whole of the reconciliation, deliberately — and where
+ * the session's ground has height (3D.md X2, `map.ground`), it does nothing:
+ * the sim then drives the deck at its profile's height, rests on the kerb and
+ * climbs the ramp, and the columns are exactly what should be seen. The flat
+ * game keeps the flat drawing.
  */
-export function drawnSpans(tile: number, spans: readonly Span[]): readonly Span[] {
+export function drawnSpans(tile: number, spans: readonly Span[], heights = false): readonly Span[] {
+  if (heights) return spans;
   switch (tile) {
     case T_BRIDGE:
       // A deck at road level. It runs down to EARTH like any other ground
@@ -741,7 +746,7 @@ export function buildCity(map: CityMap): CityBuild {
 
       const spans: readonly Span[] = sunk
         ? [{ bottom: EARTH, top: -8 }]
-        : drawnSpans(tile, spansAt(vg, tx, ty));
+        : drawnSpans(tile, spansAt(vg, tx, ty), map.ground !== undefined);
       for (const span of spans) {
         // Clamp the earth to something shallow: a ground span runs from
         // EARTH (-4096) and nobody is looking at the bottom of it.
@@ -757,7 +762,9 @@ export function buildCity(map: CityMap): CityBuild {
         // the earth slab from -16 to -4, which is not a shorter city, it is a
         // shallower one — the shoreline, the bridge underside and the map
         // border all read off those. Only a top above street level moves.
-        const bottom = Math.max(span.bottom, -16);
+        // A span that starts above the street — a bridge deck's slab — is
+        // scaled at both ends, or its bottom would sit above its own top.
+        const bottom = span.bottom > 0 ? span.bottom * Z_SCALE : Math.max(span.bottom, -16);
         const top = span.top > 0 ? span.top * Z_SCALE : span.top;
         const h = Math.max(1, top - bottom);
         // A hair wider than the tile so neighbours overlap rather than meet.
@@ -766,7 +773,11 @@ export function buildCity(map: CityMap): CityBuild {
         // every roof, road and stretch of water with a dark 1 px line on a
         // 16 px grid. That regular scratching is the first thing in the frame
         // that reads as an engine artefact rather than as art.
-        list.push(
+        // A bridge column's lower span is the river, and it is drawn as the
+        // river: filing every span of a tile under the tile's own surface
+        // is what paved the water under every bridge (BUGS.md §2.1).
+        const into = tile === T_BRIDGE && span.top < 0 ? bucket(tx, ty, SURFACES[T_WATER] as Surface) : list;
+        into.push(
           TILE_SIZE + SEAM_OVERLAP,
           TILE_SIZE + SEAM_OVERLAP,
           h,
@@ -1001,14 +1012,18 @@ function buildBridgeRails(map: CityMap, group: THREE.Group): number {
   const at = (tx: number, ty: number): number =>
     tx < 0 || ty < 0 || tx >= W || ty >= H ? -1 : (map.tiles[ty * W + tx] as number);
 
+  // On the deck, wherever the deck is: at its profile's height where the
+  // session's ground has height, on the street where it does not.
+  const deck = map.ground ? bridgeDeckHeights(map) : null;
   const rails = new Map<number, Boxes>();
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       if (at(tx, ty) !== T_BRIDGE) continue;
       const cx = (tx + 0.5) * T;
       const cy = (ty + 0.5) * T;
+      const lift = deck ? (deck[ty * W + tx] as number) * Z_SCALE : 0;
       const rail = (x: number, y: number, w: number, d: number): void => {
-        intoChunk(rails, tx, ty, w, d, RAIL_H, x, y, RAIL_H / 2);
+        intoChunk(rails, tx, ty, w, d, RAIL_H, x, y, lift + RAIL_H / 2);
       };
       if (at(tx, ty - 1) === T_WATER) rail(cx, cy - T / 2 + RAIL_W / 2, T, RAIL_W);
       if (at(tx, ty + 1) === T_WATER) rail(cx, cy + T / 2 - RAIL_W / 2, T, RAIL_W);

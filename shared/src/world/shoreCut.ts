@@ -1,5 +1,5 @@
 import { shoreChains, type ShoreLike } from './geometry.js';
-import { TILE_SIZE } from './types.js';
+import { T_BRIDGE, T_WATER, TILE_SIZE } from './types.js';
 
 /**
  * The coastline as a line through each tile it crosses, for collision
@@ -87,6 +87,11 @@ export function buildShoreCut(
   shores: ReadonlyArray<ShoreLike> | undefined,
   W: number,
   H: number,
+  /**
+   * The tile grid, so the cut can decline at a bridge mouth. Optional only
+   * so a bare fixture can omit it; the city always passes it.
+   */
+  tiles?: Uint8Array,
 ): ShoreCut {
   if (!shores || shores.length === 0) return EMPTY;
   const chains = shoreChains(shores, W, H);
@@ -99,6 +104,7 @@ export function buildShoreCut(
   for (const [tile, chain] of chains) {
     const n = chain.length / 2;
     if (n < 2) continue;
+    if (tiles && bridgeMouth(tiles, W, H, tile)) continue;
     const ax = chain[0] as number;
     const ay = chain[1] as number;
     const bx = chain[2 * n - 2] as number;
@@ -139,4 +145,38 @@ export function buildShoreCut(
     ny: Float64Array.from(ny),
     c: Float64Array.from(c),
   };
+}
+
+/**
+ * A land tile a bridge deck touches: the road the deck continues, and the
+ * pavement at the corner of the mouth.
+ *
+ * The coast curve is the smoothed outline of the water, and a deck is
+ * carved over water, so the curve follows the bank to the deck's side, turns
+ * along it — and, smoothed, rounds that corner straight across the mouth.
+ * Measured on the shipped city: of 67 mouth columns a car could drive
+ * straight at, 64 stopped dead, on a cut through the road tile before the
+ * deck or, for the outer columns, through the pavement corner beside it that
+ * a car's box overlaps by a pixel. The curve has no business at a mouth: a
+ * land tile touching a deck is whole, and the bevels answer as they always
+ * did. The water beside it keeps its own cut, so nothing opens onto the sea;
+ * what is given up is a few px of drawn water at the corner of a quay that
+ * a body can now stand on.
+ */
+function bridgeMouth(tiles: Uint8Array, W: number, H: number, i: number): boolean {
+  if (tiles[i] === T_WATER || tiles[i] === T_BRIDGE) return false;
+  const tx = i % W;
+  const ty = (i - tx) / W;
+  // All eight neighbours: the pavement corner that touches the deck only
+  // diagonally is the one the outer column's box clips.
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = tx + dx;
+      const ny = ty + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      if (tiles[ny * W + nx] === T_BRIDGE) return true;
+    }
+  }
+  return false;
 }

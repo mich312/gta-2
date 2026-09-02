@@ -30,6 +30,7 @@ import {
   getTuning,
   getVehicleTuning,
   getWeaponTuning,
+  groundUnder,
   signalColour,
   vehicleWear,
 } from 'shared';
@@ -671,6 +672,7 @@ export function render(
       scene.tick,
       scene.nowMs,
       effects,
+      groundUnder(map, r.x, r.y, PLAYER_RADIUS),
     );
   }
   if (scene.local && scene.localPos && scene.local.mode !== 'driving') {
@@ -693,6 +695,7 @@ export function render(
       scene.tick,
       scene.nowMs,
       effects,
+      groundUnder(map, scene.localPos.x, scene.localPos.y, PLAYER_RADIUS),
     );
   }
 
@@ -720,8 +723,10 @@ export function render(
       dy,
       scene.nowMs,
       // Altitude comes off the wire now: an aircraft is over the city, and
-      // everybody watching it needs to see that, not just its pilot.
-      rv.vehicle.z,
+      // everybody watching it needs to see that, not just its pilot. Over
+      // the GROUND under it, where the ground has height: a car on a bridge
+      // deck is on the deck, not in the air.
+      Math.max(0, rv.vehicle.z - groundUnder(map, rv.x, rv.y, getVehicleTuning(rv.vehicle.kind).halfExtent)),
       rv.vehicle.gangId,
       // A turret points where its driver is aiming, and the driver's aim is
       // already interpolated for their body, so the barrel is exactly as
@@ -752,7 +757,16 @@ export function render(
       dx,
       dy,
       scene.nowMs,
-      scene.localVehicle.z,
+      Math.max(
+        0,
+        scene.localVehicle.z -
+          groundUnder(
+            map,
+            scene.localVehicle.pos.x,
+            scene.localVehicle.pos.y,
+            getVehicleTuning(scene.localVehicle.kind).halfExtent,
+          ),
+      ),
       scene.localVehicle.gangId,
       // Your own turret comes off your own smoothed aim, not off the wire, so
       // it answers the mouse on the frame you move it.
@@ -1420,6 +1434,12 @@ export function drawPlayer(
   tick = 0,
   nowMs = 0,
   effects: Effects | null = null,
+  /**
+   * The ground under them, where the session's ground has height: a player
+   * standing on a kerb or a bridge deck is standing, not falling, and is
+   * drawn on it rather than above it. Zero on a flat map.
+   */
+  groundZ = 0,
 ): void {
   const variant = Math.abs(p.cosmeticId) % PLAYER_VARIANTS;
   const fallback = isLocal ? LOCAL_COLOR : (REMOTE_COLORS[p.id % REMOTE_COLORS.length] as string);
@@ -1452,9 +1472,10 @@ export function drawPlayer(
   // player's own `z` — which the snapshot already carries, so a remote player
   // falls in your window too.
   let by = y;
-  if (p.z > 0) {
-    drawShadow(ctx, x, y, PLAYER_RADIUS * RENDER_SCALE, PLAYER_RADIUS * 0.6 * RENDER_SCALE, p.z);
-    by -= p.z * RENDER_SCALE;
+  const height = p.z - groundZ;
+  if (height > 0) {
+    drawShadow(ctx, x, y, PLAYER_RADIUS * RENDER_SCALE, PLAYER_RADIUS * 0.6 * RENDER_SCALE, height);
+    by -= height * RENDER_SCALE;
   }
   drawCharacter(ctx, sprites, name, x, by, aim, fallback);
 

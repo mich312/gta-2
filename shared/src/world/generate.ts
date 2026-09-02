@@ -151,7 +151,7 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // And the coast again, cut up per tile and linearised, which is the form
   // collision can use (§43). After the bevels deliberately: it does not
   // replace them, it pre-empts them on the tiles the curve actually crosses.
-  map.shoreCut = buildShoreCut(map.shores, W, H);
+  map.shoreCut = buildShoreCut(map.shores, W, H, map.tiles);
   // The ground's height, when the session wants one (3D.md X2). After every
   // pass that carves a tile, like the bevels, and for the same reason: a
   // ramp the session laid is a step, and the field has to know.

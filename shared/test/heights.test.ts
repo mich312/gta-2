@@ -13,9 +13,11 @@ import { hashState } from '../src/net/hash.js';
 import { PART_FULL, isSolidTile, solidPartAt } from '../src/world/collide.js';
 import { BEV_NONE, bevelOther } from '../src/world/bevel.js';
 import { buildingStoreys } from '../src/world/heights.js';
-import { KERB_Z, TREE_Z, Z_PER_STOREY, groundUnder } from '../src/world/volume.js';
+import { BRIDGE_DECK_Z, KERB_Z, TREE_Z, Z_PER_STOREY, groundUnder } from '../src/world/volume.js';
+import type { SimEvent } from '../src/sim/events.js';
 import { PLAYER_RADIUS } from '../src/constants.js';
 import {
+  T_BRIDGE,
   T_BUILDING,
   T_ROAD,
   T_SIDEWALK,
@@ -287,5 +289,119 @@ describe('determinism', () => {
       return hashState(s);
     };
     expect(run()).toBe(run());
+  });
+});
+
+/**
+ * A bridge to drive over: a road tile, then at least `len` deck tiles, then
+ * road again, along one axis, with the lines either side deck or road for
+ * the whole run so a car fits. `dx, dy` is the direction of travel.
+ */
+function bridgeRun(m: CityMap, len: number): { x: number; y: number; dx: number; dy: number; len: number } {
+  for (const [dx, dy] of [
+    [1, 0],
+    [0, 1],
+  ] as const) {
+    for (let ty = 1; ty < m.heightTiles - 1; ty++) {
+      for (let tx = 1; tx < m.widthTiles - 1; tx++) {
+        if (tileAt(m, tx - dx, ty - dy) !== T_ROAD || tileAt(m, tx, ty) !== T_BRIDGE) continue;
+        let n = 0;
+        while (
+          tx + n * dx < m.widthTiles &&
+          ty + n * dy < m.heightTiles &&
+          tileAt(m, tx + n * dx, ty + n * dy) === T_BRIDGE
+        ) {
+          n++;
+        }
+        if (n < len || tx + n * dx >= m.widthTiles || ty + n * dy >= m.heightTiles) continue;
+        if (tileAt(m, tx + n * dx, ty + n * dy) !== T_ROAD) continue;
+        let wide = true;
+        for (const side of [-1, 1]) {
+          for (let k = -1; k <= n && wide; k++) {
+            const t = tileAt(m, tx + k * dx + side * dy, ty + k * dy + side * dx);
+            if (t !== T_BRIDGE && t !== T_ROAD) wide = false;
+          }
+        }
+        if (wide) return { x: tx, y: ty, dx, dy, len: n };
+      }
+    }
+  }
+  throw new Error('no bridge run of that length');
+}
+
+describe('real bridges', () => {
+  it('the shipped city has decks that climb from the shore to full height', () => {
+    const g = tall.ground!;
+    const W = tall.widthTiles;
+    let low = 0;
+    let high = 0;
+    for (let i = 0; i < g.length; i++) {
+      if ((tall.tiles[i] as number) !== T_BRIDGE) continue;
+      if (g[i] === 10) low++;
+      if ((g[i] as number) >= BRIDGE_DECK_Z) high++;
+    }
+    expect(low).toBeGreaterThan(0);
+    expect(high).toBeGreaterThan(0);
+    // The road at a landfall is at street level: the deck steps up from it.
+    const b = bridgeRun(tall, 8);
+    expect(g[(b.y - b.dy) * W + b.x - b.dx]).toBe(0);
+    expect(g[b.y * W + b.x]).toBe(10);
+  });
+
+  it('a car drives over a bridge: up one side, across, down the other, unharmed', () => {
+    const b = bridgeRun(tall, 8);
+    const start = { x: px(b.x - 2 * b.dx), y: px(b.y - 2 * b.dy) };
+    const heading = Math.atan2(b.dy, b.dx);
+    let s = createGameState(21);
+    s = step(s, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'd' }], tall);
+    s = step(
+      s,
+      {},
+      [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: start.x, y: start.y, heading }],
+      tall,
+    );
+    const p = s.players.byId[1]!;
+    p.pos = { ...start };
+    p.mode = 'driving';
+    p.vehicleId = 2;
+    s.vehicles.byId[2]!.driverId = 1;
+    const health = s.vehicles.byId[2]!.health;
+    const events: SimEvent[] = [];
+    let highest = 0;
+    let crossed = false;
+    for (let i = 0; i < 400 && !crossed; i++) {
+      s = step(s, { 1: { ...NULL_INPUT, seq: i + 1, tick: i, up: true } }, [], tall, events);
+      const v = s.vehicles.byId[2]!;
+      const z = s.players.byId[1]!.z;
+      highest = Math.max(highest, z);
+      // Always on the deck under it, never in the air above it or in the
+      // water below it.
+      expect(z).toBe(groundUnder(tall, v.pos.x, v.pos.y, getVehicleTuning('car').halfExtent));
+      const along = b.dx ? v.pos.x : v.pos.y;
+      const far = (b.dx ? b.x : b.y) + b.len + 1;
+      if (along > far * TILE_SIZE) crossed = true;
+    }
+    expect(crossed).toBe(true);
+    expect(highest).toBeGreaterThanOrEqual(BRIDGE_DECK_Z);
+    // And on down the road beyond: back on the ground, whatever it is there.
+    for (let i = 0; i < 40; i++) {
+      s = step(s, { 1: { ...NULL_INPUT, seq: 500 + i, tick: 500 + i, up: true } }, [], tall, events);
+    }
+    const v = s.vehicles.byId[2]!;
+    expect(s.players.byId[1]!.z).toBe(groundUnder(tall, v.pos.x, v.pos.y, getVehicleTuning('car').halfExtent));
+    expect(s.players.byId[1]!.z).toBeLessThan(BRIDGE_DECK_Z);
+    // Driving down a bridge is not a series of landings.
+    expect(events.filter((e) => e.type === 'stuntLaunched' || e.type === 'stuntLanded')).toHaveLength(0);
+    expect(s.vehicles.byId[2]!.health).toBe(health);
+  });
+
+  it('stepping off a kerb is a step, not a fall', () => {
+    const row = kerbThenWall(tall);
+    let s = spawnOnFoot(tall, 8, px(row.x + 1), px(row.y), KERB_Z);
+    for (let i = 0; i < 40; i++) {
+      s = step(s, { 1: { ...NULL_INPUT, seq: i + 1, tick: i, left: true } }, [], tall);
+      expect(s.players.byId[1]!.vz).toBe(0);
+    }
+    expect(s.players.byId[1]!.z).toBe(0);
   });
 });

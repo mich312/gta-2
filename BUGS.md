@@ -88,6 +88,36 @@ Tests: `client/test/cityTerrain.test.ts` — *lays the bridge deck at the height
 cars are actually driven at*, *draws no bridge surface above the road that
 feeds it*, *carries the road surface across a bridge*.
 
+**Since, with heights on (3D.md, the bridges wave):** the sim drives the
+deck at its profile's height (`bridgeDeckHeights`), so `drawnSpans` steps
+aside where `map.ground` exists and the deck is drawn as the slab in the air
+it is, the river under it in the river's colour, the parapets on the deck,
+and every body on the ground under it. The flat game keeps the flat drawing
+above. Test: *draws a real bridge: a deck slab in the air over the river, and
+rails on it*.
+
+### 2.1b The bridge mouths were walled — FIXED
+
+Found by the first test that drove a car across a bridge: it stopped dead at
+the landfall, on the flat map too. The coast curve (§43) is the smoothed
+outline of the water and a deck is carved over water, so the curve turns
+from the bank along the deck's side and, smoothed, rounds that corner
+straight across the road at the mouth.
+
+```
+mouth columns a car could drive straight at: 67
+  blocked before the fix: 64   (cut through the road tile before the deck,
+                                or the pavement corner beside it)
+  blocked after:          13   (outermost lanes clipping a square water
+                                tile flush with the deck edge — any quay)
+```
+
+**Fixed.** `buildShoreCut` declines on any land tile within one of a deck
+(`bridgeMouth` in `shoreCut.ts`). The water keeps its own cut, so nothing
+opens onto the sea. Tests: `shared/test/shoreCut.test.ts` — *leaves the
+carriageway a deck continues uncut*, *lets a car drive straight onto the
+deck*.
+
 ### 2.2 Woodland was an elevated plateau of plain grass — FIXED
 
 `evidence/bug-woodland-plateau.png` → `evidence/fixed-woodland.png`
