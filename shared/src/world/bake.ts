@@ -3,7 +3,7 @@ import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion, takePathCourses, takePondBankRings, takePondRings } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
-import { buildLayout, type StreetCourse } from './layout.js';
+import { buildLayout, trimStubs, type StreetCourse } from './layout.js';
 import type { CityPlan, PlanLandmark } from './plan.js';
 import {
   T_BANK,
@@ -883,6 +883,61 @@ export function bakeCity(plan: CityPlan): BakedCity {
       tiles[i] = T_BANK;
       if (network() > before) tiles[i] = T_ROAD;
     }
+  }
+
+  // And the stubs that pass leaves. Quaying a wet road tile can cut the tip
+  // off a street that was one tile from the water, and the landmark aprons
+  // and driveways above rework tarmac too; the layout's own trim ran before
+  // any of it. The same rule again on the finished tiles — the authored
+  // roads recognised by their courses this time, since the carve masks stay
+  // in the layout. Measured: four one- and two-tile nubs on the shipped
+  // city, every one beside a quay.
+  {
+    const authored = new Uint8Array(W * H);
+    for (const c of layout.courses) {
+      if (c.kind !== 'avenue' && c.kind !== 'ring') continue;
+      const reach = c.width / 2 + 0.5;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        const len = Math.hypot(bx - ax, by - ay) || 1;
+        for (let s = 0; s <= len; s += 0.5) {
+          const px = ax + ((bx - ax) * s) / len;
+          const py = ay + ((by - ay) * s) / len;
+          for (let oy = -3; oy <= 3; oy++) {
+            for (let ox = -3; ox <= 3; ox++) {
+              const tx = Math.floor(px + ox);
+              const ty = Math.floor(py + oy);
+              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+              if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) <= reach) authored[ty * W + tx] = 1;
+            }
+          }
+        }
+      }
+    }
+    const wetBeside = (i: number): boolean => {
+      const x = i % W;
+      const y = (i - x) / W;
+      return (
+        (x + 1 < W && tiles[i + 1] === T_WATER) ||
+        (x > 0 && tiles[i - 1] === T_WATER) ||
+        (y + 1 < H && tiles[i + W] === T_WATER) ||
+        (y > 0 && tiles[i - W] === T_WATER)
+      );
+    };
+    trimStubs(
+      tiles,
+      layout.water,
+      W,
+      H,
+      (i) => authored[i] === 1 || tiles[i] === T_BRIDGE,
+      (i) => {
+        if (wetBeside(i)) return T_BANK;
+        const own = layout.owner[i] as number;
+        const rural = own < 0 || (plan.districts[own] as { rural?: boolean }).rural === true;
+        return rural ? T_FIELD : T_SIDEWALK;
+      },
+    );
   }
 
   const blocks: BlockRect[] = layout.blocks.map((b) => ({

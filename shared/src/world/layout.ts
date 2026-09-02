@@ -317,12 +317,25 @@ function roadRunsAlong(
   ux: number,
   uy: number,
 ): boolean {
+  // One tile of sideways slack at every step. The tangent is a rounded
+  // gradient, and on a curved shore it runs twenty or thirty degrees off the
+  // road beside it: sampled dead along the line, a four-wide road can fall
+  // off the samples at the second step and read as a crossing. A crossing
+  // road is only three or four tiles across, so the slack cannot make one
+  // pass: two steps along the band leave it whichever way the slack leans.
   for (const s of [-2, -1, 1, 2]) {
-    const x = Math.round(px + ux * s);
-    const y = Math.round(py + uy * s);
-    if (x < 0 || y < 0 || x >= W || y >= H) return false;
-    const t = snapshot[y * W + x] as number;
-    if (t !== T_ROAD && t !== T_BRIDGE) return false;
+    let hit = false;
+    for (const o of [-1, 0, 1]) {
+      const x = Math.round(px + ux * s - uy * o);
+      const y = Math.round(py + uy * s + ux * o);
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const t = snapshot[y * W + x] as number;
+      if (t === T_ROAD || t === T_BRIDGE) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) return false;
   }
   return true;
 }
@@ -379,7 +392,7 @@ const JUNCTION_SPAN = 4;
  * ends there because the sea is there, which is the one reason a dead end
  * needs (and after the quay pass, only a bridge approach still does).
  */
-function trimStubs(
+export function trimStubs(
   tiles: Uint8Array,
   water: Uint8Array,
   W: number,
@@ -1263,6 +1276,18 @@ export function buildLayout(plan: CityPlan): CityLayout {
   const esplanade = new Set<number>();
   const espBand = new Set<number>();
 
+  /** A bridge deck within four tiles, in the tiles the esplanade probes. */
+  const bridgeDeckNear = (tx: number, ty: number): boolean => {
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (preEsp[ny * W + nx] === T_BRIDGE) return true;
+      }
+    }
+    return false;
+  };
   const layEsplanade = (): void => {
     preEsp = tiles.slice();
     // Wherever a non-rural borough meets the water, a street runs along the
@@ -1295,6 +1320,14 @@ export function buildLayout(plan: CityPlan): CityLayout {
         const sd = shoreDist[i] as number;
         if (sd < 3 || sd >= 6) continue;
         if (shoreParallelRoadNear(tx, ty)) continue;
+        // Not beside a bridge deck. The deck stands on the water mask, so
+        // the shore distance counts the strait under it as shore, and the
+        // esplanade was laid down the side of the Old Bridge's landfall — a
+        // ten-tile quay street with the bridge for a waterfront, ending in
+        // a lot. The avenue that becomes the deck already serves that
+        // ground; the probe above cannot see it because the deck is four
+        // tiles off, over the water, exactly where the probe does not walk.
+        if (bridgeDeckNear(tx, ty)) continue;
         lay(tx, ty, null);
         // The esplanade's own centre line, for a course below. ONE distance,
         // not a window: `shoreDist` is integral, so `|sd - 4.5| < 0.6` picks

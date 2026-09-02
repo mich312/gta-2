@@ -61,8 +61,8 @@ were about to cross, with a sliver of pavement in the gap
   edge. The frame is now the box round the ground the borough owns on
   its own landmass (`landBounds`, recorded in `paintOwnership` before the
   wading wave, so an adopted offshore rock never grows a grid). Every
-  shore borough's fabric now runs to its esplanade. 1198 → 1206 blocks,
-  4076 → 4314 buildings, bare ground 12.7% → 9.9% of dry land.
+  shore borough's fabric now runs to its esplanade. 1198 → 1189 blocks,
+  4076 → 4345 buildings, bare ground 12.7% → 9.9% of dry land.
 - *Authored seniority* — the wider frame's first bake laid a borough-length
   lattice line down the side of the Kelvin Bridge approach for forty
   tiles, a seven-wide sheet, because `doubledAgainstCourses` yields only
@@ -70,7 +70,32 @@ were about to cross, with a sliver of pavement in the gap
   line. Length now ranks generated streets against each other only; an
   authored avenue or ring carriageway outranks every generated street
   whatever its length. Merged tarmac sheets (the §28 metric the suite
-  pins at ≤ 230): 211 → 184.
+  pins at ≤ 230): 211 → 183.
+
+**The dead-end census, after.** Every remaining dead end on the city
+listed with its length, what its tip faces, whether another road lies
+within a few tiles of it, and what fronts it (the script is a page of
+node; the classes are what matter). Twenty-seven runs fell into five:
+twelve Old Quarter streets ending two tiles short of the ring road on
+both sides of it, which is §14.3 D6's limited-access shave doing what it
+says (`evidence/ring-fence-ends.png`); seven streets running down to a
+quay or beach and stopping there, which is what a wharf street is; one
+crescent cul-de-sac and two country lanes, by design; four one- and
+two-tile nubs beside quays, made by the bake's own quay pass after the
+layout's trim had run; and one ten-tile street with a course on one
+side and nothing on the other, two tiles from the Old Bridge approach.
+The last two classes were fixable and are fixed: the esplanade is no
+longer laid beside a bridge deck (the deck stands on the water mask, so
+the strait under it counted as shore, and the shore street was laid down
+the side of the landfall with the bridge for a waterfront), and the
+stub trim runs a second time at the end of the bake, recognising the
+authored roads by their courses. `roadRunsAlong` also gained a tile of
+sideways slack: on a curved shore the rounded tangent ran thirty degrees
+off the road beside it and a four-wide approach read as a crossing.
+Left in the census on purpose: the ring-fence ends (a motorway through a
+grid does cut streets; if that reads wrong from the air the fix is a
+turning head or a frontage road, which is design, not repair), the
+wharf streets, and the crescents.
 
 **What the wider frame broke, and the fixes it forced.** The first bake
 ran a lattice line through The Spire, a landmark the plan had placed on
