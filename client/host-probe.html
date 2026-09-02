@@ -22,7 +22,11 @@
       const ticks = Number.parseInt(q.get('ticks') ?? '600', 10);
 
       initLocalTuning('normal');
-      const worldgen = { ...localWorldgenParams(), provingGround: false };
+      const worldgen = {
+        ...localWorldgenParams(),
+        provingGround: false,
+        heights: new URLSearchParams(location.search).get('heights') === '1',
+      };
       const result = probeHashes(seed, worldgen, ticks);
 
       globalThis.__probe = result;

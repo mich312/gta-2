@@ -38,6 +38,7 @@ import { getTuning, getVehicleTuning } from '../tuning.js';
 import type { SimEvent } from './events.js';
 import type { CityMap } from '../world/types.js';
 import { boxInSolid } from '../world/collide.js';
+import { groundUnder } from '../world/volume.js';
 import { gangAt } from '../world/turf.js';
 import { PLAYER_RADIUS } from '../constants.js';
 
@@ -114,7 +115,18 @@ export function step(
         // behind, and a contact judged on the server's clock instead is a
         // contact the driver could not have aimed. What it may CHANGE is
         // still the live state: detection rewinds, response does not.
-        stepVehicleDriving(v, input, map, rewoundWorld(next, input), next, events, p.z > 0);
+        // Airborne means ABOVE THE GROUND UNDER THE CAR, not above zero (3D.md
+        // X2): on a map with heights a car on the kerb sits three px up, and a
+        // car that is "airborne" ignores every wall and every other car.
+        stepVehicleDriving(
+          v,
+          input,
+          map,
+          rewoundWorld(next, input),
+          next,
+          events,
+          p.z > groundUnder(map, v.pos.x, v.pos.y, getVehicleTuning(v.kind).halfExtent),
+        );
         p.pos.x = v.pos.x;
         p.pos.y = v.pos.y;
         if (input) {

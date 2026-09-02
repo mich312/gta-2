@@ -782,8 +782,10 @@ export function tryExitVehicle(
   for (const [ox, oy] of candidates) {
     const spot = { x: v.pos.x + ox, y: v.pos.y + oy };
     // Land check regardless of the vehicle's medium: stepping off a boat
-    // has to put you on a bank, not into the river.
-    if (!boxInSolid(map, spot, PLAYER_RADIUS)) {
+    // has to put you on a bank, not into the river. At the vehicle's height:
+    // out of an aircraft over a roof that is below it, the door opens and
+    // the roof is where you land (3D.md X2). Flat map, zero, as before.
+    if (!boxInSolid(map, spot, PLAYER_RADIUS, 'land', v.z)) {
       const speed = Math.abs(v.speed);
       v.driverId = null;
       // Nobody is flying it any more, so it stops trying to. Without this the

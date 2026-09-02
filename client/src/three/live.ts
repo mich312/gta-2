@@ -84,6 +84,7 @@ export class Live {
         pedCount: this.opts.peds,
         interestRadius: 900,
         provingGround: false,
+        heights: false,
         difficulty: 'normal',
       },
     });

@@ -1,6 +1,7 @@
 import type { Vec2 } from '../math/vec.js';
 import { BEV_NE, BEV_NONE, BEV_NW, BEV_SE, BEV_SW, bevelOther, inCutHalf, oppositeHalf } from './bevel.js';
 import { T_BRIDGE, T_BUILDING, T_TREES, T_WATER, TILE_SIZE, type CityMap } from './types.js';
+import { TREE_Z, wallTopAt } from './volume.js';
 
 const EPS = 0.001;
 
@@ -40,11 +41,37 @@ const FLUSH = 0.5;
  */
 export type Medium = 'land' | 'water' | 'air';
 
-/** The whole-tile solidity rule, before bevels have their say. */
-function plainSolid(tile: number, medium: Medium): boolean {
+/**
+ * The whole-tile solidity rule, before bevels have their say.
+ *
+ * `z0` is the mover's feet and `top` the top of whatever stands on the tile
+ * (3D.md X2): a building or a wood is a wall only to a mover whose feet are
+ * below its roof or canopy, and somebody falling out of a helicopter over a
+ * low block lands on it instead of being stopped by it. Water is a wall at
+ * every height — nothing on land has business over open sea — and on a map
+ * with no heights `top` is infinite, so every wall reaches every mover and
+ * the flat answers stand.
+ */
+function plainSolid(tile: number, medium: Medium, z0 = 0, top = Infinity): boolean {
   if (medium === 'water') return tile !== T_WATER && tile !== T_BRIDGE;
   // Forest is solid like a building: woods are driven around, not through.
-  return tile === T_BUILDING || tile === T_WATER || tile === T_TREES;
+  if (tile === T_BUILDING || tile === T_TREES) return z0 < top;
+  return tile === T_WATER;
+}
+
+/**
+ * The top of a bevelled tile's OTHER half.
+ *
+ * The ground field records the height of the tile's own material, and on a
+ * water/trees bevel that is the water's — eight px below the ground. Testing
+ * the tree wedge against that would put every mover above its "canopy" and
+ * open the wedge; the wood stands at its own height whichever half of the
+ * tile it occupies. On a flat map there is no field and every wall is
+ * infinite, as before.
+ */
+function otherTop(map: CityMap, other: number): number {
+  if (!map.ground) return Infinity;
+  return other === T_TREES ? TREE_Z : Infinity;
 }
 
 /**
@@ -62,10 +89,12 @@ export function isSolidTile(
   tx: number,
   ty: number,
   medium: Medium = 'land',
+  z0 = 0,
 ): boolean {
   if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return true;
   const tile = map.tiles[ty * map.widthTiles + tx];
-  const base = plainSolid(tile as number, medium);
+  const top = wallTopAt(map, tx, ty);
+  const base = plainSolid(tile as number, medium, z0, top);
   if (base) return true;
   // A tile whose BEVELLED half is solid — the water wedge bitten out of a
   // headland — still answers solid, so the conservative readers above
@@ -80,7 +109,8 @@ export function isSolidTile(
   // directions (§43.4).
   const code = map.bevel ? (map.bevel[ty * map.widthTiles + tx] as number) : BEV_NONE;
   if (code === BEV_NONE) return false;
-  return plainSolid(bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty), medium);
+  const other = bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty);
+  return plainSolid(other, medium, z0, otherTop(map, other));
 }
 
 /** No part of the tile is solid in this medium. */
@@ -104,16 +134,16 @@ export function solidPartAt(
   tx: number,
   ty: number,
   medium: Medium = 'land',
+  z0 = 0,
 ): number {
   if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return PART_FULL;
   const i = ty * map.widthTiles + tx;
-  const base = plainSolid(map.tiles[i] as number, medium);
+  const top = wallTopAt(map, tx, ty);
+  const base = plainSolid(map.tiles[i] as number, medium, z0, top);
   const code = map.bevel ? (map.bevel[i] as number) : BEV_NONE;
   if (code === BEV_NONE) return base ? PART_FULL : PART_NONE;
-  const other = plainSolid(
-    bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty),
-    medium,
-  );
+  const otherTile = bevelOther(map.tiles, map.bevel as Uint8Array, map.widthTiles, tx, ty);
+  const other = plainSolid(otherTile, medium, z0, otherTop(map, otherTile));
   if (base === other) return base ? PART_FULL : PART_NONE;
   return other ? code : oppositeHalf(code);
 }
@@ -221,13 +251,14 @@ export function isSolidAtWorld(
   x: number,
   y: number,
   medium: Medium = 'land',
+  z0 = 0,
 ): boolean {
   const tx = Math.floor(x / TILE_SIZE);
   const ty = Math.floor(y / TILE_SIZE);
   if (shoreCutAt(map, tx, ty, medium)) {
     return CUT.nx * (x - tx * TILE_SIZE) + CUT.ny * (y - ty * TILE_SIZE) > CUT.c;
   }
-  const part = solidPartAt(map, tx, ty, medium);
+  const part = solidPartAt(map, tx, ty, medium, z0);
   if (part === PART_FULL) return true;
   if (part === PART_NONE) return false;
   return inCutHalf(part, x - tx * TILE_SIZE, y - ty * TILE_SIZE);
@@ -251,6 +282,7 @@ function faceX(
   y1: number,
   sign: number,
   medium: Medium,
+  z0: number,
 ): number {
   const open = sign > 0 ? Infinity : -Infinity;
   const x0 = tx * TILE_SIZE;
@@ -263,7 +295,7 @@ function faceX(
   if (shoreCutAt(map, tx, ty, medium)) {
     return cutFace(CUT.nx, CUT.ny, CUT.c, yLo, yHi, sign, x0);
   }
-  const part = solidPartAt(map, tx, ty, medium);
+  const part = solidPartAt(map, tx, ty, medium, z0);
   if (part === PART_NONE) return open;
   if (sign > 0) {
     // The solid's western extent across the box's rows.
@@ -286,6 +318,7 @@ function faceY(
   x1: number,
   sign: number,
   medium: Medium,
+  z0: number,
 ): number {
   const open = sign > 0 ? Infinity : -Infinity;
   const y0 = ty * TILE_SIZE;
@@ -298,7 +331,7 @@ function faceY(
   if (shoreCutAt(map, tx, ty, medium)) {
     return cutFace(CUT.ny, CUT.nx, CUT.c, xLo, xHi, sign, y0);
   }
-  const part = solidPartAt(map, tx, ty, medium);
+  const part = solidPartAt(map, tx, ty, medium, z0);
   if (part === PART_NONE) return open;
   if (sign > 0) {
     // The solid's northern extent across the box's columns.
@@ -328,13 +361,15 @@ export function moveWithCollision(
   dx: number,
   dy: number,
   medium: Medium = 'land',
+  /** The mover's feet, world px: which walls reach it (3D.md X2). */
+  z0 = 0,
 ): void {
   const maxStep = TILE_SIZE / 2;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy)) / maxStep));
   let sx = dx / steps;
   let sy = dy / steps;
   for (let i = 0; i < steps; i++) {
-    const [hitX, hitY] = moveOnce(map, pos, vel, half, sx, sy, medium);
+    const [hitX, hitY] = moveOnce(map, pos, vel, half, sx, sy, medium, z0);
     if (hitX) sx = 0;
     if (hitY) sy = 0;
     if (sx === 0 && sy === 0) break;
@@ -350,6 +385,7 @@ function moveOnce(
   dx: number,
   dy: number,
   medium: Medium = 'land',
+  z0 = 0,
 ): [boolean, boolean] {
   let hitX = false;
   let hitY = false;
@@ -381,7 +417,7 @@ function moveOnce(
       let limit = Infinity;
       for (let t = tx0; t <= tx; t++) {
         for (let ty = ty1; ty <= ty2; ty++) {
-          const b = faceX(map, t, ty, y0, yEnd, 1, medium);
+          const b = faceX(map, t, ty, y0, yEnd, 1, medium, z0);
           // A face already BEHIND the leading edge does not stop anything.
           // Without this, a mover that starts inside a solid — shunted there
           // by a car, or spawned in one — is clamped back into it every tick
@@ -402,7 +438,7 @@ function moveOnce(
       let limit = -Infinity;
       for (let t = tx; t <= tx0; t++) {
         for (let ty = ty1; ty <= ty2; ty++) {
-          const b = faceX(map, t, ty, y0, yEnd, -1, medium);
+          const b = faceX(map, t, ty, y0, yEnd, -1, medium, z0);
           if (b > limit && b <= pos.x - half + FLUSH) limit = b;
         }
       }
@@ -429,7 +465,7 @@ function moveOnce(
       let limit = Infinity;
       for (let t = ty0; t <= ty; t++) {
         for (let tx = tx1; tx <= tx2; tx++) {
-          const b = faceY(map, tx, t, x0, xEnd, 1, medium);
+          const b = faceY(map, tx, t, x0, xEnd, 1, medium, z0);
           if (b < limit && b >= pos.y + half - FLUSH) limit = b;
         }
       }
@@ -446,7 +482,7 @@ function moveOnce(
       let limit = -Infinity;
       for (let t = ty; t <= ty0; t++) {
         for (let tx = tx1; tx <= tx2; tx++) {
-          const b = faceY(map, tx, t, x0, xEnd, -1, medium);
+          const b = faceY(map, tx, t, x0, xEnd, -1, medium, z0);
           if (b > limit && b <= pos.y - half + FLUSH) limit = b;
         }
       }
@@ -468,6 +504,7 @@ export function boxInSolid(
   pos: Vec2,
   half: number,
   medium: Medium = 'land',
+  z0 = 0,
 ): boolean {
   const tx1 = Math.floor((pos.x - half) / TILE_SIZE);
   const tx2 = Math.floor((pos.x + half - EPS) / TILE_SIZE);
@@ -476,7 +513,7 @@ export function boxInSolid(
   for (let ty = ty1; ty <= ty2; ty++) {
     for (let tx = tx1; tx <= tx2; tx++) {
       const cut = shoreCutAt(map, tx, ty, medium);
-      const part = cut ? PART_NONE : solidPartAt(map, tx, ty, medium);
+      const part = cut ? PART_NONE : solidPartAt(map, tx, ty, medium, z0);
       if (!cut && part === PART_NONE) continue;
       if (part === PART_FULL) return true;
       // The box clipped to this tile, then its corner deepest into the

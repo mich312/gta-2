@@ -31,7 +31,8 @@ const browser = await chromium.launch({
 const page = await browser.newPage();
 const errs = [];
 page.on('pageerror', (e) => errs.push(String(e)));
-await page.goto(`${origin}/host-probe.html?seed=${seed}&ticks=${ticks}`);
+const heights = process.env.HEIGHTS === '1' ? '&heights=1' : '';
+await page.goto(`${origin}/host-probe.html?seed=${seed}&ticks=${ticks}${heights}`);
 await page.waitForFunction(() => globalThis.__probe !== undefined, null, { timeout: 120_000 });
 const web = await page.evaluate(() => globalThis.__probe);
 await browser.close();

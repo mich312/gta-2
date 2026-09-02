@@ -4,6 +4,7 @@ import { buildLanes } from '../sim/lanes.js';
 import { buildCourseIndex } from './courseIndex.js';
 import { deriveBevels } from './bevel.js';
 import { buildShoreCut } from './shoreCut.js';
+import { buildGroundField } from './volume.js';
 import { assignTurf, markGangCars } from './turf.js';
 import { deriveSeed, seedRng } from '../rng/prng.js';
 import { decodeBakedCity, type BakedCity } from './bake.js';
@@ -151,6 +152,10 @@ export function generateCity(seed: number, params: WorldgenParams): CityMap {
   // collision can use (§43). After the bevels deliberately: it does not
   // replace them, it pre-empts them on the tiles the curve actually crosses.
   map.shoreCut = buildShoreCut(map.shores, W, H);
+  // The ground's height, when the session wants one (3D.md X2). After every
+  // pass that carves a tile, like the bevels, and for the same reason: a
+  // ramp the session laid is a step, and the field has to know.
+  if (params.heights) map.ground = buildGroundField(map);
   // Last, and after every pass that can carve or close a road: the labels are
   // derived from the finished tile grid, so anything that moves a road tile
   // afterwards would leave a junction labelled where there is none.

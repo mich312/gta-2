@@ -13,5 +13,7 @@ const seed = Number.parseInt(process.argv[2] ?? '7', 10);
 const ticks = Number.parseInt(process.argv[3] ?? '600', 10);
 
 loadSharedTuning('normal');
-const worldgen = { ...loadWorldgenParams(), provingGround: false };
+// `HEIGHTS=1` runs the probe on the ground-with-height simulation (3D.md X2);
+// the browser side reads the same choice off `?heights=1`.
+const worldgen = { ...loadWorldgenParams(), provingGround: false, heights: process.env['HEIGHTS'] === '1' };
 process.stdout.write(JSON.stringify(probeHashes(seed, worldgen, ticks)));

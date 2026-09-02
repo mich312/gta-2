@@ -1,4 +1,4 @@
-import { DT, TICK_RATE } from '../constants.js';
+import { DT, PLAYER_RADIUS, TICK_RATE } from '../constants.js';
 import { q8 } from '../math/vec.js';
 import { dCos, dSin } from '../math/trig.js';
 import { getTuning, getVehicleTuning } from '../tuning.js';
@@ -7,6 +7,7 @@ import type { SimEvent } from './events.js';
 import { damageVehicle } from './vehicleDamage.js';
 import { applyDamage } from './weapons.js';
 import { T_RAMP, TILE_SIZE, type CityMap } from '../world/types.js';
+import { STEP_UP, groundUnder } from '../world/volume.js';
 
 /**
  * Frenzies and stunts: the two things that give a sandbox a reason to exist
@@ -110,13 +111,19 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
     // small physics, deliberately not the vehicle's: no `airDist`, no stunt
     // event, no bonus. You went up in something and left it; that is not a
     // jump, it is a mistake with a landing.
+    //
+    // Against the GROUND UNDER THEM, not against zero (3D.md X2): the ground
+    // has a height where the session asked for one — a kerb, a ramp, a roof
+    // somebody bailed out onto — and on a flat map it is zero everywhere, so
+    // every comparison below is the one it always was.
     if (p.mode !== 'driving' || p.vehicleId === null) {
-      if (p.z > 0 || p.vz > 0) {
+      const g = groundUnder(map, p.pos.x, p.pos.y, PLAYER_RADIUS);
+      if (p.z > g || p.vz > 0) {
         p.vz = q8(p.vz - GRAVITY * DT);
         p.z = q8(p.z + p.vz * DT);
-        if (p.z <= 0) {
+        if (p.z <= g) {
           const impact = -p.vz;
-          p.z = 0;
+          p.z = g;
           p.vz = 0;
           p.airDist = 0;
           if (impact > FALL_SAFE_VZ) {
@@ -136,8 +143,11 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
         }
         continue;
       }
-      if (p.z !== 0 || p.vz !== 0) {
-        p.z = 0;
+      // On the ground: resting on it. Stepping onto a kerb lifts the feet
+      // three px; a lip past `STEP_UP` is a surface the walls should have
+      // kept them off, and they keep their height rather than teleport.
+      if (p.z !== g || p.vz !== 0) {
+        if (g - p.z <= STEP_UP) p.z = g;
         p.vz = 0;
         p.airDist = 0;
       }
@@ -145,13 +155,14 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
     }
     const v = state.vehicles.byId[p.vehicleId];
     if (!v) continue;
+    const g = groundUnder(map, v.pos.x, v.pos.y, getVehicleTuning(v.kind).halfExtent);
 
-    if (p.z > 0 || p.vz > 0) {
+    if (p.z > g || p.vz > 0) {
       // In the air: integrate, accumulate distance, and land.
       p.vz = q8(p.vz - GRAVITY * DT);
       p.z = q8(p.z + p.vz * DT);
       p.airDist = q8(p.airDist + Math.abs(v.speed) * DT);
-      if (p.z <= 0) {
+      if (p.z <= g) {
         const dist = p.airDist;
         // What the landing cost. A jump used to be free money: the sim
         // integrated z, emitted the event, and did nothing else, so a 300 px
@@ -173,7 +184,7 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
             v.pos.y + dSin(v.heading) * t.halfLength,
           );
         }
-        p.z = 0;
+        p.z = g;
         p.vz = 0;
         p.airDist = 0;
         events.push({
@@ -187,6 +198,9 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
       }
       continue;
     }
+
+    // On the ground: on it — a car on the kerb sits a kerb's height up.
+    if (p.z !== g && g - p.z <= STEP_UP) p.z = g;
 
     // On the ground: did the car cross a ramp tile this tick?
     //
@@ -212,7 +226,7 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
     if (!onRamp) continue;
 
     p.vz = q8(Math.abs(v.speed) * RAMP_LAUNCH);
-    p.z = q8(1);
+    p.z = q8(g + 1);
     p.airDist = 0;
     events.push({
       type: 'stuntLaunched',
@@ -224,10 +238,19 @@ export function stepStunts(state: GameState, map: CityMap, events: SimEvent[]): 
   }
 }
 
-/** True while this player's vehicle is off the ground. */
-export function isAirborne(state: GameState, playerId: number): boolean {
+/**
+ * True while this player's vehicle is off the ground — the ground UNDER it,
+ * which on a map with heights is a kerb's height up on the pavement and a
+ * roof's height up on a roof. Without the map, or on a flat one, zero.
+ */
+export function isAirborne(state: GameState, playerId: number, map?: CityMap): boolean {
   const p = state.players.byId[playerId];
-  return !!p && p.z > 0;
+  if (!p) return false;
+  if (!map || !map.ground) return p.z > 0;
+  const v = p.vehicleId !== null ? state.vehicles.byId[p.vehicleId] : undefined;
+  const half = v ? getVehicleTuning(v.kind).halfExtent : PLAYER_RADIUS;
+  const at = v ? v.pos : p.pos;
+  return p.z > groundUnder(map, at.x, at.y, half);
 }
 
 /** Payout for a landed stunt, in cash. Scales with distance covered. */

@@ -29,6 +29,8 @@ export interface LocalHostOptions {
   pedCount: number;
   interestRadius: number;
   provingGround: boolean;
+  /** The ground has height (3D.md X2): `?heights=1`. */
+  heights: boolean;
   difficulty: string;
 }
 
@@ -60,7 +62,7 @@ const conn = new PortConn();
 
 function boot(opts: LocalHostOptions): void {
   initLocalTuning(opts.difficulty);
-  const worldgen = { ...localWorldgenParams(), provingGround: opts.provingGround };
+  const worldgen = { ...localWorldgenParams(), provingGround: opts.provingGround, heights: opts.heights };
 
   // No replay recorder: the file writer is Node-only, and an in-memory one is
   // a separate item (SHIP.md T1). Determinism is unaffected — the recorder

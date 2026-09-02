@@ -1,5 +1,56 @@
 # PROGRESS
 
+## 3D, X2: the ground has height — behind `heights`, flat by default
+
+The owner's direction: "a 3D game, still top-down". `3D.md` already holds
+the plan, its critical path X2 → X3 → Y1 → Y2, and the volume grid and
+3D solver from X1. The visible target agreed for after the core is real
+bridges (decks at height with generated ramps, boats passing under),
+chosen over the ring flyover — which needs a two-level road graph (Z1) and
+is the plan's own "most underestimated" item — and over roofs and stairs.
+
+**X2, as built.** Not the swap the plan sketched. The flat solver has
+grown the diagonal shoreline, the bevels and the boat medium since X1 was
+written, and `move3` has none of them; replacing it would have been a
+regression dressed as progress. Instead every solidity question the sim
+asks — `isSolidTile`, `solidPartAt`, `moveWithCollision`, `boxInSolid`,
+`isSolidAtWorld` — now takes the mover's feet, and a building or a wood is
+a wall only to a mover whose feet are below its top (`wallTopAt`). Water
+stays a wall at every height. Vertical motion is the stunt integrator's,
+made ground-relative: `groundUnder` reads a per-tile `Float32Array`
+(`buildGroundField`: 0 on the carriageway, 3 on a kerb, 12 on a ramp, a
+roof over a footprint, -8 over water; a few ms where the full column grid
+takes 700), and every place `stepStunts` compared against zero compares
+against it. So a kerb lifts you three px, a ramp twelve, a fall lands on
+what is under it, and — the first thing height buys — somebody out of a
+helicopter over a low block lands on its roof and can walk off it. The
+driving path's "airborne" test (which switches wall collision off) is
+ground-relative too, or a car on the kerb would have driven through the
+city. One trap the review caught: the field records a tile's OWN material,
+and on a water/trees bevel that is the water's -8, which measured the tree
+wedge against the sea floor and opened it to anybody on foot. The other
+half of a bevel now stands at its own material's height (`otherTop`).
+
+**The flag.** `WorldgenParams.heights` (`HEIGHTS=1`, `?heights=1`), in the
+welcome message like the proving ground so both hosts agree where the
+ground is. Off, `map.ground` is absent and every consumer takes zero: the
+flat simulation is bit-identical, replays recorded flat still re-simulate,
+and the whole existing suite runs on the flat path.
+
+**Gates.** `shared/test/heights.test.ts` (eleven: the field's values, walls
+at height, kerbs up and down for a walker and a car, a landing on a roof
+and a fall off it, the flat map unchanged, determinism); the full suite
+green on the flat path; `pnpm bots` at 8 bots, 40 s, tick spread 0, 0
+desyncs with `HEIGHTS=1`; `HEIGHTS=1 pnpm parity` Node against browser.
+The parity probes learned the flag for it.
+
+**Deliberately flat still.** Bridge decks stay at street level in the
+field until the bridges wave lays ramps — a car cannot climb forty px in
+one tile, and the renderer draws them at street level for the same reason.
+Pedestrians, police and projectiles ask at zero (Y1, Y3). The volume
+grid's oriented walls are not consulted by the flat solver, which has its
+own answer for angled buildings.
+
 ## Map generation: no stubs, no gaps, no nubs — one declared rebake
 
 A flyover of the review renders (`pnpm mapgen --crop` at every borough)

@@ -26,6 +26,20 @@ export interface WorldgenParams {
    * random draw, so turning it on changes nothing else about the city.
    */
   provingGround: boolean;
+  /**
+   * The ground has height (3D.md X2). Kerbs stand three px proud of the
+   * carriageway, roofs are surfaces a fall can end on, a ramp is a step —
+   * and everything that moves rests on whatever is under it instead of on
+   * an imaginary plane at zero.
+   *
+   * A worldgen parameter for the same reason the proving ground is one: it
+   * ships in the welcome message, so both hosts agree about where the
+   * ground is. Off, the simulation is bit-for-bit the flat one it was —
+   * every consumer reads the ground field and takes zero when there is none
+   * — so a replay recorded flat still re-simulates, and the gates
+   * (`pnpm bots`, `pnpm parity`) can be run on either world.
+   */
+  heights: boolean;
   /** Roughly one parked car every N road-edge tiles. */
   parkedCarSpacing: number;
   playerSpawnCount: number;
@@ -72,6 +86,7 @@ export function parseWorldgenParams(raw: unknown): WorldgenParams {
     // Optional and default off: replay headers written before it existed
     // still parse, and a session only gets one by asking.
     provingGround: r['provingGround'] === true,
+    heights: r['heights'] === true,
     parkedCarSpacing: num(r['parkedCarSpacing'], 'parkedCarSpacing'),
     turf: parseTurf(r['turf']),
     // Defaulted rather than required: an older worldgen block (a replay

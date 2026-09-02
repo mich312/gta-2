@@ -339,6 +339,15 @@ export interface CityMap {
    * (WORLDGEN.md §43). Derived, per session, never on the wire.
    */
   shoreCut?: import('./shoreCut.js').ShoreCut;
+  /**
+   * The height of the ground per tile, world px (3D.md X2): the surface a
+   * mover on that tile rests on — 0 on the carriageway, 3 on a kerb, 12 on
+   * a ramp, a building's roof over its footprint, -8 over water. Present
+   * only when the session's worldgen asks for heights; every consumer takes
+   * zero without it, which is what keeps the flat simulation bit-identical.
+   * See `buildGroundField`.
+   */
+  ground?: Float32Array;
   blocks: BlockRect[];
   buildings: Building[];
   shops: Shop[];

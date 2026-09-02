@@ -99,6 +99,7 @@ function localParams(): LocalHostOptions | null {
     pedCount: int('peds', 200),
     interestRadius: int('interest', 600),
     provingGround: q.get('proving') === '1',
+    heights: q.get('heights') === '1',
     difficulty: q.get('difficulty') ?? 'normal',
   };
 }

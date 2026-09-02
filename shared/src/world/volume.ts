@@ -367,6 +367,97 @@ export function buildVolumeGrid(map: CityMap): VolumeGrid {
 }
 
 /**
+ * The tallest lip a mover on the ground climbs rather than stops at, in
+ * world px: a kerb (3) and a ramp step (12) are inside it, a building is not.
+ * Nothing on the ground should ever need to test the second half of that —
+ * a wall stops a mover before its footprint reaches the roof's column — but
+ * a footprint that lands over a surface this much higher than its feet is
+ * standing somewhere the horizontal solver did not block, and lifting it
+ * there would be a teleport. It keeps its height instead.
+ */
+export const STEP_UP = 16;
+
+/**
+ * The height of the ground per tile, as one plane — the surface a mover on
+ * this tile rests on. What `buildVolumeGrid`'s columns say about the same
+ * question, without the columns: the simulation's X2 (3D.md) reads this
+ * every tick for every mover and wants a lookup, not a span walk, and it
+ * builds in a few milliseconds where the full grid takes seven hundred.
+ *
+ * The one place the two disagree, on purpose and for now: a bridge deck.
+ * The columns put it forty px over the water, where a boat can pass under;
+ * this plane puts it at street level, because no bridge in the city has a
+ * ramp yet and a car reaching its landfall would have to climb forty px in
+ * one tile. The renderer draws the deck at street level for the same reason
+ * (BUGS.md §2.1). Raising both is the bridges wave, and it starts by laying
+ * the ramps.
+ */
+export function buildGroundField(map: CityMap): Float32Array {
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const ground = new Float32Array(W * H);
+  for (let i = 0; i < ground.length; i++) {
+    const t = map.tiles[i] as number;
+    ground[i] =
+      t === T_WATER ? -8 : t === T_TREES ? TREE_Z : t === T_RAMP ? RAMP_Z : t === T_SIDEWALK ? KERB_Z : 0;
+  }
+  for (const b of map.buildings) {
+    const z = buildingStoreys(b) * Z_PER_STOREY;
+    for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
+      for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
+        const i = ty * W + tx;
+        if (map.tiles[i] === T_BUILDING) ground[i] = z;
+      }
+    }
+  }
+  // A building tile no record covers — a landmark part stamped without one,
+  // a wall left by a demolished house — is still a wall, and a wall needs a
+  // top. The columns give it one storey; so does this.
+  for (let i = 0; i < ground.length; i++) {
+    if (map.tiles[i] === T_BUILDING && ground[i] === 0) ground[i] = Z_PER_STOREY;
+  }
+  return ground;
+}
+
+/**
+ * The surface under a footprint: the highest ground of the tiles it covers,
+ * or zero when the map carries no heights. A mover resting on a kerb's edge
+ * stands on the kerb, and one on a roof's edge stays on the roof until its
+ * last tile of footprint leaves it — which is what makes walking off a roof
+ * a step you take rather than a lip you slide down.
+ */
+export function groundUnder(map: CityMap, x: number, y: number, half: number): number {
+  const ground = map.ground;
+  if (!ground) return 0;
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const tx1 = Math.max(0, Math.floor((x - half) / TILE_SIZE));
+  const tx2 = Math.min(W - 1, Math.floor((x + half - 0.001) / TILE_SIZE));
+  const ty1 = Math.max(0, Math.floor((y - half) / TILE_SIZE));
+  const ty2 = Math.min(H - 1, Math.floor((y + half - 0.001) / TILE_SIZE));
+  let best = -Infinity;
+  for (let ty = ty1; ty <= ty2; ty++) {
+    for (let tx = tx1; tx <= tx2; tx++) {
+      const g = ground[ty * W + tx] as number;
+      if (g > best) best = g;
+    }
+  }
+  return best === -Infinity ? 0 : best;
+}
+
+/**
+ * The top of the solid at a tile, for the horizontal solver's question "does
+ * this wall reach a mover whose feet are at z". Infinity on a map with no
+ * heights, so every wall reaches every mover and the flat answers stand.
+ */
+export function wallTopAt(map: CityMap, tx: number, ty: number): number {
+  const ground = map.ground;
+  if (!ground) return Infinity;
+  if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return Infinity;
+  return ground[ty * map.widthTiles + tx] as number;
+}
+
+/**
  * One tile's column.
  *
  * Ramps are stepped rather than sloped. A sloped surface needs the collision

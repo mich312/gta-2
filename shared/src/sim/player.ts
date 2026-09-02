@@ -76,7 +76,11 @@ export function stepPlayerMovement(
   p.vel.x = approach(p.vel.x, dx * walkSpeed, maxDelta);
   p.vel.y = approach(p.vel.y, dy * walkSpeed, maxDelta);
 
-  moveWithCollision(map, p.pos, p.vel, PLAYER_RADIUS, p.vel.x * DT, p.vel.y * DT);
+  // At the player's own height (3D.md X2): a wall whose roof is below their
+  // feet — somebody falling out of a helicopter over a low block — is not in
+  // their way, and they land on it. On a flat map `p.z` is zero on the
+  // ground and the answer is the one it always was.
+  moveWithCollision(map, p.pos, p.vel, PLAYER_RADIUS, p.vel.x * DT, p.vel.y * DT, 'land', p.z);
   // Cars are solid to people too. After the tiles, so a push out of a car
   // can be refused when it would put somebody inside a wall.
   pushOutOfVehicles(p.pos, p.vel, PLAYER_RADIUS, world, map, p.vehicleId);

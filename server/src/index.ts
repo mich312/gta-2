@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   // The flag reaches the city through worldgen, and worldgen rides in the
   // welcome message — so the client builds exactly the same map rather than
   // disagreeing with the server about where the walls are.
-  const worldgen = { ...loadWorldgenParams(), provingGround: config.provingGround };
+  const worldgen = { ...loadWorldgenParams(), provingGround: config.provingGround, heights: config.heights };
 
   const recorder = config.replayDir
     ? createFileRecorder(config.replayDir, {

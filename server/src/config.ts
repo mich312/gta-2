@@ -54,6 +54,8 @@ export interface ServerConfig {
    * server flag, so the client builds the same city from the same numbers.
    */
   provingGround: boolean;
+  /** The ground has height (3D.md X2). `HEIGHTS=1`. Reaches the city through worldgen like the proving ground. */
+  heights: boolean;
   /**
    * Which police preset the session runs (see police.json `presets`).
    *
@@ -85,6 +87,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     maxPlayers: envInt(env['MAX_PLAYERS'], 32),
     clientDir: env['CLIENT_DIR'] ?? null,
     provingGround: env['PROVING_GROUND'] === '1' || env['PROVING_GROUND'] === 'true',
+    heights: env['HEIGHTS'] === '1' || env['HEIGHTS'] === 'true',
     difficulty: env['DIFFICULTY'] ?? 'normal',
   };
 }
