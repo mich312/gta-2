@@ -20,6 +20,7 @@ import {
   T_WATER,
   TILE_SIZE,
   DISTRICT_TYPES,
+  OPEN_TO_ROAD,
   type BlockRect,
   type Building,
   type DistrictType,
@@ -179,15 +180,13 @@ const RECIPES: Record<LandmarkKind, Recipe> = {
   },
 };
 
-/**
- * Kinds whose footprint welcomes carriageway: a plaza with no streets
- * flowing through it is a courtyard. Their GROUND never overwrites road (the
- * `paintable` guard), and their solid parts are validated individually
- * instead of the whole rect — a circus monument that landed on a carriageway
- * would sever the ring, so it has to sit in the median, and the bake checks
- * that it does.
- */
-const OPEN_TO_ROAD = new Set<LandmarkKind>(['square', 'green', 'circus']);
+// The plaza kinds — the landmarks whose footprint welcomes carriageway — are
+// `OPEN_TO_ROAD` in types.ts, shared with the layout: a plaza with no streets
+// flowing through it is a courtyard. Their GROUND never overwrites road (the
+// `paintable` guard), and their solid parts are validated individually
+// instead of the whole rect — a circus monument that landed on a carriageway
+// would sever the ring, so it has to sit in the median, and the bake checks
+// that it does.
 
 function paintable(t: number): boolean {
   return t !== T_WATER && t !== T_BANK && t !== T_SAND && t !== T_ROAD && t !== T_BRIDGE;
@@ -233,6 +232,65 @@ function cuttable(t: number): boolean {
 let drivewayFrom: Int32Array | null = null;
 let drivewayEra: Int32Array | null = null;
 let drivewayCall = 0;
+
+/**
+ * The way OUT of an air-only landmark: the shortest path over open ground
+ * from its door to the nearest runway tile, with the trees on it felled.
+ * Nothing is laid — a road to a plane-only island would undo `byAir` — the
+ * woodland is simply opened where the path wants to go, two tiles wide like
+ * the driveways so a walker reads it as a clearing rather than a crack. The
+ * same breadth-first search as `driveway`, over the same ground, and the
+ * same scratch planes.
+ */
+function clearing(tiles: Uint8Array, W: number, H: number, dx: number, dy: number): void {
+  if (dx < 0 || dy < 0 || dx >= W || dy >= H) return;
+  if (drivewayFrom === null || drivewayFrom.length < W * H) {
+    drivewayFrom = new Int32Array(W * H);
+    drivewayEra = new Int32Array(W * H);
+  }
+  const from = drivewayFrom;
+  const era = drivewayEra as Int32Array;
+  const call = ++drivewayCall;
+  const start = dy * W + dx;
+  from[start] = start;
+  era[start] = call;
+  const queue = [start];
+  let head = 0;
+  let hit = -1;
+  while (head < queue.length && hit < 0) {
+    const i = queue[head++] as number;
+    const x = i % W;
+    const y = (i - x) / W;
+    for (const [ox, oy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
+      const j = ny * W + nx;
+      if (era[j] === call) continue;
+      const t = tiles[j] as number;
+      if (t === T_RUNWAY) {
+        from[j] = i;
+        era[j] = call;
+        hit = j;
+        break;
+      }
+      if (!cuttable(t)) continue;
+      from[j] = i;
+      era[j] = call;
+      queue.push(j);
+    }
+  }
+  if (hit < 0) return;
+  for (let i = hit; i !== start; i = from[i] as number) {
+    if (tiles[i] === T_TREES) tiles[i] = T_FIELD;
+    if (tiles[i + 1] === T_TREES) tiles[i + 1] = T_FIELD;
+  }
+}
 
 function driveway(tiles: Uint8Array, W: number, H: number, dx: number, dy: number): void {
   const near = (x: number, y: number): boolean => {
@@ -540,10 +598,29 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // the road network over ground a track could be cut through, laid two tiles
   // wide. Nothing is cut through a building or across water, so a landmark
   // walled in by both simply keeps no drive and the checker says so.
-  for (const [li, l] of landmarks.entries()) {
+  //
+  // Matched by NAME, as the checker matches them: the country landmarks are
+  // stamped before the ones that claim a city block, so `landmarks` and
+  // `plan.landmarks` are in different orders, and pairing them by index asked
+  // the wrong plan entry whether the landmark was air-only — which exempted
+  // some mainland farm from its driveway and offered The Eyrie one instead
+  // (harmless only because no road exists on its island to be found).
+  const byAirNames = new Set(plan.landmarks.filter((l) => l.byAir).map((l) => l.name));
+  for (const l of landmarks) {
     // ...except the ones you fly to. Cutting a track to an island reachable
-    // only from the air would be the bake quietly undoing the plan.
-    if ((plan.landmarks[li] as PlanLandmark).byAir) continue;
+    // only from the air would be the bake quietly undoing the plan. What one
+    // of those needs instead is a way to its RUNWAY over open ground — you
+    // have to be able to leave again — and the woodland fill cannot be
+    // trusted to leave one: the wildness field and the hedgerows are noise
+    // keyed on the world grid, and the first bake with the wider fabric
+    // frame (layout.ts, `weaveFabrics`) shifted Gannet Rock's blocks enough
+    // to close a ring of trees round The Eyrie, three tiles clear on every
+    // side and no way out. So: a clearing, not a track — the shortest path
+    // from the door to the strip has its trees felled and nothing laid.
+    if (byAirNames.has(l.name)) {
+      clearing(tiles, W, H, Math.floor(l.doorX / TILE_SIZE), Math.floor(l.doorY / TILE_SIZE));
+      continue;
+    }
     driveway(tiles, W, H, Math.floor(l.doorX / TILE_SIZE), Math.floor(l.doorY / TILE_SIZE));
   }
 
@@ -603,8 +680,65 @@ export function bakeCity(plan: CityPlan): BakedCity {
           pocket.push(j);
         }
       }
-      if (pocket.length <= 20 && plain && landlocked) {
+      if (!plain || !landlocked) continue;
+      if (pocket.length <= 20) {
         for (const i of pocket) tiles[i] = T_TREES;
+        continue;
+      }
+      // A glade too big to write off as a hole in the canopy gets a way in
+      // instead: the shortest path out through the trees to open ground that
+      // is not the glade, felled two wide like a landmark's clearing. Found
+      // while widening the fabric frame (layout.ts, `weaveFabrics`): the
+      // park block moved, its wood closed round fifty tiles of lawn, and the
+      // checker rightly called it ground with no way in. Walled in by
+      // buildings or water rather than trees, the search finds nothing and
+      // the glade stays — and stays a checker finding, which is correct.
+      const inGlade = new Set(pocket);
+      const from = new Map<number, number>();
+      const queue: number[] = [];
+      for (const i of pocket) {
+        from.set(i, -1);
+        queue.push(i);
+      }
+      let out = -1;
+      for (let q = 0; q < queue.length && out < 0; q++) {
+        const i = queue[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 1 || ny < 1 || nx >= W - 1 || ny >= H - 1) continue;
+          const j = ny * W + nx;
+          if (from.has(j)) continue;
+          const t = tiles[j] as number;
+          if (open(t) && !inGlade.has(j)) {
+            from.set(j, i);
+            out = j;
+            break;
+          }
+          if (t !== T_TREES) continue;
+          from.set(j, i);
+          queue.push(j);
+        }
+      }
+      // The felled tiles are marked SEEN as they are felled. The scan above
+      // is still running, and a felled tile it has not reached yet would
+      // start a pocket of its own — the path, alone, because the glade and
+      // the ground outside are both already seen — which is under twenty
+      // tiles of plain landlocked field, and the rule above would plant it
+      // straight back. Measured: nine tiles felled, nine tiles re-treed, the
+      // glade sealed exactly as before.
+      for (let i = out; i >= 0 && !inGlade.has(i); i = from.get(i) as number) {
+        for (const k of [i, i + 1]) {
+          if (tiles[k] === T_TREES) tiles[k] = T_FIELD;
+          if (tiles[k] !== T_BUILDING && tiles[k] !== T_WATER) seen[k] = 1;
+        }
       }
     }
   }

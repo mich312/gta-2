@@ -282,6 +282,18 @@ running; the plangen sheets need no server.
 
 | `zebra-gated.png` | The Beachfront after §35. Crossings used to stack four to seven deep in open tarmac with no kerb at either end, because `junctionAt` reads the tile plane and a merged sheet of carriageway is "junction" across its whole area. Gated on the course crossings §26 computes from the curves instead. Retake: `WAIT_GROUND=14 node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=465,410&h=200&pitch=45&night=0" evidence/zebra-gated.png`. |
 
+## No stubs, no gaps, no nubs (PROGRESS.md, the stub rebake)
+
+Before-and-after pairs from `pnpm mapgen`, the review tool the flyover
+used. Retake the `fixed-*` shots with the commands given; the `bug-*`
+shots are the same crops from the bake before the wave.
+
+| file | what it shows |
+|---|---|
+| `bug-seam-caps.png` / `fixed-seam-caps.png` | The Ravenhill–Spine seam at 12 px a tile. Before: every street that T'd into the seam street ended inside its tarmac with a kerb cap, because the seam street had no course of its own to paint over them — a row of nubs down the middle of the road. After: the seam carries its own ribbon, the stems meet it as junctions, and no kerb is ever drawn on carriageway. Retake: `node server/dist/tools/mapgen.js --crop=405,140,40 --scale=12 --out=evidence/fixed-seam-caps.png`. |
+| `bug-band-gaps.png` / `fixed-band-gaps.png` | The Terraces against the Beachfront. Before: contour streets stopping a tile or two short of the streets they were about to cross, a sliver of pavement in the gap — the band probe mistaking the crossing road for a parallel one. After: they cross. Retake: `--crop=535,470,40 --scale=12`. |
+| `bug-shore-piers.png` / `fixed-shore-piers.png` | Ravenhill's south shore. Before: eight streets marching six tiles into an empty field and stopping short of the esplanade, because the fabric was framed by the drawn polygon's box and not by the land the borough owns. After: the fabric runs to the shore street, with blocks on it. Retake: `--crop=220,170,200`. |
+
 ## §42–43 — lanes on the graph, and collision on the coastline
 
 | file | what it shows |

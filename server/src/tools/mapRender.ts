@@ -129,8 +129,13 @@ interface Hit {
  * Stroke a polyline into the buffer, `half` px either side of the centre.
  *
  * Distance-to-nearest-segment rather than filled quads, which is the idiom
- * the shore pass above already uses — and it gives round joins and caps for
- * nothing, which is what `lineJoin = 'round'` gives the client's painter.
+ * the shore pass above already uses — and it gives round joins for nothing,
+ * which is what `lineJoin = 'round'` gives the client's painter. The two ENDS
+ * of the line are cut square, because the client's are (`lineCap = 'butt'`):
+ * the first cut of this drew a half-disc at every course end, and where a
+ * course ends inside another street's tarmac — every T-junction stem — the
+ * edge-line ring came out as a pale arc across the road that the game never
+ * draws. A review tool that invents a defect is as bad as one that hides it.
  *
  * `dash` is measured in ARC LENGTH along the line, so a dash cadence follows
  * a curve instead of being chopped per segment. That is the whole point of
@@ -169,7 +174,12 @@ function strokeLine(
       for (let px = lo; px <= hi; px++) {
         const rx = px + 0.5 - ax;
         const ry = py + 0.5 - ay;
-        const t = Math.max(0, Math.min(1, (rx * vx + ry * vy) / len2));
+        const raw = (rx * vx + ry * vy) / len2;
+        // Square ends: nothing before the start of the first segment, nothing
+        // past the end of the last. Interior joints keep the clamp — that is
+        // the round join.
+        if ((k === 0 && raw < 0) || (k + 2 === pts.length && raw > 1)) continue;
+        const t = Math.max(0, Math.min(1, raw));
         const d = Math.hypot(rx - t * vx, ry - t * vy);
         if (d > half) continue;
         const i = py * W + px;
@@ -546,7 +556,20 @@ export function render(
       }
       return { pts, w: c.width * scale, len };
     });
-    for (const r of ribbons) strokeLine(put, W, H, r.pts, (r.w + 4 * tPx) / 2, kerb);
+    // The casing stays off carriageway, as in the client: a kerb is the edge
+    // of a road, and one that lands on another road's tarmac is a kerb
+    // drawn across a junction — the cap a course leaves where it ends inside
+    // a street that has no course of its own.
+    const offRoad = (px: number, py: number, c: [number, number, number]): void => {
+      const tx = Math.floor(px / scale) + x0;
+      const ty = Math.floor(py / scale) + y0;
+      if (tx >= 0 && ty >= 0 && tx < map.widthTiles && ty < map.heightTiles) {
+        const t = map.tiles[ty * map.widthTiles + tx] as number;
+        if (t === T_ROAD || t === T_BRIDGE) return;
+      }
+      put(px, py, c);
+    };
+    for (const r of ribbons) strokeLine(offRoad, W, H, r.pts, (r.w + 4 * tPx) / 2, kerb);
     for (const r of ribbons) strokeLine(put, W, H, r.pts, r.w / 2, road);
     for (const r of ribbons) strokeLine(put, W, H, r.pts, (r.w - 2 * tPx) / 2, mark);
     // A junction is bare asphalt (§26): the crossings come from the curves,

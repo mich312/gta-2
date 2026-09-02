@@ -22,11 +22,13 @@ import {
 } from './plan.js';
 import {
   DISTRICT_TYPES,
+  OPEN_TO_ROAD,
   T_BANK,
   T_BRIDGE,
   T_FIELD,
   T_ROAD,
   T_SAND,
+  T_SIDEWALK,
   T_TREES,
   T_WATER,
   type BlockRect,
@@ -292,6 +294,232 @@ function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>
 }
 
 /**
+ * Does the road at (px, py) run ALONG the direction (ux, uy) — carriageway two
+ * tiles either way from it along that line?
+ *
+ * The band probes ask "is there already a road beside this tile" by stepping
+ * along the band's normal, and they exist to keep a band off a road running
+ * PARALLEL to it. But a road CROSSING the band stands beside the last tiles
+ * before the crossing too, and on a tilted normal the rounded probe drifts a
+ * tile sideways and finds it — so every spine and contour street stopped one
+ * or two tiles short of every street it was about to meet, with a sliver of
+ * pavement in the gap (Ravenhill's Parade bands against the Spine seam, the
+ * Terraces' bands against the Beachfront's). A parallel road is long in the
+ * band's own direction and a crossing one is three or four tiles across, so
+ * this is the test that tells them apart, and the probes ask it of every hit.
+ */
+function roadRunsAlong(
+  snapshot: Uint8Array,
+  W: number,
+  H: number,
+  px: number,
+  py: number,
+  ux: number,
+  uy: number,
+): boolean {
+  for (const s of [-2, -1, 1, 2]) {
+    const x = Math.round(px + ux * s);
+    const y = Math.round(py + uy * s);
+    if (x < 0 || y < 0 || x >= W || y >= H) return false;
+    const t = snapshot[y * W + x] as number;
+    if (t !== T_ROAD && t !== T_BRIDGE) return false;
+  }
+  return true;
+}
+
+/**
+ * Longest dead-end run of carriageway that is a STUB rather than a street.
+ *
+ * Every pass that carves a road clips it to something — a borough outline, a
+ * block piece, the ring's fence — and where the clip falls a few tiles past
+ * the last crossing, the road simply stops: a lattice line poking out of its
+ * last junction into the verge, an alley that reaches the edge of an odd-
+ * shaped block piece and ends against the yard, a diagonal band's staircase
+ * leaving one tile of tarmac proud of a junction corner. Measured over the
+ * shipped city before this existed: 82 dead-end runs, 66 of them eight tiles
+ * or shorter, 36 of those a single tile. None of them is a place: nothing
+ * fronts them, nothing drives down them, and from the air each one reads as
+ * a road that forgot to go anywhere.
+ *
+ * Eight is under half of the tightest lattice pitch (the Old Quarter's 11)
+ * and over twice the widest street, so a run this short cannot be a block's
+ * worth of frontage and cannot be a junction's own arm. Longer dead ends are
+ * left alone on purpose: a crescent borough's culs-de-sac (§13.5), a lane
+ * into the marsh, the approaches the ring shave holds two tiles short of the
+ * motorway (§14.3 D6) are all dead ends that mean something.
+ */
+const STUB_MAX_TILES = 8;
+
+/**
+ * How wide a strip of tarmac may be before a tile in it stops being
+ * carriageway and starts being junction. The same number as `MAX_LANE_TILES`
+ * in `sim/signals.ts`, and for the same reason: a junction is where the lane
+ * model has no side to keep to in ANY direction, and a dead end is a run of
+ * ordinary carriageway that reaches exactly one of those.
+ */
+const JUNCTION_SPAN = 4;
+
+/**
+ * Remove the dead-end stubs: runs of carriageway that leave one junction and
+ * never reach another, `STUB_MAX_TILES` or shorter, turned back into the
+ * ground `onto` says they should be. Returns how many tiles it took.
+ *
+ * Junctions are found the way the signals do it — a tile is junction when the
+ * tarmac through it is over-wide along both axes and both diagonals — but
+ * without the size cap that leaves a plaza unlabelled, because a stub off a
+ * plaza is still a stub. What is left between the junctions is the streets;
+ * a street with a junction at one end only is a dead end, and its length is
+ * how far its tip lies from that junction, walked over its own tiles.
+ *
+ * `keep` names tiles that may never be trimmed — the authored roads, the
+ * bridge decks — and a run that is mostly made of them is left whole. Mostly,
+ * not merely touching: a lattice stub roots in the edge tiles of the avenue
+ * it leaves, and one avenue tile at its foot must not protect eight tiles of
+ * stub. So is any run that touches open water: a street that runs to the sea
+ * ends there because the sea is there, which is the one reason a dead end
+ * needs (and after the quay pass, only a bridge approach still does).
+ */
+function trimStubs(
+  tiles: Uint8Array,
+  water: Uint8Array,
+  W: number,
+  H: number,
+  keep: (i: number) => boolean,
+  onto: (i: number) => number,
+): number {
+  const N = W * H;
+  const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
+  const roadAt = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H && isRoad(y * W + x);
+  const span = (x: number, y: number, dx: number, dy: number): number => {
+    let s = 1;
+    for (let k = 1; k <= JUNCTION_SPAN && roadAt(x + dx * k, y + dy * k); k++) s++;
+    for (let k = 1; k <= JUNCTION_SPAN && roadAt(x - dx * k, y - dy * k); k++) s++;
+    return s;
+  };
+  const STEPS = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ] as const;
+
+  // Junction tiles, then junction patches.
+  const patch = new Int32Array(N).fill(-1);
+  const isJunction = new Uint8Array(N);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!isRoad(i)) continue;
+      if (
+        span(x, y, 0, 1) > JUNCTION_SPAN &&
+        span(x, y, 1, 0) > JUNCTION_SPAN &&
+        span(x, y, 1, 1) > JUNCTION_SPAN &&
+        span(x, y, 1, -1) > JUNCTION_SPAN
+      ) {
+        isJunction[i] = 1;
+      }
+    }
+  }
+  let patches = 0;
+  for (let s = 0; s < N; s++) {
+    if (isJunction[s] !== 1 || (patch[s] as number) >= 0) continue;
+    const bag = [s];
+    patch[s] = patches;
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (isJunction[j] !== 1 || (patch[j] as number) >= 0) continue;
+        patch[j] = patches;
+        bag.push(j);
+      }
+    }
+    patches++;
+  }
+
+  // The runs between them.
+  const run = new Int32Array(N).fill(-1);
+  let trimmed = 0;
+  let runs = 0;
+  for (let s = 0; s < N; s++) {
+    if (!isRoad(s) || isJunction[s] === 1 || (run[s] as number) >= 0) continue;
+    const id = runs++;
+    const bag = [s];
+    run[s] = id;
+    const touched = new Set<number>();
+    let kept = 0;
+    let wet = false;
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      if (keep(i)) kept++;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (water[j] === 1) wet = true;
+        if (!isRoad(j)) continue;
+        if (isJunction[j] === 1) {
+          touched.add(patch[j] as number);
+          continue;
+        }
+        if ((run[j] as number) >= 0) continue;
+        run[j] = id;
+        bag.push(j);
+      }
+    }
+    if (kept * 2 > bag.length || wet || touched.size !== 1) continue;
+    // How far the tip is from the junction, walked over the run's own tiles.
+    const depth = new Map<number, number>();
+    const queue: number[] = [];
+    for (const i of bag) {
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if (isJunction[ny * W + nx] === 1) {
+          depth.set(i, 0);
+          queue.push(i);
+          break;
+        }
+      }
+    }
+    let tip = 0;
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q] as number;
+      const d = depth.get(i) as number;
+      if (d > tip) tip = d;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if ((run[j] as number) !== id || depth.has(j)) continue;
+        depth.set(j, d + 1);
+        queue.push(j);
+      }
+    }
+    if (tip + 1 > STUB_MAX_TILES) continue;
+    for (const i of bag) {
+      tiles[i] = onto(i);
+      trimmed++;
+    }
+  }
+  return trimmed;
+}
+
+/**
  * The shore band's reaches, in tiles from the waterline (§38).
  *
  * These replace "is a neighbour wet", which could only answer in whole tiles.
@@ -552,6 +780,17 @@ export function buildLayout(plan: CityPlan): CityLayout {
   // stand cars at kerbs or walk "along the street" get the exact number the
   // lattice was carved with instead of estimating it from tarmac.
   const bearing = new Uint8Array(W * H);
+  /**
+   * Per borough, the box round the dry ground it owns on its own landmass —
+   * polygon plus land fringe, as `[x0, y0, x1, y1)` in tiles — filled in by
+   * `paintOwnership`. Empty (inverted) until then.
+   */
+  const landBounds: Array<[number, number, number, number]> = plan.districts.map(() => [
+    Infinity,
+    Infinity,
+    -Infinity,
+    -Infinity,
+  ]);
   const paintOwnership = (): void => {
     for (const [di, d] of plan.districts.entries()) {
       const idx = DISTRICT_IDX[d.district];
@@ -599,6 +838,23 @@ export function buildLayout(plan: CityPlan): CityLayout {
           bag.push(j);
         }
       }
+      // The ground each borough now owns ON ITS OWN LANDMASS, boxed — the
+      // frame its fabric is carved in (see `weaveFabrics`). Taken here,
+      // before the wading wave below hands the borough its offshore rocks:
+      // a box that reached across the strait to an adopted islet would carve
+      // the islet a street grid and cut it blocks, and a rock you can only
+      // reach by boat would grow houses.
+      for (let i = 0; i < owner.length; i++) {
+        const own = owner[i] as number;
+        if (own < 0) continue;
+        const x = i % W;
+        const y = (i - x) / W;
+        const b = landBounds[own] as [number, number, number, number];
+        b[0] = Math.min(b[0], x);
+        b[1] = Math.min(b[1], y);
+        b[2] = Math.max(b[2], x + 1);
+        b[3] = Math.max(b[3], y + 1);
+      }
       // A landmass with no polygon tile on it — an islet the warp raised, a
       // spit the plan never named — is unreachable over land. Second wave,
       // allowed to wade: the frontier carries owner ACROSS water but only
@@ -641,7 +897,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
   };
 
   /** Paint one tile of carriageway, bridging where a bridge is warranted. */
-  const lay = (tx: number, ty: number, along: PlanPoint | null): void => {
+  const layAnywhere = (tx: number, ty: number, along: PlanPoint | null): void => {
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return;
     const i = ty * W + tx;
     if (water[i] !== 1) {
@@ -650,6 +906,33 @@ export function buildLayout(plan: CityPlan): CityLayout {
     }
     if (!along) return;
     if (bridgeable(water, W, H, tx, ty, along[0], along[1], plan.maxBridgeSpan)) tiles[i] = T_BRIDGE;
+  };
+
+  /**
+   * The footprint of every landmark that is a building, plus the tile round
+   * it the bake lays the pavement ring on. No GENERATED street goes here —
+   * the lattices, the seams, the esplanade, the gates. The plazas are open by
+   * definition (`OPEN_TO_ROAD`), and the authored roads carve through
+   * `layAnywhere` on purpose: an avenue drawn across a hospital is an
+   * authoring error the bake reports by name, not one to route around.
+   *
+   * Needed since the fabric frame grew to the owned land (`weaveFabrics`):
+   * the plan put The Spire on the Spine's harbour fringe, ground no street
+   * had ever been laid on, and the first bake with the wider frame ran a
+   * lattice line through it.
+   */
+  const landmarkWall = new Uint8Array(W * H);
+  for (const l of plan.landmarks) {
+    if (OPEN_TO_ROAD.has(l.kind)) continue;
+    const [lx, ly, lw, lh] = l.rect;
+    for (let ty = Math.max(0, ly - 1); ty < Math.min(H, ly + lh + 1); ty++) {
+      for (let tx = Math.max(0, lx - 1); tx < Math.min(W, lx + lw + 1); tx++) landmarkWall[ty * W + tx] = 1;
+    }
+  }
+  /** Paint one tile of GENERATED carriageway: like `layAnywhere`, but never over a landmark. */
+  const lay = (tx: number, ty: number, along: PlanPoint | null): void => {
+    if (tx >= 0 && ty >= 0 && tx < W && ty < H && landmarkWall[ty * W + tx] === 1) return;
+    layAnywhere(tx, ty, along);
   };
 
   /**
@@ -778,7 +1061,16 @@ export function buildLayout(plan: CityPlan): CityLayout {
         // borough-length streets that everything navigates by. The through
         // road carries on; the side road stops. Same principle as the
         // markings tiers (§23.2).
-        if (otherLen(other) < len) continue;
+        //
+        // Length ranks generated streets against each other. An AUTHORED
+        // road outranks every generated street whatever its length: the
+        // first bake with the fabric frame widened to the owned land laid a
+        // borough-length lattice line down the side of the Kelvin Bridge
+        // approach for forty tiles — a seven-wide sheet the merged-tarmac
+        // gate caught — because a 112-tile avenue had no seniority over a
+        // 225-tile line. The plan's roads are the ones everything navigates
+        // by; a lattice line that doubles one for a block is the duplicate.
+        if (other.kind === 'street' && otherLen(other) < len) continue;
         const reach = (width + other.width) / 2 + 1;
         for (let k = 0; k + 1 < other.points.length; k++) {
           const [ax, ay] = other.points[k] as PlanPoint;
@@ -822,7 +1114,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
   };
   let carveMark: Uint8Array | null = null;
   const markingLay = (tx: number, ty: number, along: PlanPoint | null): void => {
-    lay(tx, ty, along);
+    layAnywhere(tx, ty, along);
     if (carveMark !== null && tx >= 0 && ty >= 0 && tx < W && ty < H) {
       const i = ty * W + tx;
       if (tiles[i] === T_ROAD || tiles[i] === T_BRIDGE) carveMark[i] = 1;
@@ -943,6 +1235,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // §13.5 invariant — so the band yields only to roads standing at
       // quay's reach of the water themselves.
       if (t !== T_ROAD && t !== T_BRIDGE) continue;
+      // And only a road running WITH the band — along the contour, square to
+      // the gradient. A street crossing the band toward the water is the
+      // junction the band is about to make; counted here it held every
+      // contour street a tile or two short of every cross street
+      // (`roadRunsAlong`).
+      if (!roadRunsAlong(preEsp, W, H, px, py, -gy / len, gx / len)) continue;
       // Two rules, by depth (wave 4.6). The INNERMOST band is the §13.5
       // waterfront street, and yields only to a road that already serves
       // that waterfront — the old rule, kept: an avenue six tiles inland
@@ -1137,6 +1435,37 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
         }
       }
+
+      // The seam street as a COURSE, like the esplanade (§33) and for the
+      // same two reasons. It was the one urban street with no curve: drawn
+      // per tile as a staircase between two boroughs whose own streets are
+      // stroked smooth, and — the part the flyover actually showed — the
+      // streets that T into it end INSIDE its tarmac, because a lattice line
+      // is clipped to its owner and the seam band straddles the boundary. A
+      // ribbon's end is drawn as a kerb cap; a seam with no ribbon of its
+      // own had nothing to paint over those caps, so every borough edge wore
+      // a row of kerb nubs down the middle of the road. Now the seam's fill
+      // covers them the way an avenue's does at every other junction.
+      //
+      // The traced tiles ARE the band's centre line — they were dilated by
+      // one each way to make the street — so they chain straight into a
+      // course. Relaxed before it is simplified: a rasterised polygon edge is
+      // a one-tile staircase, and §19 measured what the painter's spline
+      // makes of a line that keeps every step of that. Half a tile of
+      // tolerance is under the band's half-width, so the trim has nothing to
+      // cut, and the trim clips the line to the tarmac in any case.
+      for (let pts of chainTiles(markedSet, W)) {
+        for (let r = 0; r < 4; r++) {
+          pts = pts.map((p, k) => {
+            if (k === 0 || k === pts.length - 1) return p;
+            const a = pts[k - 1] as [number, number];
+            const b = pts[k + 1] as [number, number];
+            return [(a[0] + p[0] + b[0]) / 3, (a[1] + p[1] + b[1]) / 3];
+          });
+        }
+        const line = simplifyPolyline(pts, 0.5);
+        if (line.length >= 2) courses.push({ points: line, width: 3, kind: 'street' });
+      }
     }
   };
 
@@ -1197,7 +1526,23 @@ export function buildLayout(plan: CityPlan): CityLayout {
 
   const weaveFabrics = (): void => {
     for (const [di, d] of plan.districts.entries()) {
-      const [rx, ry, rx1, ry1] = polyBounds(d.area);
+      // The frame the fabric is carved in: the box round the ground the
+      // borough OWNS on its landmass, not round the polygon somebody drew.
+      // The coast warp pushes a shore borough's land tens of tiles past its
+      // outline, the D1 fill hands that fringe to the borough, and the
+      // esplanade runs along its far edge — but every lattice line used to
+      // stop at the polygon's box, so between the last street and the shore
+      // street lay a band of field with nothing in it, and every connector
+      // reached six tiles into it and stopped (Ravenhill's south shore:
+      // eight piers of tarmac ending in grass a stone's throw short of the
+      // esplanade, §13.1's Finding 3 seen from the other side). Where a
+      // borough meets another borough the two boxes agree, because the D1
+      // fill only ever assigns ground nobody drew.
+      const poly = polyBounds(d.area);
+      const owned = landBounds[di] as [number, number, number, number];
+      const [rx, ry, rx1, ry1] = Number.isFinite(owned[0])
+        ? [Math.min(poly[0], owned[0]), Math.min(poly[1], owned[1]), Math.max(poly[2], owned[2]), Math.max(poly[3], owned[3])]
+        : poly;
       const rw = rx1 - rx;
       const rh = ry1 - ry;
       const { pitchX, pitchY, width, alleyOver, angle } = d.street;
@@ -1666,7 +2011,13 @@ export function buildLayout(plan: CityPlan): CityLayout {
               const py = Math.round(ty + Math.cos(a) * k);
               if (px < 0 || py < 0 || px >= W || py >= H) continue;
               const t = (pre as Uint8Array)[py * W + px] as number;
-              if ((t === T_ROAD || t === T_BRIDGE) && (spineDist[py * W + px] as number) > 5) doubled = true;
+              if (t !== T_ROAD && t !== T_BRIDGE) continue;
+              if ((spineDist[py * W + px] as number) <= 5) continue;
+              // A road that runs WITH the band doubles it; one that crosses
+              // it is the junction this band is about to make, not a reason
+              // to stop short of it (`roadRunsAlong`).
+              if (!roadRunsAlong(pre as Uint8Array, W, H, px, py, Math.cos(a), Math.sin(a))) continue;
+              doubled = true;
             }
             if (doubled) continue;
             lay(tx, ty, null);
@@ -2614,7 +2965,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             }
             // Over bare ground, the beach and the quay — never through the
             // cliff scrub: sealed coasts stay sealed.
-            if (water[j] === 1) continue;
+            if (water[j] === 1 || landmarkWall[j] === 1) continue;
             const tj = tiles[j] as number;
             if (tj !== T_FIELD && tj !== T_SAND && tj !== T_BANK) continue;
             if (avoidShore && wetBeside(j)) continue;
@@ -2690,6 +3041,34 @@ export function buildLayout(plan: CityPlan): CityLayout {
         if (banded(i)) tiles[i] = bandMaterial[i] as number;
       }
     }
+
+    // And last of all, no stubs: a street that leaves a junction reaches
+    // another, or it goes (`trimStubs`).
+    //
+    // Last, and after the quay in particular. The quay pass above turns every
+    // road tile that touches the sea into bank, which is right — but it cuts
+    // the tip off every street that ran down to the water, and where such a
+    // street had only just left the esplanade, what is left between the two
+    // is a tile or two of tarmac going nowhere. Measured with the trim placed
+    // BEFORE the shore was dressed: 49 stubs survived it, and the quay had
+    // made most of them. So the trim runs once the ground is final, and
+    // dresses what it gives back itself: band material where the tile lies in
+    // the shore band, pavement in town, bare ground in the country. The
+    // blocks were cut long before this, so no fill will ever build on a
+    // stub's tiles — as pavement they read as the widened footway a closed
+    // street leaves behind; as field they would be a lawn the width of a
+    // street in the middle of downtown.
+    //
+    // The authored roads and the bridge decks are never stubs, whatever their
+    // shape: Vantage Row ends where the plan ends it.
+    const keep = (i: number): boolean => ringMask[i] === 1 || avenueMask[i] === 1 || tiles[i] === T_BRIDGE;
+    const onto = (i: number): number => {
+      if (banded(i)) return bandMaterial[i] as number;
+      const own = owner[i] as number;
+      const rural = own < 0 || (plan.districts[own] as PlanDistrict).rural === true;
+      return rural ? T_FIELD : T_SIDEWALK;
+    };
+    trimStubs(tiles, water, W, H, keep, onto);
   };
 
   /* ---- the build, in order ----------------------------------------- */

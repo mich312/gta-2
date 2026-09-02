@@ -1,5 +1,123 @@
 # PROGRESS
 
+## Map generation: no stubs, no gaps, no nubs — one declared rebake
+
+A flyover of the review renders (`pnpm mapgen --crop` at every borough)
+looking for roads that make no sense. Four things did, and every one was
+the same shape: a street that stopped a few tiles from where it should
+have gone. This wave fixes them at the source, in one rebake of
+`city.data.ts`, with the evidence retaken (`evidence/bug-*` before,
+`evidence/fixed-*` after).
+
+**What was wrong, measured.** 82 dead-end runs of carriageway on the
+shipped city, 66 of them eight tiles or shorter, 36 a single tile — a
+lattice line poking past its last crossing into the verge, an alley that
+ran out of block piece, a diagonal band's tile standing proud of a
+junction corner. Separately, at every seam between two boroughs the
+streets that T into the seam street ended INSIDE its tarmac and the
+ribbon painter drew a kerb cap there — a row of nubs down the middle of
+every borough edge (`bug-seam-caps.png`). Ravenhill's south shore had
+eight streets marching into an empty field and stopping six tiles short
+of the esplanade (`bug-shore-piers.png`). And the spine and contour
+fabrics' band streets stopped one or two tiles short of every street they
+were about to cross, with a sliver of pavement in the gap
+(`bug-band-gaps.png`, the Terraces against the Beachfront).
+
+**The fixes, each with its cause.**
+
+- *Stubs* — `trimStubs` (layout.ts), the last thing `finishShores` does:
+  junctions found the signals' way (over-wide in every direction, no
+  plaza cap), the runs between them, and any run with a junction at one
+  end only and its tip within `STUB_MAX_TILES` (8) of it goes back to
+  ground — pavement in town, field in the country, band material in the
+  shore band. Authored roads and bridge decks are protected by majority
+  (a lattice stub roots in the avenue's edge tiles; one avenue tile must
+  not protect eight of stub), and so is anything touching open water.
+  Placed BEFORE the shore was dressed it left 49 stubs behind, most of
+  them made by the quay pass cutting the tip off streets that ran to the
+  water; placed last, it leaves 7, on authored roads. 82 → 29 dead-end
+  runs; 66 → 7 short ones. Pinned in `city.test.ts` (`≤ 8`).
+- *Seam nubs* — the seam street was the one urban street with no course.
+  `laySeamStreets` now chains its traced centre tiles into a course like
+  the esplanade does (relaxed four rounds, simplified to half a tile), so
+  its fill covers the stems' caps the way an avenue's does at every other
+  junction. And the painters stop drawing kerb casing on carriageway at
+  all (`tiles.ts`, `mapRender.ts`): a kerb is the edge of a road, and one
+  that lands on another road's tarmac is a kerb across a junction —
+  which is what every course ending in an uncoursed street (a gate, a
+  lane) was leaving behind.
+- *Band gaps* — the spine and contour probes step along the band's
+  normal to find a road running BESIDE the band; on a tilted normal the
+  rounded probe drifts a tile sideways and finds the road the band is
+  about to CROSS, so the band's last tiles before every crossing were
+  refused. `roadRunsAlong` asks whether the road found actually runs with
+  the band (carriageway two tiles either way along it) — a parallel road
+  does, a crossing one is three or four tiles across and does not. This
+  one also changed the block cut: 1156 → 1198 blocks, because bands that
+  reach their crossings stop leaking one interstice into the next.
+- *Shore piers* — `weaveFabrics` carved each borough's fabric inside the
+  bounding box of its DRAWN polygon, while the D1 fill hands the borough
+  its whole warp fringe and the esplanade runs along that fringe's far
+  edge. The frame is now the box round the ground the borough owns on
+  its own landmass (`landBounds`, recorded in `paintOwnership` before the
+  wading wave, so an adopted offshore rock never grows a grid). Every
+  shore borough's fabric now runs to its esplanade. 1198 → 1206 blocks,
+  4076 → 4314 buildings, bare ground 12.7% → 9.9% of dry land.
+- *Authored seniority* — the wider frame's first bake laid a borough-length
+  lattice line down the side of the Kelvin Bridge approach for forty
+  tiles, a seven-wide sheet, because `doubledAgainstCourses` yields only
+  to a LONGER road and a 112-tile avenue had no rank over a 225-tile
+  line. Length now ranks generated streets against each other only; an
+  authored avenue or ring carriageway outranks every generated street
+  whatever its length. Merged tarmac sheets (the §28 metric the suite
+  pins at ≤ 230): 211 → 184.
+
+**What the wider frame broke, and the fixes it forced.** The first bake
+ran a lattice line through The Spire, a landmark the plan had placed on
+fringe no street had ever reached: `lay` now refuses every GENERATED
+carve on a building landmark's footprint plus its pavement ring
+(`landmarkWall`; the plazas stay open via `OPEN_TO_ROAD`, moved to
+types.ts and shared with the bake), while authored roads carve through
+`layAnywhere` so an avenue drawn across a hospital still fails the bake
+by name. The second bake moved Gannet Rock's woodland enough to seal The
+Eyrie inside a ring of trees: air-only landmarks now get a `clearing` —
+the shortest path from the door to the runway, trees felled, nothing
+laid — and the bake's landmark loop matches plan entries by NAME (it
+paired `landmarks` with `plan.landmarks` by index, and the two lists are
+in different orders; the checker already knew). The same bake sealed a
+fifty-tile glade in Ravenhill Park's wood: glades too big for the
+absorb-into-canopy rule get a path felled out through the trees, and the
+felled tiles are marked seen so the scan does not re-tree them as a
+fresh sub-twenty pocket (it did, exactly; measured).
+
+**The review tool told two lies and now tells neither.** `strokeLine`
+drew every course end as a half-disc, so a T-stem's edge-line ring came
+out as a pale arc across the crossing street that the game (butt caps)
+never draws; the ends are square now, joints still round. And it drew
+casing on tarmac like the client used to — the same clip applies.
+
+**Verification.** `pnpm citybake` clean, zero checker warnings. Full
+suite green through the runner. The intermediate bakes shook out four
+tests staged on incidental geometry (`prediction.test.ts`'s lane probe,
+`shoreCut.test.ts`'s one-in-twelve-thousand pin, `traffic.test.ts`'s
+found drowned end, `ambulance.test.ts`'s found kerb) — each red on one
+intermediate bake and green on the next, which is the §41 finding about
+staging on found ground seen again; noted, not changed. One was red on
+the final bake and IS changed: `flight.test.ts`'s `aloft` flew the
+chopper east for five seconds before the bail-out, so where it hung
+depended on the map, and `tryExitVehicle` checks the ground beside the
+aircraft whatever its altitude — over a block now, the door would not
+open. It climbs in place over its own lane instead. Evidence retaken
+with the commands in `evidence/README.md`; the 3D flyover shots need a
+browser and are not.
+
+**Deliberately left.** Dead ends longer than eight tiles: the crescent
+culs-de-sac (§13.5), the country lanes, the ring shave's approaches, and
+a handful of contour connectors that run eight to twelve tiles into a
+park with frontage on them — real streets, if dull ones. The Old
+Quarter's avenue-crossing merged sheets (§28's ceiling) are untouched.
+Vantage Row still ends in a cul-de-sac at y=292 because the plan says so.
+
 ## The suite's exit code learns to tell a failure from starvation
 
 The first run of `test.yml` on a merged main failed with every one of

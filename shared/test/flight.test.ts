@@ -276,13 +276,16 @@ describe('landing (S2, through step)', () => {
       map,
     );
     state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
+    // Climb in place: the latch alone, no throttle. A helicopter lifts from
+    // wherever it is standing, and standing over its own lane is the one
+    // place the door is guaranteed to open — `tryExitVehicle` checks the
+    // ground beside the aircraft for solidity whatever its altitude. Flying
+    // forward for five seconds first put the chopper over whatever the map
+    // happened to have 150 ticks east of the nearest kerb, and the stub
+    // rebake moved that from open ground to a block: three tests then
+    // described a bail-out bug that was really staging.
     for (let i = 0; i < 150; i++) {
-      state = step(
-        state,
-        { 1: { ...NULL_INPUT, seq: i + 2, tick: i, up: true, lift: true } },
-        [],
-        map,
-      );
+      state = step(state, { 1: { ...NULL_INPUT, seq: i + 2, tick: i, lift: true } }, [], map);
     }
     return { state, lane };
   }

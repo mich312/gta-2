@@ -138,6 +138,15 @@ export const LANDMARK_KINDS = [
   'green',
   'circus',
 ] as const;
+
+/**
+ * The landmark kinds a street may run straight through — the plazas. Every
+ * other kind is a building, and no generated street may cross its footprint:
+ * the layout keeps its lattices, seams, esplanade and gates off these rects,
+ * and the bake refuses an AUTHORED road that lands on one, because that is
+ * an authoring error and should be reported rather than routed around.
+ */
+export const OPEN_TO_ROAD: ReadonlySet<string> = new Set(['square', 'green', 'circus']);
 export type LandmarkKind = (typeof LANDMARK_KINDS)[number];
 
 export interface Landmark {

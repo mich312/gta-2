@@ -677,12 +677,33 @@ export class TileLayer {
     }
     ctx.clip();
 
-    // Kerb casing, proud of the carriageway by the kerb band's width.
+    // Kerb casing, proud of the carriageway by the kerb band's width — and
+    // never ON carriageway. A kerb is the edge of the road, so the only
+    // ground it can honestly stand on is the ground beside the road: where a
+    // ribbon's casing lands on a tile that is itself tarmac, that tarmac is
+    // another road's, and the casing is a kerb painted across a junction. A
+    // crossing between two stroked courses hid this — the second fill covers
+    // the first casing — but a course ending inside a street with no course
+    // of its own (a seam street, a country lane, a stitched gate) left its
+    // kerb cap standing in the middle of the road, and every borough edge in
+    // the city wore a row of them. Clipping the casing to non-carriageway
+    // ground is the rule stated once, for every such meeting at once.
+    ctx.save();
+    ctx.beginPath();
+    for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
+      for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
+        const g = this.tileAt(tx, ty);
+        if (g === T_ROAD || g === T_BRIDGE) continue;
+        ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
+      }
+    }
+    ctx.clip();
     ctx.strokeStyle = palette.kerb;
     for (const p of paths) {
       ctx.lineWidth = p.w + 4 * t;
       ctx.stroke(p.path);
     }
+    ctx.restore();
     // The carriageway itself.
     ctx.strokeStyle = palette.road;
     for (const p of paths) {

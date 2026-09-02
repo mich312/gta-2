@@ -353,6 +353,119 @@ describe('the city, as an asset', () => {
     expect(tips).toBeLessThanOrEqual(80);
   });
 
+  it('has no stub streets: a road that leaves a junction reaches another', () => {
+    // The layout's `trimStubs` gate. A dead-end run of carriageway eight
+    // tiles or shorter is not a street — it is the piece of a lattice line
+    // the owner clip left past its last crossing, an alley that ran out of
+    // block, a diagonal band's tile standing proud of a junction corner —
+    // and from the air every one reads as a road that forgot to go
+    // anywhere. Measured on the bake before the trim: 82 dead-end runs, 66
+    // of them this short. After it: the handful that stand on authored
+    // roads, which the trim protects by design (Vantage Row ends where the
+    // plan ends it). Junctions found the signals' way — over-wide in every
+    // direction — with no plaza cap, so a stub off a merged sheet counts.
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const N = W * H;
+    const road = (i: number): boolean => map.tiles[i] === T_ROAD || map.tiles[i] === T_BRIDGE;
+    const roadAt = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H && road(y * W + x);
+    const span = (x: number, y: number, dx: number, dy: number): number => {
+      let s = 1;
+      for (let k = 1; k <= 4 && roadAt(x + dx * k, y + dy * k); k++) s++;
+      for (let k = 1; k <= 4 && roadAt(x - dx * k, y - dy * k); k++) s++;
+      return s;
+    };
+    const STEPS = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const;
+    const junction = new Uint8Array(N);
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (!road(i)) continue;
+        if (span(x, y, 0, 1) > 4 && span(x, y, 1, 0) > 4 && span(x, y, 1, 1) > 4 && span(x, y, 1, -1) > 4) {
+          junction[i] = 1;
+        }
+      }
+    }
+    const patch = new Int32Array(N).fill(-1);
+    let patches = 0;
+    for (let s = 0; s < N; s++) {
+      if (junction[s] !== 1 || (patch[s] as number) >= 0) continue;
+      const bag = [s];
+      patch[s] = patches;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const j = (y + dy) * W + x + dx;
+          if (x + dx < 0 || x + dx >= W || y + dy < 0 || y + dy >= H) continue;
+          if (junction[j] !== 1 || (patch[j] as number) >= 0) continue;
+          patch[j] = patches;
+          bag.push(j);
+        }
+      }
+      patches++;
+    }
+    const run = new Int32Array(N).fill(-1);
+    let runs = 0;
+    let stubs = 0;
+    for (let s = 0; s < N; s++) {
+      if (!road(s) || junction[s] === 1 || (run[s] as number) >= 0) continue;
+      const id = runs++;
+      const bag = [s];
+      run[s] = id;
+      const touched = new Set<number>();
+      const roots: number[] = [];
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        let atJunction = false;
+        for (const [dx, dy] of STEPS) {
+          if (x + dx < 0 || x + dx >= W || y + dy < 0 || y + dy >= H) continue;
+          const j = (y + dy) * W + x + dx;
+          if (!road(j)) continue;
+          if (junction[j] === 1) {
+            touched.add(patch[j] as number);
+            atJunction = true;
+            continue;
+          }
+          if ((run[j] as number) >= 0) continue;
+          run[j] = id;
+          bag.push(j);
+        }
+        if (atJunction) roots.push(i);
+      }
+      if (touched.size !== 1) continue;
+      // Length: how far the tip lies from the junction over the run's tiles.
+      const depth = new Map<number, number>();
+      for (const r of roots) depth.set(r, 0);
+      const queue = [...roots];
+      let tip = 0;
+      for (let q = 0; q < queue.length; q++) {
+        const i = queue[q] as number;
+        const d = depth.get(i) as number;
+        if (d > tip) tip = d;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          if (x + dx < 0 || x + dx >= W || y + dy < 0 || y + dy >= H) continue;
+          const j = (y + dy) * W + x + dx;
+          if ((run[j] as number) !== id || depth.has(j)) continue;
+          depth.set(j, d + 1);
+          queue.push(j);
+        }
+      }
+      if (tip + 1 <= 8) stubs++;
+    }
+    expect(stubs).toBeLessThanOrEqual(8);
+  });
+
   it('has an island you can only reach by air', () => {
     // Gannet Rock. The claim is exact and worth pinning tile by tile, because
     // every way of getting somewhere in this game is a different question:
