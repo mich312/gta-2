@@ -2519,6 +2519,8 @@ export function buildLayout(plan: CityPlan): CityLayout {
 
   /* ---- the ring is limited-access (§14.3 D6) ----------------------- */
 
+  /** The ring's authored junctions, dilated: filled by `guardRingAccess`, read by `plantRingScreen`. */
+  const ringJunction = new Uint8Array(W * H);
   const guardRingAccess = (): void => {
     // A motorway with four hundred driveways is a wide street, not a
     // motorway. Every lattice line, lane and track that touches the ring's
@@ -2534,7 +2536,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // carved. Dilated well past the interchange so the avenue's own
       // sliproads and the lattice's junction plumbing survive.
       const JUNCTION_REACH = 9;
-      const junction = new Uint8Array(W * H);
+      const junction = ringJunction;
       {
         const bag: number[] = [];
         const depth = new Int32Array(W * H).fill(-1);
@@ -2620,6 +2622,67 @@ export function buildLayout(plan: CityPlan): CityLayout {
             changed = true;
           }
         }
+      }
+
+    }
+  };
+
+  /**
+   * The ring's tree screen: planted LAST, after the orphan pass and the
+   * stub trim (see the comment inside), so a street that can reach the
+   * network only across the verge onto the ring keeps that track as a gap
+   * in the screen — the shore street between the ring and the sea on the
+   * Old Quarter's east side, which the first cut of this fenced off and
+   * the orphan pass then rerouted along the quay, nine tiles of road
+   * straight into the water.
+   */
+  const plantRingScreen = (): void => {
+    // The fence itself. The shave made the ring limited-access for the
+    // TRAFFIC MODEL — no carriageway touches it outside a junction — but
+    // the two tiles of verge it left were bare ground a player could
+    // drive straight across, so every cut street was still a way onto
+    // the ring, and from the air it read as streets that stop for no
+    // reason a stone's throw from a road (the largest class in the
+    // dead-end census: twelve of them on the Old Quarter's east side).
+    // A motorway through a grid is cut off by an embankment with a tree
+    // screen on it. So: the tile beside each outer edge of the ring's
+    // carriageways is planted, the way a country lane wears a hedgerow
+    // (§14.3 D5) — trees are a wall to everything on land, so the ring
+    // can be joined only at its authored junctions, which is what
+    // "limited access" was always supposed to mean, and a street that
+    // ends at the screen reads as cut on purpose.
+    //
+    // Not in the median (a tree line down a dual carriageway is a wall
+    // between its two halves, and the circus stands there), not through
+    // an authored junction's reach (the sliproads must stay open), never
+    // over a landmark, and only on bare ground — a deck's neighbours are
+    // water and the shore band dresses its own.
+    const ringBeside = (x: number, y: number): boolean =>
+      (x + 1 < W && ringMask[y * W + x + 1] === 1) ||
+      (x > 0 && ringMask[y * W + x - 1] === 1) ||
+      (y + 1 < H && ringMask[(y + 1) * W + x] === 1) ||
+      (y > 0 && ringMask[(y - 1) * W + x] === 1);
+    const ringWithin = (x: number, y: number, dx: number, dy: number, n: number): boolean => {
+      for (let k = 1; k <= n; k++) {
+        const nx = x + dx * k;
+        const ny = y + dy * k;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) return false;
+        if (ringMask[ny * W + nx] === 1) return true;
+      }
+      return false;
+    };
+    // Between the two carriageways: ring in two opposite directions, on
+    // either axis, within the median's width plus a carriageway.
+    const inMedian = (x: number, y: number): boolean =>
+      (ringWithin(x, y, 1, 0, 8) && ringWithin(x, y, -1, 0, 8)) ||
+      (ringWithin(x, y, 0, 1, 8) && ringWithin(x, y, 0, -1, 8));
+    for (let ty = 1; ty < H - 1; ty++) {
+      for (let tx = 1; tx < W - 1; tx++) {
+        const i = ty * W + tx;
+        if (tiles[i] !== T_FIELD || water[i] === 1) continue;
+        if (ringJunction[i] === 1 || landmarkWall[i] === 1) continue;
+        if (!ringBeside(tx, ty) || inMedian(tx, ty)) continue;
+        tiles[i] = T_TREES;
       }
     }
   };
@@ -3102,6 +3165,8 @@ export function buildLayout(plan: CityPlan): CityLayout {
       return rural ? T_FIELD : T_SIDEWALK;
     };
     trimStubs(tiles, water, W, H, keep, onto);
+
+    plantRingScreen();
   };
 
   /* ---- the build, in order ----------------------------------------- */

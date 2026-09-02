@@ -92,10 +92,34 @@ stub trim runs a second time at the end of the bake, recognising the
 authored roads by their courses. `roadRunsAlong` also gained a tile of
 sideways slack: on a curved shore the rounded tangent ran thirty degrees
 off the road beside it and a four-wide approach read as a crossing.
-Left in the census on purpose: the ring-fence ends (a motorway through a
-grid does cut streets; if that reads wrong from the air the fix is a
-turning head or a frontage road, which is design, not repair), the
-wharf streets, and the crescents.
+Left in the census on purpose: the wharf streets and the crescents.
+
+**The ring-fence ends: a decision.** The largest class was put to the
+owner with two options on the table — leave them, or raise the ring on a
+flyover with the cut streets running under it — and the answer came back
+"you decide, maybe a bridge, bring a z-index into the game". Decided
+against the flyover, for the reason WORLDGEN.md §3.8 already gave when
+it rejected multi-level geometry: the sim is one tile plane read by
+collision, the lane model, junction labelling, prediction and the state
+hash, and vehicles carry a `z` only for stunts and aircraft. A real
+second level threads through all of that; a painted one the sim does
+not honour is the renderer contradicting the map, which this repo treats
+as the worst kind of bug. So the ring stays at grade, and the cut is
+made deliberate and REAL instead. The shave had made the ring
+limited-access for the traffic model only: the two-tile verge it left
+was bare drivable ground, so every cut street was still a way onto the
+ring for a player, and from the air it read as streets that stop for no
+reason beside a road. `plantRingScreen` puts a tree line on the tile
+beside each outer edge of the ring's carriageways — not in the median,
+not through an authored junction's reach, never over a landmark — so a
+cut street ends at an embankment and the ring can be joined at its
+junctions only, which is what "limited access" was always supposed to
+mean. Planted LAST, after the orphan pass and the stub trim: the first
+cut fenced off a shore street between the ring and the sea whose only
+way to the network was across the verge, and the orphan pass rerouted
+it along the quay — nine tiles of road straight into the water, which
+the checker refused. Planted after, that street keeps its track as a gap
+in the screen. `evidence/bug-ring-fence.png` / `fixed-ring-fence.png`.
 
 **What the wider frame broke, and the fixes it forced.** The first bake
 ran a lattice line through The Spire, a landmark the plan had placed on
