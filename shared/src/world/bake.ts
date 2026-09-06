@@ -2,9 +2,10 @@ import { deriveSeed, seedRng } from '../rng/prng.js';
 import { findDoorway, placeShopsFixed } from './amenities.js';
 import { fillBlock, fillRegion, takePathCourses, takePondBankRings, takePondRings } from './buildings.js';
 import { fbm, latticeHash } from './fields.js';
+import { simplifyPolyline } from './plan.js';
 import { MIN_FACING_FIT, facingAngle, massFit } from './heights.js';
-import { buildLayout, trimStubs, type StreetCourse } from './layout.js';
-import type { CityPlan, PlanLandmark } from './plan.js';
+import { buildLayout, chainTiles, trimStubs, type StreetCourse } from './layout.js';
+import type { CityPlan, PlanLandmark, PlanPoint } from './plan.js';
 import {
   T_BANK,
   T_BRIDGE,
@@ -1023,11 +1024,16 @@ export function bakeCity(plan: CityPlan): BakedCity {
     // the same reason the ponds join the shores above: one answer to "what
     // curves does the ground carry", trimmed by one pass against the same
     // finished tiles — each kind against its own ground.
-    courses: trimCourses(
-      [
-        ...layout.courses,
-        ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
-      ],
+    courses: withRecoveredCourses(
+      trimCourses(
+        [
+          ...layout.courses,
+          ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
+        ],
+        tiles,
+        W,
+        H,
+      ),
       tiles,
       W,
       H,
@@ -1072,6 +1078,152 @@ export function bakeCity(plan: CityPlan): BakedCity {
  * per-tile lane markings come straight back underneath.
  */
 const MIN_RUN_WIDTHS = 3;
+
+/**
+ * A course for every carriageway that has none.
+ *
+ * The fabrics record their streets as courses and the ribbon painter draws
+ * them — kerb casing, centre line, the works — while a road no course
+ * covers is painted per tile: no casing, no marking, a dark band. Measured
+ * before this pass, 9.5% of the city's road was such a band, in long
+ * stretches: a quay street the esplanade's chain never reached, the track
+ * the shore pass lays to reconnect a stranded piece, the lanes of the park
+ * boroughs, the avenue along the north shore. Whatever laid them, the tiles
+ * say where they run: the medial tiles of each uncovered stretch — those no
+ * nearer the road's edge than their neighbours — chained the way the
+ * esplanade is, relaxed and simplified the same, at the width the tiles
+ * measure. The trim pass then clips every recovered line to the tarmac like
+ * any other.
+ */
+function withRecoveredCourses(trimmed: StreetCourse[], tiles: Uint8Array, W: number, H: number): StreetCourse[] {
+  // From the TRIMMED courses: a course the trim dropped — the esplanade's
+  // chain round a quay corner, cut as a crossing — covers nothing, and the
+  // street under it needs a line as much as one that never had one.
+  return [...trimmed, ...trimCourses(recoverCourses(trimmed, tiles, W, H), tiles, W, H)];
+}
+
+function recoverCourses(courses: StreetCourse[], tiles: Uint8Array, W: number, H: number): StreetCourse[] {
+  const N = W * H;
+  const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
+  // What the ribbons already reach, the way the bake's own keep-mask reads
+  // a course: every tile within half a width and a half of its line.
+  const covered = new Uint8Array(N);
+  for (const c of courses) {
+    if (c.kind === 'path') continue;
+    const reach = c.width / 2 + 0.5;
+    for (let k = 0; k + 1 < c.points.length; k++) {
+      const [ax, ay] = c.points[k] as readonly [number, number];
+      const [bx, by] = c.points[k + 1] as readonly [number, number];
+      const len = Math.hypot(bx - ax, by - ay) || 1;
+      for (let s = 0; s <= len; s += 0.5) {
+        const px = ax + ((bx - ax) * s) / len;
+        const py = ay + ((by - ay) * s) / len;
+        for (let oy = -3; oy <= 3; oy++) {
+          for (let ox = -3; ox <= 3; ox++) {
+            const tx = Math.floor(px + ox);
+            const ty = Math.floor(py + oy);
+            if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+            if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) <= reach) covered[ty * W + tx] = 1;
+          }
+        }
+      }
+    }
+  }
+  // Distance from the road's edge, in tiles, over road tiles.
+  const depth = new Int32Array(N).fill(-1);
+  const bag: number[] = [];
+  for (let i = 0; i < N; i++) {
+    if (isRoad(i)) continue;
+    depth[i] = 0;
+    bag.push(i);
+  }
+  for (let q = 0; q < bag.length; q++) {
+    const i = bag[q] as number;
+    const x = i % W;
+    const y = (i - x) / W;
+    for (const [dx, dy] of [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+      const j = ny * W + nx;
+      if ((depth[j] as number) >= 0) continue;
+      depth[j] = (depth[i] as number) + 1;
+      bag.push(j);
+    }
+  }
+  // The medial tiles of the uncovered road: no nearer the edge than any
+  // neighbour, and not beside covered road — a street's last tile before
+  // the junction it makes with a ribboned street is the junction's, and a
+  // chain through it would run a stub across the crossing.
+  const medial = new Set<number>();
+  for (let y = 1; y < H - 1; y++) {
+    for (let x = 1; x < W - 1; x++) {
+      const i = y * W + x;
+      if (!isRoad(i) || covered[i] === 1) continue;
+      const d = depth[i] as number;
+      // Streets only: three tiles from the edge is the middle of a sheet —
+      // a junction blob, a plaza, a wide authored road — and a chain
+      // through one hooks at its end, which the lane model then aims a car
+      // down nine tiles past the crossing.
+      if (d < 1 || d > 2) continue;
+      let top = true;
+      let besideCovered = false;
+      for (let oy = -1; oy <= 1 && top; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const j = (y + oy) * W + (x + ox);
+          if ((depth[j] as number) > d) {
+            top = false;
+            break;
+          }
+          if (covered[j] === 1 && isRoad(j)) besideCovered = true;
+        }
+      }
+      if (top && !besideCovered) medial.add(i);
+    }
+  }
+  const out: StreetCourse[] = [];
+  for (let pts of chainTiles(medial, W)) {
+    if (pts.length < 8) continue;
+    // The width the tiles measure: twice the median depth, less one, which
+    // is three for a three-wide street and two for a lane.
+    const depths = pts.map((p) => depth[Math.floor(p[1]) * W + Math.floor(p[0])] as number).sort((a, b) => a - b);
+    const width = Math.max(2, Math.min(4, 2 * (depths[depths.length >> 1] as number) - 1));
+    for (let r = 0; r < 4; r++) {
+      pts = pts.map((p, k) => {
+        if (k === 0 || k === pts.length - 1) return p;
+        const a = pts[k - 1] as [number, number];
+        const b = pts[k + 1] as [number, number];
+        return [(a[0] + p[0] + b[0]) / 3, (a[1] + p[1] + b[1]) / 3];
+      });
+    }
+    const line = simplifyPolyline(pts, 0.5);
+    // No hook at either end: a last segment under two tiles that turns
+    // more than sixty degrees is the chain curling into the crossing it
+    // stops at, not the street.
+    const unhook = (l: PlanPoint[]): PlanPoint[] => {
+      while (l.length >= 3) {
+        const [a, b, c] = [l[l.length - 3], l[l.length - 2], l[l.length - 1]] as [PlanPoint, PlanPoint, PlanPoint];
+        const ux = b[0] - a[0];
+        const uy = b[1] - a[1];
+        const vx = c[0] - b[0];
+        const vy = c[1] - b[1];
+        const lu = Math.hypot(ux, uy);
+        const lv = Math.hypot(vx, vy);
+        if (lv >= 2 || lu === 0 || lv === 0 || (ux * vx + uy * vy) / (lu * lv) > 0.5) break;
+        l.pop();
+      }
+      return l;
+    };
+    const clean = unhook(unhook(line.slice()).reverse()).reverse();
+    if (clean.length >= 2) out.push({ points: clean, width, kind: 'street' });
+  }
+  return out;
+}
 
 /**
  * Keep only the stretches of each course that still run over its ground —

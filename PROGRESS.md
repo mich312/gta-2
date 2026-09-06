@@ -121,6 +121,25 @@ begins at the bridge landing — one line of the plan — and the smoothing
 it already asked for bends the join. Evidence: `bug-avenue-gap` /
 `fixed-avenue-gap`.
 
+**Loop 6 — a ribbon for every carriageway.** Loop 4 left 9.5% of the
+road under no course, and the largest stretches were long: the track the
+shore pass lays to reconnect a stranded piece of road (a two-wide
+staircase down The Spine's south-west beach, drawn per tile as a dark
+smear), Vasco Heights' quay street (whose esplanade course, chained
+round the quay corner, the trim cut as a crossing), the park boroughs'
+lanes, the avenue along the north shore. Two things. The shore pass now
+records its tracks as courses, relaxed and simplified like a seam street.
+And the bake ends with `recoverCourses`: on the TRIMMED courses — a course
+the trim dropped covers nothing — it finds every road tile no ribbon
+reaches, takes the medial tiles of each stretch (no nearer the road's
+edge than any neighbour, and not beside ribboned road, where a chain would
+run a stub across the crossing), chains them the way the esplanade is
+chained, at the width the tiles measure, and trims the result like any
+other course. Ribbonless carriageway 9.5% → 4.9%, what is left being
+junction corners and short pieces; street courses 366 → 473, no hairpins,
+straightness 0.021. Evidence: `bug-ribbonless-track` /
+`fixed-ribbonless-track`, `bug-ribbonless-quay` / `fixed-ribbonless-quay`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

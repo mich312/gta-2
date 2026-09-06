@@ -240,7 +240,7 @@ function strokeDepth(
  * to the nearest unused tile within two, which is what turns a one-tile-wide
  * ribbon of "centre of the band" tiles into a line somebody can stroke.
  */
-function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>> {
+export function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>> {
   const out: Array<Array<[number, number]>> = [];
   const left = new Set(pool);
   while (left.size > 0) {
@@ -3413,6 +3413,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         if (hit >= 0) break;
       }
       if (hit < 0 || from === null) continue; // walled in: the prune below takes it
+      const track: Array<[number, number]> = [];
       for (let i = from[hit] as number; (label[i] as number) !== id; i = from[i] as number) {
         tiles[i] = T_ROAD;
         const tn = i + 1 < W * H ? (tiles[i + 1] as number) : T_WATER;
@@ -3420,6 +3421,27 @@ export function buildLayout(plan: CityPlan): CityLayout {
           tiles[i + 1] = T_ROAD;
         }
         label[i] = biggest;
+        track.push([(i % W) + 1, Math.floor(i / W) + 0.5]);
+      }
+      // The track as a COURSE, like every other road the city lays: it was
+      // the largest stretch of carriageway with no ribbon — a four-connected
+      // walk along a diagonal shore is a staircase two tiles wide, and drawn
+      // per tile it read as a dark smear down the beach. Relaxed and
+      // simplified the way the seam streets are, so the painter strokes a
+      // lane through the steps; its clip lets the stroke take the sand and
+      // field either side, which is what smooths them.
+      if (track.length >= 6) {
+        let pts: Array<[number, number]> = track;
+        for (let r = 0; r < 4; r++) {
+          pts = pts.map((p, k) => {
+            if (k === 0 || k === pts.length - 1) return p;
+            const a = pts[k - 1] as [number, number];
+            const b = pts[k + 1] as [number, number];
+            return [(a[0] + p[0] + b[0]) / 3, (a[1] + p[1] + b[1]) / 3];
+          });
+        }
+        const line = simplifyPolyline(pts, 0.5);
+        if (line.length >= 2) courses.push({ points: line, width: 2, kind: 'street' });
       }
       // The component now reaches the network; fold it into the keep set.
       for (const i of bag) label[i] = biggest;
