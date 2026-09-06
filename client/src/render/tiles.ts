@@ -761,6 +761,58 @@ export class TileLayer {
       bare.arc(jx, jy, jr, 0, Math.PI * 2);
       punched++;
     }
+    // Bare asphalt at every crossing BEFORE the interiors go back on: the
+    // pale edge rings above were stroked for every course over everything,
+    // and where a course crosses tarmac that no course's repaint reaches —
+    // a junction sheet, the merge of a diagonal into a street — its edge
+    // line lay across the carriageway like a kerb painted through the
+    // junction, plain to see from the 3D camera at every seam. The discs
+    // are the crossings, so painting them road colour here covers exactly
+    // those rings and nothing else; each course's own interior is repainted
+    // over the top below, as before.
+    ctx.fillStyle = palette.road;
+    for (const j of this.junctionDiscs) {
+      const jx = (j.x - tx0) * TD;
+      const jy = (j.y - ty0) * TD;
+      const jr = j.r * TD;
+      if (jx + jr < 0 || jy + jr < 0 || jx - jr > CHUNK_DEVICE || jy - jr > CHUNK_DEVICE) continue;
+      ctx.beginPath();
+      ctx.arc(jx, jy, jr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // And bare asphalt on every carriageway tile no ribbon's interior
+    // reaches — the rest of a junction sheet, the wedge where a diagonal
+    // merges into a street — for the same reason: a ring stroked across
+    // tarmac that nothing repaints stays there. A tile is reached when its
+    // centre is within a course's own interior half-width of its line.
+    for (let ty = ty0; ty < ty0 + CHUNK_TILES; ty++) {
+      for (let tx = tx0; tx < tx0 + CHUNK_TILES; tx++) {
+        const g = this.tileAt(tx, ty);
+        if (g !== T_ROAD && g !== T_BRIDGE) continue;
+        const cx = (tx + 0.5) * TILE_SIZE;
+        const cy = (ty + 0.5) * TILE_SIZE;
+        let reached = false;
+        for (const r of near) {
+          if (r.kind === 'path') continue;
+          const half = r.widthPx / 2 - 2;
+          if (cx < r.minX - half || cx > r.maxX + half || cy < r.minY - half || cy > r.maxY + half) continue;
+          const n = r.pts.length / 2;
+          for (let i = 0; i + 1 < n && !reached; i++) {
+            const ax = r.pts[i * 2] as number;
+            const ay = r.pts[i * 2 + 1] as number;
+            const bx = r.pts[i * 2 + 2] as number;
+            const by = r.pts[i * 2 + 3] as number;
+            const vx = bx - ax;
+            const vy = by - ay;
+            const l2 = vx * vx + vy * vy || 1;
+            const u = Math.max(0, Math.min(1, ((cx - ax) * vx + (cy - ay) * vy) / l2));
+            if (Math.hypot(cx - ax - u * vx, cy - ay - u * vy) <= half) reached = true;
+          }
+          if (reached) break;
+        }
+        if (!reached) ctx.fillRect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
+      }
+    }
     for (const p of order) {
       ctx.setLineDash([]);
       ctx.strokeStyle = palette.road;

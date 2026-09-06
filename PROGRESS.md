@@ -192,6 +192,29 @@ The axis grid got the same stretch rule in loop 8's exploration and keeps
 it. 162 tiles of doubled lane gone; sliver strips 742 → 703. Evidence:
 `bug-doubled-lane` / `fixed-doubled-lane`.
 
+**Loop 10 — as the game shows it.** The last loop looked through the 3D
+camera rather than the review tool, at two of the places the loops had
+changed, and found a bug the top-down renders never showed: pale kerb
+lines running across the tarmac at junctions. The painter strokes every
+course's edge ring over everything and then repaints each course's own
+interior; where a course crosses carriageway that no course's repaint
+reaches — a junction sheet, the wedge where a diagonal merges into a
+street — its ring lay across the road like a kerb painted through the
+crossing, plain at every seam from the game's own camera. The painter now
+lays bare asphalt over every junction disc and over every carriageway tile
+no ribbon's interior reaches, before the interiors and the dashes go back
+on. Client only; no rebake. Evidence: `bug-kerb-across-junction` /
+`fixed-kerb-across-junction`.
+
+**The ten loops, in numbers.** Ribbonless carriageway 19.9% → 4.9%;
+hairpin courses 16 → 0; junction patches over 80 tiles 14 → 6; dead ends
+the stub walk can see and does not trim, by its own invariant, 19 (ten at
+landmark doors, nine authored road ends); mean course sagitta 0.0195 →
+0.021; blocks 1,189 → 1,139. Every loop but the last is one declared
+rebake, and the full suite was green after each; the bots and parity gates
+were last run on the bridges wave, which these loops leave untouched (they
+change the map, not the simulation).
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
