@@ -286,7 +286,21 @@ function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>
           }
         }
       }
+      if (best >= 0) {
+        dx = (best % W) - x;
+        dy = (best - (best % W)) / W - y;
+      }
       at = best;
+    }
+    // The ribbon's other side, left behind: a tile beside one the chain
+    // took is the same line, and chaining it separately would be the
+    // hairpin's twin — a second course a tile off the first.
+    for (const i of taken) {
+      const x = i % W;
+      const y = (i - x) / W;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) left.delete((y + oy) * W + (x + ox));
+      }
     }
     if (chain.length >= 6) out.push(chain);
   }
@@ -1276,6 +1290,27 @@ export function buildLayout(plan: CityPlan): CityLayout {
   const esplanade = new Set<number>();
   const espBand = new Set<number>();
 
+  /**
+   * Land behind the shore: some tile within five of this one is eight or
+   * more from the water. A spit has none — Gannet Spit is eight tiles wide
+   * between its two beaches, so the 3..5 band from EACH shore met in the
+   * middle and the esplanade ran a one-tile road the length of the spit,
+   * with a T-stub where the spit turned, serving nothing and ending in
+   * sand. A shore street is for the town behind it; a strip of dune has no
+   * town behind it.
+   */
+  const hinterlandNear = (tx: number, ty: number): boolean => {
+    for (let dy = -5; dy <= 5; dy++) {
+      for (let dx = -5; dx <= 5; dx++) {
+        const nx = tx + dx;
+        const ny = ty + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        if ((shoreDist[ny * W + nx] as number) >= 8) return true;
+      }
+    }
+    return false;
+  };
+
   /** A bridge deck within four tiles, in the tiles the esplanade probes. */
   const bridgeDeckNear = (tx: number, ty: number): boolean => {
     for (let dy = -4; dy <= 4; dy++) {
@@ -1328,6 +1363,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         // ground; the probe above cannot see it because the deck is four
         // tiles off, over the water, exactly where the probe does not walk.
         if (bridgeDeckNear(tx, ty)) continue;
+        if (!hinterlandNear(tx, ty)) continue;
         lay(tx, ty, null);
         // The esplanade's own centre line, for a course below. ONE distance,
         // not a window: `shoreDist` is integral, so `|sd - 4.5| < 0.6` picks
@@ -1558,6 +1594,18 @@ export function buildLayout(plan: CityPlan): CityLayout {
   };
 
   const weaveFabrics = (): void => {
+    /**
+     * A fabric street is for a town, so it is carved only where there is
+     * land behind the shore (`hinterlandNear`). The lattice frame is the
+     * borough's owned land, and that includes its spits: Gannet Spit got
+     * two lattice lines across its dune, twenty-four tiles of street with
+     * no block to serve, and the shore pass then laid a thirty-tile track
+     * to connect the fragment — a road down the spit ending in a T on the
+     * sand.
+     */
+    const layTown = (tx: number, ty: number): void => {
+      if (hinterlandNear(tx, ty)) lay(tx, ty, null);
+    };
     for (const [di, d] of plan.districts.entries()) {
       // The frame the fabric is carved in: the box round the ground the
       // borough OWNS on its landmass, not round the polygon somebody drew.
@@ -1587,7 +1635,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         for (let ty = Math.max(0, y); ty < Math.min(H, y + h); ty++) {
           for (let tx = Math.max(0, x); tx < Math.min(W, x + w); tx++) {
             if (!inThis(tx, ty)) continue;
-            lay(tx, ty, null);
+            layTown(tx, ty);
           }
         }
       };
@@ -1816,7 +1864,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
           for (let tx = x0; tx <= xe; tx++) {
             if (!inThis(tx, ty)) continue;
             const c = alongU ? toV(tx + 0.5, ty + 0.5) : toU(tx + 0.5, ty + 0.5);
-            if (Math.abs(c - at) < width / 2) lay(tx, ty, null);
+            if (Math.abs(c - at) < width / 2) layTown(tx, ty);
           }
         }
       };
@@ -1901,7 +1949,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
               if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
               if (!inThis(tx, ty)) continue;
               if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) < width / 2) {
-                lay(tx, ty, null);
+                layTown(tx, ty);
                 bearing[ty * W + tx] = deg;
               }
             }

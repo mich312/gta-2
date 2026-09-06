@@ -308,3 +308,10 @@ shots are the same crops from the bake before the wave.
 | file | what it shows |
 |---|---|
 | `bridge-flat-3d.png` / `bridge-real-3d.png` | The strait bridge south of the Old Quarter in the 3D flyover, at tile 285,318. Flat (the default game): the deck is drawn at street level, because that is where the sim drove it (BUGS §2.1). With `?heights=1`: the deck climbs from the bank in four steps a car takes, holds forty px over the water, the river shows under its edge, and the parapets stand on it. Retake: `pnpm --filter client dev`, then `node ci/shot.mjs "http://localhost:5173/city3d.html?fly=1&at=285,318&pitch=55&h=150[&heights=1]" evidence/<file>`. |
+
+## Map loops — streets for a town, not for a dune
+
+| file | what it shows |
+|---|---|
+| `bug-spit-road.png` / `fixed-spit-road.png` | Gannet Spit. Before: a one-tile road the length of the spit with a T-stub on the sand at its turn, serving nothing — two lattice lines the fabric carved across the dune because the lattice frame is the borough's owned land, spit included, and then a thirty-tile track the shore pass laid to connect the fragment. After: no street where there is no town behind the shore (`hinterlandNear`). Retake: `node server/dist/tools/mapgen.js --crop=595,585,110 --scale=5 --out=evidence/fixed-spit-road.png`. |
+| `bug-cape-road.png` / `fixed-cape-road.png` | A Docks arterial running down a cape to the water and ending on the point. After: it ends where the land does. Retake: `--crop=454,352,36 --scale=10`. |

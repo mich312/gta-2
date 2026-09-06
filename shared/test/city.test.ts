@@ -298,6 +298,52 @@ describe('the city, as an asset', () => {
       }
       return null;
     };
+    // Shore with no town behind it is excused too: a spit, a cape, a dune
+    // between two beaches. The layout carves no fabric street and no
+    // esplanade where nothing within five tiles is eight from the water
+    // (`hinterlandNear`), because a street there served nothing — Gannet
+    // Spit had a road the length of it ending in a T on the sand — and the
+    // invariant is about the TOWN's waterfront, not the dune's.
+    const shoreDist = new Int32Array(W * H).fill(-1);
+    {
+      const bag: number[] = [];
+      for (let i = 0; i < map.tiles.length; i++) {
+        if (map.tiles[i] === T_WATER) {
+          shoreDist[i] = 0;
+          bag.push(i);
+        }
+      }
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if ((shoreDist[j] as number) >= 0) continue;
+          shoreDist[j] = (shoreDist[i] as number) + 1;
+          bag.push(j);
+        }
+      }
+    }
+    const hinterland = (tx: number, ty: number): boolean => {
+      for (let dy = -5; dy <= 5; dy++) {
+        for (let dx = -5; dx <= 5; dx++) {
+          const nx = tx + dx;
+          const ny = ty + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          if ((shoreDist[ny * W + nx] as number) >= 8) return true;
+        }
+      }
+      return false;
+    };
     let checked = 0;
     let far = 0;
     for (let ty = 1; ty < H - 1; ty++) {
@@ -309,6 +355,7 @@ describe('the city, as an asset', () => {
         if (!own || own.rural) continue;
         const d = dist[i] as number;
         if (d < 0) continue; // enclosed islet: no land path to any road
+        if (!hinterland(tx, ty)) continue; // a dune: no town behind it
         checked++;
         if (d > 5) far++;
       }

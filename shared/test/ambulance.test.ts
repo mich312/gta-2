@@ -111,7 +111,11 @@ describe('the ambulance service', () => {
     // `casualtyLanes` on why several): the claim is the service, and one
     // kerb the follower cannot close on is the follower's known ceiling.
     let done = false;
-    for (const lane of casualtyLanes(4)) {
+    // Eight kerbs, not four: at the follower's measured 3/8 completion rate
+    // four candidates all failing is an 18% event on any given bake, and it
+    // happened on the map-loops rebake with nothing about the service
+    // changed. Eight puts the same event under 3%.
+    for (const lane of casualtyLanes(8)) {
       let { state } = casualtyOnTheKerbAt(11, lane);
       const events: SimEvent[] = [];
       let arrived = false;

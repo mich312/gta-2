@@ -1,5 +1,34 @@
 # PROGRESS
 
+## Map loops: ten passes of find-a-bug, fix, rebake
+
+The owner's brief: loop over the map, find visual bugs, fix them, with
+licence to start from scratch. Not taken up — the plan, the bake, the
+checker and the suite are the tools that make a loop cheap, and every bug
+below was found with them in minutes. Each loop is one declared rebake.
+
+**Loop 1 — streets for a town, not for a dune.** Gannet Spit carried a
+one-tile road the length of the spit with a T-stub on the sand where it
+turned, serving nothing. Traced by probing the tile grid after every
+layout pass: the fabric lattice carved twenty-four tiles of street across
+the dune (its frame is the borough's owned land, spit included), and the
+shore pass then laid a thirty-tile track to connect the fragment, which is
+the stub. Fixed at the source: a fabric street and an esplanade are carved
+only where there is land behind the shore — some tile within five that is
+eight from the water (`hinterlandNear`, `layTown`). The same rule cleared
+a Docks arterial that ran down a cape to end on its point, a Terraces
+street up a thin cape to its tip, and a road the top-shore avenue pushed
+out onto the beach: 625 road tiles gone, 152 laid where blocks reshaped,
+38 fewer blocks. The waterfront invariant excuses shore with no town
+behind it for the same reason; 74 of its 81 far tiles were dune. Evidence:
+`bug-spit-road` / `fixed-spit-road`, `bug-cape-road` / `fixed-cape-road`.
+Two tests staged on the shipped city flipped on the rebake and were
+hardened rather than the bake bent to them: the traffic census's motion
+floor is now the mean of two seeds (the same bake measured 0.31 on one
+seed and 0.66 on the next; it is where traffic spawns, not the city), and
+the ambulance service tries eight kerbs instead of four (at the follower's
+3/8 completion rate, four all failing is an 18% event per bake).
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
