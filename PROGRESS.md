@@ -111,6 +111,16 @@ was carried. The axis grid now records the same. Uncovered carriageway
 beyond any ribbon's reach, the stitched tracks and the park boroughs'
 lanes. Evidence: `bug-unmarked-grid` / `fixed-unmarked-grid`.
 
+**Loop 5 — two avenues that never met.** Where South Sound Bridge lands
+in The Spine, its road stopped inside a block and The Esplanade began
+inside the next one, fourteen tiles on; the grid's own streets carried
+the traffic between them and from the air both read as an avenue that
+forgot to go anywhere. Not the generator's doing: the plan drew the
+bridge to 214,486 and the seafront road from 228,470. The Esplanade now
+begins at the bridge landing — one line of the plan — and the smoothing
+it already asked for bends the join. Evidence: `bug-avenue-gap` /
+`fixed-avenue-gap`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
