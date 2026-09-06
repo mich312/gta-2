@@ -2195,19 +2195,90 @@ export function buildLayout(plan: CityPlan): CityLayout {
         // drops and all — the trim pass cuts the course at every stretch the
         // drop hash left uncarved, which is what turns one recorded line
         // into the crescents the fabric actually built.
-        const coursePts: Array<readonly [number, number]> = [];
+        let coursePts: Array<readonly [number, number]> = [];
         const lam = Math.max(28, pitchX * 2.6);
         const amp = 3;
         const phase = latticeHash(0xc5e5c ^ di, Math.round(at), alongU ? 1 : 0) * Math.PI * 2;
         const dropLen = Math.max(10, alongU ? pitchX : pitchY);
-        for (let t = lo; t <= hi; t += 0.7) {
+        // In STRETCHES, like the lattices (see `alongside`): `doubledUp` and
+        // `doubledAgainstCourses` refuse a lane that runs beside another road
+        // for two fifths of its length, and let through one that doubles the
+        // Beachfront seam street for a dozen tiles of a long lane — two
+        // ribbons a tile apart with a sliver of pavement between. Sampled
+        // along the wave against the tiles as they stand, a stretch with
+        // road within `CLEAR` of the lane's band for twelve samples (eight
+        // tiles) or more is left uncarved, and the course breaks there.
+        const CLEAR = 3;
+        const samples: number[] = [];
+        for (let t = lo; t <= hi; t += 0.7) samples.push(t);
+        const conflict = new Uint8Array(samples.length);
+        for (let k = 0; k < samples.length; k++) {
+          const t = samples[k] as number;
+          const off = at + amp * Math.sin(((t - lo) * 2 * Math.PI) / lam + phase);
+          const [px, py] = pt(t, off);
+          for (let o = -(width / 2 + CLEAR); o <= width / 2 + CLEAR; o += 1) {
+            const tx = Math.floor(alongU ? px - euy * o : px + eux * o);
+            const ty = Math.floor(alongU ? py + eux * o : py + euy * o);
+            if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+            const tt = tiles[ty * W + tx] as number;
+            if (tt === T_ROAD || tt === T_BRIDGE) {
+              conflict[k] = 1;
+              break;
+            }
+          }
+        }
+        const skip = new Uint8Array(samples.length);
+        // A lane that stops three tiles short of the road it would have
+        // doubled is a stub pointing at it. Into each skipped stretch the
+        // lane is carried on from either end until it touches that road —
+        // a junction, where the doubling would have been.
+        const touchesRoad = (k: number): boolean => {
+          const t = samples[k] as number;
+          const off = at + amp * Math.sin(((t - lo) * 2 * Math.PI) / lam + phase);
+          const [px, py] = pt(t, off);
+          for (let oy = -2; oy <= 2; oy++) {
+            for (let ox = -2; ox <= 2; ox++) {
+              const tx = Math.round(px + ox);
+              const ty = Math.round(py + oy);
+              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+              if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) >= width / 2 + 1) continue;
+              const tt = tiles[ty * W + tx] as number;
+              if (tt === T_ROAD || tt === T_BRIDGE) return true;
+            }
+          }
+          return false;
+        };
+        for (let k = 0; k < samples.length; ) {
+          if (conflict[k] !== 1) {
+            k++;
+            continue;
+          }
+          let e = k;
+          while (e < samples.length && conflict[e] === 1) e++;
+          if (e - k >= 12) {
+            skip.fill(1, k, e);
+            if (k > 0) for (let j = k; j < e && j < k + 12; j++) { skip[j] = 0; if (touchesRoad(j)) break; }
+            if (e < samples.length) for (let j = e - 1; j >= k && j > e - 13; j--) { skip[j] = 0; if (touchesRoad(j)) break; }
+          }
+          k = e;
+        }
+        const flushCourse = (): void => {
+          if (coursePts.length >= 2) courses.push({ points: coursePts, width, kind: 'street' });
+          coursePts = [];
+        };
+        for (let k = 0; k < samples.length; k++) {
+          const t = samples[k] as number;
+          if (skip[k] === 1) {
+            flushCourse();
+            continue;
+          }
           if (drop) {
             const m = Math.floor((t - lo) / dropLen);
             if (latticeHash(0xd50b ^ di, Math.round(at), m) < 0.38) continue;
           }
           const off = at + amp * Math.sin(((t - lo) * 2 * Math.PI) / lam + phase);
           const [px, py] = pt(t, off);
-          if (coursePts.length === 0 || t + 0.7 > hi || ((t - lo) / 0.7) % 3 < 1) {
+          if (coursePts.length === 0 || t + 0.7 > hi || ((t - lo) / 0.7) % 3 < 1 || skip[k + 1] === 1) {
             coursePts.push([px, py]);
           }
           // The street's own direction at this point of the wave — the wobble
@@ -2232,7 +2303,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             }
           }
         }
-        if (coursePts.length >= 2) courses.push({ points: coursePts, width, kind: 'street' });
+        flushCourse();
       };
 
       /**

@@ -176,6 +176,22 @@ into the one known residual tile there (a car a pixel into the water row);
 it now counts coast tiles, which is the ceiling its own comment names.
 Evidence: `bug-doubled-band` / `fixed-doubled-band`.
 
+**Loop 9 — the doubled lane.** The same fault in a third carve. At the
+Beachfront–New Suburbs seam a crescent lane ran a tile from the seam
+street for a dozen tiles: two ribbons with a sliver of pavement between.
+The lane's doubled-up tests (`doubledUp`, `doubledAgainstCourses`) are
+global to the whole lane — refuse it if two fifths of it runs beside
+another road — and a dozen tiles of a long lane is not two fifths. The
+wave is now sampled against the tiles as they stand before it is carved,
+a stretch with road within three tiles of its band for eight tiles or
+more is left uncarved and the course breaks there, and — the part the
+first try got wrong, which left both pieces as stubs pointing at the seam
+— the lane is carried on into each such stretch from either end until it
+touches the road it would have doubled, so the two meet as a junction.
+The axis grid got the same stretch rule in loop 8's exploration and keeps
+it. 162 tiles of doubled lane gone; sliver strips 742 → 703. Evidence:
+`bug-doubled-lane` / `fixed-doubled-lane`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
