@@ -7,6 +7,7 @@ import { bakeCity, decodeBakedCity, encodeBakedCity } from '../src/world/bake.js
 import { bevelOther } from '../src/world/bevel.js';
 import { generateCity } from '../src/world/generate.js';
 import { parseWorldgenParams } from '../src/world/params.js';
+import { markJunctions } from '../src/world/layout.js';
 import {
   LANDMARK_KINDS,
   T_BANK,
@@ -428,16 +429,10 @@ describe('the city, as an asset', () => {
       [0, 1],
       [0, -1],
     ] as const;
-    const junction = new Uint8Array(N);
-    for (let y = 0; y < H; y++) {
-      for (let x = 0; x < W; x++) {
-        const i = y * W + x;
-        if (!road(i)) continue;
-        if (span(x, y, 0, 1) > 4 && span(x, y, 1, 0) > 4 && span(x, y, 1, 1) > 4 && span(x, y, 1, -1) > 4) {
-          junction[i] = 1;
-        }
-      }
-    }
+    // The layout's own junction rule (`markJunctions`), so this counts what
+    // the stub walk counts: since the map loops a crossing of two narrow
+    // streets is a junction too, and a stub off one is a stub.
+    const junction = markJunctions(map.tiles, W, H);
     const patch = new Int32Array(N).fill(-1);
     let patches = 0;
     for (let s = 0; s < N; s++) {
@@ -457,6 +452,39 @@ describe('the city, as an asset', () => {
         }
       }
       patches++;
+    }
+    // What the trim protects by design, and this count therefore excuses:
+    // the authored roads (an avenue or the ring, recognised by its course,
+    // the way the bake recognises them) end where the plan ends them, and a
+    // landmark's way in is not a stub however short.
+    const excused = new Uint8Array(N);
+    for (const c of map.courses) {
+      if (c.kind !== 'avenue' && c.kind !== 'ring') continue;
+      const reach = c.width / 2 + 0.5;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        const len = Math.hypot(bx - ax, by - ay) || 1;
+        for (let t = 0; t <= len; t += 0.5) {
+          const px = ax + ((bx - ax) * t) / len;
+          const py = ay + ((by - ay) * t) / len;
+          for (let oy = -3; oy <= 3; oy++) {
+            for (let ox = -3; ox <= 3; ox++) {
+              const tx = Math.floor(px + ox);
+              const ty = Math.floor(py + oy);
+              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+              if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) <= reach) excused[ty * W + tx] = 1;
+            }
+          }
+        }
+      }
+    }
+    for (const l of map.landmarks) {
+      const dx = Math.floor(l.doorX / TILE_SIZE);
+      const dy = Math.floor(l.doorY / TILE_SIZE);
+      for (let y = Math.max(0, dy - 6); y <= Math.min(H - 1, dy + 6); y++) {
+        for (let x = Math.max(0, dx - 6); x <= Math.min(W - 1, dx + 6); x++) excused[y * W + x] = 1;
+      }
     }
     const run = new Int32Array(N).fill(-1);
     let runs = 0;
@@ -508,7 +536,11 @@ describe('the city, as an asset', () => {
           queue.push(j);
         }
       }
-      if (tip + 1 <= 8) stubs++;
+      if (tip + 1 > 8) continue;
+      let kept = 0;
+      for (const i of bag) if (excused[i] === 1) kept++;
+      if (kept * 2 > bag.length) continue;
+      stubs++;
     }
     expect(stubs).toBeLessThanOrEqual(8);
   });

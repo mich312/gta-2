@@ -925,12 +925,23 @@ export function bakeCity(plan: CityPlan): BakedCity {
         (y > 0 && tiles[i - W] === T_WATER)
       );
     };
+    // A landmark's way in is not a stub, however short: the Harbour
+    // Precinct's forecourt spur was six tiles of dead end by the walk's
+    // measure, and the only road within six tiles of its door.
+    const nearDoor = new Uint8Array(W * H);
+    for (const l of landmarks) {
+      const dx = Math.floor(l.doorX / TILE_SIZE);
+      const dy = Math.floor(l.doorY / TILE_SIZE);
+      for (let y = Math.max(0, dy - 6); y <= Math.min(H - 1, dy + 6); y++) {
+        for (let x = Math.max(0, dx - 6); x <= Math.min(W - 1, dx + 6); x++) nearDoor[y * W + x] = 1;
+      }
+    }
     trimStubs(
       tiles,
       layout.water,
       W,
       H,
-      (i) => authored[i] === 1 || tiles[i] === T_BRIDGE,
+      (i) => authored[i] === 1 || tiles[i] === T_BRIDGE || nearDoor[i] === 1,
       (i) => {
         if (wetBeside(i)) return T_BANK;
         const own = layout.owner[i] as number;

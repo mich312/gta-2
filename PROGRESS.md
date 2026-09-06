@@ -67,6 +67,38 @@ doubled. Straightness (mean sagitta) 0.0195 → 0.0167; park paths 17 → 20.
 Evidence: `bug-hairpin-cap` / `fixed-hairpin-cap`, `bug-crossing-ribbon`
 / `fixed-crossing-ribbon`.
 
+**Loop 3 — the stub walk could not see a narrow crossing.** A Terraces
+contour band overshot the street it met by two tiles: a 2×3 knob on the
+far kerb with the band's ribbon curling into it. The stub walk
+(`trimStubs`) never trimmed it because, to the walk, a crossing of two
+three-wide streets was not a junction: its junction test wanted tarmac
+over-wide on both diagonals, which a plaza and the core of a wide avenue
+have and a narrow crossing square has not. So the overshoot was part of
+the street it came up, a 16,000-tile run. The rule was there to refuse a
+road running diagonally, and a diagonal road's signature is one diagonal
+LONG and the other no wider than the road — a crossing square is short on
+both — so that is what the test refuses now (`markJunctions`, shared with
+the invariant that checks the walk's work). With every narrow crossing a
+junction, the walk found what it had always been meant to find: some
+sixty short dead ends the old test could not see (a curved street down a
+Docks cape to the beach among them), 1,805 road tiles in all, and it now
+runs to convergence, because shaving a lump exposes the tile behind it.
+Two protections had to be sharpened rather than removed: a run mostly on
+authored road is still the plan's own end and stays — unless it is two
+tiles deep or less, which is not where a road ends but what stroking a
+curve onto a grid leaves on the kerb (sixty-eight of those on the avenues
+and the ring) — and a landmark's way in is never a stub (the Harbour
+Precinct's forecourt spur was the only road within six tiles of its
+door). A last phase shaves nubs the walk cannot reach: a cluster of eight
+or fewer tiles that lie on no six-tile line of tarmac along any axis, on a
+street's flank with the street running past both ways, and never at the
+cost of the network — the first version cut it into thirteen pieces by
+shaving two-wide tracks bending through thirty degrees, so a nub that
+strands a piece of road is given back. What is left by the invariant's
+own count: ten runs at landmark doors and nine authored road ends.
+Evidence: `bug-band-overshoot` / `fixed-band-overshoot`, `bug-cape-stub`
+/ `fixed-cape-stub`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

@@ -419,6 +419,54 @@ const STUB_MAX_TILES = 8;
  * ordinary carriageway that reaches exactly one of those.
  */
 const JUNCTION_SPAN = 4;
+/**
+ * The shortest straight line of tarmac through a tile that makes it part of
+ * a road rather than a nub on one (see the end of `trimStubs`). Six: a
+ * street is longer than that between any two junctions, and a road three
+ * wide crossed at any angle shows a longer run than that along one of the
+ * four axes.
+ */
+const NUB_SPAN = 6;
+
+/**
+ * The junction tiles of a road grid, for the stub walk (`trimStubs`) and
+ * for the invariant that checks its work: over-wide along both axes
+ * (`JUNCTION_SPAN`), and not a road running diagonally.
+ *
+ * The original rule asked for over-wide on both diagonals too, which is
+ * what a plaza or the core of a wide avenue has and a diagonal road has not
+ * — but neither has a crossing of two three- or four-wide streets, whose
+ * diagonals are the crossing square's and no longer, so no such crossing
+ * was a junction, and a band that overshot the street it crossed by two
+ * tiles was, to the stub walk, part of the street it came up: a knob on the
+ * far kerb with the band's ribbon curling into it. A diagonal road is the
+ * one shape to refuse, and its signature is one diagonal LONG and the other
+ * no wider than the road; a crossing square is short on both.
+ */
+export function markJunctions(tiles: Uint8Array, W: number, H: number): Uint8Array {
+  const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
+  const roadAt = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < W && y < H && isRoad(y * W + x);
+  const span = (x: number, y: number, dx: number, dy: number): number => {
+    let s = 1;
+    for (let k = 1; k <= JUNCTION_SPAN && roadAt(x + dx * k, y + dy * k); k++) s++;
+    for (let k = 1; k <= JUNCTION_SPAN && roadAt(x - dx * k, y - dy * k); k++) s++;
+    return s;
+  };
+  const isJunction = new Uint8Array(W * H);
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (!isRoad(i)) continue;
+      if (span(x, y, 0, 1) > JUNCTION_SPAN && span(x, y, 1, 0) > JUNCTION_SPAN) {
+        const d1 = span(x, y, 1, 1);
+        const d2 = span(x, y, 1, -1);
+        const diagonalRoad = Math.max(d1, d2) >= 2 * JUNCTION_SPAN && Math.min(d1, d2) <= JUNCTION_SPAN + 1;
+        if (!diagonalRoad) isJunction[i] = 1;
+      }
+    }
+  }
+  return isJunction;
+}
 
 /**
  * Remove the dead-end stubs: runs of carriageway that leave one junction and
@@ -465,27 +513,166 @@ export function trimStubs(
   ] as const;
 
   // Junction tiles, then junction patches.
-  const patch = new Int32Array(N).fill(-1);
-  const isJunction = new Uint8Array(N);
+  // Until nothing more comes off: shaving a lump exposes the tile behind it,
+  // which was a junction tile while the lump stood and is a lump now.
+  let trimmed = 0;
+  let isJunction = markJunctions(tiles, W, H);
+  for (let round = 0; round < 4; round++) {
+    const before = trimmed;
+    const patch = new Int32Array(N).fill(-1);
+    isJunction = markJunctions(tiles, W, H);
+    let patches = 0;
+    for (let s = 0; s < N; s++) {
+      if (isJunction[s] !== 1 || (patch[s] as number) >= 0) continue;
+      const bag = [s];
+      patch[s] = patches;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (isJunction[j] !== 1 || (patch[j] as number) >= 0) continue;
+          patch[j] = patches;
+          bag.push(j);
+        }
+      }
+      patches++;
+    }
+
+    // The runs between them.
+    const run = new Int32Array(N).fill(-1);
+    let runs = 0;
+    for (let s = 0; s < N; s++) {
+      if (!isRoad(s) || isJunction[s] === 1 || (run[s] as number) >= 0) continue;
+      const id = runs++;
+      const bag = [s];
+      run[s] = id;
+      const touched = new Set<number>();
+      let kept = 0;
+      let wet = false;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        if (keep(i)) kept++;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (water[j] === 1) wet = true;
+          if (!isRoad(j)) continue;
+          if (isJunction[j] === 1) {
+            touched.add(patch[j] as number);
+            continue;
+          }
+          if ((run[j] as number) >= 0) continue;
+          run[j] = id;
+          bag.push(j);
+        }
+      }
+      if (wet || touched.size !== 1) continue;
+      // How far the tip is from the junction, walked over the run's own tiles.
+      const depth = new Map<number, number>();
+      const queue: number[] = [];
+      for (const i of bag) {
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          if (isJunction[ny * W + nx] === 1) {
+            depth.set(i, 0);
+            queue.push(i);
+            break;
+          }
+        }
+      }
+      let tip = 0;
+      for (let q = 0; q < queue.length; q++) {
+        const i = queue[q] as number;
+        const d = depth.get(i) as number;
+        if (d > tip) tip = d;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if ((run[j] as number) !== id || depth.has(j)) continue;
+          depth.set(j, d + 1);
+          queue.push(j);
+        }
+      }
+      if (tip + 1 > STUB_MAX_TILES) continue;
+      // A run mostly on protected road — authored, or the ring — is the
+      // plan's own end and stays (Vantage Row ends where the plan ends it),
+      // unless it is a lump: two tiles deep or less is not where a road
+      // ends, it is what stroking a curve onto a grid leaves on the kerb.
+      // Sixty-eight of those stood on the avenues and the ring, one to seven
+      // tiles each.
+      if (kept * 2 > bag.length && tip + 1 > 2) continue;
+      for (const i of bag) {
+        tiles[i] = onto(i);
+        trimmed++;
+      }
+    }
+
+
+    if (trimmed === before) break;
+  }
+
+  // Nubs: the bulge on the SIDE of a street that the run walk above cannot
+  // see, because it is not a run. A contour band cut two tiles past the
+  // street it crosses leaves a 2×2 of tarmac against the street's flank,
+  // and its tiles join the street's own run rather than forming a dead end
+  // of their own; on the map it is a knob on the kerb with the band's
+  // ribbon curling into it. A tile of street lies on a road that RUNS: some
+  // straight line through it — along either axis or either diagonal — is
+  // tarmac for `NUB_SPAN` tiles or more. A tile on no such line is off the
+  // run; a SMALL cluster of such tiles (`STUB_MAX_TILES` or fewer,
+  // 4-connected) is a nub and goes back to the ground beside it. A large
+  // cluster is a road of its own that happens to bend — a two-wide track
+  // winding through thirty degrees shows no six-tile line along any axis
+  // either, and shaving those cut the street network into thirteen pieces
+  // on the first try. Junction tiles are exempt (a junction is wide every
+  // way), and so is whatever `keep` protects.
+  // Junctions again, on the trimmed grid: a stub's first tiles beyond the
+  // crossing square were junction tiles while the stub stood, and are a
+  // two-tile knob now that it does not.
+  const junctionNow = markJunctions(tiles, W, H);
+  const off = new Uint8Array(N);
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (!isRoad(i)) continue;
-      if (
-        span(x, y, 0, 1) > JUNCTION_SPAN &&
-        span(x, y, 1, 0) > JUNCTION_SPAN &&
-        span(x, y, 1, 1) > JUNCTION_SPAN &&
-        span(x, y, 1, -1) > JUNCTION_SPAN
-      ) {
-        isJunction[i] = 1;
+      if (tiles[i] !== T_ROAD || junctionNow[i] === 1 || keep(i)) continue;
+      let longest = 0;
+      for (const [dx, dy] of [
+        [1, 0],
+        [0, 1],
+        [1, 1],
+        [1, -1],
+      ] as const) {
+        let s = 1;
+        for (let k = 1; k < NUB_SPAN && roadAt(x + dx * k, y + dy * k); k++) s++;
+        for (let k = 1; k < NUB_SPAN && roadAt(x - dx * k, y - dy * k); k++) s++;
+        if (s > longest) longest = s;
       }
+      if (longest < NUB_SPAN) off[i] = 1;
     }
   }
-  let patches = 0;
+  const nubSeen = new Uint8Array(N);
+  const was = new Map<number, number>();
   for (let s = 0; s < N; s++) {
-    if (isJunction[s] !== 1 || (patch[s] as number) >= 0) continue;
+    if (off[s] !== 1 || nubSeen[s] === 1) continue;
     const bag = [s];
-    patch[s] = patches;
+    nubSeen[s] = 1;
     for (let q = 0; q < bag.length; q++) {
       const i = bag[q] as number;
       const x = i % W;
@@ -495,88 +682,91 @@ export function trimStubs(
         const ny = y + dy;
         if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
         const j = ny * W + nx;
-        if (isJunction[j] !== 1 || (patch[j] as number) >= 0) continue;
-        patch[j] = patches;
+        if (off[j] !== 1 || nubSeen[j] === 1) continue;
+        nubSeen[j] = 1;
         bag.push(j);
       }
     }
-    patches++;
-  }
-
-  // The runs between them.
-  const run = new Int32Array(N).fill(-1);
-  let trimmed = 0;
-  let runs = 0;
-  for (let s = 0; s < N; s++) {
-    if (!isRoad(s) || isJunction[s] === 1 || (run[s] as number) >= 0) continue;
-    const id = runs++;
-    const bag = [s];
-    run[s] = id;
-    const touched = new Set<number>();
-    let kept = 0;
-    let wet = false;
-    for (let q = 0; q < bag.length; q++) {
-      const i = bag[q] as number;
-      if (keep(i)) kept++;
-      const x = i % W;
-      const y = (i - x) / W;
-      for (const [dx, dy] of STEPS) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        if (water[j] === 1) wet = true;
-        if (!isRoad(j)) continue;
-        if (isJunction[j] === 1) {
-          touched.add(patch[j] as number);
-          continue;
-        }
-        if ((run[j] as number) >= 0) continue;
-        run[j] = id;
-        bag.push(j);
-      }
-    }
-    if (kept * 2 > bag.length || wet || touched.size !== 1) continue;
-    // How far the tip is from the junction, walked over the run's own tiles.
-    const depth = new Map<number, number>();
-    const queue: number[] = [];
+    if (bag.length > STUB_MAX_TILES) continue;
+    // On a street's FLANK, with the street running on past it both ways.
+    // The tapered tip of a diagonal street's dead end is off the run too —
+    // its last tiles show no six-tile line either — but the street runs
+    // past it on one side only, and it is the street's end, not a knob on
+    // its side.
+    let x0 = W;
+    let y0 = H;
+    let x1 = -1;
+    let y1 = -1;
     for (const i of bag) {
       const x = i % W;
       const y = (i - x) / W;
-      for (const [dx, dy] of STEPS) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        if (isJunction[ny * W + nx] === 1) {
-          depth.set(i, 0);
-          queue.push(i);
-          break;
-        }
-      }
+      if (x < x0) x0 = x;
+      if (y < y0) y0 = y;
+      if (x > x1) x1 = x;
+      if (y > y1) y1 = y;
     }
-    let tip = 0;
-    for (let q = 0; q < queue.length; q++) {
-      const i = queue[q] as number;
-      const d = depth.get(i) as number;
-      if (d > tip) tip = d;
-      const x = i % W;
-      const y = (i - x) / W;
-      for (const [dx, dy] of STEPS) {
-        const nx = x + dx;
-        const ny = y + dy;
-        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
-        const j = ny * W + nx;
-        if ((run[j] as number) !== id || depth.has(j)) continue;
-        depth.set(j, d + 1);
-        queue.push(j);
-      }
-    }
-    if (tip + 1 > STUB_MAX_TILES) continue;
+    const flank =
+      (roadAt(x0 - 2, y0 - 1) && roadAt(x1 + 2, y0 - 1)) ||
+      (roadAt(x0 - 2, y1 + 1) && roadAt(x1 + 2, y1 + 1)) ||
+      (roadAt(x0 - 1, y0 - 2) && roadAt(x0 - 1, y1 + 2)) ||
+      (roadAt(x1 + 1, y0 - 2) && roadAt(x1 + 1, y1 + 2));
+    if (!flank) continue;
     for (const i of bag) {
+      was.set(i, tiles[i] as number);
       tiles[i] = onto(i);
-      trimmed++;
     }
   }
+  // Never at the cost of the network: label the road's components with the
+  // nubs gone, and give back every nub that touches a piece other than the
+  // biggest, until the network is one piece again.
+  for (let fix = 0; fix < 4 && was.size > 0; fix++) {
+    const comp = new Int32Array(N).fill(-1);
+    const size: number[] = [];
+    for (let s = 0; s < N; s++) {
+      if (!isRoad(s) || (comp[s] as number) >= 0) continue;
+      const id = size.length;
+      size.push(0);
+      const bag = [s];
+      comp[s] = id;
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        size[id] = (size[id] as number) + 1;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (!isRoad(j) || (comp[j] as number) >= 0) continue;
+          comp[j] = id;
+          bag.push(j);
+        }
+      }
+    }
+    let biggest = 0;
+    for (let id = 1; id < size.length; id++) if ((size[id] as number) > (size[biggest] as number)) biggest = id;
+    let restored = 0;
+    for (const [i, t] of was) {
+      if (tiles[i] === t) continue;
+      const x = i % W;
+      const y = (i - x) / W;
+      let stranded = false;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (isRoad(j) && (comp[j] as number) !== biggest) stranded = true;
+      }
+      if (stranded) {
+        tiles[i] = t;
+        restored++;
+      }
+    }
+    if (restored === 0) break;
+  }
+  for (const [i, t] of was) if (tiles[i] !== t) trimmed++;
   return trimmed;
 }
 
