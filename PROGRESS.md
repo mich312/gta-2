@@ -29,6 +29,44 @@ seed and 0.66 on the next; it is where traffic spawns, not the city), and
 the ambulance service tries eight kerbs instead of four (at the follower's
 3/8 completion rate, four all failing is an 18% event per bake).
 
+**Loop 2 — the hairpin courses.** A Terraces street ending at the shore
+wore a round blob half a width past the end of the road, over the pavement
+and into the sea. Its course was a hairpin: out along one row and back
+along the next. Both chainers (`chainTiles`, used by the esplanade and the
+seam streets, and the contour band tracer's own walk) are nearest-neighbour
+walks, and a traced centre line is one tile wide only nominally — a
+diagonal run leaves a second tile beside the first at every step — so a
+walk reaching the end of the ribbon turned round and walked the leftovers
+home, and the painter stroked it as such: two centre lines down one street
+and a round join at the turn. Sixteen in the shipped city. Now a step never
+goes behind the way we came, never sideways onto a tile that already
+touches an earlier link, and the ribbon's other side is retired with the
+chain. Zero hairpins. That exposed a second fault: the course trimmer
+dropped a whole four-tile piece for one off-tarmac sample, so a
+ten-tile street whose ends sat a sample off the road kept eight tiles,
+under the nine a run needs, and lost its ribbon — sixteen streets had one
+only because the hairpin doubled their length. The trimmer now cuts at the
+sample where the ground changes. Which uncovered a third: an Old Quarter
+lattice line overhangs into the industrial borough next door, crosses a
+horizontal street there at twenty degrees and stays on its tarmac for ten
+tiles — a ten-tile run is a ribbon, so three stray stripes were painted
+across the block either side (the coarse trimmer had hidden that by
+accident). A run with a long stretch of course beyond BOTH its ends is a
+crossing, not a street, and needs four widths to count; a run that is the
+course less a tile or two of overhang at an end is the street itself.
+The trimmer's cuts also have to keep the spacing the painter's spline was
+tuned for: a run is re-split into equal pieces of at most four tiles from
+its original vertices (a half-tile segment beside a four-tile one kinked
+the spline and tripled the straightness measure), and every shipped
+segment is checked with the reader's own half-tile sampling, since a
+rounded cut point can sit a hundredth over a tile edge. Street courses
+338 → 313, and among the ones gone are four doubled ribbons — a lattice
+line recorded a tile off the centre of a contour band's street, on top of
+the band's own course, which the longer band courses now catch as
+doubled. Straightness (mean sagitta) 0.0195 → 0.0167; park paths 17 → 20.
+Evidence: `bug-hairpin-cap` / `fixed-hairpin-cap`, `bug-crossing-ribbon`
+/ `fixed-crossing-ribbon`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

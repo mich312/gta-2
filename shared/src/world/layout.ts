@@ -266,9 +266,26 @@ function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>
     }
     if (seed < 0) break;
     const chain: Array<[number, number]> = [];
+    const taken: number[] = [];
+    const takenSet = new Set<number>();
+    const besideChain = (j: number, current: number): boolean => {
+      const jx = j % W;
+      const jy = (j - jx) / W;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const k = (jy + oy) * W + (jx + ox);
+          if (k !== current && k !== j && takenSet.has(k)) return true;
+        }
+      }
+      return false;
+    };
     let at = seed;
+    let dx = 0;
+    let dy = 0;
     while (at >= 0) {
       left.delete(at);
+      taken.push(at);
+      takenSet.add(at);
       const x = at % W;
       const y = (at - x) / W;
       chain.push([x + 0.5, y + 0.5]);
@@ -279,6 +296,23 @@ function chainTiles(pool: Set<number>, W: number): Array<Array<[number, number]>
           if (ox === 0 && oy === 0) continue;
           const j = (y + oy) * W + (x + ox);
           if (!left.has(j)) continue;
+          // Never BACK. A traced centre line is one tile wide only nominally:
+          // a diagonal staircase leaves a second tile beside the first every
+          // step, and a greedy nearest-neighbour walk, reaching the end of
+          // the ribbon, turned round and walked the leftovers home — a
+          // hairpin, out along one row and back along the next. The painter
+          // then stroked it as such: two centre lines down one street, and
+          // at the turn a round join sticking a whole half-width past the
+          // end of the road, over the pavement and into the sea (sixteen
+          // courses in the shipped city, every one a seam street). A step
+          // that goes behind the way we came is the ribbon's other side, not
+          // its continuation.
+          if ((dx !== 0 || dy !== 0) && ox * dx + oy * dy < 0) continue;
+          // Nor SIDEWAYS onto the ribbon's other side: a tile that already
+          // touches an earlier link of this chain is beside the line, not
+          // ahead of it. The genuine continuation touches only the link we
+          // are on.
+          if (besideChain(j, at)) continue;
           const d = ox * ox + oy * oy;
           if (d < bestD) {
             bestD = d;
@@ -1998,7 +2032,27 @@ export function buildLayout(plan: CityPlan): CityLayout {
         }
         const inChain = new Set<number>();
         const isCentre = new Set(centreTiles);
-        const step = (from: number): number => {
+        // Never BACK (same rule as `chainTiles`): a band's centre tiles are a
+        // one-tile line only nominally — a diagonal run leaves a second tile
+        // beside the first at every step — and a nearest-unvisited walk that
+        // reaches the end of the band turned round and walked the leftovers
+        // home. That hairpin was stroked as such: two centre lines down one
+        // street and, at the turn, a round join a whole half-width past the
+        // end of the road, over the pavement and into the sea. Sixteen in
+        // the shipped city, every one a Terraces or Beachfront band.
+        let cur = new Set<number>();
+        const besideChain = (j: number, from: number): boolean => {
+          const jx = j % W;
+          const jy = (j - jx) / W;
+          for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+              const k = (jy + oy) * W + (jx + ox);
+              if (k !== from && k !== j && cur.has(k)) return true;
+            }
+          }
+          return false;
+        };
+        const step = (from: number, dx: number, dy: number): number => {
           const fx = from % W;
           const fy = (from - fx) / W;
           let best = -1;
@@ -2006,8 +2060,12 @@ export function buildLayout(plan: CityPlan): CityLayout {
           for (let oy = -2; oy <= 2; oy++) {
             for (let ox = -2; ox <= 2; ox++) {
               if (ox === 0 && oy === 0) continue;
+              if ((dx !== 0 || dy !== 0) && ox * dx + oy * dy < 0) continue;
               const j = (fy + oy) * W + (fx + ox);
               if (!isCentre.has(j) || inChain.has(j)) continue;
+              // Nor sideways onto the band's other side: a tile touching an
+              // earlier link of this chain is beside the line, not ahead.
+              if (besideChain(j, from)) continue;
               const d = ox * ox + oy * oy;
               if (d < bestD || (d === bestD && j < best)) {
                 best = j;
@@ -2017,20 +2075,43 @@ export function buildLayout(plan: CityPlan): CityLayout {
           }
           return best;
         };
+        const walk = (seed: number, dx: number, dy: number, into: number[]): void => {
+          let from = seed;
+          for (let at = step(from, dx, dy); at >= 0; at = step(from, dx, dy)) {
+            inChain.add(at);
+            cur.add(at);
+            into.push(at);
+            dx = (at % W) - (from % W);
+            dy = Math.floor(at / W) - Math.floor(from / W);
+            from = at;
+          }
+        };
         for (const seed of centreTiles) {
           if (inChain.has(seed)) continue;
           inChain.add(seed);
+          cur = new Set([seed]);
           const fwd: number[] = [seed];
-          for (let at = step(seed); at >= 0; at = step(at)) {
-            inChain.add(at);
-            fwd.push(at);
-          }
+          walk(seed, 0, 0, fwd);
           const back: number[] = [];
-          for (let at = step(seed); at >= 0; at = step(at)) {
-            inChain.add(at);
-            back.push(at);
-          }
+          // Away from the forward walk's first step, so the second walk is
+          // the band's other half and not its other side.
+          const f1 = fwd[1];
+          walk(
+            seed,
+            f1 === undefined ? 0 : (seed % W) - (f1 % W),
+            f1 === undefined ? 0 : Math.floor(seed / W) - Math.floor(f1 / W),
+            back,
+          );
           const chain = [...back.reverse(), ...fwd];
+          // The band's other side, left behind beside the chain, is the same
+          // line: chained on its own it would be the hairpin's twin.
+          for (const i of chain) {
+            const x = i % W;
+            const y = (i - x) / W;
+            for (let oy = -1; oy <= 1; oy++) {
+              for (let ox = -1; ox <= 1; ox++) inChain.add((y + oy) * W + (x + ox));
+            }
+          }
           if (chain.length < 6) continue;
           let pts = chain.map((i) => [(i % W) + 0.5, Math.floor(i / W) + 0.5] as [number, number]);
           for (let r = 0; r < 4; r++) {
@@ -2061,7 +2142,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             if (sd < 3) continue;
             if ((sd - 3) % pitchX >= width) continue;
             if (shoreParallelRoadNearIn(bandField, bandSmooth, tx, ty)) continue;
-            lay(tx, ty, null);
+            layTown(tx, ty);
           }
         }
         traceBands(bandField, 3);
@@ -2101,7 +2182,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
               doubled = true;
             }
             if (doubled) continue;
-            lay(tx, ty, null);
+            layTown(tx, ty);
           }
         }
         traceBands(spineDist, 6);
@@ -2143,7 +2224,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
             for (let ty = y0; ty <= y1; ty++) {
               for (let tx = x0; tx <= x1; tx++) {
                 if (!inThis(tx, ty)) continue;
-                if (segmentDistance(tx + 0.5, ty + 0.5, ax, ay, bx, by) < width / 2) lay(tx, ty, null);
+                if (segmentDistance(tx + 0.5, ty + 0.5, ax, ay, bx, by) < width / 2) layTown(tx, ty);
               }
             }
           }
@@ -2348,7 +2429,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
                   const ty = c.y + ly;
                   const cu = alongU ? toU(tx + 0.5, ty + 0.5) : toV(tx + 0.5, ty + 0.5);
                   const cv = alongU ? toV(tx + 0.5, ty + 0.5) : toU(tx + 0.5, ty + 0.5);
-                  if (cu >= lo && cu <= hi && Math.abs(cv - at) < 1) lay(tx, ty, null);
+                  if (cu >= lo && cu <= hi && Math.abs(cv - at) < 1) layTown(tx, ty);
                 }
               }
             }

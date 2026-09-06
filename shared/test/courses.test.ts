@@ -135,7 +135,12 @@ describe('street courses', () => {
       }
       return len >= 100;
     });
-    expect(long.length).toBeGreaterThanOrEqual(90);
+    // 93 before the map loops; 89 after loop 2, and the four are doubled
+    // ribbons — a lattice line recorded a tile off the centre of a contour
+    // band's street, on top of the band's own course — which the never-back
+    // chainer's longer band courses now catch as doubled. Fewer long courses
+    // there is one ribbon per street, not a metre less of any street.
+    expect(long.length).toBeGreaterThanOrEqual(85);
     expect(long.some((c) => c.kind === 'ring')).toBe(true);
   });
 

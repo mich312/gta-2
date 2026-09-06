@@ -1093,59 +1093,134 @@ function trimCourses(
     if (kind === 'path') return t === T_SIDEWALK;
     return t === T_ROAD || t === T_BRIDGE;
   };
-  const out: StreetCourse[] = [];
   // Quantised BEFORE sampling, to the same hundredth of a tile the encoder
   // ships: trimming the true line and shipping a rounded one let a point
   // within 0.005 of a tile boundary round across it, and the invariant
   // "every centreline sample is on carriageway" held for a polyline nobody
   // was ever given.
   const q = (v: number): number => Math.round(v * 100) / 100;
-  for (const course of courses) {
-    // Split to at most 4-tile segments so a break only costs its own piece.
-    const pts: Array<readonly [number, number]> = [];
-    for (let k = 0; k + 1 < course.points.length; k++) {
-      const [ax, ay] = course.points[k] as readonly [number, number];
-      const [bx, by] = course.points[k + 1] as readonly [number, number];
-      const len = Math.hypot(bx - ax, by - ay);
-      const n = Math.max(1, Math.ceil(len / 4));
-      for (let s = 0; s < n; s++) {
-        pts.push([q(ax + ((bx - ax) * s) / n), q(ay + ((by - ay) * s) / n)]);
-      }
+  // The reader's own test, sample for sample: every shipped segment is
+  // walked at half-tile steps by the renderers and the suite alike.
+  const segmentClean = (kind: StreetCourse['kind'], a: readonly [number, number], b: readonly [number, number]): boolean => {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) * 2));
+    for (let s = 0; s <= steps; s++) {
+      if (!onGround(kind, a[0] + ((b[0] - a[0]) * s) / steps, a[1] + ((b[1] - a[1]) * s) / steps)) return false;
     }
-    if (course.points.length > 0) {
-      const [lx, ly] = course.points[course.points.length - 1] as readonly [number, number];
-      pts.push([q(lx), q(ly)]);
+    return true;
+  };
+  const out: StreetCourse[] = [];
+  for (const course of courses) {
+    const verts = course.points.map((p) => [q(p[0]), q(p[1])] as [number, number]);
+    if (verts.length < 2) continue;
+    const minRun = Math.max(3, course.width * MIN_RUN_WIDTHS);
+    let total = 0;
+    for (let k = 0; k + 1 < verts.length; k++) {
+      total += Math.hypot((verts[k + 1] as number[])[0]! - (verts[k] as number[])[0]!, (verts[k + 1] as number[])[1]! - (verts[k] as number[])[1]!);
     }
 
-    const minRun = Math.max(3, course.width * MIN_RUN_WIDTHS);
-    let run: Array<readonly [number, number]> = [];
-    let runLen = 0;
+    // A run: the vertices it passes, between two cut points, with the arc
+    // length of course beyond each end.
+    let run: Array<[number, number]> = [];
+    let runStartArc = 0;
+    let runEndArc = 0;
     const flush = (): void => {
-      if (run.length >= 2 && runLen >= minRun) {
-        out.push({ points: run, width: course.width, kind: course.kind });
-      }
+      const pts = run;
       run = [];
-      runLen = 0;
+      if (pts.length < 2) return;
+      // Even spacing: each straight stretch of the run is split into equal
+      // pieces of at most four tiles — the same split every course has had
+      // since §19 — so a cut never leaves a half-tile segment beside a
+      // four-tile one for the painter's spline to kink on.
+      let line: Array<readonly [number, number]> = [];
+      for (let k = 0; k + 1 < pts.length; k++) {
+        const [ax, ay] = pts[k] as [number, number];
+        const [bx, by] = pts[k + 1] as [number, number];
+        const len = Math.hypot(bx - ax, by - ay);
+        if (len < 1e-6) continue;
+        const n = Math.max(1, Math.ceil(len / 4));
+        if (line.length === 0) line.push([ax, ay]);
+        for (let s = 1; s <= n; s++) line.push([q(ax + ((bx - ax) * s) / n), q(ay + ((by - ay) * s) / n)]);
+      }
+      // Rounding can carry a point across a tile edge: trim any segment
+      // the reader's test would refuse, from the ends inward, and split the
+      // run where one fails in the middle.
+      let piece: Array<readonly [number, number]> = [];
+      let pieceLen = 0;
+      let pieceStartArc = runStartArc;
+      const emit = (endArc: number): void => {
+        // A run with a long stretch of course beyond BOTH its ends is a
+        // course that left the road and came back: a crossing, not a
+        // street. An Old Quarter lattice line overhangs into the industrial
+        // borough next door, where it crosses a horizontal street at twenty
+        // degrees and stays on its tarmac for ten tiles — and a ten-tile run
+        // is a ribbon, so three stray stripes were painted across the block
+        // either side. Such a fragment has to be long enough to be a street
+        // in its own right: four widths, which no shallow crossing of a
+        // three- or four-wide road reaches. A run that is the course less a
+        // tile or two of overhang at an end is the street itself.
+        const anchored = pieceStartArc <= 2 || total - endArc <= 2;
+        const need = anchored ? minRun : Math.max(minRun, course.width * 4);
+        if (piece.length >= 2 && pieceLen >= need) {
+          out.push({ points: piece, width: course.width, kind: course.kind });
+        }
+        piece = [];
+        pieceLen = 0;
+      };
+      let arc = runStartArc;
+      for (let k = 0; k + 1 < line.length; k++) {
+        const a = line[k] as readonly [number, number];
+        const b = line[k + 1] as readonly [number, number];
+        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        if (segmentClean(course.kind, a, b)) {
+          if (piece.length === 0) {
+            piece.push(a);
+            pieceStartArc = arc;
+          }
+          piece.push(b);
+          pieceLen += len;
+        } else {
+          emit(arc);
+          pieceStartArc = arc + len;
+        }
+        arc += len;
+      }
+      emit(runEndArc);
     };
-    for (let k = 0; k + 1 < pts.length; k++) {
-      const [ax, ay] = pts[k] as readonly [number, number];
-      const [bx, by] = pts[k + 1] as readonly [number, number];
+
+    // Walk the course at half-tile steps. On ground: the run opens at this
+    // sample if it was closed, and takes every vertex it passes. Off ground:
+    // the run closes at the last sample that was on it. Cut at the SAMPLE,
+    // not at the piece: a piece with one off-road sample used to be dropped
+    // whole, so a course over a street ten tiles long whose ends sat a
+    // sample off the tarmac kept only its middle piece — eight tiles, under
+    // the nine the run needs — and the street lost its ribbon. Sixteen
+    // streets in the shipped city had theirs only because a hairpin in the
+    // chain doubled the length; with the hairpins gone they had none at all.
+    let arc = 0;
+    for (let k = 0; k + 1 < verts.length; k++) {
+      const [ax, ay] = verts[k] as [number, number];
+      const [bx, by] = verts[k + 1] as [number, number];
       const len = Math.hypot(bx - ax, by - ay);
       const steps = Math.max(1, Math.ceil(len * 2));
-      let clear = true;
+      const at = (s: number): [number, number] => [q(ax + ((bx - ax) * s) / steps), q(ay + ((by - ay) * s) / steps)];
+      let lastOn = -1;
       for (let s = 0; s <= steps; s++) {
-        if (!onGround(course.kind, ax + ((bx - ax) * s) / steps, ay + ((by - ay) * s) / steps)) {
-          clear = false;
-          break;
+        const p = at(s);
+        if (onGround(course.kind, p[0], p[1])) {
+          if (run.length === 0) {
+            run.push(s === 0 ? [ax, ay] : p);
+            runStartArc = arc + (len * s) / steps;
+          }
+          lastOn = s;
+          runEndArc = arc + (len * s) / steps;
+        } else if (run.length > 0) {
+          if (lastOn > 0) run.push(at(lastOn));
+          flush();
+          lastOn = -1;
         }
       }
-      if (clear) {
-        if (run.length === 0) run.push(pts[k] as never);
-        run.push(pts[k + 1] as never);
-        runLen += len;
-      } else {
-        flush();
-      }
+      if (run.length > 0 && lastOn === steps) run.push([bx, by]);
+      arc += len;
     }
     flush();
   }
