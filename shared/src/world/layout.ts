@@ -2442,15 +2442,37 @@ export function buildLayout(plan: CityPlan): CityLayout {
           );
         }
       } else if (axisGrid) {
+        // With a course each, like every other lattice: the axis grid was
+        // the one fabric that laid its streets as rectangles and recorded
+        // nothing, so a fifth of the city's carriageway — all of The
+        // Spine's grid, most of Ravenhill's — had no ribbon, no centre line
+        // and no kerb casing while the street beside it had all three. The
+        // trim pass clips each line to the stretch the borough carved.
         for (const x of xs) {
           if (doubledUp(x, ry, ry + rh, width, true)) continue;
           if (doubledAgainstCourses(x + width / 2, ry, x + width / 2, ry + rh, width)) continue;
           line(x, ry, width, rh);
+          courses.push({
+            points: [
+              [x + width / 2, ry],
+              [x + width / 2, ry + rh],
+            ],
+            width,
+            kind: 'street',
+          });
         }
         for (const y of ys) {
           if (doubledUp(y, rx, rx + rw, width, false)) continue;
           if (doubledAgainstCourses(rx, y + width / 2, rx + rw, y + width / 2, width)) continue;
           line(rx, y, rw, width);
+          courses.push({
+            points: [
+              [rx, y + width / 2],
+              [rx + rw, y + width / 2],
+            ],
+            width,
+            kind: 'street',
+          });
         }
       } else {
         if (pitchX >= width + 3) {

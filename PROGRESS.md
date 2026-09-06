@@ -99,6 +99,18 @@ own count: ten runs at landmark doors and nine authored road ends.
 Evidence: `bug-band-overshoot` / `fixed-band-overshoot`, `bug-cape-stub`
 / `fixed-cape-stub`.
 
+**Loop 4 — a fifth of the streets had no ribbon.** The Spine's grid, next
+to the ring road with its kerbs and centre line, was bare dark bands: no
+casing, no marking. Measured: 19.9% of the city's carriageway lay under
+no course at all — Ravenhill 39%, The Spine 22% — because the
+axis-aligned grid was the one fabric that carved its streets as
+rectangles (`line`) and recorded nothing, where every rotated lattice
+records a two-point course per line and the trim pass clips it to what
+was carried. The axis grid now records the same. Uncovered carriageway
+19.9% → 9.5%; Ravenhill 39% → 4%. What remains is junction corners
+beyond any ribbon's reach, the stitched tracks and the park boroughs'
+lanes. Evidence: `bug-unmarked-grid` / `fixed-unmarked-grid`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
