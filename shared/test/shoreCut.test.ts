@@ -50,7 +50,13 @@ describe('collision on the coastline', () => {
     expect(tiles.length).toBeGreaterThan(1000);
     const rand = rng(12345);
     for (const half of [7, 9]) {
-      let inside = 0;
+      // Counted as TILES of coast a mover came to rest inside, not as
+      // movers: the samples are dealt from one random stream in tile order,
+      // so any change to the set of coast tiles upstream re-deals every
+      // angle downstream, and a rebake that touched nothing here put two
+      // samples instead of one into the same known tile. The ceiling the
+      // comment below names is a tile, and that is what is pinned.
+      const insideAt = new Set<number>();
       let total = 0;
       for (const tile of tiles) {
         const tx = tile % map.widthTiles;
@@ -69,9 +75,12 @@ describe('collision on the coastline', () => {
             moveWithCollision(map, pos, vel, half, Math.cos(ang) * sp, Math.sin(ang) * sp);
           }
           total++;
-          if (boxInSolid(map, pos, half)) inside++;
+          if (boxInSolid(map, pos, half)) {
+            insideAt.add(Math.floor(pos.y / TILE_SIZE) * map.widthTiles + Math.floor(pos.x / TILE_SIZE));
+          }
         }
       }
+      const inside = insideAt.size;
       expect(total).toBeGreaterThan(10_000);
       // Zero at a person's size. At a CAR's, one mover in twelve thousand
       // still comes to rest nine tenths of a pixel inside — a twentieth of a

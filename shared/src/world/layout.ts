@@ -1451,6 +1451,18 @@ export function buildLayout(plan: CityPlan): CityLayout {
    */
   let preEsp!: Uint8Array;
   /**
+   * What the bands' parallel-road probe reads. `preEsp` by default — the
+   * tiles before the esplanade, so a band never sees its own rows and stops
+   * itself — but for the length of each borough's weave, the tiles as that
+   * borough FOUND them: the seam streets and every earlier borough's
+   * fabric. Read from `preEsp` alone, the probe was blind to the seam
+   * streets laid one pass after it was snapped, and the Spine's innermost
+   * shore band was carved three rows from a seam street the length of the
+   * waterfront — the two merged into a six-wide sheet, the widest junction
+   * patch in the city.
+   */
+  let probeSnap!: Uint8Array;
+  /**
    * Is there already a road just inland or just seaward of here? The probe
    * runs along the shore-distance GRADIENT — perpendicular to the coast —
    * because the road this tile must not double is one running parallel to
@@ -1479,7 +1491,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       const px = Math.round(tx + (gx / len) * k);
       const py = Math.round(ty + (gy / len) * k);
       if (px < 0 || py < 0 || px >= W || py >= H) continue;
-      const t = preEsp[py * W + px] as number;
+      const t = probeSnap[py * W + px] as number;
       // Only a road that already SERVES the waterfront suppresses the band:
       // an authored avenue six tiles inland is near enough to double, but a
       // shore left to it would still be a shore with no street — the whole
@@ -1491,7 +1503,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
       // junction the band is about to make; counted here it held every
       // contour street a tile or two short of every cross street
       // (`roadRunsAlong`).
-      if (!roadRunsAlong(preEsp, W, H, px, py, -gy / len, gx / len)) continue;
+      if (!roadRunsAlong(probeSnap, W, H, px, py, -gy / len, gx / len)) continue;
       // Two rules, by depth (wave 4.6). The INNERMOST band is the §13.5
       // waterfront street, and yields only to a road that already serves
       // that waterfront — the old rule, kept: an avenue six tiles inland
@@ -1549,6 +1561,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
   };
   const layEsplanade = (): void => {
     preEsp = tiles.slice();
+    probeSnap = preEsp;
     // Wherever a non-rural borough meets the water, a street runs along the
     // shore at a quay's distance — §13.1's Finding 3, fixed at the source. The
     // dead fringe of bare field between the last street and the sea becomes a
@@ -1808,6 +1821,44 @@ export function buildLayout(plan: CityPlan): CityLayout {
     return n > 0 && conflicts * 5 >= n * 2;
   };
 
+  /**
+   * Where along a proposed lattice line another road runs ALONGSIDE it:
+   * road within `CLEAR` of the line's band, for eight tiles or more in a
+   * row. A crossing street conflicts for its own width and no longer, and
+   * is not marked; a street running beside the line conflicts for as long
+   * as it runs, and is. Indexed from `from`.
+   */
+  const alongside = (pos: number, from: number, to: number, width: number, vertical: boolean): Uint8Array => {
+    const CLEAR = 3;
+    const len = Math.max(0, to - from);
+    const conflict = new Uint8Array(len);
+    for (let a = from; a < to; a++) {
+      for (let b = pos - CLEAR; b < pos + width + CLEAR; b++) {
+        const tx = vertical ? b : a;
+        const ty = vertical ? a : b;
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+        const t = tiles[ty * W + tx] as number;
+        if (t === T_ROAD || t === T_BRIDGE) {
+          conflict[a - from] = 1;
+          break;
+        }
+      }
+    }
+    const skip = new Uint8Array(len);
+    let s = 0;
+    while (s < len) {
+      if (conflict[s] !== 1) {
+        s++;
+        continue;
+      }
+      let e = s;
+      while (e < len && conflict[e] === 1) e++;
+      if (e - s >= 8) skip.fill(1, s, e);
+      s = e;
+    }
+    return skip;
+  };
+
   const blocks: LayoutBlock[] = [];
   const landmarkAt = (x: number, y: number, w: number, h: number): number => {
     for (const [li, l] of plan.landmarks.entries()) {
@@ -1831,6 +1882,8 @@ export function buildLayout(plan: CityPlan): CityLayout {
       if (hinterlandNear(tx, ty)) lay(tx, ty, null);
     };
     for (const [di, d] of plan.districts.entries()) {
+      // The tiles as this borough finds them, for the bands' probe (see `probeSnap`).
+      probeSnap = tiles.slice();
       // The frame the fabric is carved in: the box round the ground the
       // borough OWNS on its landmass, not round the polygon somebody drew.
       // The coast warp pushes a shore borough's land tens of tiles past its
@@ -2448,31 +2501,62 @@ export function buildLayout(plan: CityPlan): CityLayout {
         // Spine's grid, most of Ravenhill's — had no ribbon, no centre line
         // and no kerb casing while the street beside it had all three. The
         // trim pass clips each line to the stretch the borough carved.
+        //
+        // And in STRETCHES, not whole: `doubledUp` refuses a line that runs
+        // alongside another road for two fifths of its length, which lets
+        // through a line that doubles one for forty-eight tiles of a
+        // two-hundred-tile frame — The Spine's south shore, where a lattice
+        // line ran three tiles from the esplanade for the length of the
+        // waterfront and the two merged into one six-wide sheet, the widest
+        // junction patch in the city. `alongside` finds the stretches that
+        // double another road and the line is laid, and its course
+        // recorded, only between them.
+        const stretches = (skip: Uint8Array, from: number, to: number): Array<[number, number]> => {
+          const out: Array<[number, number]> = [];
+          let a = from;
+          while (a < to) {
+            if (skip[a - from] === 1) {
+              a++;
+              continue;
+            }
+            let e = a;
+            while (e < to && skip[e - from] !== 1) e++;
+            out.push([a, e]);
+            a = e;
+          }
+          return out;
+        };
         for (const x of xs) {
           if (doubledUp(x, ry, ry + rh, width, true)) continue;
           if (doubledAgainstCourses(x + width / 2, ry, x + width / 2, ry + rh, width)) continue;
-          line(x, ry, width, rh);
-          courses.push({
-            points: [
-              [x + width / 2, ry],
-              [x + width / 2, ry + rh],
-            ],
-            width,
-            kind: 'street',
-          });
+          for (const [a, e] of stretches(alongside(x, ry, ry + rh, width, true), ry, ry + rh)) {
+            if (e - a < 6) continue;
+            line(x, a, width, e - a);
+            courses.push({
+              points: [
+                [x + width / 2, a],
+                [x + width / 2, e],
+              ],
+              width,
+              kind: 'street',
+            });
+          }
         }
         for (const y of ys) {
           if (doubledUp(y, rx, rx + rw, width, false)) continue;
           if (doubledAgainstCourses(rx, y + width / 2, rx + rw, y + width / 2, width)) continue;
-          line(rx, y, rw, width);
-          courses.push({
-            points: [
-              [rx, y + width / 2],
-              [rx + rw, y + width / 2],
-            ],
-            width,
-            kind: 'street',
-          });
+          for (const [a, e] of stretches(alongside(y, rx, rx + rw, width, false), rx, rx + rw)) {
+            if (e - a < 6) continue;
+            line(a, y, e - a, width);
+            courses.push({
+              points: [
+                [a, y + width / 2],
+                [e, y + width / 2],
+              ],
+              width,
+              kind: 'street',
+            });
+          }
         }
       } else {
         if (pitchX >= width + 3) {
@@ -2732,6 +2816,7 @@ export function buildLayout(plan: CityPlan): CityLayout {
         }
       }
     }
+    probeSnap = preEsp;
   };
 
   /* ---- stitching: crossings are made, not found (§14.3 D3) --------- */

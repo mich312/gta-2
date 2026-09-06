@@ -151,6 +151,31 @@ already clips a walk to; the reader's test says the same. Path courses
 20 → 32, 572 → 914 tiles of ribbon. Evidence: `bug-walk-ends` /
 `fixed-walk-ends`.
 
+**Loop 8 — the six-wide sheet.** A census of junction patches (the
+stub walk's own `markJunctions`) put the widest at 277 tiles: forty-four
+tiles of The Spine's south shore where two streets three rows apart had
+merged into one sheet of tarmac. Traced by logging every carve into the
+box: the contour fabric's innermost shore band, laid against a seam
+street from one pass earlier. The band's parallel-road probe reads the
+tiles as they were BEFORE the esplanade — deliberately, so a band never
+sees its own rows and stops itself — and was therefore blind to every
+seam street, all of which are laid after that snapshot. The probe now
+reads the tiles as each borough finds them (`probeSnap`: snapped at the
+start of that borough's weave, so its own bands are still invisible to
+it, but the seams and every earlier borough's fabric are not). Junction
+patches over 80 tiles 14 → 7, the rest being avenue crossings; 1,220
+tiles of doubled band gone. Two dead ends: raising the shore pass's
+rescue threshold to prune sixty-tile fragments (it pruned connected park
+lanes and left the arc it was aimed at, which is attached at one point,
+not stranded), and laying lattice lines in stretches that skip a parallel
+road (right in principle, kept for the axis grid, but the sheet was not a
+lattice line at all). One pin hardened: the coastline collision fuzz
+deals its samples from one random stream in tile order, so this rebake —
+which touched nothing at Gannet Spit — re-dealt two samples instead of one
+into the one known residual tile there (a car a pixel into the water row);
+it now counts coast tiles, which is the ceiling its own comment names.
+Evidence: `bug-doubled-band` / `fixed-doubled-band`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
