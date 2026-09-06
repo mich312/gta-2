@@ -140,6 +140,17 @@ junction corners and short pieces; street courses 366 → 473, no hairpins,
 straightness 0.021. Evidence: `bug-ribbonless-track` /
 `fixed-ribbonless-track`, `bug-ribbonless-quay` / `fixed-ribbonless-quay`.
 
+**Loop 7 — the walks' bare ends.** A Ravenhill Park walk from the coast
+road to the ring junction wore its ribbon along its middle third only;
+both ends were bare steps. The trimmer held a walk to pavement alone, and
+a two-wide meander is a staircase — a straight half-tile sample between
+two of its steps lands on the lawn at the corner, so the course was cut
+at the first corner from either end. A walk's ground is now the pavement
+it carved and the lawn either side, which is the ground the painter
+already clips a walk to; the reader's test says the same. Path courses
+20 → 32, 572 → 914 tiles of ribbon. Evidence: `bug-walk-ends` /
+`fixed-walk-ends`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

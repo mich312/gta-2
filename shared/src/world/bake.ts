@@ -1253,7 +1253,13 @@ function trimCourses(
     const ty = Math.floor(y);
     if (tx < 0 || ty < 0 || tx >= W || ty >= H) return false;
     const t = tiles[ty * W + tx] as number;
-    if (kind === 'path') return t === T_SIDEWALK;
+    // A walk's ground is the pavement it carved AND the lawn either side —
+    // the ground the painter clips a walk to. A two-wide meander is a
+    // staircase, and a straight sample between two of its steps lands on
+    // the lawn at the corner: trimmed to pavement alone, every walk in
+    // Ravenhill Park kept its ribbon only along its middle third and its
+    // ends were bare steps.
+    if (kind === 'path') return t === T_SIDEWALK || t === T_PARK || t === T_FIELD;
     return t === T_ROAD || t === T_BRIDGE;
   };
   // Quantised BEFORE sampling, to the same hundredth of a tile the encoder

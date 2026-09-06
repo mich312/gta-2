@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CITY_DATA } from '../src/world/city.data.js';
 import { decodeBakedCity } from '../src/world/bake.js';
-import { T_BRIDGE, T_ROAD, T_SIDEWALK } from '../src/world/types.js';
+import { T_BRIDGE, T_ROAD, T_SIDEWALK, T_PARK, T_FIELD } from '../src/world/types.js';
 
 /**
  * The street courses (WORLDGEN.md §16): the authored roads' centrelines,
@@ -77,7 +77,10 @@ describe('street courses', () => {
     const W = city.widthTiles;
     const on = (kind: string, x: number, y: number): boolean => {
       const t = city.tiles[Math.floor(y) * W + Math.floor(x)] as number;
-      if (kind === 'path') return t === T_SIDEWALK;
+      // The pavement it carved and the lawn either side, as the painter
+      // clips a walk — a meander is a staircase, and a straight sample
+      // between two steps lands on the lawn at the corner.
+      if (kind === 'path') return t === T_SIDEWALK || t === T_PARK || t === T_FIELD;
       return t === T_ROAD || t === T_BRIDGE;
     };
     for (const c of city.courses) {

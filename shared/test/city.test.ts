@@ -896,7 +896,12 @@ describe('the city, as an asset', () => {
             continue;
           }
           const t = map.tiles[ty * W + tx] as number;
-          if (c.kind === 'path' ? t !== T_SIDEWALK : t !== T_ROAD && t !== T_BRIDGE) off++;
+          // A walk's ground is the pavement it carved and the lawn either
+          // side (see `trimCourses`): a meander is a staircase, and a sample
+          // between two steps lands on the lawn at the corner.
+          const onGround =
+            c.kind === 'path' ? t === T_SIDEWALK || t === T_PARK || t === T_FIELD : t === T_ROAD || t === T_BRIDGE;
+          if (!onGround) off++;
         }
       }
     }
