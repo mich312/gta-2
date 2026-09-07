@@ -1,7 +1,14 @@
 import { rayWallDistance } from '../src/sim/weapons.js';
 import { drivableTile } from '../src/sim/roadgrid.js';
 import { isSolidAtWorld, isSolidTile } from '../src/world/collide.js';
-import { T_BUILDING, TILE_SIZE, type CityMap, type VehicleSpawn } from '../src/world/types.js';
+import {
+  T_BRIDGE,
+  T_BUILDING,
+  T_ROAD,
+  TILE_SIZE,
+  type CityMap,
+  type VehicleSpawn,
+} from '../src/world/types.js';
 
 /**
  * Geometry helpers for tests.
@@ -171,6 +178,15 @@ export function roadLane(
    * car passing in it. Zero checks nothing, as before.
    */
   lateral = 0,
+  /**
+   * A last word on the candidate, for a test whose staging the probes above
+   * cannot express — the slick test needs CARRIAGEWAY ninety px back down
+   * the lane, not merely no wall there, because a victim rolled from the
+   * pavement never reaches the slick. Map loop 12 gave a junction's excess
+   * tarmac back to the pavement and the first qualifying lane's tail turned
+   * out to be exactly that.
+   */
+  accept: (s: VehicleSpawn) => boolean = () => true,
 ): VehicleSpawn {
   const probe = Number.isFinite(most) ? most + 20 : need + 20;
   const near = [...map.vehicleSpawns].sort(
@@ -204,9 +220,19 @@ export function roadLane(
       const f = rayWallDistance(map, ox, oy, Math.cos(s.heading), Math.sin(s.heading), probe);
       if (f < need) continue;
     }
+    if (!accept(s)) continue;
     return s;
   }
   throw new Error('no clear lane on this map');
+}
+
+/** Whether the world point stands on carriageway — road or a bridge deck. */
+export function onCarriageway(map: CityMap, x: number, y: number): boolean {
+  const tx = Math.floor(x / TILE_SIZE);
+  const ty = Math.floor(y / TILE_SIZE);
+  if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return false;
+  const t = map.tiles[ty * map.widthTiles + tx] as number;
+  return t === T_ROAD || t === T_BRIDGE;
 }
 
 /**

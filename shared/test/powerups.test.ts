@@ -220,7 +220,11 @@ describe('power-ups (F3b)', () => {
     const p = s.players.byId[1]!;
     p.heat = 250;
     p.powerFlags = POWER_JAIL_CARD;
-    insertEntity(s.cops, createCop(500, { x: p.pos.x + 8, y: p.pos.y }, 50));
+    // Beside them on a clear spot: a fixed eight px east put the officer
+    // inside a wall on the spawn this seed lands on, and a wall stops an
+    // arrest as surely as a getaway.
+    const beside = clearSpot(map, p.pos, 8);
+    insertEntity(s.cops, createCop(500, { x: beside.x, y: beside.y }, 50));
     const events: SimEvent[] = [];
     s = step(s, { 1: NULL_INPUT }, [], map, events);
     expect(events.some((e) => e.type === 'jailCardUsed')).toBe(true);

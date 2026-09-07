@@ -213,11 +213,12 @@ describe('wanted + police', () => {
       [{ type: 'spawnVehicle', vehicleId: 2, kind: 'car', x: p.pos.x, y: p.pos.y, heading: 0 }],
       map,
     );
-    // A witness, standing right next to the car so line of sight is certain.
-    insertEntity(
-      state.cops,
-      createCop(90, { x: p.pos.x + 12, y: p.pos.y }, getTuning().police.copHealth),
-    );
+    // A witness, standing right next to the car so line of sight is certain
+    // — on a CLEAR spot beside it, not a fixed twelve px east: the spawn
+    // this seed lands on has a wall on its east side, and an officer stood
+    // inside the wall witnesses nothing.
+    const beside = clearSpot(map, p.pos, 12);
+    insertEntity(state.cops, createCop(90, { x: beside.x, y: beside.y }, getTuning().police.copHealth));
     state = step(state, { 1: { ...NULL_INPUT, seq: 1, tick: 1, action: true } }, [], map);
     expect(state.players.byId[1]!.mode).toBe('driving');
     expect(state.players.byId[1]!.heat).toBeGreaterThanOrEqual(

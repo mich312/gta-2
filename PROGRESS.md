@@ -241,6 +241,35 @@ covers the whole tilted frame, so a shot no longer shows the instanced
 slabs at its edge. Client only; no rebake. Evidence: `bug-stair-kerb` /
 `fixed-stair-kerb`.
 
+**Loop 12 — the pocket beyond the ribbons.** A junction is carved as the
+union of two staircases, and two bands crossing at an angle make a diamond
+much bigger than either: its corners are tarmac no ribbon reaches, and
+from the game's camera a crossroads by the Beachfront river was a sheet of
+bare asphalt with the pavement corner cut clean off. The tail past a
+course's trimmed end is the same thing lengthways. A bake pass
+(`trimPockets`) now takes every pocket of road outside every ribbon's
+painted reach and asks whether the courses it touches already meet each
+other nearby — crossing, or one ending in the other's reach as a T. If
+they all do, the pocket is excess and goes back to the ground beside it
+(pavement in town, field in the country, the commonest flank by ring); a
+pocket touching one course is a tail and goes too. A pocket that JOINS
+courses meeting nowhere else is a junction with no course of its own and
+stays, as does one under a bridge deck or within two tiles of a landmark
+door, and every removal is checked by flood so the network never splits.
+Two things it will not touch: the waterfront invariant (city.test.ts, urban
+shore within five tiles of carriageway) is asked locally and a pocket
+whose loss fails it is put back — the quay aprons stay tarmac, the beach
+fan at 469,401 among them, which is loop 13's business — and the stub walk
+runs once more afterwards, with the courses re-trimmed, for the nubs a
+course's rounded reach leaves under its cap. 750 tiles of pocket gone;
+ribbonless carriageway 4.8% → 4.1%; dead ends by the stub invariant 20 →
+21 (one one-tile nub). Four staged tests flipped with the spawn list —
+a witness cop placed twelve px east of a spawn that now has a wall there,
+a slick victim rolled from what became pavement, a prediction lane probed
+in a state that had accumulated a car per candidate — and were hardened
+to stage what they meant (`clearSpot`, `onCarriageway`, a fresh-state
+probe). Evidence: `bug-pocket-sheet` / `fixed-pocket-sheet`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

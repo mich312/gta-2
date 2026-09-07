@@ -17,7 +17,7 @@ import { NULL_INPUT, type InputIntent } from '../src/sim/input.js';
 import type { SimEvent } from '../src/sim/events.js';
 import { hashState } from '../src/net/hash.js';
 import { turretAngle } from '../src/sim/fittings.js';
-import { roadLane } from './helpers.js';
+import { onCarriageway, roadLane } from './helpers.js';
 
 const map = generateCity(6006, parseWorldgenParams(worldgenJson));
 
@@ -41,8 +41,12 @@ function fitted(
   kind = 'car',
 ): { state: GameState; lane: ReturnType<typeof roadLane> } {
   // 120 px of clear ground behind too: the slick test rolls a victim onto
-  // the fitting from 90 px back down the lane.
-  const lane = roadLane(map, 300, 64, Infinity, 120);
+  // the fitting from 90 px back down the lane — and that has to be
+  // carriageway, not merely wall-free: a car stood on the pavement stays
+  // there.
+  const lane = roadLane(map, 300, 64, Infinity, 120, 0, (s) =>
+    onCarriageway(map, s.x - Math.cos(s.heading) * 110, s.y - Math.sin(s.heading) * 110),
+  );
   let state = createGameState(515);
   state = step(state, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'driver' }], map);
   state.players.byId[1]!.pos = { x: lane.x, y: lane.y };

@@ -1000,6 +1000,167 @@ export function bakeCity(plan: CityPlan): BakedCity {
     if (agrees) b.angle = face;
   }
 
+  // The roads, plus every park walk carved since (3.2). Joined here for the
+  // same reason the ponds join the shores below: one answer to "what curves
+  // does the ground carry", trimmed by one pass against the same finished
+  // tiles — each kind against its own ground.
+  let courses = withRecoveredCourses(
+    trimCourses(
+      [
+        ...layout.courses,
+        ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
+      ],
+      tiles,
+      W,
+      H,
+    ),
+    tiles,
+    W,
+    H,
+  );
+  // Then the tarmac no course accounts for (map loop 12): the excess of a
+  // junction sheet beyond the ribbons that cross there, and the tail beyond
+  // a course's end, given back to the ground beside the road.
+  {
+    const onto = (i: number): number => {
+      if (wetBesideTile(tiles, layout.water, W, H, i)) return T_BANK;
+      const own = layout.owner[i] as number;
+      const rural = own < 0 || (plan.districts[own] as { rural?: boolean }).rural === true;
+      return rural ? T_FIELD : T_SIDEWALK;
+    };
+    // The waterfront invariant, asked locally (city.test.ts, "meets its own
+    // waterfront"): every urban shore tile with town behind it stays within
+    // five tiles of carriageway by a land path. The quay aprons are what
+    // meets it along much of the coast, and a pocket that IS the apron
+    // stays tarmac.
+    const shoreDist = new Int32Array(W * H).fill(-1);
+    {
+      const bag: number[] = [];
+      for (let i = 0; i < W * H; i++) {
+        if (layout.water[i] === 1) {
+          shoreDist[i] = 0;
+          bag.push(i);
+        }
+      }
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if ((shoreDist[j] as number) >= 0) continue;
+          shoreDist[j] = (shoreDist[i] as number) + 1;
+          bag.push(j);
+        }
+      }
+    }
+    const SERVED = 5;
+    const served = (minX: number, minY: number, maxX: number, maxY: number): boolean => {
+      const R = SERVED + 3;
+      const x0 = Math.max(1, minX - R);
+      const y0 = Math.max(1, minY - R);
+      const x1 = Math.min(W - 2, maxX + R);
+      const y1 = Math.min(H - 2, maxY + R);
+      const dist = new Map<number, number>();
+      const bag: number[] = [];
+      for (let y = y0; y <= y1; y++) {
+        for (let x = x0; x <= x1; x++) {
+          const i = y * W + x;
+          if (tiles[i] === T_ROAD || tiles[i] === T_BRIDGE) {
+            dist.set(i, 0);
+            bag.push(i);
+          }
+        }
+      }
+      for (let q = 0; q < bag.length; q++) {
+        const i = bag[q] as number;
+        const d = dist.get(i) as number;
+        if (d >= SERVED) continue;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < x0 || ny < y0 || nx > x1 || ny > y1) continue;
+          const j = ny * W + nx;
+          if (dist.has(j) || tiles[j] === T_WATER) continue;
+          dist.set(j, d + 1);
+          bag.push(j);
+        }
+      }
+      for (let y = Math.max(1, minY - 2); y <= Math.min(H - 2, maxY + 2); y++) {
+        for (let x = Math.max(1, minX - 2); x <= Math.min(W - 2, maxX + 2); x++) {
+          const i = y * W + x;
+          if (tiles[i] === T_WATER || (shoreDist[i] as number) !== 1) continue;
+          const own = layout.owner[i] as number;
+          if (own < 0 || (plan.districts[own] as { rural?: boolean }).rural === true) continue;
+          let town = false;
+          for (let oy = -5; oy <= 5 && !town; oy++) {
+            for (let ox = -5; ox <= 5; ox++) {
+              const nx = x + ox;
+              const ny = y + oy;
+              if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+              if ((shoreDist[ny * W + nx] as number) >= 8) {
+                town = true;
+                break;
+              }
+            }
+          }
+          if (town && !dist.has(i)) return false;
+        }
+      }
+      return true;
+    };
+    trimPockets(tiles, W, H, courses, landmarks, onto, served);
+    // A course's reach rounds off past its last point, so where a tail was
+    // taken back a nub of one or two tiles is left under that cap: the stub
+    // walk once more, with the same excuses as before, and the courses
+    // trimmed once more against the tiles it leaves — a ribbon's end that
+    // stood on a nub now stands on pavement.
+    const authored = new Uint8Array(W * H);
+    for (const c of courses) {
+      if (c.kind !== 'avenue' && c.kind !== 'ring') continue;
+      const reach = c.width / 2 + 0.5;
+      for (let k = 0; k + 1 < c.points.length; k++) {
+        const [ax, ay] = c.points[k] as readonly [number, number];
+        const [bx, by] = c.points[k + 1] as readonly [number, number];
+        const len = Math.hypot(bx - ax, by - ay) || 1;
+        for (let s = 0; s <= len; s += 0.5) {
+          const px = ax + ((bx - ax) * s) / len;
+          const py = ay + ((by - ay) * s) / len;
+          for (let oy = -3; oy <= 3; oy++) {
+            for (let ox = -3; ox <= 3; ox++) {
+              const tx = Math.floor(px + ox);
+              const ty = Math.floor(py + oy);
+              if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
+              if (Math.hypot(tx + 0.5 - px, ty + 0.5 - py) <= reach) authored[ty * W + tx] = 1;
+            }
+          }
+        }
+      }
+    }
+    const nearDoor = new Uint8Array(W * H);
+    for (const l of landmarks) {
+      const dx = Math.floor(l.doorX / TILE_SIZE);
+      const dy = Math.floor(l.doorY / TILE_SIZE);
+      for (let y = Math.max(0, dy - 6); y <= Math.min(H - 1, dy + 6); y++) {
+        for (let x = Math.max(0, dx - 6); x <= Math.min(W - 1, dx + 6); x++) nearDoor[y * W + x] = 1;
+      }
+    }
+    trimStubs(
+      tiles,
+      layout.water,
+      W,
+      H,
+      (i) => authored[i] === 1 || tiles[i] === T_BRIDGE || nearDoor[i] === 1,
+      onto,
+    );
+    courses = trimCourses(courses, tiles, W, H);
+  }
+
   const baked: BakedCity = {
     name: plan.name,
     widthTiles: W,
@@ -1020,27 +1181,295 @@ export function bakeCity(plan: CityPlan): BakedCity {
     buildings,
     landmarks,
     shops: [],
-    // The roads, plus every park walk carved since (3.2). Joined here for
-    // the same reason the ponds join the shores above: one answer to "what
-    // curves does the ground carry", trimmed by one pass against the same
-    // finished tiles — each kind against its own ground.
-    courses: withRecoveredCourses(
-      trimCourses(
-        [
-          ...layout.courses,
-          ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
-        ],
-        tiles,
-        W,
-        H,
-      ),
-      tiles,
-      W,
-      H,
-    ),
+    courses,
   };
   baked.shops = placeShopsFixed(baked, plan.shopQuota, plan.shopSpacingTiles);
   return baked;
+}
+
+const STEPS: ReadonlyArray<readonly [number, number]> = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+];
+
+/** Open water on one of the tile's four sides. */
+function wetBesideTile(tiles: Uint8Array, water: Uint8Array, W: number, H: number, i: number): boolean {
+  const x = i % W;
+  const y = (i - x) / W;
+  const wet = (j: number): boolean => tiles[j] === T_WATER || water[j] === 1;
+  return (
+    (x + 1 < W && wet(i + 1)) ||
+    (x > 0 && wet(i - 1)) ||
+    (y + 1 < H && wet(i + W)) ||
+    (y > 0 && wet(i - W))
+  );
+}
+
+/**
+ * The tarmac no course accounts for, given back to the ground (map loop 12).
+ *
+ * A junction is carved as the union of two staircases, and the union of two
+ * bands crossing at an angle is a diamond much bigger than either — the
+ * corners of the diamond are road no ribbon ever reaches, and from the
+ * game's own camera they are a sheet of bare asphalt with pavement
+ * corners cut off. The tail beyond a course's trimmed end is the same
+ * thing lengthways: a fan of road running out to the beach past where the
+ * street stopped. Measured on the shipped city, 1,202 tiles of sheet and
+ * 274 of tail.
+ *
+ * The rule, per pocket of road outside every ribbon's painted reach: the
+ * courses it touches are found, and if every one of them already meets
+ * every other nearby — crossing, or ending in the other's reach as a T —
+ * the pocket is excess and goes back to the ground beside it; a pocket that
+ * touches one course is a tail and goes too. A pocket that JOINS courses
+ * that meet nowhere else is the junction itself (a seam crossing carved
+ * with no course of its own) and stays, as does a pocket under a bridge
+ * deck or within two tiles of a landmark's door. Every removal is checked
+ * by flood: a pocket whose loss would split the street network stays road,
+ * whatever the geometry said.
+ */
+export function trimPockets(
+  tiles: Uint8Array,
+  W: number,
+  H: number,
+  courses: ReadonlyArray<StreetCourse>,
+  landmarks: ReadonlyArray<{ doorX: number; doorY: number }>,
+  ground: (i: number) => number,
+  /**
+   * Whether the tiles in a box are still served after a pocket in it went
+   * back to ground — the bake asks the waterfront invariant (§13.5: urban
+   * shore within five tiles of carriageway). A pocket whose loss fails it
+   * is put back: a quay apron is tarmac for a reason the geometry cannot
+   * see.
+   */
+  served: (minX: number, minY: number, maxX: number, maxY: number) => boolean = () => true,
+): number {
+  const N = W * H;
+  const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
+  const roads = courses.filter((c) => c.kind !== 'path');
+  // Which course's painted reach — half a width plus the casing's overhang,
+  // the painter's own `courseApron` — covers each tile. Last wins; only
+  // membership matters.
+  const reach = new Int32Array(N).fill(-1);
+  roads.forEach((c, id) => {
+    const half = c.width / 2 + 0.55;
+    for (let k = 0; k + 1 < c.points.length; k++) {
+      const [ax, ay] = c.points[k] as readonly [number, number];
+      const [bx, by] = c.points[k + 1] as readonly [number, number];
+      const x0 = Math.max(0, Math.floor(Math.min(ax, bx) - half - 1));
+      const x1 = Math.min(W - 1, Math.ceil(Math.max(ax, bx) + half + 1));
+      const y0 = Math.max(0, Math.floor(Math.min(ay, by) - half - 1));
+      const y1 = Math.min(H - 1, Math.ceil(Math.max(ay, by) + half + 1));
+      const dx = bx - ax;
+      const dy = by - ay;
+      const len2 = dx * dx + dy * dy || 1;
+      for (let ty = y0; ty <= y1; ty++) {
+        for (let tx = x0; tx <= x1; tx++) {
+          const px = tx + 0.5 - ax;
+          const py = ty + 0.5 - ay;
+          const t = Math.max(0, Math.min(1, (px * dx + py * dy) / len2));
+          const qx = px - t * dx;
+          const qy = py - t * dy;
+          if (qx * qx + qy * qy <= half * half) reach[ty * W + tx] = id;
+        }
+      }
+    }
+  });
+  const nearDoor = new Uint8Array(N);
+  for (const l of landmarks) {
+    const dx = Math.floor(l.doorX / TILE_SIZE);
+    const dy = Math.floor(l.doorY / TILE_SIZE);
+    for (let y = Math.max(0, dy - 2); y <= Math.min(H - 1, dy + 2); y++) {
+      for (let x = Math.max(0, dx - 2); x <= Math.min(W - 1, dx + 2); x++) nearDoor[y * W + x] = 1;
+    }
+  }
+
+  type Box = readonly [number, number, number, number];
+  const inBox = (p: PlanPoint, q: PlanPoint, box: Box): boolean =>
+    Math.max(p[0], q[0]) >= box[0] &&
+    Math.min(p[0], q[0]) <= box[2] &&
+    Math.max(p[1], q[1]) >= box[1] &&
+    Math.min(p[1], q[1]) <= box[3];
+  /** Two courses' segments cross inside the box. */
+  const crosses = (a: number, b: number, box: Box): boolean => {
+    const pa = (roads[a] as StreetCourse).points;
+    const pb = (roads[b] as StreetCourse).points;
+    for (let i = 0; i + 1 < pa.length; i++) {
+      const p = pa[i] as PlanPoint;
+      const q = pa[i + 1] as PlanPoint;
+      if (!inBox(p, q, box)) continue;
+      for (let j = 0; j + 1 < pb.length; j++) {
+        const r = pb[j] as PlanPoint;
+        const s = pb[j + 1] as PlanPoint;
+        if (!inBox(r, s, box)) continue;
+        const r1x = q[0] - p[0];
+        const r1y = q[1] - p[1];
+        const r2x = s[0] - r[0];
+        const r2y = s[1] - r[1];
+        const den = r1x * r2y - r1y * r2x;
+        if (den === 0) continue;
+        const t = ((r[0] - p[0]) * r2y - (r[1] - p[1]) * r2x) / den;
+        const u = ((r[0] - p[0]) * r1y - (r[1] - p[1]) * r1x) / den;
+        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return true;
+      }
+    }
+    return false;
+  };
+  /** Distance from a point to a course's line, over the segments in the box. */
+  const distTo = (px: number, py: number, b: number, box: Box): number => {
+    const pb = (roads[b] as StreetCourse).points;
+    let best = Infinity;
+    for (let j = 0; j + 1 < pb.length; j++) {
+      const r = pb[j] as PlanPoint;
+      const s = pb[j + 1] as PlanPoint;
+      if (!inBox(r, s, box)) continue;
+      const dx = s[0] - r[0];
+      const dy = s[1] - r[1];
+      const l2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - r[0]) * dx + (py - r[1]) * dy) / l2));
+      const d = Math.hypot(px - r[0] - t * dx, py - r[1] - t * dy);
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  /** One course ends inside the other's reach: a T, which is a meeting too. */
+  const tees = (a: number, b: number, box: Box): boolean => {
+    const ca = roads[a] as StreetCourse;
+    const cb = roads[b] as StreetCourse;
+    const lim = (ca.width + cb.width) / 2 + 1.5;
+    for (const e of [ca.points[0], ca.points[ca.points.length - 1]] as PlanPoint[]) {
+      if (distTo(e[0], e[1], b, box) <= lim) return true;
+    }
+    for (const e of [cb.points[0], cb.points[cb.points.length - 1]] as PlanPoint[]) {
+      if (distTo(e[0], e[1], a, box) <= lim) return true;
+    }
+    return false;
+  };
+
+  const components = (): number => {
+    const seen = new Uint8Array(N);
+    let n = 0;
+    for (let start = 0; start < N; start++) {
+      if (seen[start] === 1 || !isRoad(start)) continue;
+      n++;
+      const stack = [start];
+      seen[start] = 1;
+      while (stack.length > 0) {
+        const i = stack.pop() as number;
+        const x = i % W;
+        const y = (i - x) / W;
+        for (const [dx, dy] of STEPS) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const j = ny * W + nx;
+          if (seen[j] === 1 || !isRoad(j)) continue;
+          seen[j] = 1;
+          stack.push(j);
+        }
+      }
+    }
+    return n;
+  };
+  const before = components();
+
+  /** The ground beside the pocket: the commonest kind in the nearest ring that has any. */
+  const flank = (i: number): number => {
+    const x = i % W;
+    const y = (i - x) / W;
+    for (let r = 1; r <= 3; r++) {
+      const count = new Map<number, number>();
+      for (let oy = -r; oy <= r; oy++) {
+        for (let ox = -r; ox <= r; ox++) {
+          if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue;
+          const nx = x + ox;
+          const ny = y + oy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const t = tiles[ny * W + nx] as number;
+          const g = t === T_TREES ? T_FIELD : t;
+          if (g !== T_SIDEWALK && g !== T_PARK && g !== T_FIELD && g !== T_SAND && g !== T_LOT) continue;
+          count.set(g, (count.get(g) ?? 0) + 1);
+        }
+      }
+      let best = 0;
+      let pick = -1;
+      for (const [t, n] of count) {
+        if (n > best) {
+          best = n;
+          pick = t;
+        }
+      }
+      if (pick >= 0) return pick;
+    }
+    return ground(i);
+  };
+
+  const seen = new Uint8Array(N);
+  let removed = 0;
+  for (let start = 0; start < N; start++) {
+    if (seen[start] === 1 || !isRoad(start) || (reach[start] as number) >= 0) continue;
+    const bag = [start];
+    seen[start] = 1;
+    const ends = new Set<number>();
+    let keep = false;
+    let minX = W;
+    let maxX = 0;
+    let minY = H;
+    let maxY = 0;
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      if (tiles[i] === T_BRIDGE || nearDoor[i] === 1) keep = true;
+      const x = i % W;
+      const y = (i - x) / W;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if (!isRoad(j)) continue;
+        if ((reach[j] as number) >= 0) {
+          ends.add(reach[j] as number);
+          continue;
+        }
+        if (seen[j] === 1) continue;
+        seen[j] = 1;
+        bag.push(j);
+      }
+    }
+    if (keep) continue;
+    const ids = [...ends];
+    // Do the courses this pocket touches all meet each other without it?
+    // Union-find over the pairs that cross or tee within the pocket's box.
+    const box: Box = [minX - 6, minY - 6, maxX + 7, maxY + 7];
+    const parent = ids.map((_, k) => k);
+    const find = (k: number): number => (parent[k] === k ? k : (parent[k] = find(parent[k] as number)));
+    for (let a = 0; a < ids.length; a++) {
+      for (let b = a + 1; b < ids.length; b++) {
+        if (crosses(ids[a] as number, ids[b] as number, box) || tees(ids[a] as number, ids[b] as number, box)) {
+          parent[find(a)] = find(b);
+        }
+      }
+    }
+    let groups = 0;
+    for (let k = 0; k < ids.length; k++) if (find(k) === k) groups++;
+    if (groups > 1) continue; // the pocket is what joins them: a junction with no course
+    const was = bag.map((i) => tiles[i] as number);
+    for (const i of bag) tiles[i] = flank(i);
+    if ((ids.length >= 2 && components() > before) || !served(minX, minY, maxX, maxY)) {
+      bag.forEach((i, k) => {
+        tiles[i] = was[k] as number;
+      });
+      continue;
+    }
+    removed += bag.length;
+  }
+  return removed;
 }
 
 /**

@@ -234,11 +234,16 @@ function drivableLane(map: ReturnType<typeof generateCity>): {
   const near = [...map.vehicleSpawns].sort(
     (a, b) => Math.hypot(a.x - home.x, a.y - home.y) - Math.hypot(b.x - home.x, b.y - home.y),
   );
-  let probeState = createGameState(1);
-  probeState = step(probeState, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'probe' }], map);
+  // Each candidate is probed exactly as the tests stage it — a fresh state,
+  // the one car, sixty ticks of throttle — and has to go well past the
+  // distance the tests then ask for. The first probe drove forty ticks in a
+  // state that accumulated a car per candidate, and passed a lane the test
+  // itself then drove 84 px down before the kerb stopped it.
   let id = 100;
   for (const cand of near.slice(0, 60)) {
     const vid = id++;
+    let probeState = createGameState(4242);
+    probeState = step(probeState, {}, [{ type: 'spawnPlayer', playerId: 1, name: 'probe' }], map);
     probeState = step(
       probeState,
       {},
@@ -251,13 +256,14 @@ function drivableLane(map: ReturnType<typeof generateCity>): {
     p.pos = { x: cand.x, y: cand.y };
     p.mode = 'driving';
     p.vehicleId = vid;
+    veh.driverId = 1;
     const probe = new Predictor();
     probe.reconcile(p, veh, 0, map);
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 60; i++) {
       probe.applyLocalInput({ ...NULL_INPUT, seq: i + 1, tick: i, up: true }, map);
     }
     const v = probe.predictedVehicle;
-    if (v && Math.hypot(v.pos.x - cand.x, v.pos.y - cand.y) > 180) return cand;
+    if (v && Math.hypot(v.pos.x - cand.x, v.pos.y - cand.y) > 260) return cand;
   }
   throw new Error('no drivable lane among the 60 kerbside spawns nearest the player spawn');
 }
