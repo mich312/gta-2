@@ -814,7 +814,11 @@ export function buildCity(map: CityMap): CityBuild {
     );
   }
 
-  instances += buildRoofDetail(map, group, heightAt, masses, massTiles);
+  // Pitched roofs on the low houses (map loop 14), and no parapet where a
+  // roof is pitched: a gable rimmed with a flat roof's lip is two roofs.
+  const gabled = pickGables(map);
+  instances += buildGables(map, group, heightAt, buildingOf, gabled);
+  instances += buildRoofDetail(map, group, heightAt, masses, massTiles, buildingOf, gabled);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
   instances += buildBandPatches(map, group, shoreCut);
@@ -903,12 +907,18 @@ function buildRoofDetail(
   heightAt: Float64Array,
   masses: ReadonlyArray<{ b: Building; top: number }>,
   massTiles: Uint8Array,
+  buildingOf: Int32Array,
+  gabled: Uint8Array,
 ): number {
   const W = map.widthTiles;
   const H = map.heightTiles;
   const T = TILE_SIZE;
   const isBuilding = (tx: number, ty: number): boolean =>
     tx >= 0 && ty >= 0 && tx < W && ty < H && map.tiles[ty * W + tx] === T_BUILDING;
+  const isGabled = (idx: number): boolean => {
+    const bi = (buildingOf[idx] as number) - 1;
+    return bi >= 0 && gabled[bi] === 1;
+  };
 
   const parapets = new Map<number, Boxes>();
   const clutter = new Map<number, Boxes>();
@@ -919,8 +929,11 @@ function buildRoofDetail(
   // turned with it. Run first, and its tiles are skipped by the per-tile walk
   // below — a square ring of lips floating over a turned roof was the first
   // thing §20 got wrong, and it read as a picture frame hanging in the air.
+  const indexOf = new Map<Building, number>();
+  map.buildings.forEach((b, i) => indexOf.set(b, i));
   for (const { b, top } of masses) {
     if (top <= 0) continue;
+    if (gabled[indexOf.get(b) ?? -1] === 1) continue;
     const m = buildingMass(b);
     const cx = m.cx * T;
     const cy = m.cy * T;
@@ -951,7 +964,7 @@ function buildRoofDetail(
   for (let ty = 0; ty < H; ty++) {
     for (let tx = 0; tx < W; tx++) {
       const idx = ty * W + tx;
-      if (map.tiles[idx] !== T_BUILDING || massTiles[idx] === 1) continue;
+      if (map.tiles[idx] !== T_BUILDING || massTiles[idx] === 1 || isGabled(idx)) continue;
       const top = heightAt[idx] as number;
       if (top <= 0) continue;
       const cx = (tx + 0.5) * T;
@@ -986,6 +999,180 @@ function buildRoofDetail(
   let instances = 0;
   instances += addChunkedBoxes(group, parapets, col('roofEdgeLight', 0x8f97a6), 0.4);
   instances += addChunkedBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
+  return instances;
+}
+
+/**
+ * Which buildings wear a pitched roof (map loop 14): the low houses.
+ *
+ * From the game's own camera a roof is most of what a building is, and a
+ * suburb of flat grey lids with white parapets read as a row of shoe boxes.
+ * A house of one or two storeys in a residential or park district, two to
+ * six tiles a side, with nothing punched out of it (a shop is a room open to
+ * the sky, and a ridge over it would put a lid on the room) and no authored
+ * height (a landmark is its recipe's shape), gets a gable three times in
+ * four — the fourth keeps its flat roof, so a terrace is a terrace and not
+ * a rank of identical cottages. Salted off the footprint like the storey
+ * count, so the same house wears the same roof in every session.
+ */
+function pickGables(map: CityMap): Uint8Array {
+  const W = map.widthTiles;
+  const H = map.heightTiles;
+  const out = new Uint8Array(map.buildings.length);
+  map.buildings.forEach((b, i) => {
+    if (b.storeys !== undefined) return;
+    if (buildingStoreys(b) > 2) return;
+    const short = Math.min(b.w, b.h);
+    const long = Math.max(b.w, b.h);
+    if (short < 2 || long > 6) return;
+    const cx = Math.min(W - 1, Math.max(0, Math.floor(b.x + b.w / 2)));
+    const cy = Math.min(H - 1, Math.max(0, Math.floor(b.y + b.h / 2)));
+    const district = districtAt(map, cx, cy) as string;
+    if (district !== 'residential' && district !== 'park') return;
+    for (let ty = b.y; ty < b.y + b.h; ty++) {
+      for (let tx = b.x; tx < b.x + b.w; tx++) {
+        if (tx < 0 || ty < 0 || tx >= W || ty >= H) return;
+        const t = map.tiles[ty * W + tx];
+        if (t === T_FLOOR || (b.mw === undefined && t !== T_BUILDING)) return;
+      }
+    }
+    if (hash2(b.x, b.y, 119) < 0.25) return;
+    out[i] = 1;
+  });
+  return out;
+}
+
+/**
+ * A gable: a triangular prism, ridge along local x, base on z = 0 and the
+ * ridge at z = 1, scaled and turned per instance like every box in the city.
+ * Flat-shaded, so each face carries its own vertices and normal — a toon
+ * roof wants two clean planes, not a smoothed hump.
+ */
+function gableGeometry(): THREE.BufferGeometry {
+  const A = [-0.5, -0.5, 0];
+  const B = [0.5, -0.5, 0];
+  const C = [0.5, 0.5, 0];
+  const D = [-0.5, 0.5, 0];
+  const E = [-0.5, 0, 1];
+  const F = [0.5, 0, 1];
+  const tris: number[][][] = [
+    // The two slopes, as two triangles each.
+    [A, B, F],
+    [A, F, E],
+    [C, D, E],
+    [C, E, F],
+    // The gable ends.
+    [D, A, E],
+    [B, C, F],
+    // The underside, so the outline hull closes.
+    [B, A, D],
+    [B, D, C],
+  ];
+  const positions: number[] = [];
+  const normals: number[] = [];
+  for (const [p, q, r] of tris as [number[], number[], number[]][]) {
+    const ux = (q[0] as number) - (p[0] as number);
+    const uy = (q[1] as number) - (p[1] as number);
+    const uz = (q[2] as number) - (p[2] as number);
+    const vx = (r[0] as number) - (p[0] as number);
+    const vy = (r[1] as number) - (p[1] as number);
+    const vz = (r[2] as number) - (p[2] as number);
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    nx /= len;
+    ny /= len;
+    nz /= len;
+    // Outward: away from the prism's centre, whichever way the triangle was
+    // written down.
+    const mx = ((p[0] as number) + (q[0] as number) + (r[0] as number)) / 3;
+    const my = ((p[1] as number) + (q[1] as number) + (r[1] as number)) / 3;
+    const mz = ((p[2] as number) + (q[2] as number) + (r[2] as number)) / 3 - 0.35;
+    const flip = mx * nx + my * ny + mz * nz < 0;
+    const order = flip ? [p, r, q] : [p, q, r];
+    if (flip) {
+      nx = -nx;
+      ny = -ny;
+      nz = -nz;
+    }
+    for (const v of order) {
+      positions.push(v[0] as number, v[1] as number, v[2] as number);
+      normals.push(nx, ny, nz);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return geometry;
+}
+
+/**
+ * The pitched roofs: one gable per picked house, on the flat top the walk
+ * gave it, eaves a hair past the walls, the ridge along the long side and
+ * turned with a turned mass. Two tile colours by hash — terracotta and slate
+ * — so a street is not one roofer's work, and a chimney at one end of every
+ * other ridge. The rise is a storey and a bit or a third of the short side,
+ * whichever is less: a pitched roof taller than the house under it is a
+ * church. Both colours sit well under the walls' brightness, because a roof
+ * faces the sun square on and a tile red that reads right as an albedo
+ * comes out as a slab of orange once it is lit.
+ */
+function buildGables(
+  map: CityMap,
+  group: THREE.Group,
+  heightAt: Float64Array,
+  buildingOf: Int32Array,
+  gabled: Uint8Array,
+): number {
+  const W = map.widthTiles;
+  const T = TILE_SIZE;
+  const EAVE = 3;
+  const terracotta = new Map<number, Boxes>();
+  const slate = new Map<number, Boxes>();
+  const chimneys = new Map<number, Boxes>();
+  map.buildings.forEach((b, i) => {
+    if (gabled[i] !== 1) return;
+    const m = buildingMass(b);
+    const cx = Math.floor(m.cx);
+    const cy = Math.floor(m.cy);
+    const idx = cy * W + cx;
+    if ((buildingOf[idx] as number) - 1 !== i) return;
+    const top = heightAt[idx] as number;
+    if (top <= 0) return;
+    const along = m.w >= m.h;
+    const length = (along ? m.w : m.h) * T + EAVE * 2;
+    const width = (along ? m.h : m.w) * T + EAVE * 2;
+    const rise = Math.min(width * 0.35, Z_PER_STOREY * Z_SCALE * 1.8);
+    const yaw = m.rad + (along ? 0 : Math.PI / 2);
+    const roll = hash2(b.x, b.y, 127);
+    intoChunk(roll < 0.55 ? terracotta : slate, cx, cy, length, width, rise, m.cx * T, m.cy * T, top, yaw);
+    if (roll > 0.35) {
+      // A chimney a third of the way in from one end, straddling the ridge.
+      const c = Math.cos(yaw);
+      const s = Math.sin(yaw);
+      const ox = (hash2(b.x, b.y, 131) < 0.5 ? -1 : 1) * (length / 2 - EAVE - T * 0.6);
+      const CH = 4;
+      const CW = 3.5;
+      intoChunk(
+        chimneys,
+        cx,
+        cy,
+        CW,
+        CW,
+        rise + CH,
+        m.cx * T + ox * c,
+        m.cy * T + ox * s,
+        top + (rise + CH) / 2,
+        yaw,
+      );
+    }
+  });
+  let instances = 0;
+  const prism = gableGeometry();
+  instances += addChunkedShapes(group, prism, terracotta, col('roofTile', 0x6f4636), 0.5);
+  instances += addChunkedShapes(group, prism, slate, col('roofSlate', 0x454850), 0.5);
+  instances += addChunkedBoxes(group, chimneys, col('chimney', 0x5c4034), 0.4);
   return instances;
 }
 
@@ -1484,15 +1671,25 @@ function addChunkedBoxes(
   color: number,
   outline: number,
 ): number {
+  return addChunkedShapes(group, new THREE.BoxGeometry(1, 1, 1), byChunk, color, outline);
+}
+
+/** `addChunkedBoxes` for any unit shape — the gables are prisms. */
+function addChunkedShapes(
+  group: THREE.Group,
+  shape: THREE.BufferGeometry,
+  byChunk: Map<number, Boxes>,
+  color: number,
+  outline: number,
+): number {
   let total = 0;
   // One geometry, one material and one outline material for every chunk of
   // this kind. Chunking multiplies meshes; it must not multiply either.
-  const box = new THREE.BoxGeometry(1, 1, 1);
   const material = toonMaterial(color);
   const shared = outlineMaterial(outline);
   for (const boxes of byChunk.values()) {
     if (boxes.count === 0) continue;
-    const mesh = new THREE.InstancedMesh(box, material, boxes.count);
+    const mesh = new THREE.InstancedMesh(shape, material, boxes.count);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     boxes.writeTo(mesh);

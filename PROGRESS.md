@@ -296,6 +296,24 @@ whose corners lie on a turned borough's streets: the cardinal follower
 orbits those, and the rebake had put the three nearest journeys in the
 Old Quarter's 170° fabric. Evidence: `bug-quay-fan` / `fixed-quay-fan`.
 
+**Loop 14 — a roof on the houses.** From the game's own camera a roof is
+most of what a building is, and every house in the Terraces was the same
+flat grey lid with a white parapet: a suburb of shoe boxes. The 3D city
+now puts a pitched roof on the low houses — one or two storeys, in a
+residential or park district, two to six tiles a side, nothing punched
+out of them and no authored height — three times in four, salted off the
+footprint like the storey count. A gable is a triangular prism instanced
+like every box in the city (`gableGeometry`, `addChunkedShapes`), its
+ridge along the long side and turned with a turned mass, eaves three px
+past the walls, the rise a storey and a bit or a third of the short side,
+whichever is less. Two tile colours by hash, terracotta and slate, both
+held well under the walls' brightness because a roof faces the sun square
+on; a chimney straddles one end of every other ridge. A gabled house
+gets no parapet and no rooftop clutter — a gable rimmed with a flat
+roof's lip is two roofs. Client only; 3D only (the 2D painter keeps its
+flat roofs, as it keeps its own kerbs). Evidence: `bug-flat-roofs` /
+`fixed-flat-roofs`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
