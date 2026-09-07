@@ -141,6 +141,11 @@ tiles are still what collision reads. `WORLDGEN.md` §18.
 
 ![Anywhere City](evidence/city-anywhere.png)
 
+Twenty review loops went over the finished city through the game's own
+camera — road quality, junctions, and what a building looks like from the
+game's pitch — each one a measured fix with a before-and-after pair in
+`evidence/`; `PROGRESS.md` ("Map loops") has the series and its numbers.
+
 ![The coast, drawn in one line](evidence/city-shore-curve.png)
 
 All gameplay numbers live in `shared/data/*.json` (movement, vehicles,

@@ -396,6 +396,33 @@ diagonal band as a one-tile run, so the census read 25 → 85 dead ends
 for a change nobody could see; the specks stay, painted as the pavement
 they are. Client only. Evidence: `bug-bare-roofs` / `fixed-bare-roofs`.
 
+**Loop 20 — the second ten, in numbers.** Against the bake the first ten
+loops left (`city.data.head`'s successor at loop 10): ribbonless
+carriageway 4.8% → 3.6%; pockets of road no ribbon reaches, by the
+loop-12 census, 122 sheets of 1,202 tiles and 72 tails of 274 → 9 sheets
+of 299 and 9 tails of 54, with 896 tiles of carriageway given back to
+the ground; junction patches over 80 tiles 6 → 6 and 37–80 tiles 45 → 35;
+hairpin courses 0 → 0; dead ends by the stub invariant 20 → 25, the five
+new ones one- and two-tile nubs the quay lanes hold; urban shore tiles
+further than five from a street 11 → 13 of 1,355 checked; street courses
+478 → 492 (eleven quay lanes and the recovered pieces the trims left),
+walks 32 → 28. In the 3D city: 1,300-odd houses wear a gable, 168 blocks
+step, 288 carry a mast, every facade is its district's, 66 shops have a
+front, and every flat roof carries what its district would put there.
+Three bakes (loops 12, 13, 18) and six client-only loops; the full suite
+was green after each, with four staged tests hardened on the way to stage
+what they meant (`clearSpot` for a witness, `onCarriageway` for a lane's
+tail, a fresh-state probe for the prediction lane, the cardinal grid for
+the errand journeys). Three things were tried, measured, and put back —
+the shallow-crossing dash punch, the shadowed-course drop and the island
+fill — each recorded in its loop so the next series does not try it
+again. What the series leaves: the two big quay aprons at the Old Bridge
+and Spine mouths (a pocket each that IS the connection between a bridge
+approach and the quay, so the trim cannot take it), 43 pavement specks
+inside junction sheets, the 646 tiles of sliver strip between paired
+roads, and the merges where a street runs beside an avenue as its own
+road for a few tiles before joining — two roads, not a doubled line.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

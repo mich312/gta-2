@@ -414,6 +414,16 @@ Worth recording, so the next pass does not re-tread it:
   rebuilt, so a battered car darkens rather than showing the dents the 2D
   renderer draws. Recorded as a known trade in `entities.ts`, not disturbed
   here.
+- **After the map loops (PROGRESS.md, loops 11–20).** Two quay aprons stay
+  tarmac at the Old Bridge and Spine mouths — each is the pocket that joins
+  a bridge approach to the quay, so the pocket trim cannot take it without
+  splitting the network. Forty-three specks of pavement sit inside junction
+  sheets; filling them split a walk's ground and inflated the stub census,
+  so they stay, painted as pavement. Six hundred and forty-six tiles of
+  sliver strip stand between paired roads. And where a street runs beside
+  an avenue as its own road for a few tiles before joining, the two dashed
+  centre lines are two roads, not a doubled line — a layout doubling rule,
+  not a painter's.
 
 ---
 
