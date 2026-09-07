@@ -53,18 +53,21 @@ interface StyleParams {
   ground: 0 | 1 | 2 | 3;
   /** A light string course at each storey line. */
   sill: 0 | 1;
+  /** What the flat roof is made of: the slate the wall colour is pulled towards. */
+  roof: number;
 }
 
 const STYLES: Record<FacadeStyle, StyleParams> = {
   // Curtain wall: wide glass, a shopfront under it.
-  downtown: { colW: 8, glass: [0.2, 0.8, 0.22, 0.8], ground: 1, sill: 0 },
+  downtown: { colW: 8, glass: [0.2, 0.8, 0.22, 0.8], ground: 1, sill: 0, roof: 0x262a30 },
   // Shops under flats: the same shopfront, a string course per floor.
-  commercial: { colW: 9, glass: [0.18, 0.82, 0.25, 0.78], ground: 1, sill: 1 },
+  commercial: { colW: 9, glass: [0.18, 0.82, 0.25, 0.78], ground: 1, sill: 1, roof: 0x2e2a28 },
   // Houses: smaller windows in more wall, a front door on the ground floor.
-  residential: { colW: 10, glass: [0.3, 0.7, 0.34, 0.76], ground: 2, sill: 1 },
-  park: { colW: 10, glass: [0.3, 0.7, 0.34, 0.76], ground: 2, sill: 1 },
+  residential: { colW: 10, glass: [0.3, 0.7, 0.34, 0.76], ground: 2, sill: 1, roof: 0x34312c },
+  park: { colW: 10, glass: [0.3, 0.7, 0.34, 0.76], ground: 2, sill: 1, roof: 0x34312c },
   // Sheds: high strip windows over blank wall, roller doors at the yard.
-  industrial: { colW: 14, glass: [0.1, 0.9, 0.55, 0.85], ground: 3, sill: 0 },
+  // Gravel over felt: a shed's roof is the lightest thing about it.
+  industrial: { colW: 14, glass: [0.1, 0.9, 0.55, 0.85], ground: 3, sill: 0, roof: 0x4c4e4a },
 };
 
 export interface FacadeOptions {
@@ -114,6 +117,7 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
     uGround: { value: style.ground },
     uSill: { value: style.sill },
     uDoor: { value: new THREE.Color(0x3a2a22) },
+    uRoof: { value: new THREE.Color(style.roof) },
   };
 
   mat.onBeforeCompile = (shader) => {
@@ -157,6 +161,7 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
          uniform float uGround;
          uniform float uSill;
          uniform vec3 uDoor;
+         uniform vec3 uRoof;
 
          // Deterministic per-window hash, so a window that is lit stays lit
          // rather than flickering as the camera moves.
@@ -184,7 +189,9 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              // faces the sun square on and collects more irradiance than any
              // other surface in the city — a slate that reads correctly in
              // isolation comes out mid-grey once it is lit.
-             vec3 slate = vec3(0.15, 0.16, 0.18);
+             // The district's roofing (map loop 19): slate downtown, tar on
+             // the shops, felt on the houses, pale gravel on the sheds.
+             vec3 slate = uRoof;
              float grit = (win_hash(floor(vWorld.xy * 1.7)) - 0.5) * 0.03;
              diffuseColor.rgb = mix(diffuseColor.rgb, slate, 0.72) * 0.46 + grit;
            }

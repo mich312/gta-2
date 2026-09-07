@@ -939,6 +939,8 @@ function buildRoofDetail(
 
   const parapets = new Map<number, Boxes>();
   const clutter = new Map<number, Boxes>();
+  const skylights = new Map<number, Boxes>();
+  const tanks = new Map<number, Boxes>();
   const LIP_H = 3.2;
   const LIP_W = 2.4;
 
@@ -1028,7 +1030,22 @@ function buildRoofDetail(
       }
       // Interior only — same rule and same salt the 2D roof painter uses.
       if (openN || openS || openE || openW) continue;
+      const style = facadeStyleAt(map, tx, ty);
       const roll = hash2(tx, ty, 61);
+      // What a roof carries depends on what is under it (map loop 19): a
+      // shed's roof is skylights, a block of shops or offices keeps a water
+      // tank and its plant, a house has a hatch and a vent.
+      if (style === 'industrial') {
+        if (roll > 0.62) intoChunk(skylights, tx, ty, T * 0.6, T * 0.42, 1.2, cx, cy, top + 0.6);
+        else if (roll > 0.55) intoChunk(clutter, tx, ty, T * 0.3, T * 0.3, 3, cx, cy, top + 1.5);
+        continue;
+      }
+      if ((style === 'downtown' || style === 'commercial') && roll > 0.9) {
+        // A water tank: the drum on its plinth.
+        intoChunk(clutter, tx, ty, T * 0.44, T * 0.44, 2, cx, cy, top + 1);
+        intoChunk(tanks, tx, ty, T * 0.36, T * 0.36, 7, cx, cy, top + 2 + 3.5);
+        continue;
+      }
       if (roll > 0.86) {
         intoChunk(clutter, tx, ty, T * 0.5, T * 0.38, 6, cx, cy, top + 3);
       } else if (roll > 0.74) {
@@ -1042,6 +1059,8 @@ function buildRoofDetail(
   let instances = 0;
   instances += addChunkedBoxes(group, parapets, col('roofEdgeLight', 0x8f97a6), 0.4);
   instances += addChunkedBoxes(group, clutter, col('roofUnit', 0x6b7079), 0.5);
+  instances += addChunkedBoxes(group, skylights, col('roofSkylight', 0x6e8292), 0.3);
+  instances += addChunkedBoxes(group, tanks, col('roofTank', 0x7a6a58), 0.5);
   return instances;
 }
 

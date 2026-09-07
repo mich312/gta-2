@@ -381,6 +381,21 @@ rim outside that; the carved staircase either side is lawn under
 `pathCover` already, and is what gives the room. The hub is four paths
 meeting on a lawn. Evidence: `bug-walk-blob` / `fixed-walk-blob`.
 
+**Loop 19 — what a roof carries.** Every flat roof in the city was the
+same slate with the same three sizes of grey box scattered on it, a shed
+in the Docks indistinguishable from an office block on Vantage Row once
+the camera was over it. The roof's material now follows the district's
+facade style — slate downtown, tar on the shops, felt on the houses, pale
+gravel on the sheds — and so does what stands on it: a shed's roof is
+skylights, a block of shops or offices keeps a water tank on its plinth
+among the plant, a house keeps its hatch and vent. Tried and dropped this
+loop: turning the pavement specks inside junction sheets to road (86 of
+them, 71 a single tile) — it split a walk's ground under its own
+centreline, and the stub invariant counts a filled speck inside a
+diagonal band as a one-tile run, so the census read 25 → 85 dead ends
+for a change nobody could see; the specks stay, painted as the pavement
+they are. Client only. Evidence: `bug-bare-roofs` / `fixed-bare-roofs`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
