@@ -345,6 +345,25 @@ strip of glass over blank wall and roller doors, ribbed, two columns wide
 with a column of wall between. Client only; the 2D painter's walls are
 its own. Evidence: `bug-one-facade` / `fixed-one-facade`.
 
+**Loop 17 — a front for every shop.** A shop is a room punched out of a
+building and open to the sky, with a doorway punched through the wall,
+and from the game's camera that was a gap in a wall with a coloured floor
+tile in it — the only thing that said "shop" was the floor, and only from
+straight above. Every shop now has a sign filling the gap over its door
+at lintel height, so the opening reads as a door rather than a missing
+tile, and an awning eight px out over the pavement in the shop's own
+colour — the red, blue and yellow the 2D painter has always used — which
+is what you see from the street. Sixty-six shops, two boxes each. Two
+things tried first and put back this loop, both recorded so they are not
+tried again: punching a minor course's centre dash further back at a
+shallow crossing (397 crossings under thirty degrees) changed no pixel,
+because the stretch it punches is already under the senior road's own
+repaint, and the doubled dash one sees at a merge is the stretch beyond
+that, where the two are two roads; and dropping the twelve street courses
+that run inside an avenue's band changed six tiles and no pixel, for the
+same reason. Client only. Evidence: `bug-bare-shopfront` /
+`fixed-bare-shopfront`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

@@ -835,6 +835,7 @@ export function buildCity(map: CityMap): CityBuild {
   const gabled = pickGables(map);
   instances += buildGables(map, group, heightAt, buildingOf, gabled);
   instances += buildRoofDetail(map, group, heightAt, masses, massTiles, buildingOf, gabled);
+  instances += buildShopFronts(map, group);
   instances += buildBridgeRails(map, group);
   instances += buildEdgeSkirt(map, group);
   instances += buildBandPatches(map, group, shoreCut);
@@ -1215,6 +1216,75 @@ function buildGables(
   instances += addChunkedShapes(group, prism, terracotta, col('roofTile', 0x6f4636), 0.5);
   instances += addChunkedShapes(group, prism, slate, col('roofSlate', 0x454850), 0.5);
   instances += addChunkedBoxes(group, chimneys, col('chimney', 0x5c4034), 0.4);
+  return instances;
+}
+
+/**
+ * A front for every shop (map loop 17): a sign across the doorway's lintel
+ * and an awning out over the pavement, in the shop's own colour.
+ *
+ * A shop is a room punched out of a building and open to the sky, with a
+ * doorway punched through the wall — and from the game's camera that is a
+ * gap in a wall with a coloured floor tile in it. The 2D painter has always
+ * drawn a shopfront on the wall; in 3D the only thing that said "shop" was
+ * the floor, and only from straight above. The sign fills the gap over the
+ * door at lintel height, so the opening reads as a door rather than a
+ * missing tile; the awning is what you see from the street.
+ */
+function buildShopFronts(map: CityMap, group: THREE.Group): number {
+  const T = TILE_SIZE;
+  const ACCENTS: Record<string, number> = {
+    gun: col('shopGun', 0xc8583c),
+    clothing: col('shopClothing', 0x3ca0c8),
+    spray: col('shopSpray', 0xc8a13c),
+    clinic: col('shopClinic', 0xd8d8d0),
+    depot: DEPOT_ACCENT,
+  };
+  const byKind = new Map<string, Map<number, Boxes>>();
+  const storey = Z_PER_STOREY * Z_SCALE;
+  for (const shop of map.shops) {
+    const nx = Math.sign(shop.doorX - shop.entryX);
+    const ny = Math.sign(shop.doorY - shop.entryY);
+    if ((nx === 0) === (ny === 0)) continue; // a doorway faces one way
+    let boxes = byKind.get(shop.kind);
+    if (!boxes) byKind.set(shop.kind, (boxes = new Map()));
+    const ex = (shop.entryX + 0.5) * T;
+    const ey = (shop.entryY + 0.5) * T;
+    const horizontal = nx !== 0;
+    // The sign: the lintel over the doorway, filling the gap the door left
+    // in the wall, a hair proud of the wall plane.
+    const SIGN_H = 3.5;
+    intoChunk(
+      boxes,
+      shop.entryX,
+      shop.entryY,
+      horizontal ? 4 : T + 1,
+      horizontal ? T + 1 : 4,
+      SIGN_H,
+      ex + nx * (T / 2 - 1),
+      ey + ny * (T / 2 - 1),
+      storey + SIGN_H / 2,
+    );
+    // The awning: out over the pavement from just under the sign, wider
+    // than the door.
+    const REACH = 8;
+    const SPAN = T * 1.7;
+    intoChunk(
+      boxes,
+      shop.entryX,
+      shop.entryY,
+      horizontal ? REACH : SPAN,
+      horizontal ? SPAN : REACH,
+      1.5,
+      ex + nx * (T / 2 + REACH / 2),
+      ey + ny * (T / 2 + REACH / 2),
+      storey * 0.8,
+    );
+  }
+  let instances = 0;
+  for (const [kind, boxes] of byKind) {
+    instances += addChunkedBoxes(group, boxes, ACCENTS[kind] ?? col('shopSpray', 0xc8a13c), 0.3);
+  }
   return instances;
 }
 
