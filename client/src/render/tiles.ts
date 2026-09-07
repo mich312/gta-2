@@ -367,6 +367,11 @@ export class TileLayer {
    */
   private courseApron: Uint8Array | null = null;
   /**
+   * Per road tile under a ribbon, the flanking ground it is painted as
+   * (tile type + 1), or 0 to keep its asphalt — see `flankGround`.
+   */
+  private apronGround: Uint8Array | null = null;
+  /**
    * Where the courses cross, from the CURVES (§26). The centre dash is
    * punched out of these: a junction is bare asphalt, which is the rule the
    * per-tile painter has always followed and the ribbon painter never did.
@@ -448,6 +453,7 @@ export class TileLayer {
     this.courseCover = null;
     this.pathCover = null;
     this.courseApron = null;
+    this.apronGround = null;
     this.junctionDiscs = [];
     const courses = map.courses ?? [];
     if (courses.length === 0) return;
@@ -537,6 +543,91 @@ export class TileLayer {
     this.courseCover = cover;
     this.pathCover = pathCover;
     this.courseApron = apron;
+    this.apronGround = this.flankGround(map, apron);
+  }
+
+  /**
+   * The ground a road tile under a ribbon wears OUTSIDE the stroke (map
+   * loop 11): the flanking pavement, lawn, field, sand or yard, or 0 for a
+   * tile that keeps its asphalt.
+   *
+   * A carved diagonal is a staircase of whole tiles and the ribbon over it
+   * is a curve, so every tile the stroke crosses at an angle has a corner
+   * outside the kerb — and that corner was asphalt, a saw-tooth of dark
+   * steps along every bend of the ring road, plain from the 3D camera
+   * looking straight down. The stroke is the road; the tile under it is the
+   * ground beside the road, and the kerb casing is drawn over it.
+   *
+   * Only a tile ENCLOSED by ribbon reach takes the flank: where any of its
+   * eight neighbours is carriageway no ribbon reaches (a seam street, a
+   * junction sheet, a country lane, the tiles beyond a course's end) the
+   * tile stays asphalt, so a road with no course of its own is never eaten
+   * from the edge by the course that ends against it.
+   */
+  private flankGround(map: CityMap, apron: Uint8Array): Uint8Array {
+    const W = map.widthTiles;
+    const H = map.heightTiles;
+    const tiles = map.tiles;
+    const out = new Uint8Array(W * H);
+    const carriage = (t: number): boolean => t === T_ROAD || t === T_BRIDGE;
+    const flank = (t: number): boolean =>
+      t === T_SIDEWALK || t === T_PARK || t === T_FIELD || t === T_SAND || t === T_LOT || t === T_TREES;
+    for (let ty = 0; ty < H; ty++) {
+      for (let tx = 0; tx < W; tx++) {
+        const i = ty * W + tx;
+        if (apron[i] !== 1 || tiles[i] !== T_ROAD) continue;
+        let enclosed = true;
+        for (let oy = -1; oy <= 1 && enclosed; oy++) {
+          for (let ox = -1; ox <= 1; ox++) {
+            const nx = tx + ox;
+            const ny = ty + oy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const n = ny * W + nx;
+            if (carriage(tiles[n] as number) && apron[n] !== 1) {
+              enclosed = false;
+              break;
+            }
+          }
+        }
+        if (!enclosed) continue;
+        // The nearest flanking ground, by ring: the commonest kind in the
+        // first ring that has any. A tile in the middle of the ribbon is
+        // covered by the stroke whatever it wears, so a wider search only
+        // matters at the edge, where the first ring answers.
+        let pick = 0;
+        for (let r = 1; r <= 3 && pick === 0; r++) {
+          const count = new Map<number, number>();
+          for (let oy = -r; oy <= r; oy++) {
+            for (let ox = -r; ox <= r; ox++) {
+              if (Math.max(Math.abs(ox), Math.abs(oy)) !== r) continue;
+              const nx = tx + ox;
+              const ny = ty + oy;
+              if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+              const t = tiles[ny * W + nx] as number;
+              if (!flank(t)) continue;
+              count.set(t, (count.get(t) ?? 0) + 1);
+            }
+          }
+          let best = 0;
+          for (const [t, n] of count) {
+            if (n > best) {
+              best = n;
+              pick = t + 1;
+            }
+          }
+        }
+        out[i] = pick === 0 ? T_SIDEWALK + 1 : pick;
+      }
+    }
+    return out;
+  }
+
+  /** `apronGround` for one tile, or 0 — see `flankGround`. */
+  private apronAt(tx: number, ty: number): number {
+    const map = this.map;
+    if (map === null || this.apronGround === null) return 0;
+    if (tx < 0 || ty < 0 || tx >= map.widthTiles || ty >= map.heightTiles) return 0;
+    return this.apronGround[ty * map.widthTiles + tx] as number;
   }
 
   /**
@@ -688,12 +779,17 @@ export class TileLayer {
     // kerb cap standing in the middle of the road, and every borough edge in
     // the city wore a row of them. Clipping the casing to non-carriageway
     // ground is the rule stated once, for every such meeting at once.
+    //
+    // A road tile the ribbon encloses (`flankGround`) is painted as the
+    // ground beside the road, so it is in: the casing is the only kerb it
+    // has, and drawn over it the kerb follows the curve instead of the
+    // staircase.
     ctx.save();
     ctx.beginPath();
     for (let ty = ty0 - 1; ty <= ty0 + CHUNK_TILES; ty++) {
       for (let tx = tx0 - 1; tx <= tx0 + CHUNK_TILES; tx++) {
         const g = this.tileAt(tx, ty);
-        if (g === T_ROAD || g === T_BRIDGE) continue;
+        if ((g === T_ROAD || g === T_BRIDGE) && this.apronAt(tx, ty) === 0) continue;
         ctx.rect((tx - tx0) * TD, (ty - ty0) * TD, TD, TD);
       }
     }
@@ -789,6 +885,9 @@ export class TileLayer {
       for (let tx = tx0; tx < tx0 + CHUNK_TILES; tx++) {
         const g = this.tileAt(tx, ty);
         if (g !== T_ROAD && g !== T_BRIDGE) continue;
+        // An enclosed tile wears its flank on purpose (`flankGround`); the
+        // asphalt it shows is the stroke's, and only the stroke's.
+        if (this.apronAt(tx, ty) !== 0) continue;
         const cx = (tx + 0.5) * TILE_SIZE;
         const cy = (ty + 0.5) * TILE_SIZE;
         let reached = false;
@@ -2008,6 +2107,15 @@ export class TileLayer {
   ): void {
     const map = this.map as CityMap;
     const i = ty * map.widthTiles + tx;
+    // A tile enclosed by a ribbon's reach wears the ground BESIDE the road
+    // (map loop 11, `flankGround`): the stroke paints the carriageway over
+    // it and the kerb casing its edge, so the corner the curve leaves
+    // outside the kerb is pavement or lawn rather than a stair of asphalt.
+    const flank = this.apronAt(tx, ty);
+    if (flank !== 0) {
+      this.paintFlank(ctx, tx, ty, x, y, flank - 1);
+      return;
+    }
     ctx.fillStyle = palette.road;
     ctx.fillRect(x, y, TD, TD);
 
@@ -2248,13 +2356,49 @@ export class TileLayer {
     return (this.runH[i] as number) >= RUN_ROAD && (this.runV[i] as number) >= RUN_ROAD;
   }
 
-  private paintSidewalk(
+  /**
+   * The flanking ground under a road tile the ribbon encloses — see
+   * `flankGround`. Plain surfaces only: no kerbs, gullies, grime or plants,
+   * because the ribbon's own casing is the kerb here and most of the tile
+   * is under the carriageway stroke anyway.
+   */
+  private paintFlank(
     ctx: CanvasRenderingContext2D,
     tx: number,
     ty: number,
     x: number,
     y: number,
+    ground: number,
   ): void {
+    switch (ground) {
+      case T_PARK:
+      case T_TREES:
+        this.paintGrass(ctx, tx, ty, x, y, palette.grassDark, palette.grassLight, true, false);
+        break;
+      case T_FIELD:
+        this.paintGrass(ctx, tx, ty, x, y, palette.field, palette.grassDark, false);
+        break;
+      case T_SAND:
+        this.paintGrass(ctx, tx, ty, x, y, palette.sand, palette.sandDark, false);
+        break;
+      case T_LOT:
+        ctx.fillStyle = palette.lot;
+        ctx.fillRect(x, y, TD, TD);
+        this.speckle(ctx, tx, ty, x, y, palette.gravel, 8, 2, 17);
+        break;
+      default:
+        this.paintPaving(ctx, tx, ty, x, y);
+    }
+  }
+
+  /** The pavement slab itself: tint, joints and grain, nothing at its edges. */
+  private paintPaving(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): string {
     const district = this.districtOf(tx, ty);
     const tint =
       (palette.sidewalkTint as Record<string, string>)[district] ?? palette.sidewalk;
@@ -2271,6 +2415,17 @@ export class TileLayer {
     ctx.fillRect(x, y + half, TD, 1);
     ctx.fillRect(x + half, y, 1, TD);
     this.speckle(ctx, tx, ty, x, y, shade(tint, 0.14), 4, 1, 7);
+    return tint;
+  }
+
+  private paintSidewalk(
+    ctx: CanvasRenderingContext2D,
+    tx: number,
+    ty: number,
+    x: number,
+    y: number,
+  ): void {
+    const tint = this.paintPaving(ctx, tx, ty, x, y);
 
     // Grime along the wall. A pavement gets swept in the middle and never at
     // the edges, so the foot of a building is always the dirtiest strip of it.

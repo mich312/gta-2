@@ -215,6 +215,32 @@ rebake, and the full suite was green after each; the bots and parity gates
 were last run on the bridges wave, which these loops leave untouched (they
 change the map, not the simulation).
 
+## Map loops 11–20 — road quality, junctions, richer buildings
+
+A second series, surveyed through the 3D camera first and the review tool
+second, on three things: how a road reads, how a junction reads, and what
+the buildings look like from the game's own pitch.
+
+**Loop 11 — the staircase beside the kerb.** Looking straight down on the
+ring road through the south shore park, every bend wore a saw-tooth of
+dark steps outside its kerb line. A carved diagonal is a staircase of whole
+tiles and the ribbon over it is a curve, so every tile the stroke crosses
+at an angle has a corner outside the kerb — and the painter filled that
+whole tile asphalt before the ribbon went on. The kerb casing, clipped to
+non-carriageway ground, never covered those corners either. The painter
+now paints a road tile the ribbon ENCLOSES as the ground beside the road —
+pavement, lawn, field, sand or yard, whichever the nearest ring of
+neighbours is mostly made of — and lets the casing onto it, so the kerb
+follows the curve and the corner outside it is lawn. Only enclosed tiles:
+where any of the eight neighbours is carriageway no ribbon reaches (a seam
+street, a junction sheet, the tiles beyond a course's end) the tile keeps
+its asphalt, so a road with no course of its own is never eaten from the
+edge by the course that ends against it. The bare-asphalt repaint of loop
+10 skips those tiles for the same reason. The flyover's ground box now
+covers the whole tilted frame, so a shot no longer shows the instanced
+slabs at its edge. Client only; no rebake. Evidence: `bug-stair-kerb` /
+`fixed-stair-kerb`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

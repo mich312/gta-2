@@ -93,7 +93,15 @@
           view.lookAt(fx, fy);
           // Same guess Live makes: the layer only uses the box to decide
           // which chunks to paint, with a margin either way.
-          ground.update({ x: fx - viewH, y: fy - viewH / 2 }, { w: viewH * 2, h: viewH });
+          // Generous either way: a tilted frame reaches past the box the
+          // 2D guess drew, and every chunk it reached that was not painted
+          // yet showed the instanced slabs instead — a dark sheet with its
+          // own dashes at the edge of every evidence shot.
+          const aspect = canvas.width / Math.max(1, canvas.height);
+          ground.update(
+            { x: fx - viewH * aspect, y: fy - viewH },
+            { w: viewH * 2 * aspect, h: viewH * 2 },
+          );
           view.render();
           frames++;
           if (now - last > 500) {
