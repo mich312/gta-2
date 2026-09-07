@@ -67,6 +67,50 @@ export function buildingHeightPx(b: Building, pxPerStorey: number): number {
   return buildingStoreys(b) * pxPerStorey;
 }
 
+/** A building is a candidate for a stepped top from this many storeys. */
+export const TIER_MIN_STOREYS = 7;
+/** The ring's height as a share of the core's, for a tiered building. */
+export const TIER_RING = 0.6;
+
+/**
+ * Whether a building steps: a ring one tile wide round a taller core (map
+ * loop 15).
+ *
+ * Downtown was a rank of boxes of one height each, and from the game's
+ * camera a skyline of flat lids is a skyline of shipping containers. A tall
+ * block — seven storeys or more, four tiles or more a side so the core is
+ * two, square to the world (a turned mass is one box and its collider one
+ * rectangle), and with no authored height — steps three times in five,
+ * salted off the footprint like the storey count and independently of it.
+ * Stated here, in the shared heights, so the volume grid the collision
+ * resolves against and the boxes the renderer draws agree tile for tile.
+ */
+export function tieredBuilding(b: Building): boolean {
+  if (b.storeys !== undefined || (b.angle ?? 0) !== 0) return false;
+  if (buildingStoreys(b) < TIER_MIN_STOREYS) return false;
+  if (Math.max(b.w, b.h) < 4 || Math.min(b.w, b.h) < 2) return false;
+  return hashRect(b.x + 3, b.y + 5, b.h, b.w) / 0xffffffff < 0.6;
+}
+
+/**
+ * Storeys at one tile of a building: the building's own, or the ring's
+ * share of them on the outer tile of a tiered block.
+ *
+ * The step is always at both ENDS of the long side — the tall blocks of the
+ * shipped city are mostly two tiles wide and four to six long, and a ring
+ * round a two-wide block leaves no core — and along the long sides too
+ * where the block is four or more across, which makes the full ring.
+ */
+export function tileStoreys(b: Building, tx: number, ty: number): number {
+  const storeys = buildingStoreys(b);
+  if (!tieredBuilding(b)) return storeys;
+  const alongX = b.w >= b.h;
+  const end = alongX ? tx === b.x || tx === b.x + b.w - 1 : ty === b.y || ty === b.y + b.h - 1;
+  const wide = Math.min(b.w, b.h) >= 4;
+  const side = wide && (alongX ? ty === b.y || ty === b.y + b.h - 1 : tx === b.x || tx === b.x + b.w - 1);
+  return end || side ? Math.max(1, Math.round(storeys * TIER_RING)) : storeys;
+}
+
 /**
  * The mass a building DRAWS, as a rotated rectangle in tile units.
  *

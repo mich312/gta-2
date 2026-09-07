@@ -9,7 +9,7 @@ import {
   type Building,
   type CityMap,
 } from './types.js';
-import { buildingStoreys } from './heights.js';
+import { buildingStoreys, tileStoreys } from './heights.js';
 
 /**
  * The world as solid volumes rather than solid squares.
@@ -397,14 +397,15 @@ export function buildVolumeGrid(map: CityMap): VolumeGrid {
   const deck = bridgeDeckHeights(map);
 
   // Which building covers each tile, so a building's tiles share one height
-  // rather than each rolling their own and producing a staircase.
+  // rather than each rolling their own and producing a staircase — one
+  // height, or the two a stepped block has (`tileStoreys`), which is a
+  // step rather than a staircase.
   const heightOf = new Float64Array(n);
   for (const b of map.buildings) {
-    const z = buildingStoreys(b) * Z_PER_STOREY;
     for (let ty = b.y; ty < b.y + b.h; ty++) {
       for (let tx = b.x; tx < b.x + b.w; tx++) {
         if (tx < 0 || ty < 0 || tx >= W || ty >= H) continue;
-        heightOf[ty * W + tx] = z;
+        heightOf[ty * W + tx] = tileStoreys(b, tx, ty) * Z_PER_STOREY;
       }
     }
   }
@@ -485,11 +486,10 @@ export function buildGroundField(map: CityMap): Float32Array {
                 : 0;
   }
   for (const b of map.buildings) {
-    const z = buildingStoreys(b) * Z_PER_STOREY;
     for (let ty = Math.max(0, b.y); ty < Math.min(H, b.y + b.h); ty++) {
       for (let tx = Math.max(0, b.x); tx < Math.min(W, b.x + b.w); tx++) {
         const i = ty * W + tx;
-        if (map.tiles[i] === T_BUILDING) ground[i] = z;
+        if (map.tiles[i] === T_BUILDING) ground[i] = tileStoreys(b, tx, ty) * Z_PER_STOREY;
       }
     }
   }

@@ -970,10 +970,15 @@ function buildRoofDetail(
       const cx = (tx + 0.5) * T;
       const cy = (ty + 0.5) * T;
 
-      const openN = !isBuilding(tx, ty - 1);
-      const openS = !isBuilding(tx, ty + 1);
-      const openW = !isBuilding(tx - 1, ty);
-      const openE = !isBuilding(tx + 1, ty);
+      // A roof edge is where the roof stops OR steps down (map loop 15): a
+      // stepped block's core is rimmed where it rises above its ring, and
+      // the ring where it meets the street.
+      const edge = (nx: number, ny: number): boolean =>
+        !isBuilding(nx, ny) || (heightAt[ny * W + nx] as number) < top - 0.5;
+      const openN = edge(tx, ty - 1);
+      const openS = edge(tx, ty + 1);
+      const openW = edge(tx - 1, ty);
+      const openE = edge(tx + 1, ty);
 
       const lip = (x: number, y: number, w: number, d: number): void => {
         intoChunk(parapets, tx, ty, w, d, LIP_H, x, y, top + LIP_H / 2);
@@ -983,6 +988,27 @@ function buildRoofDetail(
       if (openW) lip(cx - T / 2 + LIP_W / 2, cy, LIP_W, T);
       if (openE) lip(cx + T / 2 - LIP_W / 2, cy, LIP_W, T);
 
+      // A mast on the tallest: at the centre tile of a block of ten storeys
+      // or more, a thin spar as tall again as three of them, which is what
+      // a skyline has at its top and a box does not. Before the interior
+      // test, because the tall blocks are mostly two tiles wide and have
+      // no interior tile at all.
+      {
+        const bi = (buildingOf[idx] as number) - 1;
+        const b = bi >= 0 ? map.buildings[bi] : undefined;
+        if (
+          b &&
+          tx === Math.floor(b.x + b.w / 2) &&
+          ty === Math.floor(b.y + b.h / 2) &&
+          buildingStoreys(b) >= 10 &&
+          hash2(b.x, b.y, 137) < 0.7
+        ) {
+          const MAST = Z_PER_STOREY * Z_SCALE * 3;
+          intoChunk(clutter, tx, ty, 1.6, 1.6, MAST, cx, cy, top + MAST / 2);
+          intoChunk(clutter, tx, ty, 4, 4, 2, cx, cy, top + 1);
+          continue;
+        }
+      }
       // Interior only — same rule and same salt the 2D roof painter uses.
       if (openN || openS || openE || openW) continue;
       const roll = hash2(tx, ty, 61);

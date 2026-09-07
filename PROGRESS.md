@@ -314,6 +314,22 @@ roof's lip is two roofs. Client only; 3D only (the 2D painter keeps its
 flat roofs, as it keeps its own kerbs). Evidence: `bug-flat-roofs` /
 `fixed-flat-roofs`.
 
+**Loop 15 — a skyline that steps.** Downtown was a rank of boxes of one
+height each, and from the game's camera a skyline of flat lids is a
+skyline of shipping containers. A tall block — seven storeys or more,
+four or more tiles long, square to the world, no authored height — now
+steps three times in five: its end tiles along the long side, and its
+long sides too where it is four across, stand at three fifths of the
+core's height. Stated in the shared heights (`tieredBuilding`,
+`tileStoreys`) and read by the volume grid, so the columns the collision
+resolves against and the boxes the renderer draws agree tile for tile —
+a helicopter lands on the step it sees. The parapet rule became "a roof
+edge is where the roof stops OR steps down", so the core is rimmed where
+it rises above its ring; and a block of ten storeys or more carries a
+mast at its centre, as tall again as three of them, seven times in ten.
+168 blocks step, 288 are mast-tall. Evidence: `bug-box-skyline` /
+`fixed-box-skyline`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
