@@ -495,6 +495,13 @@ export function trimStubs(
   H: number,
   keep: (i: number) => boolean,
   onto: (i: number) => number,
+  /**
+   * Held outright: a run with any held tile stays, lump or not, and the nub
+   * phase never touches one. `keep` is the plan's own end and still loses a
+   * two-tile lump; a quay lane's way in (map loop 13) is two tiles by
+   * construction and cannot afford to.
+   */
+  hold: (i: number) => boolean = () => false,
 ): number {
   const N = W * H;
   const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
@@ -553,10 +560,12 @@ export function trimStubs(
       run[s] = id;
       const touched = new Set<number>();
       let kept = 0;
+      let held = false;
       let wet = false;
       for (let q = 0; q < bag.length; q++) {
         const i = bag[q] as number;
         if (keep(i)) kept++;
+        if (hold(i)) held = true;
         const x = i % W;
         const y = (i - x) / W;
         for (const [dx, dy] of STEPS) {
@@ -575,7 +584,7 @@ export function trimStubs(
           bag.push(j);
         }
       }
-      if (wet || touched.size !== 1) continue;
+      if (wet || held || touched.size !== 1) continue;
       // How far the tip is from the junction, walked over the run's own tiles.
       const depth = new Map<number, number>();
       const queue: number[] = [];
@@ -651,7 +660,7 @@ export function trimStubs(
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const i = y * W + x;
-      if (tiles[i] !== T_ROAD || junctionNow[i] === 1 || keep(i)) continue;
+      if (tiles[i] !== T_ROAD || junctionNow[i] === 1 || keep(i) || hold(i)) continue;
       let longest = 0;
       for (const [dx, dy] of [
         [1, 0],

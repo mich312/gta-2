@@ -270,6 +270,32 @@ in a state that had accumulated a car per candidate — and were hardened
 to stage what they meant (`clearSpot`, `onCarriageway`, a fresh-state
 probe). Evidence: `bug-pocket-sheet` / `fixed-pocket-sheet`.
 
+**Loop 13 — a quay lane where the apron was.** The pockets loop 12 had to
+leave were the quay aprons: sheets of tarmac between the last street and
+the water, kept because the waterfront invariant wants carriageway within
+five tiles of the shore, and the apron was all that met it. The Beachfront
+fan at 469,401 — a street widening into a blotch on the beach — is the
+one that started the series. `trimPockets` now has a second answer for a
+pocket the waterfront will not give up: trace a two-wide lane along its
+water's edge (the pocket's tiles one rank back from its nearest, walked
+end to end — never back, the rank beside the walk retired with it, split
+at any turn past a hundred degrees, hooks dropped) and give up the rest
+tile by tile, farthest from the water first, keeping any tile whose loss
+would cut the lane off from the street it hangs on. The lane is recorded
+as a street course, so the painter draws it with a kerb and a dash, and
+the stub walk that follows holds everything round it — a new `hold`
+predicate on `trimStubs`, because `keep` still surrenders a two-tile lump
+and a lane's way in is two tiles by construction. Every prune is now
+flood-checked whatever the pocket touches, since a tail beside a bridge
+deck or a landmark's driveway is their only way in. Eleven quay lanes;
+154 more tiles of apron gone; ribbonless carriageway 4.1% → 3.6%; sheets
+by the census 15 (761 tiles) → 9 (299); hairpins still 0; dead ends by
+the stub invariant 21 → 25, the four new ones one- and two-tile nubs the
+hold protects. The errand test's journey picker now also refuses a route
+whose corners lie on a turned borough's streets: the cardinal follower
+orbits those, and the rebake had put the three nearest journeys in the
+Old Quarter's 170° fabric. Evidence: `bug-quay-fan` / `fixed-quay-fan`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

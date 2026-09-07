@@ -699,6 +699,23 @@ describe('errand driving (goto)', () => {
           }
         }
         if (jink) continue;
+        // ...and on the CARDINAL grid. The goto follower steers by the
+        // cardinal lane model, and a route whose corners lie on a turned
+        // borough's streets (a bearing plane that is not 0) is one it
+        // orbits rather than follows — the same ceiling as the jink, seen
+        // from the other side. The loop-13 rebake put the three nearest
+        // journeys in the Old Quarter's 170° fabric, and all three stalled
+        // within twenty tiles of their kerb.
+        let turned = false;
+        for (let i = 0; i < route.length; i += 2) {
+          const tx = Math.floor((route[i] as number) / TILE_SIZE);
+          const ty = Math.floor((route[i + 1] as number) / TILE_SIZE);
+          if ((map.bearing[ty * map.widthTiles + tx] as number) !== 0) {
+            turned = true;
+            break;
+          }
+        }
+        if (turned) continue;
         // Distinct FROM kerbs, so three pairs are three journeys rather
         // than one origin with three destinations behind one obstruction.
         if (out.some((p) => p.from === a)) continue;

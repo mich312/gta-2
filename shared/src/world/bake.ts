@@ -1114,7 +1114,8 @@ export function bakeCity(plan: CityPlan): BakedCity {
       }
       return true;
     };
-    trimPockets(tiles, W, H, courses, landmarks, onto, served);
+    const { quays, kept } = trimPockets(tiles, W, H, courses, landmarks, onto, served);
+    courses = [...courses, ...trimCourses(quays, tiles, W, H)];
     // A course's reach rounds off past its last point, so where a tail was
     // taken back a nub of one or two tiles is left under that cap: the stub
     // walk once more, with the same excuses as before, and the courses
@@ -1157,6 +1158,7 @@ export function bakeCity(plan: CityPlan): BakedCity {
       H,
       (i) => authored[i] === 1 || tiles[i] === T_BRIDGE || nearDoor[i] === 1,
       onto,
+      (i) => kept.has(i),
     );
     courses = trimCourses(courses, tiles, W, H);
   }
@@ -1208,6 +1210,114 @@ function wetBesideTile(tiles: Uint8Array, water: Uint8Array, W: number, H: numbe
 }
 
 /**
+ * No hook at either end: a last segment under two tiles that turns more
+ * than sixty degrees is a chain curling into the crossing it stops at — or
+ * a walk doubling back across its own strip — not the street.
+ */
+function unhookEnds(line: PlanPoint[]): PlanPoint[] {
+  const unhook = (l: PlanPoint[]): PlanPoint[] => {
+    while (l.length >= 3) {
+      const [a, b, c] = [l[l.length - 3], l[l.length - 2], l[l.length - 1]] as [PlanPoint, PlanPoint, PlanPoint];
+      const ux = b[0] - a[0];
+      const uy = b[1] - a[1];
+      const vx = c[0] - b[0];
+      const vy = c[1] - b[1];
+      const lu = Math.hypot(ux, uy);
+      const lv = Math.hypot(vx, vy);
+      if (lv >= 2 || lu === 0 || lv === 0 || (ux * vx + uy * vy) / (lu * lv) > 0.5) break;
+      l.pop();
+    }
+    return l;
+  };
+  return unhook(unhook(line.slice()).reverse()).reverse();
+}
+
+/**
+ * One rank of a distance field, walked end to end: the middle rank of a quay
+ * strip is a one- or two-wide staircase along the water, and a greedy walk
+ * to the nearest untaken tile within two, preferring to carry straight on,
+ * traces it as one line per stretch. Each walk starts at a tile with the
+ * fewest ranked neighbours — an end — so the line runs the length of the
+ * strip rather than out from its middle.
+ */
+function walkRank(rank: Set<number>, W: number): Array<Array<[number, number]>> {
+  const out: Array<Array<[number, number]>> = [];
+  const left = new Set(rank);
+  const around = (i: number): number => {
+    const x = i % W;
+    const y = (i - x) / W;
+    let n = 0;
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        if ((ox !== 0 || oy !== 0) && left.has((y + oy) * W + (x + ox))) n++;
+      }
+    }
+    return n;
+  };
+  while (left.size > 0) {
+    let seed = -1;
+    let fewest = 9;
+    for (const i of left) {
+      const n = around(i);
+      if (n < fewest) {
+        fewest = n;
+        seed = i;
+        if (n <= 1) break;
+      }
+    }
+    const walk: Array<[number, number]> = [];
+    let at = seed;
+    let dx = 0;
+    let dy = 0;
+    while (at >= 0) {
+      left.delete(at);
+      const x = at % W;
+      const y = (at - x) / W;
+      walk.push([x + 0.5, y + 0.5]);
+      let best = -1;
+      let bestScore = Infinity;
+      for (let oy = -2; oy <= 2; oy++) {
+        for (let ox = -2; ox <= 2; ox++) {
+          if (ox === 0 && oy === 0) continue;
+          const j = (y + oy) * W + (x + ox);
+          if (!left.has(j)) continue;
+          // Never back: reaching the strip's end and turning round to walk
+          // the leftovers home is a hook, and the leftovers make a walk of
+          // their own — too short to be a lane, and dropped.
+          if ((dx !== 0 || dy !== 0) && ox * dx + oy * dy < 0) continue;
+          // Nearest first; among equals, the one most in the direction we
+          // came, so the walk does not zigzag across a two-wide staircase.
+          const score = ox * ox + oy * oy - (ox * dx + oy * dy) * 0.1;
+          if (score < bestScore) {
+            bestScore = score;
+            best = j;
+          }
+        }
+      }
+      if (best >= 0) {
+        const bx = best % W;
+        const by = (best - bx) / W;
+        dx = Math.sign(bx - x);
+        dy = Math.sign(by - y);
+      }
+      at = best;
+    }
+    // The rank beside the walk goes with it: a two-wide staircase walked
+    // down one side leaves the other side free, and a second walk back up
+    // it is the same lane drawn twice, meeting the first in a hairpin.
+    for (const [px, py] of walk) {
+      const x = Math.floor(px);
+      const y = Math.floor(py);
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) left.delete((y + oy) * W + (x + ox));
+      }
+    }
+    out.push(walk);
+  }
+  return out;
+}
+
+/**
  * The tarmac no course accounts for, given back to the ground (map loop 12).
  *
  * A junction is carved as the union of two staircases, and the union of two
@@ -1245,10 +1355,41 @@ export function trimPockets(
    * see.
    */
   served: (minX: number, minY: number, maxX: number, maxY: number) => boolean = () => true,
-): number {
+): { removed: number; quays: StreetCourse[]; kept: Set<number> } {
   const N = W * H;
   const isRoad = (i: number): boolean => tiles[i] === T_ROAD || tiles[i] === T_BRIDGE;
   const roads = courses.filter((c) => c.kind !== 'path');
+  // Distance from open water, for the quay strip a shore pocket keeps
+  // (map loop 13): the bank is at one, the first tile of tarmac behind it
+  // at two.
+  const shoreDist = new Int32Array(N).fill(-1);
+  {
+    const bag: number[] = [];
+    for (let i = 0; i < N; i++) {
+      if (tiles[i] === T_WATER) {
+        shoreDist[i] = 0;
+        bag.push(i);
+      }
+    }
+    for (let q = 0; q < bag.length; q++) {
+      const i = bag[q] as number;
+      const x = i % W;
+      const y = (i - x) / W;
+      for (const [dx, dy] of STEPS) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const j = ny * W + nx;
+        if ((shoreDist[j] as number) >= 0) continue;
+        shoreDist[j] = (shoreDist[i] as number) + 1;
+        bag.push(j);
+      }
+    }
+  }
+  const quays: StreetCourse[] = [];
+  // The tiles a quay lane stands on and hangs on: the stub walk that runs
+  // after this pass must not take the lane's way in for a dead end.
+  const kept = new Set<number>();
   // Which course's painted reach — half a width plus the casing's overhang,
   // the painter's own `courseApron` — covers each tile. Last wins; only
   // membership matters.
@@ -1460,16 +1601,142 @@ export function trimPockets(
     for (let k = 0; k < ids.length; k++) if (find(k) === k) groups++;
     if (groups > 1) continue; // the pocket is what joins them: a junction with no course
     const was = bag.map((i) => tiles[i] as number);
-    for (const i of bag) tiles[i] = flank(i);
-    if ((ids.length >= 2 && components() > before) || !served(minX, minY, maxX, maxY)) {
+    const restore = (): void => {
       bag.forEach((i, k) => {
         tiles[i] = was[k] as number;
       });
+    };
+    for (const i of bag) tiles[i] = flank(i);
+    // Flooded whatever the pocket touches: a tail beside a bridge deck or a
+    // landmark's kept driveway is their only way in, and one cut there
+    // fails every check after it.
+    if (components() <= before && served(minX, minY, maxX, maxY)) {
+        removed += bag.length;
       continue;
     }
-    removed += bag.length;
+    restore();
+    // The waterfront refused to give the whole apron up: keep a quay STREET
+    // along its water's edge instead — the pocket's tiles in the three
+    // ranks nearest the water, traced through their middle rank — and give
+    // up the rest. The strip is what meets the invariant; the sheet behind
+    // it never did anything the strip does not.
+    //
+    // The pocket's own nearest rank to the water, plus one: a bank, then a
+    // kerb band or a yard, then the tarmac — the tarmac's first rank varies
+    // from pocket to pocket, and the strip's middle is one rank behind it.
+    let nearest = Infinity;
+    for (const i of bag) if ((shoreDist[i] as number) < nearest) nearest = shoreDist[i] as number;
+    const medial = new Set<number>();
+    // Two ranks, not one: where the water's edge steps, one rank alone
+    // breaks into pieces too short to be a street.
+    // ...and one rank further back than that where the pocket is deep
+    // enough: a lane traced along the very first ranks samples the bank
+    // with its water-side edge and the trim cuts it to pieces, while a lane
+    // one rank back leaves a promenade of pavement along the water.
+    let deepest = 0;
+    for (const i of bag) if ((shoreDist[i] as number) > deepest) deepest = shoreDist[i] as number;
+    const back = deepest >= nearest + 3 ? 1 : 0;
+    for (const i of bag) {
+      const d = shoreDist[i] as number;
+      if (d === nearest + 1 + back || d === nearest + 2 + back) medial.add(i);
+    }
+    if (medial.size < 6) continue;
+    const lines: PlanPoint[][] = [];
+    for (const walk of walkRank(medial, W)) {
+      if (walk.length < 6) continue;
+      let pts: Array<[number, number]> = walk;
+      for (let r = 0; r < 4; r++) {
+        pts = pts.map((p, k) => {
+          if (k === 0 || k === pts.length - 1) return p;
+          const a = pts[k - 1] as [number, number];
+          const b = pts[k + 1] as [number, number];
+          return [(a[0] + p[0] + b[0]) / 3, (a[1] + p[1] + b[1]) / 3];
+        });
+      }
+      // Split where the walk turns back on itself round a quay's corner —
+      // more than a hundred degrees is a hairpin, not a bend — and keep the
+      // pieces long enough to be a lane.
+      const pieces: PlanPoint[][] = [];
+      let piece: PlanPoint[] = [];
+      const simple = simplifyPolyline(pts, 0.5);
+      for (let k = 0; k < simple.length; k++) {
+        const c = simple[k] as PlanPoint;
+        if (k >= 1 && k + 1 < simple.length) {
+          const a = simple[k - 1] as PlanPoint;
+          const b = simple[k + 1] as PlanPoint;
+          const ux = c[0] - a[0];
+          const uy = c[1] - a[1];
+          const vx = b[0] - c[0];
+          const vy = b[1] - c[1];
+          const cosine = (ux * vx + uy * vy) / ((Math.hypot(ux, uy) || 1) * (Math.hypot(vx, vy) || 1));
+          if (cosine < Math.cos((100 * Math.PI) / 180)) {
+            piece.push(c);
+            pieces.push(piece);
+            piece = [];
+          }
+        }
+        piece.push(c);
+      }
+      pieces.push(piece);
+      for (const raw of pieces) {
+        const line = unhookEnds(raw);
+        let length = 0;
+        for (let k = 1; k < line.length; k++) {
+          length += Math.hypot((line[k] as PlanPoint)[0] - (line[k - 1] as PlanPoint)[0], (line[k] as PlanPoint)[1] - (line[k - 1] as PlanPoint)[1]);
+        }
+        if (length >= 6) lines.push(line);
+      }
+    }
+    if (lines.length === 0) continue;
+    // Two wide, as a park lane is: the trim keeps a course only past three
+    // times its width, and a quay the length of a short waterfront is six
+    // tiles, not nine.
+    const QUAY_WIDTH = 2;
+    const half = QUAY_WIDTH / 2 + 0.55;
+    const under = (i: number): boolean => {
+      const px = (i % W) + 0.5;
+      const py = Math.floor(i / W) + 0.5;
+      for (const line of lines) {
+        for (let k = 0; k + 1 < line.length; k++) {
+          const [ax, ay] = line[k] as PlanPoint;
+          const [bx, by] = line[k + 1] as PlanPoint;
+          const dx = bx - ax;
+          const dy = by - ay;
+          const l2 = dx * dx + dy * dy || 1;
+          const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+          if (Math.hypot(px - ax - t * dx, py - ay - t * dy) <= half) return true;
+        }
+      }
+      return false;
+    };
+    // The rest goes back to the ground a tile at a time, farthest from the
+    // water first, and a tile whose loss would cut the strip off from the
+    // street it hangs on stays: the quay keeps its way in.
+    const rest = bag.filter((i) => !under(i)).sort((a, b) => (shoreDist[b] as number) - (shoreDist[a] as number));
+    let pruned = 0;
+    for (const i of rest) {
+      const t = tiles[i] as number;
+      tiles[i] = flank(i);
+      if (components() > before) tiles[i] = t;
+      else pruned++;
+    }
+    if (!served(minX, minY, maxX, maxY)) {
+      restore();
+      continue;
+    }
+    for (const line of lines) if (line.length >= 2) quays.push({ points: line, width: QUAY_WIDTH, kind: 'street' });
+    // The lane, its way in, and the ends of the streets it hangs on: every
+    // road tile round the pocket, so the stub walk after this pass cannot
+    // cut the lane off by taking a street's last two tiles for a nub.
+    for (let y = Math.max(0, minY - 2); y <= Math.min(H - 1, maxY + 2); y++) {
+      for (let x = Math.max(0, minX - 2); x <= Math.min(W - 1, maxX + 2); x++) {
+        const i = y * W + x;
+        if (isRoad(i)) kept.add(i);
+      }
+    }
+    removed += pruned;
   }
-  return removed;
+  return { removed, quays, kept };
 }
 
 /**
@@ -1631,24 +1898,7 @@ function recoverCourses(courses: StreetCourse[], tiles: Uint8Array, W: number, H
       });
     }
     const line = simplifyPolyline(pts, 0.5);
-    // No hook at either end: a last segment under two tiles that turns
-    // more than sixty degrees is the chain curling into the crossing it
-    // stops at, not the street.
-    const unhook = (l: PlanPoint[]): PlanPoint[] => {
-      while (l.length >= 3) {
-        const [a, b, c] = [l[l.length - 3], l[l.length - 2], l[l.length - 1]] as [PlanPoint, PlanPoint, PlanPoint];
-        const ux = b[0] - a[0];
-        const uy = b[1] - a[1];
-        const vx = c[0] - b[0];
-        const vy = c[1] - b[1];
-        const lu = Math.hypot(ux, uy);
-        const lv = Math.hypot(vx, vy);
-        if (lv >= 2 || lu === 0 || lv === 0 || (ux * vx + uy * vy) / (lu * lv) > 0.5) break;
-        l.pop();
-      }
-      return l;
-    };
-    const clean = unhook(unhook(line.slice()).reverse()).reverse();
+    const clean = unhookEnds(line);
     if (clean.length >= 2) out.push({ points: clean, width, kind: 'street' });
   }
   return out;
