@@ -718,14 +718,24 @@ export class TileLayer {
       // sidewalk grey a two-tile walk through a wood read as a pale road.
       // Packed stone like the quays — warm against the lawn, nothing like
       // carriageway — with a darker rim for the recessed edge.
+      //
+      // Narrower than the carve (map loop 18): a walk is carved two tiles
+      // wide so a pedestrian has room, but stroked at the full two tiles,
+      // four walks meeting at a hub by the ring road pooled into a slab of
+      // stone six tiles across with a straight clipped edge along the
+      // wood. Stroked at a tile and a quarter, with the rim outside that,
+      // the same hub is four paths meeting on a lawn — and the carved
+      // staircase either side, painted as lawn under `pathCover`, is what
+      // gives the extra room.
+      const WALK_PX = TILE_SIZE * 1.25 * t;
       ctx.strokeStyle = shade(palette.path, 0.35);
       for (const p of walks) {
-        ctx.lineWidth = p.w + 2 * t;
+        ctx.lineWidth = Math.min(p.w, WALK_PX) + 2 * t;
         ctx.stroke(p.path);
       }
       ctx.strokeStyle = palette.path;
       for (const p of walks) {
-        ctx.lineWidth = p.w;
+        ctx.lineWidth = Math.min(p.w, WALK_PX);
         ctx.stroke(p.path);
       }
       ctx.restore();

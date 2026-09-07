@@ -1004,16 +1004,19 @@ export function bakeCity(plan: CityPlan): BakedCity {
   // same reason the ponds join the shores below: one answer to "what curves
   // does the ground carry", trimmed by one pass against the same finished
   // tiles — each kind against its own ground.
+  const trimmed = trimCourses(
+    [
+      ...layout.courses,
+      ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
+    ],
+    tiles,
+    W,
+    H,
+  );
+  // The walks deduplicated AFTER the trim: a duplicate is a stretch, and
+  // the trim is what cuts a walk into the stretches that survive.
   let courses = withRecoveredCourses(
-    trimCourses(
-      [
-        ...layout.courses,
-        ...takePathCourses().map((p): StreetCourse => ({ points: p.points, width: p.width, kind: 'path' })),
-      ],
-      tiles,
-      W,
-      H,
-    ),
+    [...trimmed.filter((c) => c.kind !== 'path'), ...dedupeWalks(trimmed.filter((c) => c.kind === 'path'))],
     tiles,
     W,
     H,
@@ -1315,6 +1318,69 @@ function walkRank(rank: Set<number>, W: number): Array<Array<[number, number]>> 
     out.push(walk);
   }
   return out;
+}
+
+/**
+ * Drop a park walk that runs beside another (map loop 18): a walk whose
+ * line lies, for three fifths of its length or more, within three tiles
+ * of a longer walk's line is that walk laid twice — the park carve
+ * traced the same lane from both ends, or from an offset sample — and
+ * painted twice it is a stone slab three tiles wide. Six of the shipped
+ * city's thirty-two walks, every one at the hub by the ring road.
+ */
+function dedupeWalks(walks: StreetCourse[]): StreetCourse[] {
+  const length = (c: StreetCourse): number => {
+    let l = 0;
+    for (let i = 1; i < c.points.length; i++) {
+      const [ax, ay] = c.points[i - 1] as PlanPoint;
+      const [bx, by] = c.points[i] as PlanPoint;
+      l += Math.hypot(bx - ax, by - ay);
+    }
+    return l;
+  };
+  const distTo = (c: StreetCourse, px: number, py: number): number => {
+    let best = Infinity;
+    for (let i = 1; i < c.points.length; i++) {
+      const [ax, ay] = c.points[i - 1] as PlanPoint;
+      const [bx, by] = c.points[i] as PlanPoint;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const l2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2));
+      const d = Math.hypot(px - ax - t * dx, py - ay - t * dy);
+      if (d < best) best = d;
+    }
+    return best;
+  };
+  const lengths = walks.map(length);
+  const dropped = new Set<number>();
+  walks.forEach((w, i) => {
+    let samples = 0;
+    let near = 0;
+    for (let k = 1; k < w.points.length; k++) {
+      const [ax, ay] = w.points[k - 1] as PlanPoint;
+      const [bx, by] = w.points[k] as PlanPoint;
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay)));
+      for (let q = 0; q < n; q++) {
+        const px = ax + ((bx - ax) * q) / n;
+        const py = ay + ((by - ay) * q) / n;
+        samples++;
+        for (let j = 0; j < walks.length; j++) {
+          if (j === i || dropped.has(j)) continue;
+          // The longer of the pair stays; equal lengths, the earlier.
+          const lj = lengths[j] as number;
+          const li = lengths[i] as number;
+          if (lj < li || (lj === li && j > i)) continue;
+          if (distTo(walks[j] as StreetCourse, px, py) <= 3) {
+            near++;
+            break;
+          }
+        }
+      }
+    }
+    if (near >= samples * 0.6) dropped.add(i);
+  });
+  return walks.filter((_, i) => !dropped.has(i));
 }
 
 /**

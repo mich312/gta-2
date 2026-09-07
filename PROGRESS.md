@@ -364,6 +364,23 @@ that run inside an avenue's band changed six tiles and no pixel, for the
 same reason. Client only. Evidence: `bug-bare-shopfront` /
 `fixed-bare-shopfront`.
 
+**Loop 18 — the walks that pooled.** Beside the ring road in the south
+shore park, where four walks meet, the ground was a slab of packed stone
+six tiles across with a dead-straight edge along the wood — which the
+loop-11 survey took for a field wedge and turned out to be paint: each
+walk is carved two tiles wide for a pedestrian's room and was STROKED at
+the full two tiles plus a rim, so four of them meeting pooled, and the
+stroke's clip to the tile grid cut the pool square where it reached the
+trees. Two of the four were the same walk twice — the park carve traced
+one lane from an offset sample, and painted twice it was three tiles of
+stone on its own. The bake now drops a walk whose line lies within three
+tiles of a longer walk's for three fifths of its length (four of the
+thirty-two, after the trim has cut the walks into the stretches that
+survive), and the painter strokes a walk at a tile and a quarter with the
+rim outside that; the carved staircase either side is lawn under
+`pathCover` already, and is what gives the room. The hub is four paths
+meeting on a lawn. Evidence: `bug-walk-blob` / `fixed-walk-blob`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:
