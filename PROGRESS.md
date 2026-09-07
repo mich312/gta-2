@@ -330,6 +330,21 @@ mast at its centre, as tall again as three of them, seven times in ten.
 168 blocks step, 288 are mast-tall. Evidence: `bug-box-skyline` /
 `fixed-box-skyline`.
 
+**Loop 16 — a district's way of building.** One grid of identical windows
+covered every wall in the city — the same 8 px column, the same 55%
+glass, the same shopfront under a shed in the Docks as under a tower on
+Vantage Row — so the city read as one building repeated four thousand
+times. The facade shader now takes a style per district, chosen off the
+same per-tile district grid the colour comes from (so a block is one
+material per colour per district, and the program is still one):
+downtown a curtain wall over a shopfront with a dark fascia for the sign;
+commercial the same shopfront under a string course per floor;
+residential and park smaller windows in more wall, a front door in one
+column of five per wall, a sill line at every storey; industrial a high
+strip of glass over blank wall and roller doors, ribbed, two columns wide
+with a column of wall between. Client only; the 2D painter's walls are
+its own. Evidence: `bug-one-facade` / `fixed-one-facade`.
+
 ## 3D, real bridges: decks at height, cars climb them, boats pass under
 
 The visible target agreed for after X2. Real bridges, not the ring flyover:

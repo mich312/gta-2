@@ -37,9 +37,41 @@ const ROAD_CROSSING = new THREE.Color(palette.roadCrossing);
  * bad trade.
  */
 
+/**
+ * How a district builds (map loop 16). One grid of identical windows over
+ * every wall in the city read as one building repeated four thousand
+ * times; a district is recognisable by its facades before its roofs.
+ */
+export type FacadeStyle = 'downtown' | 'commercial' | 'residential' | 'industrial' | 'park';
+
+interface StyleParams {
+  /** Window column pitch, world px. */
+  colW: number;
+  /** Glass within the column (x0, x1) and within the storey (y0, y1). */
+  glass: [number, number, number, number];
+  /** Ground floor: 0 windows, 1 shopfront with a fascia, 2 a door among windows, 3 roller doors. */
+  ground: 0 | 1 | 2 | 3;
+  /** A light string course at each storey line. */
+  sill: 0 | 1;
+}
+
+const STYLES: Record<FacadeStyle, StyleParams> = {
+  // Curtain wall: wide glass, a shopfront under it.
+  downtown: { colW: 8, glass: [0.2, 0.8, 0.22, 0.8], ground: 1, sill: 0 },
+  // Shops under flats: the same shopfront, a string course per floor.
+  commercial: { colW: 9, glass: [0.18, 0.82, 0.25, 0.78], ground: 1, sill: 1 },
+  // Houses: smaller windows in more wall, a front door on the ground floor.
+  residential: { colW: 10, glass: [0.3, 0.7, 0.34, 0.76], ground: 2, sill: 1 },
+  park: { colW: 10, glass: [0.3, 0.7, 0.34, 0.76], ground: 2, sill: 1 },
+  // Sheds: high strip windows over blank wall, roller doors at the yard.
+  industrial: { colW: 14, glass: [0.1, 0.9, 0.55, 0.85], ground: 3, sill: 0 },
+};
+
 export interface FacadeOptions {
   /** Base colour of the building mass. */
   color: number;
+  /** The district's way of building; downtown when unsaid. */
+  style?: FacadeStyle;
   /** Window glass colour by day. */
   glass?: number;
   /** Lit-window colour; mixed in as night falls. */
@@ -64,6 +96,7 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
   // `toonMaterial()` and got the real three-band ramp; the city did not, so
   // the two halves of the world were quantised on different curves.
   const mat = new THREE.MeshToonMaterial({ color: opts.color, gradientMap: toonGradient() });
+  const style = STYLES[opts.style ?? 'downtown'];
   const glass = new THREE.Color(opts.glass ?? 0x2b3a4d);
   const lit = new THREE.Color(opts.lit ?? 0xffd9a0);
   const uniforms = {
@@ -76,6 +109,11 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
     // nine-storey block would wear two storeys of windows and be one
     // continuous shopfront from the pavement to the roof.
     uStorey: { value: Z_PER_STOREY * Z_SCALE },
+    uColW: { value: style.colW },
+    uGlassBox: { value: new THREE.Vector4(...style.glass) },
+    uGround: { value: style.ground },
+    uSill: { value: style.sill },
+    uDoor: { value: new THREE.Color(0x3a2a22) },
   };
 
   mat.onBeforeCompile = (shader) => {
@@ -114,6 +152,11 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
          uniform vec3 uLit;
          uniform float uNight;
          uniform float uStorey;
+         uniform float uColW;
+         uniform vec4 uGlassBox;
+         uniform float uGround;
+         uniform float uSill;
+         uniform vec3 uDoor;
 
          // Deterministic per-window hash, so a window that is lit stays lit
          // rather than flickering as the camera moves.
@@ -153,12 +196,12 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              float storey = floor(vWorld.z / uStorey);
              float inStorey = fract(vWorld.z / uStorey);
 
-             // Column grid: a window every 8 world px, 55% glass.
-             float col = floor(u / 8.0);
-             float inCol = fract(u / 8.0);
+             // Column grid at the district's pitch, and the district's share
+             // of it glass — a curtain wall downtown, more wall than window
+             // on a house, a high strip over blank brick on a shed.
+             float col = floor(u / uColW);
+             float inCol = fract(u / uColW);
 
-             // A band of wall at the top and bottom of each storey, and a
-             // mullion between columns. What is left is glass.
              // How fast the pattern is moving across this pixel. On a wall seen
              // almost edge-on a storey is 24 world px and a window column 8, and
              // both fall under one screen pixel — the step() grid then samples
@@ -168,19 +211,18 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              float fade = 1.0 - smoothstep(0.25, 0.5, max(fwidth(inCol), fwidth(inStorey)));
 
              float glassMask =
-               step(0.22, inStorey) * step(inStorey, 0.80) *
-               step(0.20, inCol) * step(inCol, 0.80);
-
-             // Ground floor: taller opening, no mullions — a shopfront.
-             bool ground = vWorld.z < uStorey;
-             if (ground) {
-               glassMask = step(0.15, inStorey) * step(inStorey, 0.72) * step(0.08, inCol) * step(inCol, 0.92);
-             }
+               step(uGlassBox.z, inStorey) * step(inStorey, uGlassBox.w) *
+               step(uGlassBox.x, inCol) * step(inCol, uGlassBox.y);
 
              // A floor slab line between storeys reads as structure and is
              // what stops a tall building looking like one stretched decal.
              float slab = (1.0 - step(0.06, inStorey)) * fade;
              vec3 wall = diffuseColor.rgb * (1.0 - slab * 0.35);
+             // A string course under each window line, where the district
+             // lays one: a light band that says brick and sill rather than
+             // render.
+             float sill = step(0.86, inStorey) * step(inStorey, 0.92) * fade * uSill;
+             wall = mix(wall, wall * 1.22, sill);
 
              // Salted per WALL PLANE, so the lit windows are that facade's own
              // pattern rather than one grid laid across the whole city. The
@@ -199,6 +241,40 @@ export function facadeMaterial(opts: FacadeOptions): THREE.MeshToonMaterial {
              // More windows lit as it gets darker; never all of them.
              float on = step(1.0 - uNight * 0.55, r);
              vec3 pane = mix(uGlass, uLit, on * uNight);
+
+             // The ground floor, the district's way.
+             bool ground = vWorld.z < uStorey;
+             if (ground) {
+               if (uGround < 0.5) {
+                 // Windows, as above.
+               } else if (uGround < 1.5) {
+                 // A shopfront: one tall opening, no mullions, a dark fascia
+                 // over it for the sign.
+                 glassMask = step(0.15, inStorey) * step(inStorey, 0.72) * step(0.08, inCol) * step(inCol, 0.92);
+                 float fascia = step(0.78, inStorey) * step(inStorey, 0.95) * fade;
+                 wall *= 1.0 - fascia * 0.3;
+               } else if (uGround < 2.5) {
+                 // A front door in one column of every five, the column
+                 // chosen per wall; the rest keep their windows.
+                 float doorCol = floor(win_hash(vec2(floor(plane / 4.0) * 3.0, 7.0)) * 5.0);
+                 if (mod(col, 5.0) == doorCol) {
+                   glassMask = step(0.32, inCol) * step(inCol, 0.68) * step(inStorey, 0.78);
+                   pane = uDoor;
+                 }
+               } else {
+                 // Roller doors two columns wide with a column of wall between,
+                 // ribbed across; nothing else on a shed's ground floor.
+                 float bay = mod(col, 3.0);
+                 if (bay < 2.0) {
+                   float inBay = (bay + inCol) / 2.0;
+                   glassMask = step(0.06, inBay) * step(inBay, 0.94) * step(inStorey, 0.84);
+                   float rib = 0.85 + 0.15 * step(0.5, fract(vWorld.z * 0.8));
+                   pane = uDoor * 1.6 * rib;
+                 } else {
+                   glassMask = 0.0;
+                 }
+               }
+             }
 
              diffuseColor.rgb = mix(wall, pane, glassMask * side * fade);
            }

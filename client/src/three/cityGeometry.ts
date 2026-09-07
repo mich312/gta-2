@@ -45,7 +45,7 @@ import { hash2 } from '../render/noise.js';
 import { Z_SCALE } from '../render/config.js';
 import { ARTERIAL_WIDTH, RUN_ROAD, runwayCentreRow } from '../render/tiles.js';
 import { addOutline, outlineMaterial, toonGradient, toonMaterial } from './toon.js';
-import { facadeMaterial, groundMaterial, roadMaterial } from './facade.js';
+import { facadeMaterial, groundMaterial, roadMaterial, type FacadeStyle } from './facade.js';
 
 /**
  * The city, as instanced geometry, from a map.
@@ -302,6 +302,8 @@ interface Surface {
   line?: number;
   /** Outlined and shadow-casting: something that stands up. */
   solid?: boolean;
+  /** How the district builds — the facade's windows and ground floor (map loop 16). */
+  style?: FacadeStyle;
 }
 
 /**
@@ -369,6 +371,17 @@ function roofColor(map: CityMap, tx: number, ty: number, index: number): number 
   // and moved the landmarks you navigate by.
   const pick = id > 0 ? hash2(id, id * 7 + 3) : hash2(tx, ty, 91);
   return hex(variants[Math.floor(pick * variants.length) % variants.length] as string, 0x6b6f7a);
+}
+
+/** The facade style of the district a tile lies in — off the same per-tile grid as its colour. */
+function facadeStyleAt(map: CityMap, tx: number, ty: number): FacadeStyle {
+  const district = districtAt(map, tx, ty) as string;
+  return district === 'commercial' ||
+    district === 'residential' ||
+    district === 'industrial' ||
+    district === 'park'
+    ? district
+    : 'downtown';
 }
 
 /**
@@ -685,7 +698,8 @@ export function buildCity(map: CityMap): CityBuild {
       if (tile === T_BUILDING) {
         const bi = (buildingOf[idx] as number) - 1;
         const color = roofColor(map, tx, ty, bi);
-        surface = { key: `b${color.toString(16)}`, color, solid: true };
+        const style = facadeStyleAt(map, tx, ty);
+        surface = { key: `b${style}${color.toString(16)}`, color, solid: true, style };
       } else if (tile === T_SIDEWALK) {
         // Pavement takes its district's tint, which `palette.sidewalkTint`
         // has carried all along and only the 2D painter ever read. Every
@@ -797,12 +811,14 @@ export function buildCity(map: CityMap): CityBuild {
     const m = buildingMass(b);
     const bi = buildingOf[(b.y + (b.h >> 1)) * W + b.x + (b.w >> 1)] as number;
     const color = roofColor(map, b.x, b.y, bi - 1);
+    const style = facadeStyleAt(map, b.x + (b.w >> 1), b.y + (b.h >> 1));
     const bottom = -16;
     const h = Math.max(1, top - bottom);
     bucket(Math.floor(m.cx), Math.floor(m.cy), {
-      key: `b${color.toString(16)}`,
+      key: `b${style}${color.toString(16)}`,
       color,
       solid: true,
+      style,
     }).push(
       m.w * TILE_SIZE + SEAM_OVERLAP,
       m.h * TILE_SIZE + SEAM_OVERLAP,
@@ -842,7 +858,7 @@ export function buildCity(map: CityMap): CityBuild {
     // the ground floor — computed in the shader from world position, so one
     // material serves every height. Ground surfaces stay flat toon.
     const material = surface.solid
-      ? facadeMaterial({ color })
+      ? facadeMaterial({ color, style: surface.style })
       : key === 'ramp'
         ? roadMaterial(color, 5, surface.line ?? ROAD_LINE)
         : key === 'road'
